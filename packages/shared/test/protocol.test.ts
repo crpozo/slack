@@ -33,7 +33,12 @@ describe("protocol", () => {
   });
 
   it("enforces text, size and channel-name limits", () => {
-    const tooLong = { action: "message", channelId: "c", text: "a".repeat(MAX_TEXT_LENGTH + 1), clientId: "x" };
+    const tooLong = {
+      action: "message",
+      channelId: "c",
+      text: "a".repeat(MAX_TEXT_LENGTH + 1),
+      clientId: "x",
+    };
     const tooBig = {
       action: "presign",
       op: "put",
@@ -52,7 +57,9 @@ describe("protocol", () => {
   it("parseAction rejects invalid JSON and schema mismatches", () => {
     expect(parseAction(MessageActionSchema, "{nope").success).toBe(false);
     expect(parseAction(MessageActionSchema, undefined).success).toBe(false);
-    expect(parseAction(MessageActionSchema, JSON.stringify({ action: "message" })).success).toBe(false);
+    expect(parseAction(MessageActionSchema, JSON.stringify({ action: "message" })).success).toBe(
+      false,
+    );
 
     const ok = parseAction(
       MessageActionSchema,

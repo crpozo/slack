@@ -164,7 +164,8 @@ export function parseAction<T extends z.ZodType>(
 // Server → client events
 // ---------------------------------------------------------------------------
 
-export type ErrorCode = "BAD_REQUEST" | "CHANNEL_NOT_FOUND" | "CHANNEL_NAME_TAKEN" | "INTERNAL_ERROR";
+export type ErrorCode =
+  "BAD_REQUEST" | "CHANNEL_NOT_FOUND" | "CHANNEL_NAME_TAKEN" | "INTERNAL_ERROR";
 
 export interface MessageNewEvent {
   type: "message.new";
@@ -201,10 +202,6 @@ export interface ErrorEvent {
 }
 
 export type ServerEvent =
-  | MessageNewEvent
-  | HistoryPageEvent
-  | ChannelListEvent
-  | PresignResultEvent
-  | ErrorEvent;
+  MessageNewEvent | HistoryPageEvent | ChannelListEvent | PresignResultEvent | ErrorEvent;
 
 export type ServerEventType = ServerEvent["type"];
