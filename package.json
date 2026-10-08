@@ -10,7 +10,7 @@
     "dev": "pnpm --filter web dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "lint": "pnpm -r lint && pnpm -r typecheck",
+    "lint": "pnpm -r lint && pnpm -r typecheck && prettier --check .",
     "format": "prettier --write .",
     "bootstrap": "pnpm --filter infra cdk bootstrap",
     "deploy:dev": "pnpm --filter web build && pnpm --filter infra cdk deploy SlackDev --require-approval never && pnpm --filter infra seed dev",
