@@ -5,21 +5,21 @@ Slack interno de MindfulTech: canales, DMs y adjuntos en tiempo real sobre AWS s
 
 El plan completo, la arquitectura y el alcance del MVP están en [BLUEPRINT.md](./BLUEPRINT.md).
 
-> **Estado:** Fase 1 — scaffold, contrato compartido e infraestructura. Los handlers son stubs
-> (el authorizer **deniega** toda conexión) y la web es un placeholder.
+> **Estado:** Fase 2 — backend completo (authorizer Cognito, mensajes, historial, canales, DMs y
+> URLs prefirmadas) con tests unitarios. La web sigue siendo un placeholder hasta F3.
 
 ## Estructura
 
 ```
 apps/web          SPA React + Vite (placeholder hasta F3)
 packages/shared   Contrato del protocolo WebSocket (zod) + helpers de ids
-backend           Handlers Lambda (stubs hasta F2) + tests Vitest
+backend           Handlers Lambda (Node 22) + tests Vitest
 infra             AWS CDK v2: stacks SlackDev y SlackProd
 ```
 
 ## Prerrequisitos
 
-- Node 20.19+ (`nvm use` lee `.nvmrc`)
+- Node 22 (`nvm use` lee `.nvmrc`)
 - pnpm 10 (`corepack enable`)
 - AWS CLI v2 con un perfil configurado para la cuenta destino, región `us-east-1`
   (`export AWS_PROFILE=<perfil>`)
@@ -78,12 +78,39 @@ cp apps/web/.env.example apps/web/.env
 Rellena `VITE_WS_URL` con `WebSocketUrl`, `VITE_COGNITO_USER_POOL_ID` con `UserPoolId` y
 `VITE_COGNITO_CLIENT_ID` con `UserPoolClientId`. Luego `pnpm dev` (http://localhost:5173).
 
-### Comprobar el authorizer
+### Probar el WebSocket con `wscat`
+
+Sin token válido la conexión se rechaza:
 
 ```bash
-npx wscat -c "<WebSocketUrl>?token=basura"   # → error 403 (Deny)
-npx wscat -c "<WebSocketUrl>"                # → error 401 (sin token)
+npx wscat -c "<WebSocketUrl>?token=basura"   # → 403 (Deny)
+npx wscat -c "<WebSocketUrl>"                # → 401 (sin token)
 ```
+
+Con un id token real (el client de dev acepta `USER_PASSWORD_AUTH` solo para esto):
+
+```bash
+TOKEN=$(aws cognito-idp initiate-auth \
+  --auth-flow USER_PASSWORD_AUTH \
+  --client-id <UserPoolClientId> \
+  --auth-parameters USERNAME=<email>,PASSWORD='<contraseña>' \
+  --query AuthenticationResult.IdToken --output text)
+
+npx wscat -c "<WebSocketUrl>?token=$TOKEN"
+```
+
+Mensajes de prueba (abre dos terminales para ver el broadcast):
+
+```json
+{"action":"channel","op":"list"}
+{"action":"message","channelId":"ch_general","text":"hola","clientId":"x"}
+{"action":"history","channelId":"ch_general"}
+{"action":"presign","op":"put","requestId":"r1","channelId":"ch_general","name":"foto.png","contentType":"image/png","size":12345}
+```
+
+Para subir con la URL prefirmada, `Content-Type` y el tamaño deben coincidir con lo pedido:
+`curl -X PUT -H "Content-Type: image/png" --upload-file foto.png "<url>"`. Una `action`
+desconocida responde `{"type":"error","code":"BAD_REQUEST"}` (ruta `$default`).
 
 ### Destruir dev
 
