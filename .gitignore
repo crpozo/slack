@@ -18,3 +18,9 @@ build/
 .idea/
 .vscode/
 *.log
+
+# AWS CDK
+cdk.out/
+cdk.context.json
+*.tsbuildinfo
+coverage/
