@@ -4,7 +4,7 @@ import { Duration } from "aws-cdk-lib";
 import { WebSocketApi, WebSocketStage } from "aws-cdk-lib/aws-apigatewayv2";
 import { WebSocketLambdaAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import { WebSocketLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
-import type { Table } from "aws-cdk-lib/aws-dynamodb";
+import { PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { Architecture, Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
@@ -17,7 +17,8 @@ import { removalPolicyFor, type Stage } from "./stage";
 const HANDLERS_DIR = fileURLToPath(new URL("../../backend/src/handlers/", import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
-type Handler = "authorizer" | "connect" | "disconnect" | (typeof CLIENT_ACTIONS)[number];
+type Handler =
+  "authorizer" | "connect" | "disconnect" | "default" | (typeof CLIENT_ACTIONS)[number];
 
 interface ApiProps {
   stage: Stage;
@@ -60,14 +61,20 @@ export class Api extends Construct {
         functionName,
         entry: `${HANDLERS_DIR}${name}.ts`,
         handler: "handler",
-        runtime: Runtime.NODEJS_20_X,
+        runtime: Runtime.NODEJS_22_X,
         architecture: Architecture.ARM_64,
         memorySize: 256,
         timeout: Duration.seconds(10),
         environment: { ...environment, ...extraEnv },
         projectRoot: REPO_ROOT,
         depsLockFilePath: `${REPO_ROOT}pnpm-lock.yaml`,
-        bundling: { minify: true, sourceMap: false, target: "node20" },
+        bundling: {
+          minify: true,
+          sourceMap: false,
+          target: "node22",
+          // Bundle the AWS SDK too: the versions we test are the versions we ship.
+          externalModules: [],
+        },
         // Explicit log group (instead of the deprecated `logRetention`) so it is
         // removed together with the stack in dev.
         logGroup: new LogGroup(this, `${name}Logs`, {
@@ -90,6 +97,7 @@ export class Api extends Construct {
     const handlers = {
       connect: fn("connect"),
       disconnect: fn("disconnect"),
+      default: fn("default"),
       message: fn("message"),
       history: fn("history"),
       channel: fn("channel"),
@@ -102,30 +110,48 @@ export class Api extends Construct {
 
     this.webSocketApi.addRoute("$connect", { integration: integration("connect"), authorizer });
     this.webSocketApi.addRoute("$disconnect", { integration: integration("disconnect") });
+    this.webSocketApi.addRoute("$default", { integration: integration("default") });
     for (const action of CLIENT_ACTIONS) {
       this.webSocketApi.addRoute(action, { integration: integration(action) });
     }
 
-    // --- Permissions -------------------------------------------------------
-    const readWrite = (table: Table, ...grantees: NodejsFunction[]) =>
-      grantees.forEach((g) => table.grantReadWriteData(g));
+    // --- Permissions (least privilege: only the actions each handler calls) ---
+    const { connections, messages, channels } = data;
 
-    data.connections.grantWriteData(handlers.connect);
-    data.connections.grantWriteData(handlers.disconnect);
+    connections.grant(handlers.connect, "dynamodb:PutItem");
+    connections.grant(handlers.disconnect, "dynamodb:DeleteItem");
 
-    // Broadcasters read live connections and delete stale ones (410 Gone).
-    readWrite(data.connections, handlers.message, handlers.channel);
-    data.messages.grantReadWriteData(handlers.message);
-    data.channels.grantReadData(handlers.message);
+    // Route handlers resolve the caller from the authorizer context and fall
+    // back to the connection row (GetItem).
+    for (const h of [handlers.message, handlers.history, handlers.channel, handlers.presign]) {
+      connections.grant(h, "dynamodb:GetItem");
+    }
 
-    data.messages.grantReadData(handlers.history);
-    readWrite(data.channels, handlers.channel);
+    // Broadcasters list live connections and delete stale ones (410 Gone).
+    for (const h of [handlers.message, handlers.channel]) {
+      connections.grant(h, "dynamodb:Scan", "dynamodb:DeleteItem");
+    }
 
-    props.attachments.grantPut(handlers.presign);
-    props.attachments.grantRead(handlers.presign);
+    channels.grant(handlers.message, "dynamodb:GetItem");
+    messages.grant(handlers.message, "dynamodb:PutItem");
+    messages.grant(handlers.history, "dynamodb:Query");
+    channels.grant(handlers.channel, "dynamodb:Scan", "dynamodb:PutItem");
+
+    handlers.presign.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["s3:PutObject", "s3:GetObject"],
+        resources: [props.attachments.arnForObjects("attachments/*")],
+      }),
+    );
 
     // Every handler that replies to the sender or broadcasts uses @connections.
-    for (const h of [handlers.message, handlers.history, handlers.channel, handlers.presign]) {
+    for (const h of [
+      handlers.default,
+      handlers.message,
+      handlers.history,
+      handlers.channel,
+      handlers.presign,
+    ]) {
       this.webSocketApi.grantManageConnections(h);
     }
   }

@@ -30,7 +30,8 @@ export class Auth extends Construct {
     this.userPoolClient = this.userPool.addClient("WebClient", {
       userPoolClientName: `slack-${props.stage}-web`,
       generateSecret: false,
-      authFlows: { userSrp: true },
+      // USER_PASSWORD_AUTH only in dev, to fetch id tokens from the CLI for wscat tests.
+      authFlows: { userSrp: true, userPassword: props.stage === "dev" },
       preventUserExistenceErrors: true,
       idTokenValidity: Duration.hours(1),
       accessTokenValidity: Duration.hours(1),
