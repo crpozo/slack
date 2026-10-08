@@ -19,6 +19,7 @@
     "ulid": "^3.0.2"
   },
   "devDependencies": {
+    "@smithy/types": "^4.19.0",
     "@types/aws-lambda": "^8.10.164",
     "aws-sdk-client-mock": "^4.1.0",
     "vitest": "^3.2.7"

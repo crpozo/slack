@@ -5,13 +5,13 @@ Slack interno de MindfulTech: canales, DMs y adjuntos en tiempo real sobre AWS s
 
 El plan completo, la arquitectura y el alcance del MVP están en [BLUEPRINT.md](./BLUEPRINT.md).
 
-> **Estado:** Fase 2 — backend completo (authorizer Cognito, mensajes, historial, canales, DMs y
-> URLs prefirmadas) con tests unitarios. La web sigue siendo un placeholder hasta F3.
+> **Estado:** Fase 3 — cliente web completo (login Cognito, canales, DMs, mensajes en tiempo
+> real, historial con scroll infinito, adjuntos, no leídos y reconexión) sobre el backend de F2.
 
 ## Estructura
 
 ```
-apps/web          SPA React + Vite (placeholder hasta F3)
+apps/web          SPA React + Vite + Tailwind (design system MindfulTech)
 packages/shared   Contrato del protocolo WebSocket (zod) + helpers de ids
 backend           Handlers Lambda (Node 22) + tests Vitest
 infra             AWS CDK v2: stacks SlackDev y SlackProd
@@ -69,14 +69,38 @@ aws cognito-idp admin-set-user-password \
   --permanent
 ```
 
-### Configurar la web
+### Configurar y levantar la web
 
 ```bash
 cp apps/web/.env.example apps/web/.env
 ```
 
-Rellena `VITE_WS_URL` con `WebSocketUrl`, `VITE_COGNITO_USER_POOL_ID` con `UserPoolId` y
-`VITE_COGNITO_CLIENT_ID` con `UserPoolClientId`. Luego `pnpm dev` (http://localhost:5173).
+| Variable                    | Valor                                      |
+| --------------------------- | ------------------------------------------ |
+| `VITE_WS_URL`               | output `WebSocketUrl`                      |
+| `VITE_COGNITO_USER_POOL_ID` | output `UserPoolId`                        |
+| `VITE_COGNITO_CLIENT_ID`    | output `UserPoolClientId`                  |
+| `VITE_USERS`                | equipo para los DMs: `email=sub,email=sub` |
+
+El `sub` (id de Cognito) de cada persona sale de:
+
+```bash
+aws cognito-idp list-users --user-pool-id <UserPoolId> \
+  --query "Users[].[Attributes[?Name=='email'].Value|[0], Attributes[?Name=='sub'].Value|[0]]" \
+  --output text
+```
+
+Si a alguien le falta el `sub`, su DM aparece deshabilitado hasta que la app lo aprenda de un
+mensaje suyo en un canal.
+
+```bash
+pnpm dev     # http://localhost:5173
+```
+
+La UI: login con email y contraseña (la sesión persiste al recargar), canales y DMs en la barra
+lateral con badge de no leídos, `+` para crear canal, `Ctrl/⌘ + K` para saltar de canal, Enter
+envía y Shift + Enter hace salto de línea, y se puede arrastrar, pegar o adjuntar archivos de
+hasta 25 MB. En móvil la barra lateral es un menú desplegable.
 
 ### Probar el WebSocket con `wscat`
 

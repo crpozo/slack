@@ -6,3 +6,11 @@ packages:
 
 onlyBuiltDependencies:
   - esbuild
+
+# aws-sdk-client-mock imports @smithy/types without declaring it, so it would pick
+# up whatever version gets hoisted (Amplify brings old ones). Pin it to the
+# backend's AWS SDK version via a peer dependency.
+packageExtensions:
+  aws-sdk-client-mock:
+    peerDependencies:
+      "@smithy/types": "*"
