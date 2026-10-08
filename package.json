@@ -1,0 +1,31 @@
+{
+  "name": "slack",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint && pnpm -r typecheck",
+    "format": "prettier --write .",
+    "bootstrap": "pnpm --filter infra cdk bootstrap",
+    "deploy:dev": "pnpm --filter web build && pnpm --filter infra cdk deploy SlackDev --require-approval never && pnpm --filter infra seed dev",
+    "deploy:prod": "pnpm --filter web build && pnpm --filter infra cdk deploy SlackProd --require-approval never && pnpm --filter infra seed prod",
+    "destroy:dev": "pnpm --filter infra cdk destroy SlackDev --force"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^20.19.43",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.9",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.1"
+  }
+}
