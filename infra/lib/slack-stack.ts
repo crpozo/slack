@@ -21,7 +21,19 @@ export class SlackStack extends Stack {
     const data = new Data(this, "Data", { stage });
     const storage = new Storage(this, "Storage", { stage });
     const api = new Api(this, "Api", { stage, auth, data, attachments: storage.attachments });
-    const web = new Web(this, "Web", { stage, bucket: storage.web });
+    // Team directory for DMs (`email=sub,…`): context `webUsers` or env WEB_USERS.
+    const webUsers: unknown = this.node.tryGetContext("webUsers") ?? process.env.WEB_USERS;
+    const web = new Web(this, "Web", {
+      stage,
+      bucket: storage.web,
+      skipBuild: this.node.tryGetContext("skipWebBuild") === "true",
+      runtimeConfig: {
+        wsUrl: api.webSocketStage.url,
+        userPoolId: auth.userPool.userPoolId,
+        userPoolClientId: auth.userPoolClient.userPoolClientId,
+        ...(typeof webUsers === "string" && webUsers ? { users: webUsers } : {}),
+      },
+    });
     new Cost(this, "Cost", {
       stage,
       alertEmail: this.node.tryGetContext("budgetEmail") ?? "carlos@mindfultech.ec",

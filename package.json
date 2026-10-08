@@ -13,9 +13,9 @@
     "lint": "pnpm -r lint && pnpm -r typecheck && prettier --check .",
     "format": "prettier --write .",
     "bootstrap": "pnpm --filter infra cdk bootstrap",
-    "deploy:dev": "pnpm --filter web build && pnpm --filter infra cdk deploy SlackDev --require-approval never && pnpm --filter infra seed dev",
-    "deploy:prod": "pnpm --filter web build && pnpm --filter infra cdk deploy SlackProd --require-approval never && pnpm --filter infra seed prod",
-    "destroy:dev": "pnpm --filter infra cdk destroy SlackDev --force"
+    "deploy:dev": "pnpm --filter infra cdk deploy SlackDev --require-approval never && pnpm --filter infra seed dev",
+    "deploy:prod": "pnpm --filter infra cdk deploy SlackProd --require-approval never && pnpm --filter infra seed prod",
+    "destroy:dev": "pnpm --filter infra cdk destroy SlackDev --force -c skipWebBuild=true"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
