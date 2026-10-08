@@ -211,53 +211,50 @@ slack/
 
 ---
 
-## 3. Estrategia Git Flow (versión acelerada, 24 h)
+## 3. Estrategia de ramas (trunk-based simplificado)
 
-Git Flow clásico tiene `main`, `develop`, `feature/*`, `release/*`, `hotfix/*`. Lo usamos completo pero con ramas que viven **horas, no días**.
+> **Cambio (8 oct):** se elimina `develop`. Todas las ramas `feature/*` nacen de `main` y se mezclan directo a `main` por PR. No hay `release/*` ni `hotfix/*`: una versión es un tag sobre `main`.
 
 ### Ramas
 
 | Rama | Rol | Protección |
 |---|---|---|
-| `main` | Lo que está en producción. Solo recibe merges de `release/*` o `hotfix/*`. | Protegida: PR obligatorio, CI verde, 1 aprobación (Carlos o Rene) |
-| `develop` | Integración. Todo feature se mezcla aquí. Siempre debe compilar. | PR obligatorio, CI verde |
-| `feature/<fase>-<nombre>` | Una rama por Fase del plan (sección 4). Nace de `develop`, muere al mezclarse. | — |
-| `release/v0.1.0` | Se abre mañana al mediodía desde `develop`. Solo fixes, README, versión. Se mezcla a `main` **y** a `develop`, se etiqueta `v0.1.0`. | — |
-| `hotfix/<nombre>` | Solo después del release, desde `main`. Se mezcla a `main` y `develop`. | — |
+| `main` | Única rama permanente. Siempre debe compilar y pasar tests. Recibe todos los PRs. | Protegida: PR obligatorio, CI verde, 1 aprobación (Carlos o Rene) |
+| `feature/<fase>-<nombre>` | Una rama por Fase del plan (sección 4). Nace de `main`, muere al mezclarse. | — |
+| `fix/<issue>` | Un bug encontrado en pruebas. Nace de `main`, vuelve a `main` por PR. | — |
 
 ### Cronograma de commits
 
 ```
 HOY (8 oct)
-  main ──●  "chore: initial commit" (ya existe)
-          └── develop ──●  "chore: scaffold monorepo"            ← Fase 1
-                        ├── feature/f1-scaffold-infra  ──PR──►  develop
-                        ├── feature/f2-backend-handlers ──PR──►  develop
-                        └── feature/f3-web-client       ──PR──►  develop
+  main ──●  "chore: initial commit"
+         ├── feature/f1-scaffold-infra   ──PR──►  main   ← Fase 1
+         ├── feature/f2-backend-handlers ──PR──►  main   ← Fase 2
+         └── feature/f3-web-client       ──PR──►  main   ← Fase 3
 
 MAÑANA (9 oct)
-  develop ──● feature/f4-prod-deploy ──PR──► develop
-          └── release/v0.1.0  ──PR──►  main  (tag v0.1.0)  +  merge back a develop
-                                        └── GitHub Actions deploy.yml → SlackProd
+  main ──● feature/f4-prod-deploy ──PR──► main  →  tag v0.1.0
+                                                  └── GitHub Actions deploy.yml → SlackProd
 ```
 
 ### Reglas operativas
 
 1. **Convencional commits**: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `infra:`. Un commit por unidad lógica; Opus debe commitear al cerrar cada sub-paso de una Fase.
-2. **Squash merge** de `feature/*` → `develop` (historial limpio). **Merge commit** (no squash) de `release/*` → `main` para conservar la trazabilidad.
-3. **CI (`ci.yml`) corre en cada PR**: `pnpm lint` + `pnpm test`. Nada se mezcla en rojo.
-4. **Deploy (`deploy.yml`) corre solo en push a `main`**: build web → `cdk deploy SlackProd` → `aws s3 sync` → invalidación CloudFront. Credenciales por OIDC (rol IAM asumible por GitHub Actions), nunca access keys en secrets.
+2. **Squash merge** de `feature/*` y `fix/*` → `main` (historial limpio, un commit por PR).
+3. **CI (`ci.yml`) corre en cada PR a `main`**: `pnpm lint` + `pnpm test`. Nada se mezcla en rojo.
+4. **Deploy (`deploy.yml`) corre en push a `main`**: build web → `cdk deploy SlackProd` → `aws s3 sync` → invalidación CloudFront. Credenciales por OIDC (rol IAM asumible por GitHub Actions), nunca access keys en secrets. Como cada PR mezclado llega a producción, se prueba en `SlackDev` antes de aprobarlo.
 5. **Stack dev**: cada sesión de trabajo termina con `pnpm destroy:dev`. Está en el checklist del PR.
-6. Carlos y Rene trabajan en features distintas al mismo tiempo (p. ej. Rene F2 backend, Carlos F3 web) y se sincronizan por el contrato de `packages/shared` (F1 lo deja cerrado primero).
-7. Cada bug encontrado en la prueba manual → issue en GitHub → rama `fix/<issue>` desde `develop` (antes del release) o `hotfix/` desde `main` (después).
+6. Carlos y Rene trabajan en features distintas al mismo tiempo (p. ej. Rene F2 backend, Carlos F3 web) y se sincronizan por el contrato de `packages/shared` (F1 lo deja cerrado primero). Antes de abrir el PR, cada uno trae los cambios de `main` a su rama.
+7. Cada bug encontrado en la prueba manual → issue en GitHub → rama `fix/<issue>` desde `main`.
+8. **Versiones**: `git tag v0.1.0 && git push origin v0.1.0` sobre el commit de `main` que se libera.
 
-### Comandos de arranque (hoy)
+### Comandos de arranque
 
 ```bash
 git clone https://github.com/crpozo/slack.git && cd slack
-git checkout -b develop && git push -u origin develop
-# en GitHub: Settings → Branches → proteger main y develop (require PR + status checks)
-git checkout -b feature/f1-scaffold-infra
+# en GitHub: Settings → Branches → proteger main (require PR + status checks)
+git checkout main && git pull
+git checkout -b feature/<fase>-<nombre>
 ```
 
 ---
@@ -289,7 +286,7 @@ Tiempos estimados asumiendo que Opus genera el código y tú supervisas: F1 2 h 
    - `CfnOutput` de: `UserPoolId`, `UserPoolClientId`, `WebSocketUrl`, `CloudFrontUrl`, `AttachmentsBucket`.
 5. `backend/src/handlers/*.ts`: **stubs** que devuelven `{statusCode: 200}` para que el stack compile y despliegue. La lógica real es F2.
 6. `infra/scripts/seed-general.ts`: PutItem condicional de `ch_general` (`name: "general"`, `type: "public"`). Scripts `deploy:dev` / `deploy:prod` lo ejecutan tras el deploy.
-7. `.github/workflows/ci.yml`: en PR a `develop` y `main` → `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm test`. Node 20, cache pnpm.
+7. `.github/workflows/ci.yml`: en PR a `main` → `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm test`. Node 20, cache pnpm.
 8. `README.md` inicial: prerequisitos (Node 20, pnpm, AWS CLI con perfil), `pnpm install`, `pnpm deploy:dev`, cómo crear los dos usuarios en Cognito desde consola (`aws cognito-idp admin-create-user` + `admin-set-user-password --permanent`), cómo copiar outputs a `apps/web/.env`.
 
 **Criterios de aceptación F1:**
@@ -378,7 +375,7 @@ Tiempos estimados asumiendo que Opus genera el código y tú supervisas: F1 2 h 
 
 ### FASE 4 — Producción: dominios, certificado, pipeline de deploy, README final → release v0.1.0
 
-**Rama:** `feature/f4-prod-deploy` → luego `release/v0.1.0` · **Entrega:** `https://slack.mindfultech.ec` funcionando con `wss://ws.mindfultech.ec`.
+**Rama:** `feature/f4-prod-deploy` → `main` + tag `v0.1.0` · **Entrega:** `https://slack.mindfultech.ec` funcionando con `wss://ws.mindfultech.ec`.
 
 **Instrucciones para Opus:**
 
@@ -402,13 +399,13 @@ Tiempos estimados asumiendo que Opus genera el código y tú supervisas: F1 2 h 
 - `git clone` + README son suficientes para levantar un stack dev desde cero.
 - Budget de USD 5 y Anomaly Detection visibles en la consola de Billing; todos los recursos con tag `project=slack`.
 - Sesión manual de 30 min entre Carlos y Rene; fallos anotados como issues.
-- Merge `release/v0.1.0` → `main`, tag `v0.1.0`, pipeline en verde, merge back a `develop`.
+- Merge `feature/f4-prod-deploy` → `main`, tag `v0.1.0`, pipeline en verde.
 
 ---
 
 ### FASE 5 (opcional, solo si el MVP está en `main` antes de las 15:00) — Desktop app con Tauri
 
-**Rama:** `feature/f5-tauri` (nace de `develop` después del release; va a v0.1.1).
+**Rama:** `feature/f5-tauri` (nace de `main` después del release; va a v0.1.1).
 
 **Instrucciones para Opus:**
 

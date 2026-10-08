@@ -136,12 +136,12 @@ borrado.
 | `pnpm deploy:prod` | Deploy de `SlackProd` + seed de `#general`             |
 | `pnpm destroy:dev` | Destruye `SlackDev`                                    |
 
-## Git Flow
+## Flujo de ramas
 
-`main` (producción) ← `release/*` ← `develop` (integración) ← `feature/*`. Commits
-convencionales (`feat:`, `fix:`, `chore:`, `test:`, `docs:`, `infra:`). CI (`pnpm lint` +
-`pnpm test`) corre en cada PR a `develop` y `main`. Detalle en la sección 3 de
-[BLUEPRINT.md](./BLUEPRINT.md).
+`feature/*` (o `fix/*`) nace de `main` y vuelve a `main` por PR con squash merge; no hay
+`develop`. Commits convencionales (`feat:`, `fix:`, `chore:`, `test:`, `docs:`, `infra:`). CI
+(`pnpm lint` + `pnpm test`) corre en cada PR a `main`. Las versiones son tags sobre `main`.
+Detalle en la sección 3 de [BLUEPRINT.md](./BLUEPRINT.md).
 
 ## Costos
 
