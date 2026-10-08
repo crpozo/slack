@@ -1,7 +1,7 @@
 import { dmChannelId, type Channel } from "@mindfultech/shared";
 import { describe, expect, it } from "vitest";
 import { channelLabel, dmEntries, formatDay, normalizeChannelName } from "./channels";
-import { parseUsers } from "./config";
+import { parseUsers, resolveConfig } from "./config";
 
 const me = { userId: "u-me", email: "me@mt.ec" };
 
@@ -65,5 +65,41 @@ describe("formatDay", () => {
     const now = new Date(2026, 9, 8, 12).getTime();
     expect(formatDay(now - 1000, now)).toBe("Hoy");
     expect(formatDay(now - 86_400_000, now)).toBe("Ayer");
+  });
+});
+
+describe("resolveConfig", () => {
+  const env = {
+    VITE_WS_URL: "wss://local",
+    VITE_COGNITO_USER_POOL_ID: "pool-local",
+    VITE_COGNITO_CLIENT_ID: "client-local",
+    VITE_USERS: "a@mt.ec=u-a",
+  };
+
+  it("uses the deployed config.json over build-time env", () => {
+    expect(
+      resolveConfig(
+        { wsUrl: "wss://deployed", userPoolId: "pool", userPoolClientId: "client" },
+        env,
+      ),
+    ).toEqual({
+      wsUrl: "wss://deployed",
+      userPoolId: "pool",
+      userPoolClientId: "client",
+      users: [{ email: "a@mt.ec", userId: "u-a" }],
+    });
+  });
+
+  it("falls back to VITE_* in local dev and lets config.json set users", () => {
+    expect(resolveConfig(null, env).wsUrl).toBe("wss://local");
+    expect(resolveConfig({ users: "b@mt.ec=u-b" }, env).users).toEqual([
+      { email: "b@mt.ec", userId: "u-b" },
+    ]);
+  });
+
+  it("names every missing value", () => {
+    expect(() => resolveConfig({ wsUrl: "" }, {})).toThrow(
+      "VITE_WS_URL, VITE_COGNITO_USER_POOL_ID, VITE_COGNITO_CLIENT_ID",
+    );
   });
 });
