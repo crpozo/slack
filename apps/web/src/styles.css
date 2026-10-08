@@ -1,11 +1,39 @@
-body {
-  margin: 0;
-  font-family: system-ui, sans-serif;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  body {
+    @apply bg-surface font-sans text-ink antialiased;
+  }
 }
 
-.placeholder {
-  display: grid;
-  place-content: center;
-  min-height: 100vh;
-  text-align: center;
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-secondary/70 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30;
+  }
+
+  /* Rendered markdown (see lib/markdown.ts). */
+  .md a {
+    @apply break-all text-ink underline decoration-primary decoration-2 underline-offset-2 hover:decoration-primary-hover;
+  }
+  .md code {
+    @apply rounded bg-surface-hover px-1 py-0.5 font-mono text-[0.85em];
+  }
+  .md pre {
+    @apply my-1 overflow-x-auto whitespace-pre rounded-lg border border-line bg-surface-sidebar p-3 font-mono text-xs;
+  }
+  .md pre code {
+    @apply bg-transparent p-0;
+  }
 }
