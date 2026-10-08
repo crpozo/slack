@@ -1,0 +1,24 @@
+{
+  "name": "infra",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cdk": "cdk",
+    "synth": "cdk synth --quiet",
+    "seed": "tsx scripts/seed-general.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@mindfultech/shared": "workspace:*",
+    "aws-cdk-lib": "^2.272.0",
+    "constructs": "^10.8.1"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1148.0",
+    "@aws-sdk/lib-dynamodb": "^3.1148.0",
+    "aws-cdk": "^2.1145.0",
+    "tsx": "^4.23.15"
+  }
+}
