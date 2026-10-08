@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["bin", "lib", "scripts"]
+  "include": ["bin", "lib", "scripts", "test"]
 }
