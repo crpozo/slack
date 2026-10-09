@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { AssetHashType, DockerImage, Duration } from "aws-cdk-lib";
+import type { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
   AllowedMethods,
   CachePolicy,
@@ -40,6 +41,8 @@ interface WebProps {
   runtimeConfig: WebRuntimeConfig;
   /** Skip `vite build` (e.g. for `cdk destroy`); uploads a placeholder page instead. */
   skipBuild?: boolean;
+  /** e.g. `slack.mindfultech.ec`; the certificate must live in us-east-1. */
+  customDomain?: { domainName: string; certificate: ICertificate };
 }
 
 let builtDir: string | undefined;
@@ -89,6 +92,10 @@ export class Web extends Construct {
       comment: `slack-${props.stage}`,
       priceClass: PriceClass.PRICE_CLASS_100,
       defaultRootObject: "index.html",
+      ...(props.customDomain && {
+        domainNames: [props.customDomain.domainName],
+        certificate: props.customDomain.certificate,
+      }),
       defaultBehavior: {
         origin: S3BucketOrigin.withOriginAccessControl(props.bucket),
         viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
