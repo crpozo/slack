@@ -16,6 +16,7 @@ const ERROR_TEXT: Record<ErrorCode, string> = {
   UNAUTHORIZED: "Tu sesión expiró. Vuelve a iniciar sesión.",
   CHANNEL_NOT_FOUND: "Ese canal no existe o no tienes acceso.",
   CHANNEL_NAME_TAKEN: "Ya existe un canal con ese nombre.",
+  FILE_NOT_FOUND: "El archivo ya no existe.",
   INTERNAL_ERROR: "Algo falló en el servidor. Inténtalo de nuevo.",
 };
 

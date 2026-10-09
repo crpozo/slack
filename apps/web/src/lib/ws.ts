@@ -22,6 +22,33 @@ export function backoffDelay(attempt: number, random: () => number = Math.random
   return Math.round(ceiling / 2 + (random() * ceiling) / 2);
 }
 
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Validates the WebSocket endpoint before anything connects to it: only
+ * `wss://`, or `ws://` to localhost for development, with no credentials,
+ * query or fragment. Returns the normalized URL; throws otherwise.
+ */
+export function assertWebSocketUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`URL de WebSocket inválida: ${raw}`);
+  }
+  const secure = url.protocol === "wss:";
+  const local = url.protocol === "ws:" && LOCAL_HOSTS.has(url.hostname);
+  if (!secure && !local) {
+    throw new Error(`La URL del WebSocket debe usar wss:// (ws:// solo en localhost): ${raw}`);
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error(
+      `La URL del WebSocket no puede llevar credenciales, query ni fragmento: ${raw}`,
+    );
+  }
+  return url.href;
+}
+
 export interface WsClientOptions {
   url: string;
   getToken: () => Promise<string>;
@@ -49,7 +76,11 @@ export class WsClient {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private stopped = true;
 
-  constructor(private readonly options: WsClientOptions) {}
+  private readonly url: string;
+
+  constructor(private readonly options: WsClientOptions) {
+    this.url = assertWebSocketUrl(options.url);
+  }
 
   connect(): void {
     if (!this.stopped) return;
@@ -123,7 +154,9 @@ export class WsClient {
     if (this.stopped) return;
 
     const Impl = this.options.WebSocketImpl ?? WebSocket;
-    const socket = new Impl(`${this.options.url}?token=${encodeURIComponent(token)}`);
+    const url = new URL(this.url);
+    url.searchParams.set("token", token);
+    const socket = new Impl(url.href);
     this.socket = socket;
 
     socket.onopen = () => {

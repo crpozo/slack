@@ -1,0 +1,60 @@
+name: Deploy
+
+# Every push to main deploys SlackProd. Credentials come from GitHub's OIDC token
+# exchanged for the `slack-github-deploy` role (output GitHubDeployRoleArn of the
+# first manual `pnpm deploy:prod`): no AWS access keys are stored in GitHub.
+#
+# Repository variables (Settings → Secrets and variables → Actions → Variables):
+#   AWS_DEPLOY_ROLE_ARN        required; the workflow is skipped until it is set
+#   CERT_ARN                   ACM certificate for slack/ws.mindfultech.ec (optional)
+#   HOSTED_ZONE_ID             Route 53 zone for alias records (optional)
+#   WEB_USERS                  DM directory, `email=sub,email=sub` (optional)
+#   GITHUB_OIDC_PROVIDER_ARN   if the account already had a GitHub OIDC provider
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+
+      - run: pnpm test
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: slack-deploy-${{ github.run_id }}
+          aws-region: us-east-1
+
+      - name: Deploy SlackProd (builds the web, uploads it, invalidates CloudFront, seeds #general)
+        run: pnpm deploy:prod
+        env:
+          CERT_ARN: ${{ vars.CERT_ARN }}
+          HOSTED_ZONE_ID: ${{ vars.HOSTED_ZONE_ID }}
+          WEB_USERS: ${{ vars.WEB_USERS }}
+          GITHUB_OIDC_PROVIDER_ARN: ${{ vars.GITHUB_OIDC_PROVIDER_ARN }}
