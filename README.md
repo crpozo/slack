@@ -5,8 +5,7 @@ Slack interno de MindfulTech: canales, DMs y adjuntos en tiempo real sobre AWS s
 
 El plan completo, la arquitectura y el alcance del MVP están en [BLUEPRINT.md](./BLUEPRINT.md).
 
-> **Estado:** Fase 4 (hosting) — la web se compila y se publica en S3 + CloudFront con cada
-> `pnpm deploy:dev`, conectada automáticamente al backend del mismo stack.
+> **Versión 0.1.0 (MVP).** Cambios en [CHANGELOG.md](./CHANGELOG.md).
 
 ## Estructura
 
@@ -155,8 +154,70 @@ pnpm destroy:dev
 ```
 
 En dev, tablas, user pool, buckets (con `autoDeleteObjects`) y log groups se eliminan con el
-stack (`destroy:dev` no compila la web: pasa `-c skipWebBuild=true`). En prod (`SlackProd`) todo se conserva (`RETAIN`) y el stack tiene protección contra
-borrado.
+stack (`destroy:dev` no compila la web: pasa `-c skipWebBuild=true`). En prod (`SlackProd`)
+todo se conserva (`RETAIN`) y el stack tiene protección contra borrado.
+
+## Producción
+
+### 1. Certificado y DNS (a mano, una sola vez)
+
+1. En **ACM `us-east-1`**, solicita un certificado público para `slack.mindfultech.ec` y
+   `ws.mindfultech.ec` (un certificado, dos nombres) con validación DNS.
+2. En Namecheap, crea los CNAME de validación que muestra ACM y espera al estado _Issued_.
+
+### 2. Primer deploy
+
+```bash
+export CERT_ARN=arn:aws:acm:us-east-1:<cuenta>:certificate/<id>
+export WEB_USERS="persona1@mindfultech.ec=<sub>,persona2@mindfultech.ec=<sub>"
+pnpm deploy:prod
+```
+
+Sin `CERT_ARN`, `SlackProd` se despliega igual y se sirve en los hostnames de CloudFront y
+execute-api; con él, CloudFront responde en `slack.mindfultech.ec`, el WebSocket en
+`wss://ws.mindfultech.ec` y `config.json` apunta a ese dominio.
+
+| Contexto (`-c`)         | Variable de entorno        | Para qué                                     |
+| ----------------------- | -------------------------- | -------------------------------------------- |
+| `certificateArn`        | `CERT_ARN`                 | Activa los dominios propios                  |
+| `appDomain`             | `SLACK_APP_DOMAIN`         | Por defecto `slack.mindfultech.ec` en prod   |
+| `wsDomain`              | `SLACK_WS_DOMAIN`          | Por defecto `ws.mindfultech.ec` en prod      |
+| `hostedZoneId`          | `HOSTED_ZONE_ID`           | Crea alias en Route 53 (si el DNS está allí) |
+| `hostedZoneName`        | `HOSTED_ZONE_NAME`         | Por defecto el dominio padre                 |
+| `webUsers`              | `WEB_USERS`                | Directorio de DMs en `config.json`           |
+| `githubOidcProviderArn` | `GITHUB_OIDC_PROVIDER_ARN` | Reusar un proveedor OIDC de GitHub existente |
+
+### 3. DNS de la app
+
+Con el DNS en Namecheap, crea dos CNAME con los outputs del deploy:
+
+- `slack` → `AppDnsTarget` (`<id>.cloudfront.net`)
+- `ws` → `WsDnsTarget` (`d-<id>.execute-api.us-east-1.amazonaws.com`)
+
+Si el dominio estuviera en Route 53, pasa `HOSTED_ZONE_ID` y CDK crea los registros.
+
+### 4. Usuarios
+
+Crea las dos cuentas con los comandos de [Crear los usuarios en Cognito](#crear-los-usuarios-en-cognito)
+usando el `UserPoolId` de `SlackProd`.
+
+### 5. Deploy continuo (GitHub Actions)
+
+`.github/workflows/deploy.yml` despliega `SlackProd` en cada push a `main` (lint + tests →
+`pnpm deploy:prod`). Se autentica por **OIDC** con el rol `slack-github-deploy` que crea el
+propio stack, sin access keys en GitHub; el rol solo puede asumir los roles de bootstrap de CDK
+y sembrar `#general`, y solo desde `main` de `crpozo/slack`.
+
+Tras el primer deploy manual, en _Settings → Secrets and variables → Actions → Variables_:
+
+- `AWS_DEPLOY_ROLE_ARN` = output `GitHubDeployRoleArn` (sin esta variable el workflow no corre)
+- `CERT_ARN`, `WEB_USERS` y, si aplica, `HOSTED_ZONE_ID` y `GITHUB_OIDC_PROVIDER_ARN`
+
+Si la cuenta ya tenía un proveedor OIDC de GitHub, el primer `deploy:prod` falla al crearlo:
+repite con `GITHUB_OIDC_PROVIDER_ARN=arn:aws:iam::<cuenta>:oidc-provider/token.actions.githubusercontent.com`.
+
+Como todo merge a `main` llega a producción, prueba cada cambio en `SlackDev` antes de aprobar
+el PR.
 
 ## Scripts
 
@@ -174,11 +235,31 @@ borrado.
 
 `feature/*` (o `fix/*`) nace de `main` y vuelve a `main` por PR con squash merge; no hay
 `develop`. Commits convencionales (`feat:`, `fix:`, `chore:`, `test:`, `docs:`, `infra:`). CI
-(`pnpm lint` + `pnpm test`) corre en cada PR a `main`. Las versiones son tags sobre `main`.
-Detalle en la sección 3 de [BLUEPRINT.md](./BLUEPRINT.md).
+(`pnpm lint` + `pnpm test`) corre en cada PR a `main`. Detalle en la sección 3 de
+[BLUEPRINT.md](./BLUEPRINT.md).
 
-## Costos
+Las versiones son tags anotados sobre `main` con su entrada en `CHANGELOG.md`:
 
-Todos los recursos llevan el tag `project=slack`. `SlackProd` crea un AWS Budget de USD 5/mes
-con alertas por email al 80 % y 100 % (el destinatario se puede cambiar con la clave de
-contexto `budgetEmail` en `infra/cdk.json`).
+```bash
+git checkout main && git pull
+git tag -a v0.1.0 -m "v0.1.0 — MVP"
+git push origin v0.1.0
+```
+
+## Costos y alertas
+
+Todos los recursos llevan el tag `project=slack`. `SlackProd` crea:
+
+- un **AWS Budget** de USD 5/mes con email al 80 % y 100 %;
+- **Cost Anomaly Detection**: un monitor sobre el tag `project=slack` y un resumen diario por
+  email cuando una anomalía suma ≥ USD 1.
+
+Ambos avisan a `carlos@mindfultech.ec` (clave de contexto `budgetEmail` en `infra/cdk.json`).
+Para que el monitor vea el gasto, activa una vez el tag en _Billing → Cost allocation tags_
+(`project`); AWS tarda hasta 24 h en aplicarlo.
+
+## Roadmap v0.2
+
+Hilos · renombrar y archivar canales · reacciones · editar y borrar mensajes · búsqueda ·
+presencia online · "escribiendo…" · notificaciones del sistema y menciones `@` · llamadas WebRTC ·
+app de escritorio (Tauri) · tests de integración y E2E · agente IA con Bedrock.
