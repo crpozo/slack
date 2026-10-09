@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { cpSync } from "node:fs";
+import { cpSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AssetHashType, DockerImage, Duration } from "aws-cdk-lib";
 import type { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
@@ -23,8 +25,18 @@ import {
 import { Construct } from "constructs";
 import { removalPolicyFor, type Stage } from "./stage";
 
-const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const WEB_DIR = fileURLToPath(new URL("../../apps/web", import.meta.url));
+
+/**
+ * Absolute path of the Vite CLI installed for apps/web. Running it with the
+ * current Node binary (`process.execPath`) avoids resolving any executable
+ * through `PATH`.
+ */
+function viteCli(): string {
+  const pkgPath = createRequire(join(WEB_DIR, "package.json")).resolve("vite/package.json");
+  const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { bin: { vite: string } };
+  return join(dirname(pkgPath), pkg.bin.vite);
+}
 
 /** Values the SPA reads from `/config.json` at startup (see apps/web/src/lib/config.ts). */
 export interface WebRuntimeConfig {
@@ -69,9 +81,9 @@ function webBuildSource(skipBuild: boolean): ISource {
             cpSync(builtDir, outputDir, { recursive: true });
           } else {
             execFileSync(
-              "pnpm",
-              ["--filter", "web", "exec", "vite", "build", "--outDir", outputDir, "--emptyOutDir"],
-              { cwd: REPO_ROOT, stdio: "inherit" },
+              process.execPath,
+              [viteCli(), "build", "--outDir", outputDir, "--emptyOutDir"],
+              { cwd: WEB_DIR, stdio: "inherit" },
             );
             builtDir = outputDir;
           }
