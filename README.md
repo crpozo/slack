@@ -254,7 +254,8 @@ Todos los recursos llevan el tag `project=slack`. `SlackProd` crea:
 - **Cost Anomaly Detection**: un monitor sobre el tag `project=slack` y un resumen diario por
   email cuando una anomalía suma ≥ USD 1.
 
-Ambos avisan a `carlos@mindfultech.ec` (clave de contexto `budgetEmail` en `infra/cdk.json`).
+Ambos avisan al email de la clave de contexto `budgetEmail` (en `infra/cdk.json` o con
+`-c budgetEmail=…`). Es obligatoria: sin ella `SlackProd` no se sintetiza.
 Para que el monitor vea el gasto, activa una vez el tag en _Billing → Cost allocation tags_
 (`project`); AWS tarda hasta 24 h en aplicarlo.
 

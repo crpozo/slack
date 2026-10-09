@@ -89,8 +89,15 @@ export class SlackStack extends Stack {
       });
     }
 
-    const alertEmail: string = this.node.tryGetContext("budgetEmail") ?? "carlos@mindfultech.ec";
-    new Cost(this, "Cost", { stage, alertEmail });
+    // Alert recipient comes only from CDK context; Cost throws in prod if it is missing.
+    const budgetEmail: unknown = this.node.tryGetContext("budgetEmail");
+    const costMonitor = new Cost(this, "Cost", {
+      stage,
+      alertEmail: typeof budgetEmail === "string" ? budgetEmail : undefined,
+    });
+    if (costMonitor.anomalyMonitorArn) {
+      new CfnOutput(this, "CostAnomalyMonitorArn", { value: costMonitor.anomalyMonitorArn });
+    }
 
     if (stage === "prod") {
       const deployRole = new GitHubDeployRole(this, "GitHubDeploy", {

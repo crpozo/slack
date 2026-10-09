@@ -6,7 +6,9 @@ import { SlackStack } from "../lib/slack-stack";
 const CERT = "arn:aws:acm:us-east-1:123456789012:certificate/abc-123";
 
 function synth(stage: "dev" | "prod", context: Record<string, string> = {}): Template {
-  const app = new App({ context: { "aws:cdk:bundling-stacks": [], ...context } });
+  const app = new App({
+    context: { "aws:cdk:bundling-stacks": [], budgetEmail: "alerts@example.com", ...context },
+  });
   const stack = new SlackStack(app, `Test${stage}`, {
     env: { account: "123456789012", region: "us-east-1" },
     stage,
@@ -108,9 +110,18 @@ describe("cost alerts", () => {
     });
     template.hasResourceProperties("AWS::CE::AnomalySubscription", {
       Frequency: "DAILY",
-      Subscribers: [{ Type: "EMAIL", Address: "carlos@mindfultech.ec" }],
+      Subscribers: [{ Type: "EMAIL", Address: "alerts@example.com" }],
     });
     template.resourceCountIs("AWS::Budgets::Budget", 1);
+  });
+
+  it("refuse to synthesize prod without a valid budgetEmail", () => {
+    expect(() => synth("prod", { budgetEmail: "" })).toThrow('CDK context "budgetEmail"');
+    expect(() => synth("prod", { budgetEmail: "not-an-email" })).toThrow("budgetEmail");
+  });
+
+  it("output the anomaly monitor ARN in prod", () => {
+    synth("prod").hasOutput("CostAnomalyMonitorArn", {});
   });
 
   it("are not created in dev", () => {

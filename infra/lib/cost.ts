@@ -6,20 +6,32 @@ import type { Stage } from "./stage";
 
 interface CostProps {
   stage: Stage;
-  /** Recipient of budget and anomaly alerts. */
-  alertEmail: string;
+  /** Recipient of budget and anomaly alerts; required in prod (CDK context `budgetEmail`). */
+  alertEmail?: string;
   monthlyLimitUsd?: number;
   /** Alert when an anomaly's total impact reaches this many USD. */
   anomalyThresholdUsd?: number;
 }
 
 export class Cost extends Construct {
+  /** ARN of the Cost Anomaly Detection monitor (prod only). */
+  readonly anomalyMonitorArn?: string;
+
   constructor(scope: Construct, id: string, props: CostProps) {
     super(scope, id);
     Tags.of(scope).add("project", "slack");
 
     // Budget and anomaly monitor are account-level: only the permanent stack has them.
     if (props.stage !== "prod") return;
+
+    // Fail fast: a prod stack whose cost alerts go nowhere must not deploy.
+    const alertEmail = props.alertEmail?.trim();
+    if (!alertEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(alertEmail)) {
+      throw new Error(
+        'Missing or invalid CDK context "budgetEmail": SlackProd needs a recipient for ' +
+          "its budget and cost anomaly alerts (set it in infra/cdk.json or pass -c budgetEmail=…).",
+      );
+    }
 
     new CfnBudget(this, "MonthlyBudget", {
       budget: {
@@ -35,7 +47,7 @@ export class Cost extends Construct {
           threshold,
           thresholdType: "PERCENTAGE",
         },
-        subscribers: [{ subscriptionType: "EMAIL", address: props.alertEmail }],
+        subscribers: [{ subscriptionType: "EMAIL", address: alertEmail }],
       })),
     });
 
@@ -49,12 +61,14 @@ export class Cost extends Construct {
       }),
     });
 
+    this.anomalyMonitorArn = monitor.attrMonitorArn;
+
     new CfnAnomalySubscription(this, "AnomalySubscription", {
       subscriptionName: "slack-anomalies",
       monitorArnList: [monitor.attrMonitorArn],
       // Email subscribers only support DAILY or WEEKLY digests.
       frequency: "DAILY",
-      subscribers: [{ type: "EMAIL", address: props.alertEmail }],
+      subscribers: [{ type: "EMAIL", address: alertEmail }],
       thresholdExpression: JSON.stringify({
         Dimensions: {
           Key: "ANOMALY_TOTAL_IMPACT_ABSOLUTE",
