@@ -1,13 +1,16 @@
 import { Tags } from "aws-cdk-lib";
 import { CfnBudget } from "aws-cdk-lib/aws-budgets";
+import { CfnAnomalyMonitor, CfnAnomalySubscription } from "aws-cdk-lib/aws-ce";
 import { Construct } from "constructs";
 import type { Stage } from "./stage";
 
 interface CostProps {
   stage: Stage;
-  /** Recipient of budget alerts. */
+  /** Recipient of budget and anomaly alerts. */
   alertEmail: string;
   monthlyLimitUsd?: number;
+  /** Alert when an anomaly's total impact reaches this many USD. */
+  anomalyThresholdUsd?: number;
 }
 
 export class Cost extends Construct {
@@ -15,7 +18,7 @@ export class Cost extends Construct {
     super(scope, id);
     Tags.of(scope).add("project", "slack");
 
-    // The budget is account-wide, so it only lives in the permanent stack.
+    // Budget and anomaly monitor are account-level: only the permanent stack has them.
     if (props.stage !== "prod") return;
 
     new CfnBudget(this, "MonthlyBudget", {
@@ -34,6 +37,31 @@ export class Cost extends Construct {
         },
         subscribers: [{ subscriptionType: "EMAIL", address: props.alertEmail }],
       })),
+    });
+
+    // Watches spend on resources tagged project=slack. The tag must be activated
+    // once in Billing → Cost allocation tags for Cost Explorer to see it.
+    const monitor = new CfnAnomalyMonitor(this, "AnomalyMonitor", {
+      monitorName: "slack-project",
+      monitorType: "CUSTOM",
+      monitorSpecification: JSON.stringify({
+        Tags: { Key: "project", Values: ["slack"], MatchOptions: ["EQUALS"] },
+      }),
+    });
+
+    new CfnAnomalySubscription(this, "AnomalySubscription", {
+      subscriptionName: "slack-anomalies",
+      monitorArnList: [monitor.attrMonitorArn],
+      // Email subscribers only support DAILY or WEEKLY digests.
+      frequency: "DAILY",
+      subscribers: [{ type: "EMAIL", address: props.alertEmail }],
+      thresholdExpression: JSON.stringify({
+        Dimensions: {
+          Key: "ANOMALY_TOTAL_IMPACT_ABSOLUTE",
+          Values: [String(props.anomalyThresholdUsd ?? 1)],
+          MatchOptions: ["GREATER_THAN_OR_EQUAL"],
+        },
+      }),
     });
   }
 }
