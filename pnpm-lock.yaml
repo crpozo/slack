@@ -151,6 +151,9 @@ importers:
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7(@types/node@22.20.5)(jiti@1.21.7)(tsx@4.23.15)
 
   packages/shared:
     dependencies:

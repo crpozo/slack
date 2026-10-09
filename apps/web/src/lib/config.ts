@@ -4,10 +4,19 @@ export interface DirectoryUser {
   userId?: string;
 }
 
-function required(name: keyof ImportMetaEnv): string {
-  const value = import.meta.env[name];
-  if (!value) throw new Error(`Falta ${name} en apps/web/.env (ver .env.example)`);
-  return value;
+export interface AppConfig {
+  wsUrl: string;
+  userPoolId: string;
+  userPoolClientId: string;
+  users: DirectoryUser[];
+}
+
+/** Shape of `/config.json`, written by CDK next to index.html on every deploy. */
+interface RuntimeConfig {
+  wsUrl?: unknown;
+  userPoolId?: unknown;
+  userPoolClientId?: unknown;
+  users?: unknown;
 }
 
 /** Parses `VITE_USERS`: comma-separated `email` or `email=sub` entries. */
@@ -25,13 +34,50 @@ export function parseUsers(raw: string | undefined): DirectoryUser[] {
     .filter((u) => u.email.includes("@"));
 }
 
-export function loadConfig() {
+const str = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() ? value.trim() : undefined;
+
+/**
+ * Merges the deployed `/config.json` (wins) with the build-time `VITE_*` values
+ * (local development). Throws with the missing keys if neither provides them.
+ */
+export function resolveConfig(
+  runtime: RuntimeConfig | null,
+  env: Partial<ImportMetaEnv>,
+): AppConfig {
+  const wsUrl = str(runtime?.wsUrl) ?? str(env.VITE_WS_URL);
+  const userPoolId = str(runtime?.userPoolId) ?? str(env.VITE_COGNITO_USER_POOL_ID);
+  const userPoolClientId = str(runtime?.userPoolClientId) ?? str(env.VITE_COGNITO_CLIENT_ID);
+
+  const missing = [
+    !wsUrl && "VITE_WS_URL",
+    !userPoolId && "VITE_COGNITO_USER_POOL_ID",
+    !userPoolClientId && "VITE_COGNITO_CLIENT_ID",
+  ].filter(Boolean);
+  if (!wsUrl || !userPoolId || !userPoolClientId) {
+    throw new Error(`Falta ${missing.join(", ")} en apps/web/.env o en /config.json`);
+  }
+
   return {
-    wsUrl: required("VITE_WS_URL"),
-    userPoolId: required("VITE_COGNITO_USER_POOL_ID"),
-    userPoolClientId: required("VITE_COGNITO_CLIENT_ID"),
-    users: parseUsers(import.meta.env.VITE_USERS),
+    wsUrl,
+    userPoolId,
+    userPoolClientId,
+    users: parseUsers(str(runtime?.users) ?? env.VITE_USERS),
   };
 }
 
-export type AppConfig = ReturnType<typeof loadConfig>;
+/** `/config.json` if the host serves one (CloudFront), `null` otherwise (Vite dev). */
+async function fetchRuntimeConfig(): Promise<RuntimeConfig | null> {
+  try {
+    const res = await fetch("/config.json", { cache: "no-store" });
+    if (!res.ok || !res.headers.get("content-type")?.includes("json")) return null;
+    const body: unknown = await res.json();
+    return typeof body === "object" && body !== null ? (body as RuntimeConfig) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function loadConfig(): Promise<AppConfig> {
+  return resolveConfig(await fetchRuntimeConfig(), import.meta.env);
+}

@@ -5,8 +5,8 @@ Slack interno de MindfulTech: canales, DMs y adjuntos en tiempo real sobre AWS s
 
 El plan completo, la arquitectura y el alcance del MVP están en [BLUEPRINT.md](./BLUEPRINT.md).
 
-> **Estado:** Fase 3 — cliente web completo (login Cognito, canales, DMs, mensajes en tiempo
-> real, historial con scroll infinito, adjuntos, no leídos y reconexión) sobre el backend de F2.
+> **Estado:** Fase 4 (hosting) — la web se compila y se publica en S3 + CloudFront con cada
+> `pnpm deploy:dev`, conectada automáticamente al backend del mismo stack.
 
 ## Estructura
 
@@ -39,8 +39,18 @@ pnpm bootstrap     # solo la primera vez por cuenta/región (cdk bootstrap)
 pnpm deploy:dev    # build web → cdk deploy SlackDev → seed de #general
 ```
 
+`cdk deploy` compila `apps/web` (Vite) durante el synth, sube `dist/` al bucket privado y lo
+sirve por CloudFront (HTTPS, OAC, cabeceras de seguridad, rutas SPA). Los assets con hash se
+cachean 1 año; `index.html` y `config.json` nunca, y cada deploy invalida CloudFront.
+
+La web no lleva URLs ni ids de Cognito compilados: CDK escribe `/config.json` con el
+`WebSocketUrl`, `UserPoolId` y `UserPoolClientId` de **ese** stack, y la SPA lo lee al arrancar
+(en `pnpm dev` no existe y se usan las `VITE_*` de `apps/web/.env`). La lista de personas para
+DMs sale de `VITE_USERS` en tu `.env` local, o de la variable `WEB_USERS` al desplegar
+(`WEB_USERS="a@x.ec=sub,b@x.ec=sub" pnpm deploy:dev`).
+
 Al terminar, CDK imprime 5 outputs: `UserPoolId`, `UserPoolClientId`, `WebSocketUrl`,
-`CloudFrontUrl` y `AttachmentsBucket`. Para volver a verlos:
+`CloudFrontUrl` (la app publicada) y `AttachmentsBucket`. Para volver a verlos:
 
 ```bash
 aws cloudformation describe-stacks --stack-name SlackDev \
@@ -145,7 +155,7 @@ pnpm destroy:dev
 ```
 
 En dev, tablas, user pool, buckets (con `autoDeleteObjects`) y log groups se eliminan con el
-stack. En prod (`SlackProd`) todo se conserva (`RETAIN`) y el stack tiene protección contra
+stack (`destroy:dev` no compila la web: pasa `-c skipWebBuild=true`). En prod (`SlackProd`) todo se conserva (`RETAIN`) y el stack tiene protección contra
 borrado.
 
 ## Scripts
@@ -156,8 +166,8 @@ borrado.
 | `pnpm build`       | Build de todos los paquetes                            |
 | `pnpm lint`        | ESLint + `tsc --noEmit` + Prettier en todo el monorepo |
 | `pnpm test`        | Tests unitarios                                        |
-| `pnpm deploy:dev`  | Deploy de `SlackDev` + seed de `#general`              |
-| `pnpm deploy:prod` | Deploy de `SlackProd` + seed de `#general`             |
+| `pnpm deploy:dev`  | Build web + deploy de `SlackDev` + seed de `#general`  |
+| `pnpm deploy:prod` | Build web + deploy de `SlackProd` + seed de `#general` |
 | `pnpm destroy:dev` | Destruye `SlackDev`                                    |
 
 ## Flujo de ramas
