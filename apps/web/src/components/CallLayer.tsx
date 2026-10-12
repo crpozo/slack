@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { calls, useCall, type CallView } from "../lib/call";
 import { listInputDevices, loadMediaPrefs, supportsScreenShare } from "../lib/media";
 import { useNameOf } from "../store";
@@ -15,35 +15,7 @@ import {
   VideoOffIcon,
 } from "./icons";
 import { Popover } from "./Popover";
-
-/** `<video>`/`<audio>` bound to a MediaStream (React can't set `srcObject` as a prop). */
-function StreamMedia({
-  stream,
-  kind,
-  muted = false,
-  className,
-  label,
-}: Readonly<{
-  stream: MediaStream | null;
-  kind: "video" | "audio";
-  muted?: boolean;
-  className?: string;
-  label?: string;
-}>) {
-  const ref = useRef<HTMLVideoElement & HTMLAudioElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || el.srcObject === stream) return;
-    el.srcObject = stream;
-    if (stream) void el.play().catch(() => {}); // autoplay may need a gesture; we had one
-  }, [stream]);
-  if (kind === "audio") return <audio ref={ref} autoPlay className="hidden" />;
-  return (
-    <video ref={ref} autoPlay playsInline muted={muted} className={className} aria-label={label}>
-      <track kind="captions" />
-    </video>
-  );
-}
+import { StreamMedia } from "./StreamMedia";
 
 function useElapsed(since: number | null): string {
   const [now, setNow] = useState(() => Date.now());

@@ -13,6 +13,7 @@ import {
 import { getThemePreference, setThemePreference, type ThemePreference } from "../lib/theme";
 import { useChat, useNameOf } from "../store";
 import { Avatar } from "./Avatar";
+import { CameraPreview } from "./CameraPreview";
 import { MonitorIcon, MoonIcon, SunIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 
@@ -117,6 +118,7 @@ function DeviceSettings() {
         fallbackName="Camera"
         onChange={(id) => choose("videoInputId", id)}
       />
+      <CameraPreview deviceId={prefs.videoInputId} />
       {devices && !devices.labelled && (
         <button
           type="button"

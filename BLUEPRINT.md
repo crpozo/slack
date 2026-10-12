@@ -479,6 +479,8 @@ It is carried out in three sub-phases, each on its own branch with its own PR to
 1. **Call summary in the chat:** when a call that connected ends, one message is posted to the DM through the normal `message` action (so it is stored in history): `📞 Call ended • 05:23` or `📹 Video call ended • 12:45` (`h:mm:ss` from one hour on). Only the caller posts it, whoever hangs up or if the connection drops, so it never appears twice; declined, missed or cancelled calls post nothing.
 2. **In-call device selection:** a chevron next to the mic and camera buttons lists the inputs (`enumerateDevices`, refreshed on `devicechange`). Picking one captures that exact device and swaps it in with `RTCRtpSender.replaceTrack()`, with no renegotiation; mute is kept, a shared screen stays on the wire until sharing stops, and the choice becomes the saved preference. With the camera off the choice is only saved.
 
+3. **Camera preview in Settings:** below the Camera picker, a 16:9 mirrored, muted preview of the selected camera. Privacy: the camera is opened only while the preview is visible (IntersectionObserver + page visibility) and every track is stopped on close, scroll-away, tab hidden or camera change (a stream that resolves late is stopped on arrival). It starts by itself only with camera permission already granted; otherwise a "Show camera preview" button asks first.
+
 **5.4 acceptance criteria:** one summary message in both chats whichever side hangs up; switching camera and microphone mid-call keeps the call up with no new offer signaled.
 
 **Phase 5 wrap-up:** `CHANGELOG.md` and versions bumped to `0.2.0`, README updated and tag `v0.2.0`.

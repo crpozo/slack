@@ -122,7 +122,10 @@ The UI:
   symmetric NATs. The chevrons next to the mic and camera buttons switch devices mid-call
   without dropping it. When a connected call ends, the caller's app posts one message to the DM,
   e.g. `📹 Video call ended • 12:45`.
-- **Settings → Audio & Video:** pick the microphone and camera calls use (saved per browser).
+- **Settings → Audio & Video:** pick the microphone and camera calls use (saved per browser),
+  with a live, mirrored preview of the camera. The camera only runs while the preview is on
+  screen: it is released as soon as the modal closes, the section scrolls away or the tab is
+  hidden, and it never starts on its own unless camera access was already granted.
 - `Ctrl/⌘ + K` opens the switcher to jump to a channel or person.
 
 ### Test the WebSocket with `wscat`

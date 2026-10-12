@@ -137,3 +137,33 @@ export async function getDeviceTrack(
   if (!track) throw new DOMException("No track", "NotFoundError");
   return track;
 }
+
+/** Stops every track of `stream`, which turns the camera (and its light) off. */
+export function stopStream(stream: MediaStream | null | undefined): void {
+  stream?.getTracks().forEach((t) => t.stop());
+}
+
+/** Camera only, at preview size, from exactly `deviceId` ("" = system default). */
+export function openCameraPreview(deviceId: string): Promise<MediaStream> {
+  return navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: deviceId
+      ? { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 360 } }
+      : { width: { ideal: 640 }, height: { ideal: 360 } },
+  });
+}
+
+export type CameraPermission = "granted" | "prompt" | "denied" | "unknown";
+
+/** Current camera permission, without prompting; "unknown" where the browser can't tell. */
+export async function queryCameraPermission(): Promise<{
+  state: CameraPermission;
+  status: PermissionStatus | null;
+}> {
+  try {
+    const status = await navigator.permissions.query({ name: "camera" as PermissionName });
+    return { state: status.state, status };
+  } catch {
+    return { state: "unknown", status: null };
+  }
+}
