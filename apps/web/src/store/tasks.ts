@@ -1,4 +1,4 @@
-import type { Board, Task, TaskStatus } from "@mindfultech/shared";
+import type { Board, BoardEvent, Task, TaskStatus, UpdateTaskInput } from "@mindfultech/shared";
 import { create } from "zustand";
 import { tasksApi, type TasksApi } from "../lib/tasksApi";
 
@@ -22,8 +22,13 @@ export interface TasksState {
   addMembers: (boardId: string, userIds: string[]) => Promise<void>;
   createTask: (boardId: string, title: string, description: string) => Promise<void>;
   moveTask: (taskId: string, status: TaskStatus) => Promise<void>;
-  editTask: (taskId: string, patch: { title?: string; description?: string }) => Promise<void>;
+  editTask: (taskId: string, patch: UpdateTaskInput) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
+  /**
+   * A `board.*` push from the server. Applied idempotently (tasks are replaced
+   * by id), so the actor's own echo and other members' changes converge.
+   */
+  applyEvent: (event: BoardEvent, myUserId: string) => void;
   clearError: () => void;
   /** Forgets everything (sign-out). */
   reset: () => void;
@@ -106,6 +111,10 @@ export function createTasksStore(api: TasksApi = tasksApi) {
           title,
           description,
           status: "TODO",
+          assigneeId: null,
+          project: "",
+          notes: "",
+          attachments: [],
           createdBy: "",
           createdAt: now,
           updatedAt: now,
@@ -118,7 +127,18 @@ export function createTasksStore(api: TasksApi = tasksApi) {
         }));
         try {
           const task = await api.createTask(boardId, { title, description });
-          patchTask(tempId, () => task);
+          set((s) => {
+            const list = s.tasksByBoard[boardId] ?? [];
+            const echoed = list.some((t) => t.taskId === task.taskId);
+            return {
+              tasksByBoard: {
+                ...s.tasksByBoard,
+                [boardId]: echoed
+                  ? list.filter((t) => t.taskId !== tempId)
+                  : list.map((t) => (t.taskId === tempId ? task : t)),
+              },
+            };
+          });
         } catch (err) {
           set((s) => ({
             tasksByBoard: {
@@ -182,6 +202,36 @@ export function createTasksStore(api: TasksApi = tasksApi) {
             };
           });
         }
+      },
+
+      applyEvent(event, myUserId) {
+        if (event.type === "board.updated") {
+          const { board } = event;
+          set((s) => {
+            const mine = board.ownerId === myUserId || board.members.includes(myUserId);
+            const known = s.boards.some((b) => b.boardId === board.boardId);
+            let boards = s.boards;
+            if (!mine) boards = s.boards.filter((b) => b.boardId !== board.boardId);
+            else if (known) boards = s.boards.map((b) => (b.boardId === board.boardId ? board : b));
+            else boards = [...s.boards, board].sort((a, b) => a.createdAt - b.createdAt);
+            return { boards };
+          });
+          return;
+        }
+        const { boardId } = event;
+        set((s) => {
+          const list = s.tasksByBoard[boardId];
+          if (!list) return {}; // board not loaded: it will be fetched when opened
+          let next: Task[];
+          if (event.type === "board.task_deleted") {
+            next = list.filter((t) => t.taskId !== event.taskId);
+          } else if (list.some((t) => t.taskId === event.task.taskId)) {
+            next = list.map((t) => (t.taskId === event.task.taskId ? event.task : t));
+          } else {
+            next = [...list, event.task].sort((a, b) => a.createdAt - b.createdAt);
+          }
+          return { tasksByBoard: { ...s.tasksByBoard, [boardId]: next } };
+        });
       },
 
       clearError: () => set({ error: null }),
