@@ -15,10 +15,12 @@ import type { DistributiveOmit } from "./ws";
  * 1:1 WebRTC calls in DMs. The WebSocket (API Gateway + the `call` Lambda)
  * only relays the JSON signaling; audio and video flow peer to peer.
  *
- * Both sides always negotiate one audio and one video transceiver, so turning
- * the camera on in a voice call or sharing the screen is a `replaceTrack`, never
- * a renegotiation. A negotiated data channel carries each side's mic, camera
- * and screen state so the other side can show an avatar instead of black video.
+ * Both sides always negotiate three transceivers, audio, camera and screen,
+ * in that order, so turning the camera on in a voice call or sharing the
+ * screen is a `replaceTrack` on its own sender, never a renegotiation, and
+ * camera and screen are sent at the same time. A negotiated data channel
+ * carries each side's mic, camera and screen state so the other side can show
+ * an avatar instead of black video.
  */
 
 /** Free public STUN only: TURN relays media through a server, which costs money. */
@@ -45,9 +47,16 @@ export interface CallView {
   micOn: boolean;
   camOn: boolean;
   sharing: boolean;
-  /** Camera or screen being sent, for the local picture-in-picture. */
-  localVideo: MediaStream | null;
+  /** Your camera, for the local preview tile. */
+  localCamera: MediaStream | null;
+  /** Your shared screen, for the local preview. */
+  localScreen: MediaStream | null;
+  /** The peer's audio and camera. */
   remoteStream: MediaStream | null;
+  /** The peer's shared screen (its track exists even while they aren't sharing: see `peer.sharing`). */
+  remoteScreen: MediaStream | null;
+  /** Whether a screen transceiver was negotiated (an older peer may lack one). */
+  canShare: boolean;
   peer: PeerMediaState;
   connectedAt: number | null;
   /** Devices currently captured (`null` while that input is off). */
@@ -79,9 +88,12 @@ interface Session {
   screen: MediaStreamTrack | null;
   audioSender: RTCRtpSender | null;
   videoSender: RTCRtpSender | null;
+  screenSender: RTCRtpSender | null;
   remote: MediaStream;
-  /** Local picture-in-picture stream, rebuilt only when the sent video track changes. */
-  preview: { track: MediaStreamTrack; stream: MediaStream } | null;
+  remoteScreen: MediaStream;
+  /** Local preview streams, rebuilt only when the sent track changes. */
+  cameraPreview: { track: MediaStreamTrack; stream: MediaStream } | null;
+  screenPreview: { track: MediaStreamTrack; stream: MediaStream } | null;
   peer: PeerMediaState;
   connectedAt: number | null;
   timers: Set<ReturnType<typeof setTimeout>>;
@@ -146,6 +158,12 @@ export function postsCallSummary(role: "caller" | "callee", connectedAt: number 
   return role === "caller" && connectedAt !== null;
 }
 
+/** The screen is the second video m-line: audio, camera, screen (see `startCall` / `accept`). */
+function isScreenTransceiver(pc: RTCPeerConnection, transceiver: RTCRtpTransceiver): boolean {
+  const videos = pc.getTransceivers().filter((t) => t.receiver.track.kind === "video");
+  return videos.indexOf(transceiver) === 1;
+}
+
 export class CallManager {
   private deps: CallDeps | null = null;
   private session: Session | null = null;
@@ -202,6 +220,10 @@ export class CallManager {
       direction: "sendrecv",
       streams: [local],
     }).sender;
+    session.screenSender = pc.addTransceiver("video", {
+      direction: "sendrecv",
+      streams: [local],
+    }).sender;
 
     try {
       const offer = await pc.createOffer();
@@ -231,14 +253,21 @@ export class CallManager {
     try {
       await pc.setRemoteDescription({ type: "offer", sdp: session.offerSdp });
       const local = this.localStream(session);
+      // The offer lists audio, camera, then screen; map them back in that order.
+      let videos = 0;
       for (const transceiver of pc.getTransceivers()) {
         const kind = transceiver.receiver.track.kind;
-        const track = kind === "audio" ? session.mic : session.camera;
         transceiver.direction = "sendrecv";
-        await transceiver.sender.replaceTrack(track);
         transceiver.sender.setStreams?.(local);
-        if (kind === "audio") session.audioSender = transceiver.sender;
-        else session.videoSender = transceiver.sender;
+        if (kind === "audio") {
+          await transceiver.sender.replaceTrack(session.mic);
+          session.audioSender = transceiver.sender;
+        } else if (videos++ === 0) {
+          await transceiver.sender.replaceTrack(session.camera);
+          session.videoSender = transceiver.sender;
+        } else {
+          session.screenSender = transceiver.sender;
+        }
       }
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -283,7 +312,7 @@ export class CallManager {
     if (session.camera) {
       session.camera.stop();
       session.camera = null;
-      if (!session.screen) await session.videoSender?.replaceTrack(null);
+      await session.videoSender?.replaceTrack(null);
     } else {
       try {
         const stream = await getUserMediaWithFallback({ audio: false, video: true });
@@ -293,7 +322,7 @@ export class CallManager {
           return;
         }
         session.camera = track;
-        if (!session.screen) await session.videoSender?.replaceTrack(track);
+        await session.videoSender?.replaceTrack(track);
       } catch (err) {
         this.deps?.notify(mediaErrorText(err, "camera"));
         return;
@@ -308,6 +337,10 @@ export class CallManager {
     if (!session || session.phase === "incoming") return;
     if (session.screen) {
       await this.stopScreenShare(session);
+      return;
+    }
+    if (!session.screenSender) {
+      this.deps?.notify("Screen sharing isn't available in this call.");
       return;
     }
     let track: MediaStreamTrack | undefined;
@@ -331,7 +364,7 @@ export class CallManager {
       if (session.screen === track) void this.stopScreenShare(session);
     });
     session.screen = track;
-    await session.videoSender?.replaceTrack(track);
+    await session.screenSender.replaceTrack(track);
     this.publish();
     this.sendMediaState(session);
   }
@@ -376,8 +409,7 @@ export class CallManager {
       await session.audioSender?.replaceTrack(track);
       session.mic = track;
     } else {
-      // While sharing, the screen stays on the wire; the new camera returns after.
-      if (!session.screen) await session.videoSender?.replaceTrack(track);
+      await session.videoSender?.replaceTrack(track);
       session.camera = track;
     }
     current.stop();
@@ -520,8 +552,11 @@ export class CallManager {
       screen: null,
       audioSender: null,
       videoSender: null,
+      screenSender: null,
       remote: new MediaStream(),
-      preview: null,
+      remoteScreen: new MediaStream(),
+      cameraPreview: null,
+      screenPreview: null,
       // Until the peer reports its state, assume it matches the kind of call.
       peer: { micOn: true, camOn: fields.media === "video", sharing: false },
       connectedAt: null,
@@ -578,8 +613,11 @@ export class CallManager {
       }
     });
 
-    pc.addEventListener("track", ({ track }) => {
-      if (!session.remote.getTracks().includes(track)) session.remote.addTrack(track);
+    pc.addEventListener("track", ({ track, transceiver }) => {
+      // Fires inside setRemoteDescription on the callee, before the senders are mapped,
+      // so the screen is told apart by its position, not by a stored reference.
+      const target = isScreenTransceiver(pc, transceiver) ? session.remoteScreen : session.remote;
+      if (!target.getTracks().includes(track)) target.addTrack(track);
       this.publish();
     });
 
@@ -638,7 +676,7 @@ export class CallManager {
   private async stopScreenShare(session: Session): Promise<void> {
     session.screen?.stop();
     session.screen = null;
-    await session.videoSender?.replaceTrack(session.camera);
+    await session.screenSender?.replaceTrack(null);
     if (!this.isCurrent(session)) return;
     this.publish();
     this.sendMediaState(session);
@@ -695,9 +733,11 @@ export class CallManager {
       useCall.setState({ call: null });
       return;
     }
-    const video = s.screen ?? s.camera;
-    if (s.preview?.track !== video) {
-      s.preview = video ? { track: video, stream: new MediaStream([video]) } : null;
+    if (s.cameraPreview?.track !== s.camera) {
+      s.cameraPreview = s.camera ? { track: s.camera, stream: new MediaStream([s.camera]) } : null;
+    }
+    if (s.screenPreview?.track !== s.screen) {
+      s.screenPreview = s.screen ? { track: s.screen, stream: new MediaStream([s.screen]) } : null;
     }
     useCall.setState({
       call: {
@@ -709,8 +749,11 @@ export class CallManager {
         micOn: s.mic?.enabled ?? true,
         camOn: !!s.camera,
         sharing: !!s.screen,
-        localVideo: s.preview?.stream ?? null,
+        localCamera: s.cameraPreview?.stream ?? null,
+        localScreen: s.screenPreview?.stream ?? null,
         remoteStream: s.remote.getTracks().length > 0 ? s.remote : null,
+        remoteScreen: s.remoteScreen.getTracks().length > 0 ? s.remoteScreen : null,
+        canShare: s.screenSender !== null,
         peer: { ...s.peer },
         connectedAt: s.connectedAt,
         micDeviceId: s.mic?.getSettings().deviceId ?? null,

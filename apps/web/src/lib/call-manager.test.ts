@@ -5,6 +5,7 @@ import {
   callSummaryText,
   formatCallDuration,
   postsCallSummary,
+  useCall,
   type CallDeps,
 } from "./call";
 
@@ -84,8 +85,8 @@ class FakePeerConnection {
   }
   getTransceivers() {
     if (this.transceivers.length === 0) {
-      // The callee gets these from the remote offer.
-      for (const kind of ["audio", "video"]) {
+      // The callee gets these from the remote offer: audio, camera, screen.
+      for (const kind of ["audio", "video", "video"]) {
         this.transceivers.push({
           sender: new FakeSender(null),
           receiver: { track: { kind } },
@@ -95,8 +96,15 @@ class FakePeerConnection {
     }
     return this.transceivers;
   }
-  sender(kind: string) {
-    return this.transceivers.find((t) => t.receiver.track.kind === kind)!.sender;
+  /** Senders by role, in the negotiated order: audio, camera, screen. */
+  sender(role: "audio" | "camera" | "screen") {
+    const index = { audio: 0, camera: 1, screen: 2 }[role];
+    return this.transceivers[index]!.sender;
+  }
+  /** Simulates a remote track arriving on the transceiver at `index`. */
+  receive(index: number, track: FakeTrack) {
+    const transceiver = this.transceivers[index];
+    this.listeners.track?.forEach((fn) => fn({ track, transceiver }));
   }
   createOffer = async () => ({ type: "offer", sdp: "offer-sdp" });
   createAnswer = async () => ({ type: "answer", sdp: "answer-sdp" });
@@ -112,6 +120,10 @@ class FakePeerConnection {
 }
 
 // --- Harness ------------------------------------------------------------------
+
+/** Device ids of a stream's tracks (they are `FakeTrack`s). */
+const ids = (stream: MediaStream | null | undefined) =>
+  stream?.getTracks().map((t) => (t as unknown as FakeTrack).deviceId);
 
 const ME = "u-alice";
 const PEER = "u-bob";
@@ -306,20 +318,25 @@ describe("switching devices mid-call", () => {
     expect(JSON.parse(storage["slack.mediaDevices"]!)).toMatchObject({ audioInputId: "mic-usb" });
   });
 
-  it("swaps the camera; while sharing the screen stays on the wire until sharing stops", async () => {
+  it("swaps the camera on its own sender even while the screen is being shared", async () => {
     const { manager, pc } = await connectedCall("video");
-    const video = pc.sender("video");
+    const camera = pc.sender("camera");
+    const screen = pc.sender("screen");
 
     await manager.switchDevice("video", "cam-hd");
-    expect(video.track?.deviceId).toBe("cam-hd");
+    expect(camera.track?.deviceId).toBe("cam-hd");
 
     await manager.toggleScreenShare();
-    expect(video.track?.deviceId).toBe("screen");
+    expect(screen.track?.deviceId).toBe("screen");
+    expect(camera.track?.deviceId).toBe("cam-hd"); // the camera keeps going out
+
     await manager.switchDevice("video", "cam-wide");
-    expect(video.track?.deviceId).toBe("screen");
+    expect(camera.track?.deviceId).toBe("cam-wide");
+    expect(screen.track?.deviceId).toBe("screen");
 
     await manager.toggleScreenShare(); // stop sharing
-    expect(video.track?.deviceId).toBe("cam-wide");
+    expect(screen.track).toBeNull();
+    expect(camera.track?.deviceId).toBe("cam-wide");
   });
 
   it("with the camera off, only saves the choice for when it is turned back on", async () => {
@@ -331,7 +348,7 @@ describe("switching devices mid-call", () => {
     expect(JSON.parse(storage["slack.mediaDevices"]!)).toMatchObject({ videoInputId: "cam-hd" });
 
     await manager.toggleCamera();
-    expect(pc.sender("video").track?.deviceId).toBe("cam-hd");
+    expect(pc.sender("camera").track?.deviceId).toBe("cam-hd");
   });
 
   it("tells the user when the chosen device can't be opened and keeps the old one", async () => {
@@ -344,5 +361,93 @@ describe("switching devices mid-call", () => {
     expect(deps.notify).toHaveBeenCalledWith("Your microphone is being used by another app.");
     expect(pc.sender("audio").track).toBe(before);
     expect(before?.stopped).toBe(false);
+  });
+});
+
+describe("camera and screen as separate tracks", () => {
+  it("the caller negotiates audio, camera and screen transceivers", async () => {
+    const { pc } = await connectedCall("video");
+    expect(pc.transceivers.map((t) => t.receiver.track.kind)).toEqual(["audio", "video", "video"]);
+    expect(pc.sender("camera").track?.kind).toBe("video");
+    expect(pc.sender("screen").track).toBeNull();
+    expect(useCall.getState().call?.canShare).toBe(true);
+  });
+
+  it("the callee maps the offer's transceivers back in the same order", async () => {
+    const { manager } = setup();
+    manager.handle(offerFromPeer("video"));
+    await manager.accept();
+    const pc = FakePeerConnection.last;
+
+    expect(pc.sender("audio").track?.kind).toBe("audio");
+    expect(pc.sender("camera").track?.kind).toBe("video");
+    expect(pc.sender("camera").track?.deviceId).toBe("cam-default");
+    expect(pc.sender("screen").track).toBeNull();
+    expect(pc.transceivers.every((t) => t.direction === "sendrecv")).toBe(true);
+  });
+
+  it("sharing the screen keeps the camera on the wire and publishes both previews", async () => {
+    const { manager, pc } = await connectedCall("video");
+    await manager.toggleScreenShare();
+
+    expect(pc.sender("camera").track?.deviceId).toBe("cam-default");
+    expect(pc.sender("screen").track?.deviceId).toBe("screen");
+    const view = useCall.getState().call!;
+    expect(view.sharing).toBe(true);
+    expect(ids(view.localCamera)).toEqual(["cam-default"]);
+    expect(ids(view.localScreen)).toEqual(["screen"]);
+    expect(pc.sender("camera").replaceTrack).not.toHaveBeenCalled();
+  });
+
+  it("turning the camera off while sharing leaves the screen untouched", async () => {
+    const { manager, pc } = await connectedCall("video");
+    await manager.toggleScreenShare();
+    await manager.toggleCamera();
+
+    expect(pc.sender("camera").track).toBeNull();
+    expect(pc.sender("screen").track?.deviceId).toBe("screen");
+    const view = useCall.getState().call!;
+    expect(view.localCamera).toBeNull();
+    expect(view.localScreen).not.toBeNull();
+  });
+
+  it("routes the peer's screen track apart from their camera and audio", async () => {
+    const { pc } = await connectedCall("video");
+    pc.receive(0, new FakeTrack("audio", "peer-mic"));
+    pc.receive(1, new FakeTrack("video", "peer-cam"));
+    pc.receive(2, new FakeTrack("video", "peer-screen"));
+
+    const view = useCall.getState().call!;
+    expect(ids(view.remoteStream)).toEqual(["peer-mic", "peer-cam"]);
+    expect(ids(view.remoteScreen)).toEqual(["peer-screen"]);
+  });
+
+  it("explains that sharing is unavailable when the peer offered no screen transceiver", async () => {
+    const { manager, deps } = setup();
+    const original = FakePeerConnection.prototype.getTransceivers;
+    FakePeerConnection.prototype.getTransceivers = function () {
+      // An older client: audio and camera only.
+      if (this.transceivers.length === 0) {
+        for (const kind of ["audio", "video"]) {
+          this.transceivers.push({
+            sender: new FakeSender(null),
+            receiver: { track: { kind } },
+            direction: "recvonly",
+          });
+        }
+      }
+      return this.transceivers;
+    };
+    try {
+      manager.handle(offerFromPeer("video"));
+      await manager.accept();
+      expect(useCall.getState().call?.canShare).toBe(false);
+      getDisplayMedia.mockClear();
+      await manager.toggleScreenShare();
+      expect(getDisplayMedia).not.toHaveBeenCalled();
+      expect(deps.notify).toHaveBeenCalledWith("Screen sharing isn't available in this call.");
+    } finally {
+      FakePeerConnection.prototype.getTransceivers = original;
+    }
   });
 });
