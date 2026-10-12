@@ -19,7 +19,7 @@ import {
   type SidebarPrefs,
 } from "../lib/sidebar";
 import { selectUnread, useChat } from "../store";
-import { CreateChannelModal } from "./ChannelModals";
+import { CreateChannelModal, NewDmModal } from "./ChannelModals";
 import { CallLayer } from "./CallLayer";
 import { ChannelView } from "./ChannelView";
 import { QuickSwitcher } from "./QuickSwitcher";
@@ -47,6 +47,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [newDmOpen, setNewDmOpen] = useState(false);
   const navigate = useNavigate();
 
   // Desktop sidebar: resizable width + icon-only mode, both remembered.
@@ -190,6 +191,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           onToggleCollapsed={isDesktop ? toggleCollapsed : undefined}
           onOpenSwitcher={() => setSwitcherOpen(true)}
           onCreateChannel={() => setCreateOpen(true)}
+          onNewDm={() => setNewDmOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           onSignOut={() => void handleSignOut()}
         />
@@ -223,6 +225,16 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           onClose={() => setCreateOpen(false)}
           onCreated={(id) => {
             setCreateOpen(false);
+            navigate(`/app/${id}`);
+          }}
+        />
+      )}
+      {newDmOpen && (
+        <NewDmModal
+          onClose={() => setNewDmOpen(false)}
+          onOpened={(id) => {
+            setNewDmOpen(false);
+            setSidebarOpen(false);
             navigate(`/app/${id}`);
           }}
         />
