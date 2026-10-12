@@ -494,6 +494,18 @@ It is carried out in three sub-phases, each on its own branch with its own PR to
 
 **5.5 acceptance criteria:** a connection left idle for more than 10 minutes stays open; the `+` DM picker opens a DM with anyone in the directory; during a call the sidebar is clickable and a message can be sent from the composer; while sharing, both cameras are visible on both sides and no new offer is signaled.
 
+#### 5.6 — Notification sounds
+
+**Branch:** `feature/f5-6-sounds`
+
+1. **Synthesis, zero cost:** all sounds are generated with the Web Audio API (oscillators + gain envelopes) in `apps/web/src/lib/sounds.ts`; no audio files, nothing in S3. One shared `AudioContext`, created lazily.
+2. **Call rings:** the caller hears a soft 440/480 Hz ring every 3 s from the moment the offer is sent until the answer arrives; the callee hears an 880/660 Hz chime every 3 s while the incoming card is visible. Both stop at once on answer, decline, cancel, timeout (45 s / 50 s) or hang-up: every exit goes through `finish()` → `stopRinging()`.
+3. **Message pop:** two short triangle notes on `message.new` when the message is from someone else and the user is not viewing that channel with the tab visible and focused (the same `isFocused` rule that marks messages as read).
+4. **Autoplay policy:** every start goes through `unlock()` (`AudioContext.resume()` in a try/catch); a blocked context stays silent and the UI still shows the notification. `installAudioUnlock()` resumes the context on the first `pointerdown`/`keydown`, so rings and pops triggered later by network events can play. Each ring cycle re-checks the context, so nothing is queued on a suspended context (queued tones would all burst out on resume).
+5. **Settings → Notifications:** a "Play notification sounds" switch (default on, `localStorage` key `slack.sounds`); turning it off stops a ring in progress and silences everything.
+
+**5.6 acceptance criteria:** both ends ring from offer to answer and fall silent together; a message in another conversation pops and one in the open conversation does not; with sounds off nothing plays; a page the user has never interacted with shows the call card without errors.
+
 **Phase 5 wrap-up:** `CHANGELOG.md` and versions bumped to `0.2.0`, README updated and tag `v0.2.0`.
 
 ---
