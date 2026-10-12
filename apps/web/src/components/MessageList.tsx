@@ -177,7 +177,7 @@ export function MessageList({ channelId, title }: { channelId: string; title: st
         <button
           type="button"
           onClick={scrollToBottom}
-          className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-sky px-3 py-1.5 text-xs font-semibold text-ink shadow-md hover:brightness-95"
+          className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-sky px-3 py-1.5 text-xs font-semibold text-on-accent shadow-md hover:brightness-95"
         >
           <ArrowDownIcon /> Mensajes nuevos
         </button>

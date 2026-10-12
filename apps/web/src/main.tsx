@@ -3,7 +3,12 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { configureAuth } from "./lib/auth";
 import { loadConfig } from "./lib/config";
+import { applyTheme, watchSystemTheme } from "./lib/theme";
 import "./styles.css";
+
+// index.html already applied the saved theme before paint; keep it in sync with the OS.
+applyTheme();
+watchSystemTheme();
 
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("#root not found");

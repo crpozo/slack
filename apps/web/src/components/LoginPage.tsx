@@ -3,7 +3,7 @@ import { signIn, type SessionUser } from "../lib/auth";
 
 export function Logo() {
   return (
-    <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-lg font-bold text-ink">
+    <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-lg font-bold text-on-accent">
       M
     </span>
   );
