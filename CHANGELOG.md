@@ -1,35 +1,35 @@
 # Changelog
 
-Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
-[SemVer](https://semver.org/lang/es/).
+Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
+[SemVer](https://semver.org/).
 
 ## [0.1.0] — 2026-10-09
 
-Primera versión (MVP): un Slack interno para dos personas, serverless en AWS `us-east-1`.
+First release (MVP): an internal Slack for two people, serverless on AWS `us-east-1`.
 
-### Añadido
+### Added
 
-- **Autenticación:** login con Cognito (email + contraseña, SRP), sesión persistente, sin
-  auto-registro. Authorizer del WebSocket que valida el id token y deniega por defecto.
-- **Canales:** `#general` por defecto, crear canales públicos, DMs 1 a 1 (privados para sus dos
-  participantes) y paleta `Ctrl/⌘ + K` para saltar de canal.
-- **Mensajería en tiempo real** por API Gateway WebSocket (< 1 s), envío optimista con
-  reintento, formato básico (negrita, cursiva, código, bloques y links).
-- **Historial** paginado hacia atrás con scroll infinito que conserva la posición.
-- **Adjuntos** de hasta 25 MB con URLs prefirmadas de S3 (PUT con tipo y tamaño firmados, GET
-  solo si el archivo existe), imágenes inline y descarga del resto.
-- **No leídos:** badge por canal y total en el título de la pestaña.
-- **Reconexión** con backoff exponencial y recuperación de los mensajes perdidos.
-- **Interfaz** React + Vite + Tailwind con el design system de MindfulTech, responsive.
-- **Infraestructura CDK:** stacks `SlackDev` y `SlackProd`; Lambdas Node 22 ARM con permisos
-  mínimos; DynamoDB on-demand; web en S3 privado + CloudFront (OAC, HTTPS, cabeceras de
-  seguridad) compilada por `cdk deploy`, con `config.json` generado en cada deploy.
-- **Dominios propios** opcionales (`slack.mindfultech.ec`, `ws.mindfultech.ec`) con certificado
-  ACM existente y registros Route 53 opcionales.
-- **CORS** de adjuntos limitado a los orígenes de la app y `localhost`.
-- **Costos:** tag `project=slack`, Budget de USD 5/mes y Cost Anomaly Detection con alertas por
-  email.
-- **CI/CD:** lint + tests en cada PR; deploy de `SlackProd` en cada push a `main` vía GitHub
-  OIDC (sin access keys).
+- **Authentication:** Cognito login (email + password, SRP), persistent session, no
+  self-sign-up. WebSocket authorizer that validates the id token and denies by default.
+- **Channels:** `#general` by default, creating public channels, 1:1 DMs (private to their two
+  participants) and a `Ctrl/⌘ + K` palette to jump between channels.
+- **Real-time messaging** over API Gateway WebSocket (< 1 s), optimistic sending with retry,
+  basic formatting (bold, italic, code, code blocks and links).
+- **History** paginated backwards with infinite scroll that keeps the scroll position.
+- **Attachments** up to 25 MB with S3 presigned URLs (PUT with signed type and size, GET only
+  if the file exists), inline images and download for everything else.
+- **Unread:** badge per channel and a total in the tab title.
+- **Reconnection** with exponential backoff and recovery of missed messages.
+- **UI** in React + Vite + Tailwind with the MindfulTech design system, responsive.
+- **CDK infrastructure:** `SlackDev` and `SlackProd` stacks; Node 22 ARM Lambdas with least
+  privilege; on-demand DynamoDB; web app on private S3 + CloudFront (OAC, HTTPS, security
+  headers) built by `cdk deploy`, with `config.json` generated on every deploy.
+- **Custom domains** (optional: `slack.mindfultech.ec`, `ws.mindfultech.ec`) with an existing
+  ACM certificate and optional Route 53 records.
+- **CORS** for attachments limited to the app origins and `localhost`.
+- **Costs:** `project=slack` tag, a USD 5/month Budget and Cost Anomaly Detection with email
+  alerts.
+- **CI/CD:** lint + tests on every PR; `SlackProd` deploy on every push to `main` via GitHub
+  OIDC (no access keys).
 
 [0.1.0]: https://github.com/crpozo/slack/releases/tag/v0.1.0

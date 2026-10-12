@@ -30,7 +30,7 @@ describe("sidebar width", () => {
 describe("emoji", () => {
   const raw = [
     { unicode: "😀", label: "grinning face", group: 0, order: 1, tags: ["happy"] },
-    { unicode: "👍️", label: "pulgar hacia arriba", group: 1, order: 353, tags: ["señal"] },
+    { unicode: "👍️", label: "thumbs up", group: 1, order: 353, tags: ["approve"] },
     { unicode: "🏻", label: "light skin tone", group: 2, order: 400 },
     { unicode: "🇪🇨", label: "flag: Ecuador", group: 9, order: 1500, tags: [] },
     { unicode: "x".repeat(17), label: "too long", group: 0, order: 2 },
@@ -47,10 +47,10 @@ describe("emoji", () => {
 
   it("searches labels and tags, ignoring case and accents", () => {
     const groups = buildGroups(raw);
-    expect(searchEmojis(groups, "Senal").map((e) => e.emoji)).toEqual(["👍️"]);
+    expect(searchEmojis(groups, "APPROVE").map((e) => e.emoji)).toEqual(["👍️"]);
     expect(searchEmojis(groups, "flag ecuador").map((e) => e.emoji)).toEqual(["🇪🇨"]);
     expect(searchEmojis(groups, "  ")).toEqual([]);
-    expect(normalizeSearch("Corazón ROJO")).toBe("corazon rojo");
+    expect(normalizeSearch("Crème BRÛLÉE")).toBe("creme brulee");
   });
 
   it("quick reactions use the dataset's exact strings", () => {
