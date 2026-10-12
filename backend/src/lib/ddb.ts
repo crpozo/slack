@@ -17,6 +17,9 @@ export const tables = {
   get channels() {
     return requireEnv("CHANNELS_TABLE");
   },
+  get users() {
+    return requireEnv("USERS_TABLE");
+  },
 };
 
 /** Row of the `connections` table. */

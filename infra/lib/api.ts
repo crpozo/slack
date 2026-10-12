@@ -69,6 +69,7 @@ export class Api extends Construct {
       MESSAGES_TABLE: data.messages.tableName,
       CONNECTIONS_TABLE: data.connections.tableName,
       CHANNELS_TABLE: data.channels.tableName,
+      USERS_TABLE: data.users.tableName,
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
       WS_ENDPOINT: this.webSocketStage.callbackUrl,
     };
@@ -121,6 +122,8 @@ export class Api extends Construct {
       channel: fn("channel"),
       presign: fn("presign"),
       typing: fn("typing"),
+      user: fn("user"),
+      react: fn("react"),
     } satisfies Record<Exclude<Handler, "authorizer">, NodejsFunction>;
 
     const integration = (name: keyof typeof handlers) =>
@@ -134,26 +137,46 @@ export class Api extends Construct {
     }
 
     // --- Permissions (least privilege: only the actions each handler calls) ---
-    const { connections, messages, channels } = data;
+    const { connections, messages, channels, users } = data;
 
     connections.grant(handlers.connect, "dynamodb:PutItem");
+    users.grant(handlers.connect, "dynamodb:UpdateItem");
     connections.grant(handlers.disconnect, "dynamodb:DeleteItem");
 
     // Route handlers resolve the caller from the authorizer context and fall
     // back to the connection row (GetItem).
-    for (const h of [handlers.message, handlers.history, handlers.channel, handlers.presign]) {
-      connections.grant(h, "dynamodb:GetItem");
-    }
+    const routeHandlers = [
+      handlers.message,
+      handlers.history,
+      handlers.channel,
+      handlers.presign,
+      handlers.user,
+      handlers.react,
+    ];
+    for (const h of routeHandlers) connections.grant(h, "dynamodb:GetItem");
 
     // Broadcasters list live connections and delete stale ones (410 Gone).
-    for (const h of [handlers.message, handlers.channel]) {
+    for (const h of [handlers.message, handlers.channel, handlers.user, handlers.react]) {
       connections.grant(h, "dynamodb:Scan", "dynamodb:DeleteItem");
     }
 
-    channels.grant(handlers.message, "dynamodb:GetItem");
+    // Every handler that touches a channel's content checks access on its row.
+    for (const h of [handlers.message, handlers.history, handlers.presign, handlers.react]) {
+      channels.grant(h, "dynamodb:GetItem");
+    }
     messages.grant(handlers.message, "dynamodb:PutItem");
     messages.grant(handlers.history, "dynamodb:Query");
-    channels.grant(handlers.channel, "dynamodb:Scan", "dynamodb:PutItem");
+    channels.grant(
+      handlers.channel,
+      "dynamodb:Scan",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+    );
+    users.grant(handlers.channel, "dynamodb:BatchGetItem"); // invitees must exist
+    users.grant(handlers.user, "dynamodb:Scan", "dynamodb:UpdateItem");
+    // react: ADD/DELETE on the reaction set; GetItem for no-op removals.
+    messages.grant(handlers.react, "dynamodb:UpdateItem", "dynamodb:GetItem");
 
     handlers.presign.addToRolePolicy(
       new PolicyStatement({
@@ -171,13 +194,7 @@ export class Api extends Construct {
     );
 
     // Every handler that replies to the sender or broadcasts uses @connections.
-    for (const h of [
-      handlers.default,
-      handlers.message,
-      handlers.history,
-      handlers.channel,
-      handlers.presign,
-    ]) {
+    for (const h of [handlers.default, ...routeHandlers]) {
       this.webSocketApi.grantManageConnections(h);
     }
   }

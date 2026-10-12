@@ -180,3 +180,55 @@ describe("GitHub deploy role", () => {
     synth("dev").resourceCountIs("Custom::AWSCDKOpenIdConnectProvider", 0);
   });
 });
+
+describe("phase 5.1 resources", () => {
+  const template = () => synth("dev");
+
+  it("adds the users table", () => {
+    template().hasResourceProperties("AWS::DynamoDB::Table", {
+      TableName: "slack-dev-users",
+      KeySchema: [{ AttributeName: "userId", KeyType: "HASH" }],
+      BillingMode: "PAY_PER_REQUEST",
+    });
+  });
+
+  it("routes the user and react actions to their own Lambdas", () => {
+    const t = template();
+    for (const routeKey of ["user", "react"]) {
+      t.hasResourceProperties("AWS::ApiGatewayV2::Route", { RouteKey: routeKey });
+    }
+    for (const name of ["slack-dev-user", "slack-dev-react"]) {
+      t.hasResourceProperties("AWS::Lambda::Function", {
+        FunctionName: name,
+        Runtime: "nodejs22.x",
+        Environment: { Variables: Match.objectLike({ USERS_TABLE: Match.anyValue() }) },
+      });
+    }
+  });
+
+  it("grants only the DynamoDB actions each new path needs", () => {
+    const t = template();
+    /** Actions of `fn`'s role on the table whose logical id starts with `table`. */
+    const actionsOn = (fn: string, table: string): string[] => {
+      const policy = Object.entries(t.findResources("AWS::IAM::Policy")).find(([id]) =>
+        id.startsWith(`Api${fn}FnServiceRoleDefaultPolicy`),
+      )?.[1];
+      const statements = (policy?.Properties?.PolicyDocument?.Statement ?? []) as Array<{
+        Action: string | string[];
+        Resource: unknown;
+      }>;
+      return statements
+        .filter((st) => JSON.stringify(st.Resource).includes(`"${table}`))
+        .flatMap((st) => (Array.isArray(st.Action) ? st.Action : [st.Action]))
+        .sort();
+    };
+
+    expect(actionsOn("connect", "DataUsers")).toEqual(["dynamodb:UpdateItem"]);
+    expect(actionsOn("user", "DataUsers")).toEqual(["dynamodb:Scan", "dynamodb:UpdateItem"]);
+    expect(actionsOn("channel", "DataUsers")).toEqual(["dynamodb:BatchGetItem"]);
+    expect(actionsOn("react", "DataMessages")).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);
+    expect(actionsOn("react", "DataChannels")).toEqual(["dynamodb:GetItem"]);
+    expect(actionsOn("history", "DataChannels")).toEqual(["dynamodb:GetItem"]);
+    expect(actionsOn("message", "DataUsers")).toEqual([]);
+  });
+});

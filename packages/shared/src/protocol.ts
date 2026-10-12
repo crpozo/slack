@@ -10,9 +10,20 @@ export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 export const CHANNEL_NAME_PATTERN = /^[a-z0-9-]{1,32}$/;
 export const HISTORY_PAGE_SIZE = 50;
 export const PRESIGN_EXPIRES_SECONDS = 300;
+export const MAX_DISPLAY_NAME_LENGTH = 40;
+export const MAX_EMOJI_LENGTH = 16;
+export const MAX_INVITES_PER_REQUEST = 50;
 
 /** Route keys of the WebSocket API (`$request.body.action`). */
-export const CLIENT_ACTIONS = ["message", "history", "channel", "presign", "typing"] as const;
+export const CLIENT_ACTIONS = [
+  "message",
+  "history",
+  "channel",
+  "presign",
+  "typing",
+  "user",
+  "react",
+] as const;
 export type ClientActionName = (typeof CLIENT_ACTIONS)[number];
 
 // ---------------------------------------------------------------------------
@@ -30,7 +41,9 @@ export const AttachmentSchema = z.object({
 });
 export type Attachment = z.infer<typeof AttachmentSchema>;
 
-export type ChannelType = "public" | "dm";
+/** `private` channels and `dm`s are visible only to their `members`. */
+export type ChannelType = "public" | "private" | "dm";
+export type ChannelVisibility = Extract<ChannelType, "public" | "private">;
 
 export interface Channel {
   channelId: string;
@@ -40,7 +53,7 @@ export interface Channel {
   /** Epoch milliseconds. */
   createdAt: number;
   archived: boolean;
-  /** Only for `dm` channels: the two participant user ids. */
+  /** `private` and `dm` channels: user ids allowed to see the channel. */
   members?: string[];
 }
 
@@ -55,6 +68,25 @@ export interface Message {
   attachments: Attachment[];
   /** Epoch milliseconds. */
   createdAt: number;
+  /** emoji → user ids who reacted with it (absent or empty when none). */
+  reactions?: Record<string, string[]>;
+}
+
+export interface UserProfile {
+  userId: string;
+  email: string;
+  /** Primary identifier in the UI; defaults to the local part of the email. */
+  displayName: string;
+  /** Epoch milliseconds. */
+  updatedAt: number;
+}
+
+/** Whether `userId` may see `channel`: public channels are open, others need membership. */
+export function isChannelMember(
+  channel: Pick<Channel, "type" | "members">,
+  userId: string,
+): boolean {
+  return channel.type === "public" || (channel.members ?? []).includes(userId);
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +116,8 @@ export const ChannelCreateActionSchema = z.object({
   action: z.literal("channel"),
   op: z.literal("create"),
   name: z.string().regex(CHANNEL_NAME_PATTERN),
+  /** Defaults to `private`: only the creator (and later invitees) can see it. */
+  visibility: z.enum(["public", "private"]).default("private"),
 });
 
 export const ChannelDmActionSchema = z.object({
@@ -92,10 +126,24 @@ export const ChannelDmActionSchema = z.object({
   withUserId: z.string().min(1).max(128),
 });
 
+const userId = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[^_\s]+$/, "user ids cannot contain '_' or whitespace");
+
+export const ChannelInviteActionSchema = z.object({
+  action: z.literal("channel"),
+  op: z.literal("invite"),
+  channelId,
+  userIds: z.array(userId).min(1).max(MAX_INVITES_PER_REQUEST),
+});
+
 export const ChannelActionSchema = z.discriminatedUnion("op", [
   ChannelListActionSchema,
   ChannelCreateActionSchema,
   ChannelDmActionSchema,
+  ChannelInviteActionSchema,
 ]);
 
 export const PresignPutActionSchema = z.object({
@@ -125,12 +173,54 @@ export const TypingActionSchema = z.object({
   channelId,
 });
 
+/** Trimmed, 1–40 chars, no control characters. */
+export const DisplayNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_DISPLAY_NAME_LENGTH)
+  .refine((v) => !/\p{Cc}/u.test(v), "display name cannot contain control characters");
+
+export const UserListActionSchema = z.object({
+  action: z.literal("user"),
+  op: z.literal("list"),
+});
+
+export const UserUpdateActionSchema = z.object({
+  action: z.literal("user"),
+  op: z.literal("update"),
+  displayName: DisplayNameSchema,
+});
+
+export const UserActionSchema = z.discriminatedUnion("op", [
+  UserListActionSchema,
+  UserUpdateActionSchema,
+]);
+
+/** A single emoji (possibly a multi-code-point sequence): no whitespace or control chars. */
+export const EmojiSchema = z
+  .string()
+  .min(1)
+  .max(MAX_EMOJI_LENGTH)
+  .refine((v) => !/[\s\p{Cc}]/u.test(v), "invalid emoji");
+
+/** Adds or removes the caller's reaction on the message `channelId` + `sk`. */
+export const ReactActionSchema = z.object({
+  action: z.literal("react"),
+  channelId,
+  sk: z.string().min(1).max(128),
+  emoji: EmojiSchema,
+  op: z.enum(["add", "remove"]),
+});
+
 export const ClientActionSchema = z.union([
   MessageActionSchema,
   HistoryActionSchema,
   ChannelActionSchema,
   PresignActionSchema,
   TypingActionSchema,
+  UserActionSchema,
+  ReactActionSchema,
 ]);
 
 export type MessageAction = z.infer<typeof MessageActionSchema>;
@@ -138,7 +228,11 @@ export type HistoryAction = z.infer<typeof HistoryActionSchema>;
 export type ChannelAction = z.infer<typeof ChannelActionSchema>;
 export type PresignAction = z.infer<typeof PresignActionSchema>;
 export type TypingAction = z.infer<typeof TypingActionSchema>;
+export type UserAction = z.infer<typeof UserActionSchema>;
+export type ReactAction = z.infer<typeof ReactActionSchema>;
 export type ClientAction = z.infer<typeof ClientActionSchema>;
+/** What a client may send: like `ClientAction`, but fields with defaults are optional. */
+export type ClientActionInput = z.input<typeof ClientActionSchema>;
 
 /**
  * Parses a raw WebSocket frame body against `schema`.
@@ -169,6 +263,9 @@ export type ErrorCode =
   | "UNAUTHORIZED"
   | "CHANNEL_NOT_FOUND"
   | "CHANNEL_NAME_TAKEN"
+  | "FORBIDDEN"
+  | "USER_NOT_FOUND"
+  | "MESSAGE_NOT_FOUND"
   | "FILE_NOT_FOUND"
   | "INTERNAL_ERROR";
 
@@ -206,7 +303,33 @@ export interface ErrorEvent {
   requestId?: string;
 }
 
+export interface MessageReactionEvent {
+  type: "message.reaction";
+  channelId: string;
+  sk: string;
+  messageId: string;
+  /** Full, current reactions of the message. */
+  reactions: Record<string, string[]>;
+}
+
+export interface UserListEvent {
+  type: "user.list";
+  users: UserProfile[];
+}
+
+export interface UserUpdatedEvent {
+  type: "user.updated";
+  user: UserProfile;
+}
+
 export type ServerEvent =
-  MessageNewEvent | HistoryPageEvent | ChannelListEvent | PresignResultEvent | ErrorEvent;
+  | MessageNewEvent
+  | MessageReactionEvent
+  | HistoryPageEvent
+  | ChannelListEvent
+  | PresignResultEvent
+  | UserListEvent
+  | UserUpdatedEvent
+  | ErrorEvent;
 
 export type ServerEventType = ServerEvent["type"];

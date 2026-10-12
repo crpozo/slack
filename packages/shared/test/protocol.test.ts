@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  CLIENT_ACTIONS,
   ClientActionSchema,
+  isChannelMember,
   MAX_ATTACHMENT_SIZE,
   MAX_TEXT_LENGTH,
   MessageActionSchema,
@@ -69,5 +71,47 @@ describe("protocol", () => {
       success: true,
       data: { action: "message", channelId: "c", text: "hola", clientId: "x" },
     });
+  });
+});
+
+describe("phase 5.1 contract", () => {
+  it("creates private channels by default", () => {
+    const parsed = ClientActionSchema.parse({ action: "channel", op: "create", name: "equipo" });
+    expect(parsed).toMatchObject({ visibility: "private" });
+  });
+
+  it("validates invites, display names and reactions", () => {
+    const ok = [
+      { action: "channel", op: "invite", channelId: "ch_x", userIds: ["user-1"] },
+      { action: "user", op: "list" },
+      { action: "user", op: "update", displayName: "Carlos 🚀" },
+      { action: "react", channelId: "ch_x", sk: "1#A", emoji: "👨‍👩‍👧", op: "add" },
+      { action: "react", channelId: "ch_x", sk: "1#A", emoji: ":+1:", op: "remove" },
+    ];
+    for (const action of ok) {
+      expect(ClientActionSchema.safeParse(action).success, JSON.stringify(action)).toBe(true);
+    }
+    const bad = [
+      { action: "channel", op: "invite", channelId: "ch_x", userIds: [] },
+      { action: "channel", op: "invite", channelId: "ch_x", userIds: ["a_b"] },
+      { action: "user", op: "update", displayName: "" },
+      { action: "user", op: "update", displayName: "x".repeat(41) },
+      { action: "react", channelId: "ch_x", sk: "1#A", emoji: "👍", op: "toggle" },
+      { action: "react", channelId: "ch_x", sk: "1#A", emoji: "a b", op: "add" },
+    ];
+    for (const action of bad) {
+      expect(ClientActionSchema.safeParse(action).success, JSON.stringify(action)).toBe(false);
+    }
+  });
+
+  it("isChannelMember: public is open, private and dm need membership", () => {
+    expect(isChannelMember({ type: "public" }, "u1")).toBe(true);
+    expect(isChannelMember({ type: "private", members: ["u1"] }, "u1")).toBe(true);
+    expect(isChannelMember({ type: "private", members: ["u1"] }, "u2")).toBe(false);
+    expect(isChannelMember({ type: "dm" }, "u1")).toBe(false);
+  });
+
+  it("routes the new actions", () => {
+    expect(CLIENT_ACTIONS).toEqual(expect.arrayContaining(["user", "react"]));
   });
 });

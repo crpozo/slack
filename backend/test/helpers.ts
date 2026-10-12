@@ -2,8 +2,8 @@ import {
   ApiGatewayManagementApiClient,
   PostToConnectionCommand,
 } from "@aws-sdk/client-apigatewaymanagementapi";
-import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { ServerEvent } from "@mindfultech/shared";
+import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { dmChannelId, type Channel, type ServerEvent } from "@mindfultech/shared";
 import { mockClient } from "aws-sdk-client-mock";
 import { vi } from "vitest";
 import type { WsEvent } from "../src/lib/handler";
@@ -46,4 +46,48 @@ export function sentEvents(): Array<[string, ServerEvent]> {
     const { ConnectionId, Data } = call.args[0].input;
     return [ConnectionId as string, JSON.parse(String(Data)) as ServerEvent];
   });
+}
+
+export const GENERAL: Channel = {
+  channelId: "ch_general",
+  name: "general",
+  type: "public",
+  createdBy: "system",
+  createdAt: 1,
+  archived: false,
+};
+
+export function dmRow(a: string, b: string): Channel {
+  const channelId = dmChannelId(a, b);
+  return {
+    channelId,
+    name: channelId,
+    type: "dm",
+    createdBy: a,
+    createdAt: 2,
+    archived: false,
+    members: [a, b].sort(),
+  };
+}
+
+export function privateRow(channelId: string, createdBy: string, members: string[]): Channel {
+  return {
+    channelId,
+    name: channelId.replace(/^ch_/, ""),
+    type: "private",
+    createdBy,
+    createdAt: 3,
+    archived: false,
+    members,
+  };
+}
+
+/** Channel GetItem lookups resolve to these rows by key; anything else is "not found". */
+export function mockChannels(...rows: Channel[]): void {
+  ddbMock.on(GetCommand, { TableName: "slack-test-channels" }).resolves({});
+  for (const row of rows) {
+    ddbMock
+      .on(GetCommand, { TableName: "slack-test-channels", Key: { channelId: row.channelId } })
+      .resolves({ Item: row });
+  }
 }

@@ -30,7 +30,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
       onClose();
     };
     const publicItems: Item[] = channels
-      .filter((c) => c.type === "public")
+      .filter((c) => c.type !== "dm")
       .map((c) => ({
         key: c.channelId,
         label: c.name,

@@ -167,7 +167,7 @@ export function Sidebar({ activeChannelId, onOpenSwitcher, onSignOut }: SidebarP
   const publicChannels = useMemo(
     () =>
       channels
-        .filter((c) => c.type === "public")
+        .filter((c) => c.type !== "dm")
         .sort((a, b) =>
           a.channelId === "ch_general"
             ? -1

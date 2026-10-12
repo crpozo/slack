@@ -6,6 +6,7 @@ Object.assign(process.env, {
   MESSAGES_TABLE: "slack-test-messages",
   CONNECTIONS_TABLE: "slack-test-connections",
   CHANNELS_TABLE: "slack-test-channels",
+  USERS_TABLE: "slack-test-users",
   ATTACHMENTS_BUCKET: "slack-test-attachments",
   WS_ENDPOINT: "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
   USER_POOL_ID: "us-east-1_TEST",

@@ -1,4 +1,4 @@
-import type { ClientAction, ServerEvent, ServerEventType } from "@mindfultech/shared";
+import type { ClientActionInput, ServerEvent, ServerEventType } from "@mindfultech/shared";
 
 export type WsStatus = "idle" | "connecting" | "open" | "reconnecting" | "closed";
 
@@ -9,8 +9,8 @@ type Handler<T extends ServerEventType> = (event: EventOf<T>) => void;
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 /** Fields of a client action, without the `action` route key. */
-type PayloadOf<A extends ClientAction["action"]> = DistributiveOmit<
-  Extract<ClientAction, { action: A }>,
+type PayloadOf<A extends ClientActionInput["action"]> = DistributiveOmit<
+  Extract<ClientActionInput, { action: A }>,
   "action"
 >;
 
@@ -105,7 +105,7 @@ export class WsClient {
     void this.open();
   }
 
-  send<A extends ClientAction["action"]>(action: A, payload: PayloadOf<A>): void {
+  send<A extends ClientActionInput["action"]>(action: A, payload: PayloadOf<A>): void {
     const frame = JSON.stringify({ action, ...payload });
     if (this.socket?.readyState === 1) this.socket.send(frame);
     else this.queue.push(frame);

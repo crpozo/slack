@@ -6,6 +6,7 @@ export class Data extends Construct {
   readonly messages: Table;
   readonly connections: Table;
   readonly channels: Table;
+  readonly users: Table;
 
   constructor(scope: Construct, id: string, props: { stage: Stage }) {
     super(scope, id);
@@ -32,6 +33,13 @@ export class Data extends Construct {
       ...common,
       tableName: `slack-${props.stage}-channels`,
       partitionKey: { name: "channelId", type: AttributeType.STRING },
+    });
+
+    // Directory of everyone who has signed in: email + display name (Phase 5.1).
+    this.users = new Table(this, "Users", {
+      ...common,
+      tableName: `slack-${props.stage}-users`,
+      partitionKey: { name: "userId", type: AttributeType.STRING },
     });
   }
 }

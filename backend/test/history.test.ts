@@ -2,7 +2,15 @@ import { QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { dmChannelId, GENERAL_CHANNEL_ID, type HistoryPageEvent } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { decodeCursor, encodeCursor, handler } from "../src/handlers/history";
-import { ddbMock, resetMocks, sentEvents, wsEvent } from "./helpers";
+import {
+  ddbMock,
+  GENERAL,
+  mockChannels,
+  privateRow,
+  resetMocks,
+  sentEvents,
+  wsEvent,
+} from "./helpers";
 
 const msg = (n: number) => ({
   channelId: GENERAL_CHANNEL_ID,
@@ -11,7 +19,10 @@ const msg = (n: number) => ({
 });
 
 describe("history", () => {
-  beforeEach(resetMocks);
+  beforeEach(() => {
+    resetMocks();
+    mockChannels(GENERAL);
+  });
 
   it("returns the newest page in ascending order with a nextCursor", async () => {
     ddbMock.on(QueryCommand).resolves({
@@ -78,5 +89,21 @@ describe("history", () => {
     expect(result.statusCode).toBe(400);
     expect(ddbMock.commandCalls(QueryCommand)).toHaveLength(0);
     expect(sentEvents()[0]?.[1]).toMatchObject({ type: "error", code: "CHANNEL_NOT_FOUND" });
+  });
+
+  it("hides private channels from non-members", async () => {
+    mockChannels(privateRow("ch_team", "user-bob", ["user-bob"]));
+    const result = await handler(wsEvent("history", { action: "history", channelId: "ch_team" }));
+    expect(result.statusCode).toBe(400);
+    expect(ddbMock.commandCalls(QueryCommand)).toHaveLength(0);
+  });
+
+  it("sends reactions as sorted arrays instead of DynamoDB sets", async () => {
+    ddbMock.on(QueryCommand).resolves({
+      Items: [{ ...msg(1), reactions: { "👍": new Set(["u-b", "u-a"]) } }],
+    });
+    await handler(wsEvent("history", { action: "history", channelId: GENERAL_CHANNEL_ID }));
+    const [[, event]] = sentEvents() as [[string, HistoryPageEvent]];
+    expect(event.items[0]?.reactions).toEqual({ "👍": ["u-a", "u-b"] });
   });
 });
