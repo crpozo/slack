@@ -8,7 +8,7 @@ import {
   mediaErrorText,
   saveMediaPrefs,
 } from "./media";
-import { startRingtone, stopRingtone } from "./ringtone";
+import { startRinging, stopRinging } from "./sounds";
 import type { DistributiveOmit } from "./ws";
 
 /**
@@ -230,6 +230,7 @@ export class CallManager {
       await pc.setLocalDescription(offer);
       if (!this.isCurrent(session)) return;
       this.signal(session, { signal: "offer", media, sdp: offer.sdp ?? "" });
+      startRinging("outgoing");
     } catch {
       this.fail(session, "Couldn't start the call.");
       return;
@@ -244,7 +245,7 @@ export class CallManager {
   async accept(): Promise<void> {
     const session = this.session;
     if (session?.role !== "callee" || session.phase !== "incoming" || !session.offerSdp) return;
-    stopRingtone();
+    stopRinging();
     session.phase = "connecting";
     this.publish();
 
@@ -490,7 +491,7 @@ export class CallManager {
       phase: "incoming",
     });
     session.offerSdp = event.sdp;
-    startRingtone();
+    startRinging("incoming");
     this.publish();
     this.later(session, INCOMING_TIMEOUT_MS, () => {
       if (session.phase === "incoming") {
@@ -501,6 +502,7 @@ export class CallManager {
 
   private async receiveAnswer(session: Session, sdp: string): Promise<void> {
     if (session.role !== "caller" || session.phase !== "outgoing" || !session.pc) return;
+    stopRinging();
     session.phase = "connecting";
     this.publish();
     try {
@@ -717,7 +719,7 @@ export class CallManager {
       const duration = Date.now() - (session.connectedAt ?? Date.now());
       this.deps?.postMessage(session.channelId, callSummaryText(session.media, duration));
     }
-    stopRingtone();
+    stopRinging();
     session.timers.forEach((t) => clearTimeout(t));
     clearTimeout(session.graceTimer);
     for (const track of [session.mic, session.camera, session.screen]) track?.stop();

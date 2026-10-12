@@ -10,6 +10,7 @@ import {
   type InputDevices,
   type MediaPrefs,
 } from "../lib/media";
+import { onSoundsChange, setSoundsEnabled, soundsEnabled } from "../lib/sounds";
 import { getThemePreference, setThemePreference, type ThemePreference } from "../lib/theme";
 import { useChat, useNameOf } from "../store";
 import { Avatar } from "./Avatar";
@@ -140,6 +141,34 @@ function DeviceSettings() {
   );
 }
 
+/** "Play notification sounds" switch; applies and saves immediately. */
+function NotificationSettings() {
+  const [enabled, setEnabled] = useState(soundsEnabled);
+  useEffect(() => onSoundsChange(setEnabled), []);
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5">
+      <span>
+        <span className="block text-sm font-medium text-ink">Play notification sounds</span>
+        <span className="block text-xs text-ink-secondary">
+          Ringing for calls and a short pop for new messages in other conversations.
+        </span>
+      </span>
+      <input
+        type="checkbox"
+        role="switch"
+        aria-checked={enabled}
+        checked={enabled}
+        onChange={(e) => setSoundsEnabled(e.target.checked)}
+        className="peer sr-only"
+      />
+      <span
+        aria-hidden="true"
+        className="relative h-6 w-11 shrink-0 rounded-full bg-line transition-colors peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-surface after:shadow after:transition-transform peer-checked:after:translate-x-5"
+      />
+    </label>
+  );
+}
+
 /** Profile (display name), appearance (theme) and call devices. */
 export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
   const me = useChat((s) => s.me);
@@ -247,6 +276,11 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold text-ink">Notifications</h3>
+          <NotificationSettings />
         </section>
 
         <section className="space-y-2">
