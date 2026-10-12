@@ -4,7 +4,7 @@ import { ddb, tables, type ConnectionItem } from "./ddb";
 import { log } from "./logger";
 import { reply } from "./response";
 
-type LiveConnection = Pick<ConnectionItem, "connectionId" | "userId">;
+export type LiveConnection = Pick<ConnectionItem, "connectionId" | "userId">;
 
 /** All rows of `connections` (≤ a handful at this scale, so a Scan is fine). */
 export async function listConnections(): Promise<LiveConnection[]> {
@@ -20,18 +20,19 @@ export async function listConnections(): Promise<LiveConnection[]> {
 }
 
 /**
- * Sends an event to every live connection, built per recipient by `eventFor`
- * (return `null` to skip that recipient). Connections that answer 410 Gone
- * are deleted from `connections`.
+ * Sends each of `connections` the event built for it by `eventFor` (return
+ * `null` to skip one). Connections that answer 410 Gone are deleted from
+ * `connections`.
+ * @returns how many connections the event reached.
  */
-export async function broadcast(
+export async function deliver(
+  connections: LiveConnection[],
   eventFor: (connection: LiveConnection) => ServerEvent | null,
-): Promise<void> {
-  const connections = await listConnections();
+): Promise<number> {
   const results = await Promise.allSettled(
     connections.map(async (connection) => {
       const event = eventFor(connection);
-      if (!event) return;
+      if (!event) return false;
       const delivered = await reply(connection.connectionId, event);
       if (!delivered) {
         await ddb.send(
@@ -42,11 +43,23 @@ export async function broadcast(
         );
         log.info("removed stale connection", { connectionId: connection.connectionId });
       }
+      return delivered;
     }),
   );
+  let count = 0;
   for (const result of results) {
     if (result.status === "rejected") {
-      log.warn("broadcast delivery failed", { reason: String(result.reason) });
+      log.warn("delivery failed", { reason: String(result.reason) });
+    } else if (result.value) {
+      count++;
     }
   }
+  return count;
+}
+
+/** Sends an event to every live connection (see `deliver`). */
+export async function broadcast(
+  eventFor: (connection: LiveConnection) => ServerEvent | null,
+): Promise<void> {
+  await deliver(await listConnections(), eventFor);
 }
