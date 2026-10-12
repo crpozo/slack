@@ -66,3 +66,32 @@ describe("isGroupedWith", () => {
     expect(isGroupedWith(undefined, msg(1))).toBe(false);
   });
 });
+
+describe("store: users and reactions", async () => {
+  const { useChat, selectName } = await import("./index");
+
+  it("applies server reactions to the matching message only", () => {
+    const store = useChat.getState();
+    store.setSession({ userId: "me", email: "me@mt.ec" });
+    store.receiveHistory("ch_general", [msg(1), msg(2)], null);
+    useChat.getState().setReactions("ch_general", msg(2).sk, { "🎉": ["bob", "me"] });
+
+    const [first, second] = useChat.getState().messagesByChannel.ch_general ?? [];
+    expect(first?.reactions).toBeUndefined();
+    expect(second?.reactions).toEqual({ "🎉": ["bob", "me"] });
+  });
+
+  it("resolves names from the directory, then the email", () => {
+    const store = useChat.getState();
+    store.setSession({ userId: "me", email: "me@mt.ec" });
+    store.setUsers([{ userId: "bob", email: "bob@mt.ec", displayName: "Roberto", updatedAt: 1 }]);
+    expect(selectName(useChat.getState(), "bob")).toBe("Roberto");
+    expect(selectName(useChat.getState(), "me")).toBe("me");
+    expect(selectName(useChat.getState(), "ghost", "ghost@mt.ec")).toBe("ghost");
+
+    useChat
+      .getState()
+      .upsertUser({ userId: "bob", email: "bob@mt.ec", displayName: "Bobby", updatedAt: 2 });
+    expect(selectName(useChat.getState(), "bob")).toBe("Bobby");
+  });
+});

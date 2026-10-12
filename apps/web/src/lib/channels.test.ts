@@ -46,17 +46,51 @@ describe("dmEntries", () => {
       (id) => dmChannelId(me.userId, id),
     );
     expect(entries).toEqual([
-      { email: "ana@mt.ec", userId: "u-ana", channelId: undefined },
-      { email: "bo@mt.ec", userId: "u-bo", channelId: dmChannelId(me.userId, "u-bo") },
-      { email: "zed@mt.ec", userId: "u-zed", channelId: dmChannelId(me.userId, "u-zed") },
+      { email: "ana@mt.ec", name: "ana", userId: "u-ana", channelId: undefined },
+      { email: "bo@mt.ec", name: "bo", userId: "u-bo", channelId: dmChannelId(me.userId, "u-bo") },
+      {
+        email: "zed@mt.ec",
+        name: "zed",
+        userId: "u-zed",
+        channelId: dmChannelId(me.userId, "u-zed"),
+      },
     ]);
   });
 
-  it("labels DMs with the peer's email", () => {
+  it("lists the server directory by display name, without duplicates", () => {
+    const profile = (userId: string, email: string, displayName: string) => ({
+      userId,
+      email,
+      displayName,
+      updatedAt: 1,
+    });
+    const entries = dmEntries(
+      [{ email: "bo@mt.ec", userId: "u-bo" }],
+      [],
+      me,
+      {},
+      (id) => dmChannelId(me.userId, id),
+      {
+        "u-me": profile("u-me", "me@mt.ec", "Yo"),
+        "u-bo": profile("u-bo", "bo@mt.ec", "Zoe"),
+        "u-al": profile("u-al", "al@mt.ec", "Alba"),
+      },
+    );
+    expect(entries.map((e) => [e.userId, e.name])).toEqual([
+      ["u-al", "Alba"],
+      ["u-bo", "Zoe"],
+    ]);
+  });
+
+  it("labels DMs with the peer's display name", () => {
     expect(
-      channelLabel(dmChannelId("u-me", "u-bo"), undefined, "u-me", { "u-bo": "bo@mt.ec" }),
-    ).toBe("bo@mt.ec");
-    expect(channelLabel(dmChannelId("u-me", "u-x"), undefined, "u-me", {})).toBe("Mensaje directo");
+      channelLabel(dmChannelId("u-me", "u-bo"), undefined, "u-me", (id) =>
+        id === "u-bo" ? "Bo" : undefined,
+      ),
+    ).toBe("Bo");
+    expect(channelLabel(dmChannelId("u-me", "u-x"), undefined, "u-me", () => undefined)).toBe(
+      "Mensaje directo",
+    );
   });
 });
 
