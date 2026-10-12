@@ -84,32 +84,37 @@ aws cognito-idp admin-set-user-password \
 cp apps/web/.env.example apps/web/.env
 ```
 
-| Variable                    | Valor                                      |
-| --------------------------- | ------------------------------------------ |
-| `VITE_WS_URL`               | output `WebSocketUrl`                      |
-| `VITE_COGNITO_USER_POOL_ID` | output `UserPoolId`                        |
-| `VITE_COGNITO_CLIENT_ID`    | output `UserPoolClientId`                  |
-| `VITE_USERS`                | equipo para los DMs: `email=sub,email=sub` |
+| Variable                    | Valor                               |
+| --------------------------- | ----------------------------------- |
+| `VITE_WS_URL`               | output `WebSocketUrl`               |
+| `VITE_COGNITO_USER_POOL_ID` | output `UserPoolId`                 |
+| `VITE_COGNITO_CLIENT_ID`    | output `UserPoolClientId`           |
+| `VITE_USERS`                | opcional: `email=sub,…` (ver abajo) |
 
-El `sub` (id de Cognito) de cada persona sale de:
-
-```bash
-aws cognito-idp list-users --user-pool-id <UserPoolId> \
-  --query "Users[].[Attributes[?Name=='email'].Value|[0], Attributes[?Name=='sub'].Value|[0]]" \
-  --output text
-```
-
-Si a alguien le falta el `sub`, su DM aparece deshabilitado hasta que la app lo aprenda de un
-mensaje suyo en un canal.
+Desde la Fase 5.1 el directorio de personas viene del backend (todas las que han iniciado sesión
+al menos una vez), así que `VITE_USERS` ya no hace falta. Solo sirve para que aparezca en la
+lista de DMs alguien que todavía no ha entrado nunca.
 
 ```bash
 pnpm dev     # http://localhost:5173
 ```
 
-La UI: login con email y contraseña (la sesión persiste al recargar), canales y DMs en la barra
-lateral con badge de no leídos, `+` para crear canal, `Ctrl/⌘ + K` para saltar de canal, Enter
-envía y Shift + Enter hace salto de línea, y se puede arrastrar, pegar o adjuntar archivos de
-hasta 25 MB. En móvil la barra lateral es un menú desplegable.
+La UI:
+
+- **Sesión:** login con email y contraseña; la sesión persiste al recargar.
+- **Barra lateral:** canales (🔒 los privados) y DMs con badge de no leídos. Se ensancha
+  arrastrando su borde y se contrae a solo iconos con el botón de la cabecera o `Ctrl/⌘ + B`;
+  ambas cosas se recuerdan. En móvil es un menú desplegable.
+- **Canales:** `+` abre "Crear canal", con Público/Privado (privado por defecto) e invitaciones
+  desde el directorio. Quien crea un canal privado ve "Invitar" en su cabecera.
+- **Mensajes:** Enter envía y Shift + Enter hace salto de línea. Se pueden adjuntar, pegar o
+  arrastrar archivos de hasta 25 MB, e insertar emojis con el botón 🙂 del compositor.
+- **Reacciones:** al pasar el ratón por un mensaje aparecen reacciones rápidas y el selector
+  completo (búsqueda en español). Las fichas bajo el mensaje muestran el recuento; un clic pone
+  o quita la tuya.
+- **Ajustes** (clic en tu nombre, abajo a la izquierda): nombre visible, que el resto ve en vivo,
+  y tema Claro / Oscuro / Sistema.
+- `Ctrl/⌘ + K` abre el buscador para saltar de canal o persona.
 
 ### Probar el WebSocket con `wscat`
 
