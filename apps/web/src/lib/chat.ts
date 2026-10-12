@@ -147,6 +147,7 @@ class ChatController {
     // WebRTC signaling: the call manager owns everything about calls.
     calls.attach({
       send: (payload) => client.send("call", payload),
+      postMessage: (channelId, text) => this.sendMessage(channelId, text, []),
       myUserId: () => store().me?.userId ?? null,
       nameOf: (userId) => selectName(store(), userId),
       notify: (text) => store().showToast(text),

@@ -1,7 +1,13 @@
 import type { CallEndReason, CallEvent, CallMedia, ClientActionInput } from "@mindfultech/shared";
 import { ulid } from "ulid";
 import { create } from "zustand";
-import { getUserMediaWithFallback, mediaErrorText } from "./media";
+import {
+  getDeviceTrack,
+  getUserMediaWithFallback,
+  loadMediaPrefs,
+  mediaErrorText,
+  saveMediaPrefs,
+} from "./media";
 import { startRingtone, stopRingtone } from "./ringtone";
 import type { DistributiveOmit } from "./ws";
 
@@ -44,6 +50,9 @@ export interface CallView {
   remoteStream: MediaStream | null;
   peer: PeerMediaState;
   connectedAt: number | null;
+  /** Devices currently captured (`null` while that input is off). */
+  micDeviceId: string | null;
+  cameraDeviceId: string | null;
 }
 
 export const useCall = create<{ call: CallView | null }>(() => ({ call: null }));
@@ -81,6 +90,8 @@ interface Session {
 
 export interface CallDeps {
   send: SendCallSignal;
+  /** Posts a regular chat message (used for the "call ended" summary). */
+  postMessage: (channelId: string, text: string) => void;
   myUserId: () => string | null;
   nameOf: (userId: string) => string;
   notify: (text: string) => void;
@@ -110,7 +121,32 @@ export function endNotice(
   }
 }
 
-class CallManager {
+/** `05:23`, or `1:02:03` from one hour on. */
+export function formatCallDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  const mmss = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  return hours > 0 ? `${hours}:${mmss}` : mmss;
+}
+
+/** Chat message posted to the DM when a connected call ends. */
+export function callSummaryText(media: CallMedia, durationMs: number): string {
+  const label = media === "video" ? "📹 Video call ended" : "📞 Call ended";
+  return `${label} • ${formatCallDuration(durationMs)}`;
+}
+
+/**
+ * Exactly one side posts the summary: the caller, whoever hung up. Each side
+ * ends a call once (`finish`), so the summary can't be posted twice, and a
+ * simultaneous hang-up on both ends can't produce two messages.
+ */
+export function postsCallSummary(role: "caller" | "callee", connectedAt: number | null): boolean {
+  return role === "caller" && connectedAt !== null;
+}
+
+export class CallManager {
   private deps: CallDeps | null = null;
   private session: Session | null = null;
   private readonly onPageHide = () => {
@@ -296,6 +332,55 @@ class CallManager {
     });
     session.screen = track;
     await session.videoSender?.replaceTrack(track);
+    this.publish();
+    this.sendMediaState(session);
+  }
+
+  /**
+   * Swaps the microphone or camera mid-call: captures the new device and
+   * `replaceTrack`s it into the existing sender, so the connection is never
+   * renegotiated. The choice is also saved as the preferred device. With the
+   * camera off it is only saved, and used when the camera is turned back on.
+   */
+  async switchDevice(kind: "audio" | "video", deviceId: string): Promise<void> {
+    const session = this.session;
+    if (!session || session.phase === "incoming") return;
+    const prefs = loadMediaPrefs();
+    saveMediaPrefs(
+      kind === "audio"
+        ? { ...prefs, audioInputId: deviceId }
+        : { ...prefs, videoInputId: deviceId },
+    );
+
+    const current = kind === "audio" ? session.mic : session.camera;
+    if (!current) {
+      this.publish();
+      return;
+    }
+    if (current.getSettings().deviceId === deviceId) return;
+
+    let track: MediaStreamTrack;
+    try {
+      track = await getDeviceTrack(kind, deviceId);
+    } catch (err) {
+      this.deps?.notify(mediaErrorText(err, kind === "audio" ? "microphone" : "camera"));
+      return;
+    }
+    const stillCurrent = kind === "audio" ? session.mic : session.camera;
+    if (!this.isCurrent(session) || stillCurrent !== current) {
+      track.stop(); // the call ended or the input was toggled meanwhile
+      return;
+    }
+    if (kind === "audio") {
+      track.enabled = current.enabled; // keep muted calls muted
+      await session.audioSender?.replaceTrack(track);
+      session.mic = track;
+    } else {
+      // While sharing, the screen stays on the wire; the new camera returns after.
+      if (!session.screen) await session.videoSender?.replaceTrack(track);
+      session.camera = track;
+    }
+    current.stop();
     this.publish();
     this.sendMediaState(session);
   }
@@ -590,6 +675,10 @@ class CallManager {
   private finish(session: Session, notice: string | null): void {
     if (!this.isCurrent(session)) return;
     this.session = null;
+    if (postsCallSummary(session.role, session.connectedAt)) {
+      const duration = Date.now() - (session.connectedAt ?? Date.now());
+      this.deps?.postMessage(session.channelId, callSummaryText(session.media, duration));
+    }
     stopRingtone();
     session.timers.forEach((t) => clearTimeout(t));
     clearTimeout(session.graceTimer);
@@ -624,6 +713,8 @@ class CallManager {
         remoteStream: s.remote.getTracks().length > 0 ? s.remote : null,
         peer: { ...s.peer },
         connectedAt: s.connectedAt,
+        micDeviceId: s.mic?.getSettings().deviceId ?? null,
+        cameraDeviceId: s.camera?.getSettings().deviceId ?? null,
       },
     });
   }
