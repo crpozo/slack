@@ -403,9 +403,80 @@ Tiempos estimados asumiendo que Opus genera el código y tú supervisas: F1 2 h 
 
 ---
 
-### FASE 5 (opcional, solo si el MVP está en `main` antes de las 15:00) — Desktop app con Tauri
+### FASE 5 — Expansión de funcionalidades (v0.2.0)
 
-**Rama:** `feature/f5-tauri` (nace de `main` después del release; va a v0.1.1).
+> **Añadida el 12 oct**, con el MVP v0.1.0 en producción. Sustituye a la antigua "Fase 5 — Tauri", que pasa a ser la Fase 6. Mueve a la columna izquierda de la sección 0 estos puntos de v0.2: **reacciones**, **canales privados**, **nombres visibles**, **modo oscuro**, **barra lateral colapsable**, **selector de emojis** y **llamadas de voz/vídeo (WebRTC)**.
+
+**Requisitos de negocio**
+
+1. **Llamadas de voz y vídeo** P2P con WebRTC. El WebSocket de API Gateway se usa **solo para señalización** (ofertas/respuestas SDP y candidatos ICE): el audio y el vídeo nunca pasan por AWS, así que el coste extra es USD 0.
+2. **UI/UX:** modo oscuro (Tailwind), barra lateral redimensionable y colapsable (modo solo iconos) y selector de emojis en el compositor.
+3. **Canales privados:** los canales nuevos son **privados por defecto**; quien crea el canal invita a miembros concretos. Solo los miembros ven el canal, su historial y sus adjuntos, y solo ellos reciben sus mensajes.
+4. **Reacciones** con emoji a mensajes concretos.
+5. **Nombres visibles:** cada persona define un nombre en Ajustes, que pasa a ser su identificador principal en la UI (en lugar del email o del `sub` de Cognito).
+
+Se ejecuta en tres sub-fases, cada una en su rama y su PR a `main`:
+
+#### 5.1 — Backend y modelo de datos
+
+**Rama:** `feature/f5-1-backend` · **Entrega:** protocolo, handlers, tablas y permisos listos y testeados; la UI actual sigue funcionando igual.
+
+1. **Tabla `slack-${stage}-users`** (PK `userId` S; `email`, `displayName`, `createdAt`, `updatedAt`). Se eligió una tabla y no un atributo de Cognito porque todos los clientes leen el directorio en tiempo real con un solo Scan, y la Lambda no necesita permisos de administración de Cognito.
+   - `$connect` hace un upsert de la fila (email del token; `displayName` por defecto = parte local del email, sin pisar uno existente). Así cualquiera que haya iniciado sesión aparece en el directorio, lo que **reemplaza `VITE_USERS`** para DMs e invitaciones.
+   - Nueva acción `user`: `{ op: "list" }` → `user.list { users[] }` al emisor; `{ op: "update", displayName }` (1–40 caracteres, sin caracteres de control) → guarda y difunde `user.updated { user }` a todos.
+   - Los mensajes siguen guardando `userId`/`userEmail`; el nombre se resuelve en el cliente con el directorio, así un cambio de nombre se ve también en el historial.
+2. **Canales privados.** `type` pasa a `public | private | dm`; `members: string[]` en `private` y `dm`.
+   - `channel { op: "create", name, visibility? }`: `visibility` es `private` por defecto; quien crea es miembro. Los nombres son únicos entre públicos y privados.
+   - `channel { op: "invite", channelId, userIds[] }`: solo quien creó el canal (`FORBIDDEN` si no), solo canales privados, y solo usuarios que existan en `users` (`USER_NOT_FOUND`). Difunde `channel.list`, filtrada por persona.
+   - **Autorización en el backend:** `message`, `history`, `presign` y `react` cargan el canal y comprueban acceso (público, o miembro). Si no hay acceso, la respuesta es `CHANNEL_NOT_FOUND`, sin revelar que existe. El fan-out de `message.new` y `message.reaction` va solo a conexiones de miembros. `channel.list` solo incluye públicos y aquellos de los que se es miembro.
+   - Los canales públicos existentes (incluido `#general`) siguen siendo públicos; no hace falta migración.
+3. **Reacciones.** `reactions` en `messages` es un mapa `emoji → string set de userIds`.
+   - Nueva acción `react { channelId, sk, emoji, op: "add" | "remove" }`: `ADD`/`DELETE` atómico sobre el set, idempotente por persona. Los mensajes antiguos sin `reactions` se inicializan al vuelo.
+   - Difunde `message.reaction { channelId, sk, messageId, reactions }` a los miembros. `history.page` y `message.new` incluyen `reactions` como `Record<emoji, userId[]>`.
+   - Emoji: 1–16 caracteres sin espacios ni caracteres de control.
+4. **Permisos mínimos nuevos:**
+   - `connect`: `UpdateItem` en `users`.
+   - `user`: `Scan` y `UpdateItem` en `users`, más difusión.
+   - `react`: `UpdateItem` en `messages` y `GetItem` en `channels`, más difusión.
+   - `history` y `presign`: `GetItem` en `channels`.
+   - `channel`: `UpdateItem` en `channels` y `BatchGetItem` en `users`.
+5. **Tests:** handlers `user` y `react`; invitaciones (creador, `FORBIDDEN`, `USER_NOT_FOUND`); acceso denegado a privados en `message`, `history`, `presign` y `react`; fan-out solo a miembros; upsert del usuario en `$connect`; aserciones CDK de la tabla `users`, las rutas nuevas y los permisos.
+
+**Criterios de aceptación 5.1:** `pnpm lint` y `pnpm test` en verde; `cdk synth` sin recursos reemplazados (solo se añaden la tabla `users`, las Lambdas `user`/`react` y sus rutas); con `wscat`, un no-miembro no recibe los mensajes de un canal privado ni puede leer su historial.
+
+#### 5.2 — UI/UX
+
+**Rama:** `feature/f5-2-ui`
+
+1. **Modo oscuro:** `darkMode: "class"` en Tailwind. Toggle Claro/Oscuro/Sistema en Ajustes, guardado en localStorage, con la preferencia del SO por defecto. Tokens oscuros derivados del design system MindfulTech: superficies en tonos de `ink`, texto claro y `primary`/`sky` como acentos con contraste AA.
+2. **Barra lateral:** ancho redimensionable arrastrando el borde (200–400 px, persistido) y colapsable a modo solo iconos (avatares/iniciales con badge). Tooltip con el nombre al pasar el ratón. En móvil sigue siendo el cajón actual.
+3. **Selector de emojis** en el compositor (inserta en el cursor) y para reaccionar. Debe ser una librería ligera cargada bajo demanda (`import()` dinámico) para no engordar el bundle inicial.
+4. **Reacciones:** chips bajo cada mensaje (emoji + contador, resaltado si reaccioné), clic para alternar y "+" para el selector.
+5. **Ajustes:** modal con nombre visible (`user update`) y tema. Toda la UI muestra `displayName` (email en tooltip).
+6. **Canales privados:** al crear se elige Público/Privado (por defecto Privado) y se pueden invitar personas desde el directorio `user.list`; el creador ve "Invitar" en la cabecera del canal. Candado en la barra lateral para privados. Los DMs se abren desde el directorio, sin `VITE_USERS`.
+
+**Criterios de aceptación 5.2:** tema persistente sin parpadeo al cargar; sidebar colapsada y ancho que sobreviven a la recarga; reacciones en tiempo real en ambos navegadores; un canal privado no aparece para un no invitado hasta que lo invitan; el nombre visible cambia en vivo en la otra sesión.
+
+#### 5.3 — Llamadas WebRTC (P2P)
+
+**Rama:** `feature/f5-3-webrtc`
+
+1. **Señalización:** nueva acción `rtc { callId, to, kind: "offer" | "answer" | "ice" | "hangup" | "ring" | "decline", payload }`.
+   - La Lambda solo reenvía `rtc.signal { callId, from, kind, payload }` a las conexiones del usuario `to`, si emisor y destino comparten un DM o canal; no guarda nada.
+   - Límites: payload de 16 KB como máximo, y ofertas/respuestas validadas como SDP de texto.
+2. **Medios:** `RTCPeerConnection` con STUN público y gratuito (`stun:stun.l.google.com:19302`) y **sin TURN**, porque TURN costaría dinero. Limitación documentada: en NAT simétricas o redes corporativas la llamada puede no conectar. Si hace falta, se evaluará un TURN propio en una v0.3.
+3. **UI:** botones de llamada de voz y de vídeo en la cabecera de un DM; modal de llamada entrante (aceptar/rechazar) con tono; vista de llamada con vídeo local/remoto, silenciar, cámara on/off y colgar. Llamadas 1 a 1 solamente.
+4. **Permisos:** solo `ManageConnections` y lectura de `connections`/`channels` para la Lambda `rtc`.
+
+**Criterios de aceptación 5.3:** llamada de voz y de vídeo entre dos navegadores en redes domésticas distintas; colgar en un lado cierra el otro; el coste en AWS no cambia (solo mensajes WebSocket de señalización).
+
+**Cierre de la Fase 5:** `CHANGELOG.md` y versiones a `0.2.0`, README actualizado y tag `v0.2.0`.
+
+---
+
+### FASE 6 (opcional) — Desktop app con Tauri
+
+**Rama:** `feature/f6-tauri` (nace de `main` después de v0.2.0).
 
 **Instrucciones para Opus:**
 
@@ -414,7 +485,7 @@ Tiempos estimados asumiendo que Opus genera el código y tú supervisas: F1 2 h 
 3. `.github/workflows/desktop.yml`: en tag `v*`, matriz `macos-latest` + `windows-latest`, `tauri-apps/tauri-action` publica `.dmg` y `.msi` como assets del release. Sin firma de código por ahora (documentar el aviso de Gatekeeper/SmartScreen en README).
 4. Badge en dock/taskbar y Cmd/Ctrl+F quedan para v0.2.
 
-**Criterio de aceptación F5:** el `.dmg` y el `.msi` del release abren la app, muestran el login y reciben una notificación nativa con la ventana en segundo plano.
+**Criterio de aceptación F6:** el `.dmg` y el `.msi` del release abren la app, muestran el login y reciben una notificación nativa con la ventana en segundo plano.
 
 ---
 
