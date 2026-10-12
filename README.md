@@ -106,6 +106,8 @@ The UI:
 - **Sidebar:** channels (🔒 for private ones) and DMs with an unread badge. Widen it by dragging
   its edge and collapse it to icons only with the header button or `Ctrl/⌘ + B`; both are
   remembered. On mobile it is a slide-out menu.
+- **Direct messages:** the `+` next to "Direct messages" opens a people picker; choosing someone
+  opens the DM right away.
 - **Channels:** `+` opens "Create channel", with Public/Private (private by default) and
   invitations from the directory. Whoever creates a private channel sees "Invite" in its header.
 - **Messages:** Enter sends and Shift + Enter adds a new line. Files up to 25 MB can be
@@ -115,8 +117,11 @@ The UI:
 - **Settings** (click your name, bottom left): display name, which everyone else sees live, and
   the Light / Dark / System theme (light by default).
 - **Calls (DMs only):** the 📞 and 🎥 buttons in a DM's header start a voice or video call.
-  The other person gets a ringing card (Accept / Decline); during the call there are mic,
-  camera, screen-share and hang-up controls. Calls are peer-to-peer WebRTC: the WebSocket only
+  The other person gets a ringing card (Accept / Decline). The call shows as a panel above the
+  messages of that DM, Discord-style, so the sidebar and the composer stay usable; in other
+  channels a slim "In a call with…" bar keeps the audio going and takes you back. Controls:
+  mic, camera, screen share and hang up. Screen sharing sends the screen as a second video
+  track, so both people's cameras stay visible in a strip next to the shared screen. Calls are peer-to-peer WebRTC: the WebSocket only
   relays the signaling (`call` route), audio and video never go through AWS. There is a public
   STUN server but no TURN relay, so a call may fail to connect behind strict corporate or
   symmetric NATs. The chevrons next to the mic and camera buttons switch devices mid-call
@@ -236,6 +241,9 @@ retry with `GITHUB_OIDC_PROVIDER_ARN=arn:aws:iam::<account>:oidc-provider/token.
 
 Since every merge to `main` reaches production, test each change on `SlackDev` before approving
 the PR.
+
+The web app sends a `ping` frame every 3 minutes while connected, because API Gateway closes
+WebSockets that stay idle for 10 minutes; the `ping` route is a no-op Lambda.
 
 ## Scripts
 
