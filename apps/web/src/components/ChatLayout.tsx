@@ -20,6 +20,7 @@ import {
 } from "../lib/sidebar";
 import { selectUnread, useChat } from "../store";
 import { CreateChannelModal } from "./ChannelModals";
+import { CallLayer } from "./CallLayer";
 import { ChannelView } from "./ChannelView";
 import { QuickSwitcher } from "./QuickSwitcher";
 import { SettingsModal } from "./SettingsModal";
@@ -214,6 +215,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         <ChannelView channelId={channelId} onOpenSidebar={() => setSidebarOpen(true)} />
       </main>
 
+      <CallLayer />
       {switcherOpen && <QuickSwitcher onClose={() => setSwitcherOpen(false)} />}
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       {createOpen && (

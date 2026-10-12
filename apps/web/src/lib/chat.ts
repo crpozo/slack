@@ -8,9 +8,10 @@ import {
   type PresignResultEvent,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
-import { useChat, type ChatMessage } from "../store";
+import { selectName, useChat, type ChatMessage } from "../store";
 import { pendingMessageId } from "../store/messages";
 import { getIdToken, SessionExpiredError } from "./auth";
+import { calls } from "./call";
 import { WsClient, type DistributiveOmit } from "./ws";
 
 const ERROR_TEXT: Record<ErrorCode, string> = {
@@ -143,6 +144,22 @@ class ChatController {
       }),
     );
 
+    // WebRTC signaling: the call manager owns everything about calls.
+    calls.attach({
+      send: (payload) => client.send("call", payload),
+      postMessage: (channelId, text) => this.sendMessage(channelId, text, []),
+      myUserId: () => store().me?.userId ?? null,
+      nameOf: (userId) => selectName(store(), userId),
+      notify: (text) => store().showToast(text),
+    });
+    this.cleanups.push(
+      client.on("call.offer", (event) => calls.handle(event)),
+      client.on("call.answer", (event) => calls.handle(event)),
+      client.on("call.ice_candidate", (event) => calls.handle(event)),
+      client.on("call.decline", (event) => calls.handle(event)),
+      client.on("call.end", (event) => calls.handle(event)),
+    );
+
     const onOnline = () => client.reconnectNow();
     window.addEventListener("online", onOnline);
     this.cleanups.push(() => window.removeEventListener("online", onOnline));
@@ -151,6 +168,8 @@ class ChatController {
   }
 
   stop(): void {
+    // Hang up while the socket can still tell the other side.
+    calls.detach();
     this.client?.disconnect();
     this.client = null;
     // Requests in flight died with the socket; let the next session re-issue them.

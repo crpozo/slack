@@ -1,9 +1,19 @@
 import { MAX_DISPLAY_NAME_LENGTH } from "@mindfultech/shared";
-import { useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { chat } from "../lib/chat";
+import {
+  listInputDevices,
+  loadMediaPrefs,
+  mediaErrorText,
+  saveMediaPrefs,
+  supportsCalls,
+  type InputDevices,
+  type MediaPrefs,
+} from "../lib/media";
 import { getThemePreference, setThemePreference, type ThemePreference } from "../lib/theme";
 import { useChat, useNameOf } from "../store";
 import { Avatar } from "./Avatar";
+import { CameraPreview } from "./CameraPreview";
 import { MonitorIcon, MoonIcon, SunIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 
@@ -13,7 +23,124 @@ const THEMES: Array<{ value: ThemePreference; label: string; Icon: typeof SunIco
   { value: "system", label: "System", Icon: MonitorIcon },
 ];
 
-/** Profile (display name) and appearance (theme). */
+function DeviceSelect({
+  id,
+  label,
+  devices,
+  value,
+  fallbackName,
+  onChange,
+}: Readonly<{
+  id: string;
+  label: string;
+  devices: MediaDeviceInfo[];
+  value: string;
+  fallbackName: string;
+  onChange: (deviceId: string) => void;
+}>) {
+  const missing = value !== "" && !devices.some((d) => d.deviceId === value);
+  return (
+    <div className="space-y-1">
+      <label htmlFor={id} className="text-xs font-medium text-ink-secondary">
+        {label}
+      </label>
+      <select id={id} className="input" value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">System default</option>
+        {devices.map((d, i) => (
+          <option key={d.deviceId} value={d.deviceId}>
+            {d.label || `${fallbackName} ${i + 1}`}
+          </option>
+        ))}
+        {missing && <option value={value}>Saved device (not connected)</option>}
+      </select>
+    </div>
+  );
+}
+
+/** Preferred microphone and camera for calls, saved as soon as they are picked. */
+function DeviceSettings() {
+  const [devices, setDevices] = useState<InputDevices | null>(null);
+  const [prefs, setPrefs] = useState<MediaPrefs>(loadMediaPrefs);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      setDevices(await listInputDevices());
+    } catch {
+      setDevices({ microphones: [], cameras: [], labelled: false });
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const media = navigator.mediaDevices;
+    const onChange = () => void refresh();
+    media?.addEventListener("devicechange", onChange);
+    return () => media?.removeEventListener("devicechange", onChange);
+  }, [refresh]);
+
+  /** Device names are hidden until the site has had media access once. */
+  async function allowAccess() {
+    setError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      stream.getTracks().forEach((t) => t.stop());
+    } catch (err) {
+      setError(mediaErrorText(err, "microphone and camera"));
+    }
+    await refresh();
+  }
+
+  function choose(key: keyof MediaPrefs, deviceId: string) {
+    const next = { ...prefs, [key]: deviceId };
+    setPrefs(next);
+    saveMediaPrefs(next);
+  }
+
+  if (!supportsCalls()) {
+    return <p className="text-xs text-ink-secondary">This browser doesn&apos;t support calls.</p>;
+  }
+  return (
+    <div className="space-y-3">
+      <DeviceSelect
+        id="microphone"
+        label="Microphone"
+        devices={devices?.microphones ?? []}
+        value={prefs.audioInputId}
+        fallbackName="Microphone"
+        onChange={(id) => choose("audioInputId", id)}
+      />
+      <DeviceSelect
+        id="camera"
+        label="Camera"
+        devices={devices?.cameras ?? []}
+        value={prefs.videoInputId}
+        fallbackName="Camera"
+        onChange={(id) => choose("videoInputId", id)}
+      />
+      <CameraPreview deviceId={prefs.videoInputId} />
+      {devices && !devices.labelled && (
+        <button
+          type="button"
+          onClick={() => void allowAccess()}
+          className="text-sm font-medium text-ink underline decoration-primary decoration-2 underline-offset-2"
+        >
+          Allow access to see your devices
+        </button>
+      )}
+      {error && (
+        <p role="alert" className="text-xs text-error">
+          {error}
+        </p>
+      )}
+      <p className="text-xs text-ink-secondary">
+        Used for calls. A change applies to your next call or when you turn your camera back on.
+      </p>
+    </div>
+  );
+}
+
+/** Profile (display name), appearance (theme) and call devices. */
 export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
   const me = useChat((s) => s.me);
   const nameOf = useNameOf();
@@ -120,6 +247,11 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold text-ink">Audio &amp; Video</h3>
+          <DeviceSettings />
         </section>
       </form>
     </Modal>

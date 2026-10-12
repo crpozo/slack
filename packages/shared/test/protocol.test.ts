@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  CallActionSchema,
   CLIENT_ACTIONS,
   ClientActionSchema,
   isChannelMember,
   MAX_ATTACHMENT_SIZE,
+  MAX_SDP_LENGTH,
   MAX_TEXT_LENGTH,
   MessageActionSchema,
   parseAction,
@@ -113,5 +115,57 @@ describe("phase 5.1 contract", () => {
 
   it("routes the new actions", () => {
     expect(CLIENT_ACTIONS).toEqual(expect.arrayContaining(["user", "react"]));
+  });
+
+  describe("call signaling", () => {
+    const base = { action: "call", callId: "c1", channelId: "dm_u1_u2", to: "u2" } as const;
+
+    it("accepts every signal and fills the defaults", () => {
+      const signals = [
+        { ...base, signal: "offer", media: "video", sdp: "v=0" },
+        { ...base, signal: "answer", sdp: "v=0" },
+        {
+          ...base,
+          signal: "ice_candidate",
+          candidate: {
+            candidate: "candidate:1 1 udp 1 1.2.3.4 5 typ host",
+            sdpMid: "0",
+            sdpMLineIndex: 0,
+          },
+        },
+        { ...base, signal: "ice_candidate", candidate: { candidate: "" } }, // end of candidates
+        { ...base, signal: "end", reason: "no_answer" },
+        { ...base, signal: "decline", reason: "busy" },
+      ];
+      for (const action of signals) {
+        expect(ClientActionSchema.safeParse(action).success, JSON.stringify(action)).toBe(true);
+      }
+      expect(CallActionSchema.parse({ ...base, signal: "end" })).toMatchObject({
+        reason: "hangup",
+      });
+      expect(CallActionSchema.parse({ ...base, signal: "decline" })).toMatchObject({
+        reason: "declined",
+      });
+    });
+
+    it("rejects oversized SDP, unknown signals and invalid recipients", () => {
+      const bad = [
+        { ...base, signal: "offer", media: "video", sdp: "x".repeat(MAX_SDP_LENGTH + 1) },
+        { ...base, signal: "offer", media: "screen", sdp: "v=0" },
+        { ...base, signal: "answer", sdp: "" },
+        { ...base, signal: "ring" },
+        { ...base, signal: "end", reason: "whatever" },
+        { ...base, signal: "decline", reason: "no_answer" },
+        { ...base, to: "u_2", signal: "end" },
+        { ...base, callId: "", signal: "end" },
+      ];
+      for (const action of bad) {
+        expect(CallActionSchema.safeParse(action).success, JSON.stringify(action)).toBe(false);
+      }
+    });
+
+    it("is routed as its own action", () => {
+      expect(CLIENT_ACTIONS).toContain("call");
+    });
   });
 });

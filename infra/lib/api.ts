@@ -124,6 +124,7 @@ export class Api extends Construct {
       typing: fn("typing"),
       user: fn("user"),
       react: fn("react"),
+      call: fn("call"),
     } satisfies Record<Exclude<Handler, "authorizer">, NodejsFunction>;
 
     const integration = (name: keyof typeof handlers) =>
@@ -152,11 +153,20 @@ export class Api extends Construct {
       handlers.presign,
       handlers.user,
       handlers.react,
+      handlers.call,
     ];
     for (const h of routeHandlers) connections.grant(h, "dynamodb:GetItem");
 
     // Broadcasters list live connections and delete stale ones (410 Gone).
-    for (const h of [handlers.message, handlers.channel, handlers.user, handlers.react]) {
+    // `call` only relays WebRTC signaling to the peer's connections: it reads no
+    // other table and never sees media.
+    for (const h of [
+      handlers.message,
+      handlers.channel,
+      handlers.user,
+      handlers.react,
+      handlers.call,
+    ]) {
       connections.grant(h, "dynamodb:Scan", "dynamodb:DeleteItem");
     }
 

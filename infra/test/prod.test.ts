@@ -292,4 +292,37 @@ describe("phase 5.1 resources", () => {
     expect(actionsOn("history", "DataChannels")).toEqual(["dynamodb:GetItem"]);
     expect(actionsOn("message", "DataUsers")).toEqual([]);
   });
+
+  it("routes call signaling to a Lambda that only touches connections", () => {
+    const t = template();
+    expect(matching(t, "AWS::ApiGatewayV2::Route", { RouteKey: "call" })).toHaveLength(1);
+    expect(
+      matching(t, "AWS::Lambda::Function", {
+        FunctionName: "slack-dev-call",
+        Runtime: "nodejs22.x",
+      }),
+    ).toHaveLength(1);
+
+    const policy = Object.entries(t.findResources("AWS::IAM::Policy")).find(([id]) =>
+      id.startsWith("ApicallFnServiceRoleDefaultPolicy"),
+    )?.[1];
+    const statements = (policy?.Properties?.PolicyDocument?.Statement ?? []) as Array<{
+      Action: string | string[];
+      Resource: unknown;
+    }>;
+    const tables = statements
+      .filter((st) => [st.Action].flat().some((a) => a.startsWith("dynamodb:")))
+      .map((st) => JSON.stringify(st.Resource));
+    expect(tables.length).toBeGreaterThan(0);
+    expect(tables.every((r) => r.includes("DataConnections"))).toBe(true);
+    const actions = statements
+      .flatMap((st) => [st.Action].flat())
+      .sort((a, b) => a.localeCompare(b));
+    expect(actions).toEqual([
+      "dynamodb:DeleteItem",
+      "dynamodb:GetItem",
+      "dynamodb:Scan",
+      "execute-api:ManageConnections",
+    ]);
+  });
 });

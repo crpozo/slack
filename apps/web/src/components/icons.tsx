@@ -150,3 +150,50 @@ export const GlobeIcon = (p: IconProps) => (
     <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
   </Icon>
 );
+export const PhoneIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" />
+  </Icon>
+);
+export const PhoneOffIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7a2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91" />
+    <path d="M22 2 2 22" />
+  </Icon>
+);
+export const VideoIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.94a.5.5 0 0 0-.76-.43L16 10.5" />
+    <rect x="2" y="6" width="14" height="12" rx="2" />
+  </Icon>
+);
+export const VideoOffIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10.66 6H14a2 2 0 0 1 2 2v2.5l5.25-3.06a.5.5 0 0 1 .75.43v8.27a.5.5 0 0 1-.5.5" />
+    <path d="M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2" />
+    <path d="m2 2 20 20" />
+  </Icon>
+);
+export const MicIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="9" y="2" width="6" height="12" rx="3" />
+    <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4" />
+  </Icon>
+);
+export const MicOffIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M18.89 13.23A7 7 0 0 0 19 12v-2M5 10v2a7 7 0 0 0 12 5M15 9.34V5a3 3 0 0 0-5.68-1.33M9 9v3a3 3 0 0 0 5.12 2.12M12 19v3" />
+    <path d="m2 2 20 20" />
+  </Icon>
+);
+export const ScreenShareIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="2" y="3" width="20" height="14" rx="2" />
+    <path d="M8 21h8M12 17v4M9 10l3-3 3 3M12 7v6" />
+  </Icon>
+);
+export const ChevronUpIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m18 15-6-6-6 6" />
+  </Icon>
+);

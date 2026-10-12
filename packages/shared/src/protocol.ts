@@ -13,6 +13,9 @@ export const PRESIGN_EXPIRES_SECONDS = 300;
 export const MAX_DISPLAY_NAME_LENGTH = 40;
 export const MAX_EMOJI_LENGTH = 16;
 export const MAX_INVITES_PER_REQUEST = 50;
+/** SDP offers/answers are a few KB; API Gateway frames cap at 32 KB. */
+export const MAX_SDP_LENGTH = 20_000;
+export const MAX_ICE_CANDIDATE_LENGTH = 2048;
 
 /** Route keys of the WebSocket API (`$request.body.action`). */
 export const CLIENT_ACTIONS = [
@@ -23,6 +26,7 @@ export const CLIENT_ACTIONS = [
   "typing",
   "user",
   "react",
+  "call",
 ] as const;
 export type ClientActionName = (typeof CLIENT_ACTIONS)[number];
 
@@ -213,6 +217,81 @@ export const ReactActionSchema = z.object({
   op: z.enum(["add", "remove"]),
 });
 
+// --- WebRTC signaling (1:1 calls in DMs; the server only relays, media is P2P) ---
+
+export const CALL_MEDIA = ["audio", "video"] as const;
+export type CallMedia = (typeof CALL_MEDIA)[number];
+
+/** Why a call ended or was declined, as shown to the other side. */
+export const CALL_END_REASONS = [
+  "hangup",
+  "cancelled",
+  "declined",
+  "busy",
+  "no_answer",
+  "unavailable",
+  "failed",
+] as const;
+export type CallEndReason = (typeof CALL_END_REASONS)[number];
+
+const callBase = {
+  action: z.literal("call"),
+  /** Chosen by the caller; ties every signal of one call together. */
+  callId: z.string().min(1).max(64),
+  /** The DM the call belongs to: calls are 1:1 between its two members. */
+  channelId,
+  /** User id of the other participant. */
+  to: userId,
+};
+
+const sdp = z.string().min(1).max(MAX_SDP_LENGTH);
+
+export const CallOfferSchema = z.object({
+  ...callBase,
+  signal: z.literal("offer"),
+  media: z.enum(CALL_MEDIA),
+  sdp,
+});
+
+export const CallAnswerSchema = z.object({ ...callBase, signal: z.literal("answer"), sdp });
+
+/** Mirrors `RTCIceCandidateInit`. */
+export const IceCandidateSchema = z.object({
+  candidate: z.string().max(MAX_ICE_CANDIDATE_LENGTH),
+  sdpMid: z.string().max(64).nullable().optional(),
+  sdpMLineIndex: z.number().int().min(0).max(64).nullable().optional(),
+  usernameFragment: z.string().max(256).nullable().optional(),
+});
+export type IceCandidate = z.infer<typeof IceCandidateSchema>;
+
+export const CallIceCandidateSchema = z.object({
+  ...callBase,
+  signal: z.literal("ice_candidate"),
+  candidate: IceCandidateSchema,
+});
+
+export const CallEndSchema = z.object({
+  ...callBase,
+  signal: z.literal("end"),
+  reason: z.enum(CALL_END_REASONS).default("hangup"),
+});
+
+export const CallDeclineSchema = z.object({
+  ...callBase,
+  signal: z.literal("decline"),
+  reason: z.enum(["declined", "busy"]).default("declined"),
+});
+
+export const CallActionSchema = z.discriminatedUnion("signal", [
+  CallOfferSchema,
+  CallAnswerSchema,
+  CallIceCandidateSchema,
+  CallEndSchema,
+  CallDeclineSchema,
+]);
+export type CallAction = z.infer<typeof CallActionSchema>;
+export type CallSignal = CallAction["signal"];
+
 export const ClientActionSchema = z.union([
   MessageActionSchema,
   HistoryActionSchema,
@@ -221,6 +300,7 @@ export const ClientActionSchema = z.union([
   TypingActionSchema,
   UserActionSchema,
   ReactActionSchema,
+  CallActionSchema,
 ]);
 
 export type MessageAction = z.infer<typeof MessageActionSchema>;
@@ -322,6 +402,42 @@ export interface UserUpdatedEvent {
   user: UserProfile;
 }
 
+/** Fields every relayed call signal carries; `from` is set by the server. */
+interface CallEventBase {
+  callId: string;
+  channelId: string;
+  from: string;
+}
+
+export interface CallOfferEvent extends CallEventBase {
+  type: "call.offer";
+  media: CallMedia;
+  sdp: string;
+}
+
+export interface CallAnswerEvent extends CallEventBase {
+  type: "call.answer";
+  sdp: string;
+}
+
+export interface CallIceCandidateEvent extends CallEventBase {
+  type: "call.ice_candidate";
+  candidate: IceCandidate;
+}
+
+export interface CallEndEvent extends CallEventBase {
+  type: "call.end";
+  reason: CallEndReason;
+}
+
+export interface CallDeclineEvent extends CallEventBase {
+  type: "call.decline";
+  reason: "declined" | "busy";
+}
+
+export type CallEvent =
+  CallOfferEvent | CallAnswerEvent | CallIceCandidateEvent | CallEndEvent | CallDeclineEvent;
+
 export type ServerEvent =
   | MessageNewEvent
   | MessageReactionEvent
@@ -330,6 +446,7 @@ export type ServerEvent =
   | PresignResultEvent
   | UserListEvent
   | UserUpdatedEvent
+  | CallEvent
   | ErrorEvent;
 
 export type ServerEventType = ServerEvent["type"];
