@@ -3,7 +3,19 @@ import { DeleteCommand, GetCommand, PutCommand, ScanCommand } from "@aws-sdk/lib
 import { dmChannelId, GENERAL_CHANNEL_ID } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handler } from "../src/handlers/message";
-import { ALICE, apiMock, BOB, ddbMock, resetMocks, sentEvents, wsEvent } from "./helpers";
+import {
+  ALICE,
+  apiMock,
+  BOB,
+  ddbMock,
+  dmRow,
+  GENERAL,
+  mockChannels,
+  privateRow,
+  resetMocks,
+  sentEvents,
+  wsEvent,
+} from "./helpers";
 
 const send = (body: unknown, opts?: Parameters<typeof wsEvent>[2]) =>
   handler(wsEvent("message", body, opts));
@@ -11,9 +23,7 @@ const send = (body: unknown, opts?: Parameters<typeof wsEvent>[2]) =>
 describe("message", () => {
   beforeEach(() => {
     resetMocks();
-    ddbMock.on(GetCommand, { TableName: "slack-test-channels" }).resolves({
-      Item: { channelId: GENERAL_CHANNEL_ID, archived: false },
-    });
+    mockChannels(GENERAL);
     ddbMock.on(PutCommand).resolves({});
     ddbMock.on(ScanCommand).resolves({
       Items: [
@@ -118,9 +128,7 @@ describe("message", () => {
 
   it("only delivers DM messages to the participants", async () => {
     const dm = dmChannelId(ALICE.userId, BOB.userId);
-    ddbMock.on(GetCommand, { TableName: "slack-test-channels" }).resolves({
-      Item: { channelId: dm, archived: false },
-    });
+    mockChannels(GENERAL, dmRow(ALICE.userId, BOB.userId));
     ddbMock.on(ScanCommand).resolves({
       Items: [
         { connectionId: "conn-alice", userId: ALICE.userId },
@@ -136,6 +144,39 @@ describe("message", () => {
         .map(([id]) => id)
         .sort(),
     ).toEqual(["conn-alice", "conn-bob"]);
+  });
+
+  it("hides private channels from non-members", async () => {
+    mockChannels(GENERAL, privateRow("ch_team", BOB.userId, [BOB.userId]));
+    const result = await send({
+      action: "message",
+      channelId: "ch_team",
+      text: "hola",
+      clientId: "c",
+    });
+    expect(result.statusCode).toBe(400);
+    expect(sentEvents()[0]?.[1]).toMatchObject({ code: "CHANNEL_NOT_FOUND" });
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+  });
+
+  it("delivers private channel messages to members only", async () => {
+    mockChannels(GENERAL, privateRow("ch_team", ALICE.userId, [ALICE.userId, BOB.userId]));
+    ddbMock.on(ScanCommand).resolves({
+      Items: [
+        { connectionId: "conn-alice", userId: ALICE.userId },
+        { connectionId: "conn-bob", userId: BOB.userId },
+        { connectionId: "conn-eve", userId: "user-eve" },
+      ],
+    });
+
+    await send({ action: "message", channelId: "ch_team", text: "equipo", clientId: "c" });
+
+    expect(
+      sentEvents()
+        .map(([id]) => id)
+        .sort(),
+    ).toEqual(["conn-alice", "conn-bob"]);
+    expect(ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item?.reactions).toEqual({});
   });
 
   it("deletes connections that answer 410 Gone", async () => {

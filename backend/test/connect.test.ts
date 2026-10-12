@@ -1,4 +1,4 @@
-import { DeleteCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handler as connect } from "../src/handlers/connect";
 import { handler as disconnect } from "../src/handlers/disconnect";
@@ -24,6 +24,31 @@ describe("connect", () => {
         ttl: 1_700_000_000 + 7200,
       },
     });
+  });
+
+  it("upserts the user directory without overwriting a chosen display name", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    ddbMock.on(PutCommand).resolves({});
+    ddbMock.on(UpdateCommand).resolves({});
+
+    await connect(wsEvent("$connect"));
+
+    const input = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(input?.TableName).toBe("slack-test-users");
+    expect(input?.Key).toEqual({ userId: ALICE.userId });
+    expect(input?.UpdateExpression).toContain("displayName = if_not_exists(displayName, :name)");
+    expect(input?.ExpressionAttributeValues).toEqual({
+      ":email": ALICE.email,
+      ":name": "alice",
+      ":now": 1_700_000_000_000,
+    });
+  });
+
+  it("still connects if the directory upsert fails", async () => {
+    ddbMock.on(PutCommand).resolves({});
+    ddbMock.on(UpdateCommand).rejects(new Error("throttled"));
+    const result = await connect(wsEvent("$connect"));
+    expect(result.statusCode).toBe(200);
   });
 
   it("rejects a connection without authorizer context", async () => {

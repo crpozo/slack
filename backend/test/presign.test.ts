@@ -3,7 +3,7 @@ import { MAX_ATTACHMENT_SIZE, type PresignResultEvent } from "@mindfultech/share
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handler, sanitizeFileName } from "../src/handlers/presign";
-import { resetMocks, sentEvents, wsEvent } from "./helpers";
+import { GENERAL, mockChannels, privateRow, resetMocks, sentEvents, wsEvent } from "./helpers";
 
 const put = (overrides: object = {}) =>
   handler(
@@ -24,6 +24,7 @@ const s3Mock = mockClient(S3Client);
 describe("presign", () => {
   beforeEach(() => {
     resetMocks();
+    mockChannels(GENERAL);
     s3Mock.reset();
     s3Mock.on(HeadObjectCommand).resolves({});
   });
@@ -113,5 +114,24 @@ describe("presign", () => {
     expect(sanitizeFileName("../../etc/passwd")).toBe("_.._etc_passwd");
     expect(sanitizeFileName("ñ")).toBe("_");
     expect(sanitizeFileName("...")).toBe("file");
+  });
+
+  it("refuses uploads and downloads in private channels the caller is not in", async () => {
+    mockChannels(GENERAL, privateRow("ch_team", "user-bob", ["user-bob"]));
+
+    await put({ channelId: "ch_team" });
+    await handler(
+      wsEvent("presign", {
+        action: "presign",
+        op: "get",
+        requestId: "r9",
+        key: "attachments/ch_team/01ABC-plan.pdf",
+      }),
+    );
+
+    expect(sentEvents().map(([, e]) => e)).toEqual([
+      expect.objectContaining({ code: "CHANNEL_NOT_FOUND", requestId: "r1" }),
+      expect.objectContaining({ code: "CHANNEL_NOT_FOUND", requestId: "r9" }),
+    ]);
   });
 });

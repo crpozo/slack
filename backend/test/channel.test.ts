@@ -1,9 +1,18 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchGetCommand, PutCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { dmChannelId, type ChannelListEvent } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handler } from "../src/handlers/channel";
-import { ALICE, BOB, ddbMock, resetMocks, sentEvents, wsEvent } from "./helpers";
+import {
+  ALICE,
+  BOB,
+  ddbMock,
+  mockChannels,
+  privateRow,
+  resetMocks,
+  sentEvents,
+  wsEvent,
+} from "./helpers";
 
 const general = {
   channelId: "ch_general",
@@ -52,12 +61,29 @@ describe("channel", () => {
     expect(sentEvents()).toEqual([["conn-alice", { type: "channel.list", channels: [general] }]]);
   });
 
-  it("create stores a public channel and broadcasts channel.list", async () => {
+  it("create makes channels private by default, with the creator as only member", async () => {
     mockScans([general]);
     ddbMock.on(PutCommand).resolves({});
 
     const result = await handler(
-      wsEvent("channel", { action: "channel", op: "create", name: "dev" }),
+      wsEvent("channel", { action: "channel", op: "create", name: "secreto" }),
+    );
+
+    expect(result.statusCode).toBe(200);
+    expect(ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item).toMatchObject({
+      name: "secreto",
+      type: "private",
+      createdBy: ALICE.userId,
+      members: [ALICE.userId],
+    });
+  });
+
+  it("create stores a public channel when asked and broadcasts channel.list", async () => {
+    mockScans([general]);
+    ddbMock.on(PutCommand).resolves({});
+
+    const result = await handler(
+      wsEvent("channel", { action: "channel", op: "create", name: "dev", visibility: "public" }),
     );
 
     expect(result.statusCode).toBe(200);
@@ -68,6 +94,7 @@ describe("channel", () => {
       createdBy: ALICE.userId,
       archived: false,
     });
+    expect(put?.Item?.members).toBeUndefined();
     expect(put?.Item?.channelId).toMatch(/^ch_[0-9A-Z]{26}$/);
     expect(
       sentEvents()
@@ -148,5 +175,105 @@ describe("channel", () => {
     );
     expect(result.statusCode).toBe(400);
     expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+  });
+
+  it("list includes private channels only for their members", async () => {
+    const team = privateRow("ch_team", ALICE.userId, [ALICE.userId]);
+    mockScans([general, team]);
+
+    await handler(wsEvent("channel", { action: "channel", op: "list" }));
+    await handler(
+      wsEvent(
+        "channel",
+        { action: "channel", op: "list" },
+        { user: BOB, connectionId: "conn-bob" },
+      ),
+    );
+
+    const [alice, bob] = sentEvents() as Array<[string, ChannelListEvent]>;
+    expect(alice?.[1].channels.map((c) => c.channelId)).toEqual(["ch_general", "ch_team"]);
+    expect(bob?.[1].channels.map((c) => c.channelId)).toEqual(["ch_general"]);
+  });
+
+  it("create rejects a name already used by a private channel", async () => {
+    mockScans([general, privateRow("ch_team", BOB.userId, [BOB.userId])]);
+    const result = await handler(
+      wsEvent("channel", { action: "channel", op: "create", name: "team", visibility: "public" }),
+    );
+    expect(result.statusCode).toBe(400);
+    expect(sentEvents()[0]?.[1]).toMatchObject({ code: "CHANNEL_NAME_TAKEN" });
+  });
+});
+
+describe("channel invite", () => {
+  const invite = (userIds: string[], user = ALICE, channelId = "ch_team") =>
+    handler(
+      wsEvent(
+        "channel",
+        { action: "channel", op: "invite", channelId, userIds },
+        { user, connectionId: user === ALICE ? "conn-alice" : "conn-bob" },
+      ),
+    );
+
+  beforeEach(() => {
+    resetMocks();
+    mockChannels(
+      general as never,
+      privateRow("ch_team", ALICE.userId, [ALICE.userId, "user-carol"]),
+    );
+    ddbMock.on(ScanCommand, { TableName: "slack-test-channels" }).resolves({ Items: [general] });
+    ddbMock
+      .on(ScanCommand, { TableName: "slack-test-connections" })
+      .resolves({ Items: connections });
+    ddbMock.on(BatchGetCommand).resolves({
+      Responses: { "slack-test-users": [{ userId: BOB.userId }, { userId: "user-dave" }] },
+    });
+    ddbMock.on(UpdateCommand).resolves({});
+  });
+
+  it("lets the creator add existing users and broadcasts the new lists", async () => {
+    const result = await invite([BOB.userId, BOB.userId, "user-dave"]);
+
+    expect(result.statusCode).toBe(200);
+    expect(ddbMock.commandCalls(BatchGetCommand)[0]?.args[0].input.RequestItems).toEqual({
+      "slack-test-users": {
+        Keys: [{ userId: BOB.userId }, { userId: "user-dave" }],
+        ProjectionExpression: "userId",
+      },
+    });
+    const update = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(update?.Key).toEqual({ channelId: "ch_team" });
+    expect(update?.ExpressionAttributeValues?.[":members"]).toEqual(
+      [ALICE.userId, BOB.userId, "user-carol", "user-dave"].sort(),
+    );
+    expect(update?.ConditionExpression).toBe("createdBy = :me AND #type = :private");
+    expect(sentEvents().every(([, e]) => e.type === "channel.list")).toBe(true);
+  });
+
+  it("answers FORBIDDEN to members who did not create the channel", async () => {
+    mockChannels(privateRow("ch_team", ALICE.userId, [ALICE.userId, BOB.userId]));
+    const result = await invite(["user-dave"], BOB);
+    expect(result.statusCode).toBe(400);
+    expect(sentEvents()[0]?.[1]).toMatchObject({ code: "FORBIDDEN" });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
+  it("hides the channel from non-members", async () => {
+    const result = await invite(["user-dave"], BOB);
+    expect(sentEvents()[0]?.[1]).toMatchObject({ code: "CHANNEL_NOT_FOUND" });
+    expect(result.statusCode).toBe(400);
+  });
+
+  it("refuses unknown users", async () => {
+    const result = await invite([BOB.userId, "user-ghost"]);
+    expect(result.statusCode).toBe(400);
+    expect(sentEvents()[0]?.[1]).toMatchObject({ code: "USER_NOT_FOUND" });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
+  it("refuses invitations to public channels", async () => {
+    const result = await invite([BOB.userId], ALICE, "ch_general");
+    expect(result.statusCode).toBe(400);
+    expect(sentEvents()[0]?.[1]).toMatchObject({ code: "BAD_REQUEST" });
   });
 });
