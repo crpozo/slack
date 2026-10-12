@@ -4,6 +4,7 @@ import App from "./App";
 import { configureAuth } from "./lib/auth";
 import { loadConfig } from "./lib/config";
 import { installAudioUnlock } from "./lib/sounds";
+import { configureTasksApi } from "./lib/tasksApi";
 import { applyTheme, watchSystemTheme } from "./lib/theme";
 import "./styles.css";
 
@@ -21,6 +22,7 @@ const render = (node: ReactNode) => root.render(<StrictMode>{node}</StrictMode>)
 try {
   const config = await loadConfig();
   configureAuth(config.userPoolId, config.userPoolClientId);
+  configureTasksApi(config.tasksUrl ?? null);
   render(<App config={config} />);
 } catch (err: unknown) {
   render(

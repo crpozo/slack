@@ -45,6 +45,10 @@ export default function App({ config }: Readonly<{ config: AppConfig }>) {
           }
         />
         <Route
+          path="/app/tasks/:boardId?"
+          element={me ? <ChatLayout wsUrl={config.wsUrl} /> : <Navigate to="/login" replace />}
+        />
+        <Route
           path="/app/:channelId"
           element={me ? <ChatLayout wsUrl={config.wsUrl} /> : <Navigate to="/login" replace />}
         />

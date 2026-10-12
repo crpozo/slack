@@ -6,7 +6,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useMatch, useNavigate, useParams } from "react-router-dom";
 import { signOut } from "../lib/auth";
 import { chat } from "../lib/chat";
 import { dmPeer } from "../lib/channels";
@@ -19,11 +19,13 @@ import {
   type SidebarPrefs,
 } from "../lib/sidebar";
 import { selectUnread, useChat } from "../store";
+import { useTasks } from "../store/tasks";
 import { CreateChannelModal, NewDmModal } from "./ChannelModals";
 import { CallLayer } from "./CallLayer";
 import { ChannelView } from "./ChannelView";
 import { QuickSwitcher } from "./QuickSwitcher";
 import { SettingsModal } from "./SettingsModal";
+import { TaskManager } from "./TaskManager";
 import { Sidebar } from "./Sidebar";
 import { Toast } from "./Toast";
 
@@ -42,7 +44,10 @@ function useMediaQuery(query: string): boolean {
 }
 
 export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
-  const { channelId = GENERAL_CHANNEL_ID } = useParams();
+  const params = useParams();
+  // `/app/tasks[/:boardId]` swaps the chat column for the Task Manager; no channel is active.
+  const tasksMatch = useMatch("/app/tasks/:boardId?");
+  const channelId = tasksMatch ? null : (params.channelId ?? GENERAL_CHANNEL_ID);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -97,6 +102,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
 
   const handleSignOut = useCallback(async () => {
     chat.stop();
+    useTasks.getState().reset();
     await signOut().catch(() => {});
     useChat.getState().setSession(null);
   }, []);
@@ -115,6 +121,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     const s = useChat.getState();
     s.setActiveChannel(channelId);
     setSidebarOpen(false);
+    if (!channelId) return;
     if (!(channelId in s.cursors)) chat.loadHistory(channelId, "initial");
     s.markRead(channelId);
   }, [channelId]);
@@ -124,14 +131,15 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const channelExists = useChat((s) => s.channels.some((c) => c.channelId === channelId));
   const myUserId = useChat((s) => s.me?.userId);
   useEffect(() => {
-    if (!channelsLoaded || channelExists || !myUserId || !isDmChannel(channelId)) return;
+    if (!channelId || !channelsLoaded || channelExists || !myUserId || !isDmChannel(channelId))
+      return;
     const peer = dmPeer(channelId, myUserId);
     if (peer) chat.openDm(peer);
   }, [channelId, channelsLoaded, channelExists, myUserId]);
 
   // Back to the window: what's on screen counts as read.
   useEffect(() => {
-    const onFocus = () => useChat.getState().markRead(channelId);
+    const onFocus = () => channelId && useChat.getState().markRead(channelId);
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
     return () => {
@@ -186,7 +194,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
         <Sidebar
-          activeChannelId={channelId}
+          activeChannelId={channelId ?? "tasks"}
           collapsed={collapsed}
           onToggleCollapsed={isDesktop ? toggleCollapsed : undefined}
           onOpenSwitcher={() => setSwitcherOpen(true)}
@@ -214,7 +222,14 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <ChannelView channelId={channelId} onOpenSidebar={() => setSidebarOpen(true)} />
+        {channelId ? (
+          <ChannelView channelId={channelId} onOpenSidebar={() => setSidebarOpen(true)} />
+        ) : (
+          <TaskManager
+            boardId={tasksMatch?.params.boardId}
+            onOpenSidebar={() => setSidebarOpen(true)}
+          />
+        )}
       </main>
 
       <CallLayer />
