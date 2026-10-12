@@ -45,6 +45,8 @@ export interface WebRuntimeConfig {
   userPoolClientId: string;
   /** Optional team directory for DMs, `email=sub,email=sub`. */
   users?: string;
+  /** Task Manager HTTP API base URL. */
+  tasksUrl: string;
 }
 
 interface WebProps {

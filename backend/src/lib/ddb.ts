@@ -20,6 +20,12 @@ export const tables = {
   get users() {
     return requireEnv("USERS_TABLE");
   },
+  get boards() {
+    return requireEnv("BOARDS_TABLE");
+  },
+  get tasks() {
+    return requireEnv("TASKS_TABLE");
+  },
 };
 
 /** Row of the `connections` table. */

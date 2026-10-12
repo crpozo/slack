@@ -16,7 +16,8 @@
     "@aws-sdk/s3-request-presigner": "^3.1148.0",
     "@mindfultech/shared": "workspace:*",
     "aws-jwt-verify": "^5.2.1",
-    "ulid": "^3.0.2"
+    "ulid": "^3.0.2",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@smithy/types": "^4.19.0",

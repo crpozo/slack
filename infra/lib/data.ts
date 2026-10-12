@@ -1,4 +1,4 @@
-import { AttributeType, BillingMode, Table } from "aws-cdk-lib/aws-dynamodb";
+import { AttributeType, BillingMode, ProjectionType, Table } from "aws-cdk-lib/aws-dynamodb";
 import { Construct } from "constructs";
 import { removalPolicyFor, type Stage } from "./stage";
 
@@ -7,6 +7,9 @@ export class Data extends Construct {
   readonly connections: Table;
   readonly channels: Table;
   readonly users: Table;
+  /** Task Manager (Phase 6): board rows + membership rows, see backend/src/handlers/tasks.ts. */
+  readonly boards: Table;
+  readonly tasks: Table;
 
   constructor(scope: Construct, id: string, props: { stage: Stage }) {
     super(scope, id);
@@ -40,6 +43,32 @@ export class Data extends Construct {
       ...common,
       tableName: `slack-${props.stage}-users`,
       partitionKey: { name: "userId", type: AttributeType.STRING },
+    });
+
+    this.boards = new Table(this, "Boards", {
+      ...common,
+      tableName: `slack-${props.stage}-boards`,
+      partitionKey: { name: "boardId", type: AttributeType.STRING },
+      sortKey: { name: "sk", type: AttributeType.STRING },
+    });
+    // "Which boards is this user on?": one membership row per member.
+    this.boards.addGlobalSecondaryIndex({
+      indexName: "byUser",
+      partitionKey: { name: "userId", type: AttributeType.STRING },
+      sortKey: { name: "boardId", type: AttributeType.STRING },
+      projectionType: ProjectionType.KEYS_ONLY,
+    });
+
+    this.tasks = new Table(this, "Tasks", {
+      ...common,
+      tableName: `slack-${props.stage}-tasks`,
+      partitionKey: { name: "taskId", type: AttributeType.STRING },
+    });
+    this.tasks.addGlobalSecondaryIndex({
+      indexName: "byBoard",
+      partitionKey: { name: "boardId", type: AttributeType.STRING },
+      sortKey: { name: "createdAt", type: AttributeType.NUMBER },
+      projectionType: ProjectionType.ALL,
     });
   }
 }
