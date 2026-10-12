@@ -256,20 +256,22 @@ export class CallManager {
       const local = this.localStream(session);
       // The offer lists audio, camera, then screen; map them back in that order.
       let videos = 0;
+      const swaps: Promise<void>[] = [];
       for (const transceiver of pc.getTransceivers()) {
         const kind = transceiver.receiver.track.kind;
         transceiver.direction = "sendrecv";
         transceiver.sender.setStreams?.(local);
         if (kind === "audio") {
-          await transceiver.sender.replaceTrack(session.mic);
+          swaps.push(transceiver.sender.replaceTrack(session.mic));
           session.audioSender = transceiver.sender;
         } else if (videos++ === 0) {
-          await transceiver.sender.replaceTrack(session.camera);
+          swaps.push(transceiver.sender.replaceTrack(session.camera));
           session.videoSender = transceiver.sender;
         } else {
           session.screenSender = transceiver.sender;
         }
       }
+      await Promise.all(swaps);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       if (!this.isCurrent(session)) return;
@@ -528,7 +530,7 @@ export class CallManager {
 
   private async flushIce(session: Session): Promise<void> {
     const pending = session.pendingIce.splice(0);
-    for (const candidate of pending) await this.receiveIce(session, candidate);
+    await Promise.all(pending.map((candidate) => this.receiveIce(session, candidate)));
   }
 
   // ---------------------------------------------------------------------------

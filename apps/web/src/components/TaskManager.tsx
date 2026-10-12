@@ -3,7 +3,6 @@ import {
   MAX_BOARD_NAME_LENGTH,
   MAX_TASK_DESCRIPTION_LENGTH,
   MAX_TASK_TITLE_LENGTH,
-  TASK_STATUSES,
   type Board,
   type Task,
   type TaskStatus,
@@ -35,11 +34,8 @@ const COLUMNS: Array<{ status: TaskStatus; title: string; accent: string }> = [
   { status: "IN_PROGRESS", title: "In Progress", accent: "bg-warning" },
   { status: "DONE", title: "Done", accent: "bg-success" },
 ];
-const COLUMN_TITLE = Object.fromEntries(COLUMNS.map((c) => [c.status, c.title])) as Record<
-  TaskStatus,
-  string
->;
 const DRAG_TYPE = "application/x-slack-task";
+const acceptsTask = (e: DragEvent) => e.dataTransfer.types.includes(DRAG_TYPE);
 
 const boardPath = (boardId: string) => `/app/tasks/${encodeURIComponent(boardId)}`;
 
@@ -128,6 +124,7 @@ function ShareBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: (
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const shareLabel = selected.length > 0 ? `Share (${selected.length})` : "Share";
 
   async function share() {
     setBusy(true);
@@ -154,7 +151,7 @@ function ShareBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: (
             disabled={busy || selected.length === 0}
             onClick={() => void share()}
           >
-            {busy ? "Sharing…" : `Share${selected.length > 0 ? ` (${selected.length})` : ""}`}
+            {busy ? "Sharing…" : shareLabel}
           </button>
         </>
       }
@@ -301,7 +298,7 @@ const TAG_COLORS = [
 ];
 function tagColor(name: string): string {
   let hash = 0;
-  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  for (const ch of name) hash = (hash * 31 + (ch.codePointAt(0) ?? 0)) >>> 0;
   return TAG_COLORS[hash % TAG_COLORS.length] ?? TAG_COLORS[0]!;
 }
 
@@ -409,9 +406,6 @@ function Column({
   const moveTask = useTasks((s) => s.moveTask);
   const [over, setOver] = useState(false);
 
-  function accepts(e: DragEvent) {
-    return e.dataTransfer.types.includes(DRAG_TYPE);
-  }
   function handleDrop(e: DragEvent) {
     e.preventDefault();
     setOver(false);
@@ -424,7 +418,7 @@ function Column({
       aria-label={column.title}
       data-status={column.status}
       onDragOver={(e) => {
-        if (!accepts(e)) return;
+        if (!acceptsTask(e)) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
         setOver(true);
@@ -731,5 +725,3 @@ function Empty({
     </div>
   );
 }
-
-export { COLUMN_TITLE, TASK_STATUSES as BOARD_STATUSES };

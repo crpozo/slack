@@ -122,19 +122,22 @@ async function listBoards(caller: HttpCaller): Promise<HttpResult> {
     }),
   );
   const ids = [...new Set((Items ?? []).map((i) => String(i.boardId)))];
-  const boards: Board[] = [];
-  for (let i = 0; i < ids.length; i += 100) {
-    const { Responses } = await ddb.send(
-      new BatchGetCommand({
-        RequestItems: {
-          [tables.boards]: {
-            Keys: ids.slice(i, i + 100).map((boardId) => ({ boardId, sk: BOARD_SK })),
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+  const pages = await Promise.all(
+    chunks.map((chunk) =>
+      ddb.send(
+        new BatchGetCommand({
+          RequestItems: {
+            [tables.boards]: { Keys: chunk.map((boardId) => ({ boardId, sk: BOARD_SK })) },
           },
-        },
-      }),
-    );
-    boards.push(...((Responses?.[tables.boards] ?? []) as BoardItem[]).map(toBoard));
-  }
+        }),
+      ),
+    ),
+  );
+  const boards = pages.flatMap((page) =>
+    ((page.Responses?.[tables.boards] ?? []) as BoardItem[]).map(toBoard),
+  );
   // Membership rows and the board row agree except mid-change: trust the board row.
   const visible = boards
     .filter((b) => canAccessBoard(b, caller.userId))
@@ -227,24 +230,29 @@ async function addMembers(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
 
 // --- Tasks -----------------------------------------------------------------------
 
+/** Every task of a board, following the index's pagination. */
+async function queryBoardTasks(
+  boardId: string,
+  startKey?: Record<string, unknown>,
+): Promise<Task[]> {
+  const page = await ddb.send(
+    new QueryCommand({
+      TableName: tables.tasks,
+      IndexName: "byBoard",
+      KeyConditionExpression: "boardId = :b",
+      ExpressionAttributeValues: { ":b": boardId },
+      ExclusiveStartKey: startKey,
+    }),
+  );
+  const items = (page.Items ?? []).map(toTask);
+  if (!page.LastEvaluatedKey) return items;
+  return [...items, ...(await queryBoardTasks(boardId, page.LastEvaluatedKey))];
+}
+
 async function listTasks(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const boardId = pathParam(event, "id");
   await accessibleBoard(boardId, caller);
-  const tasks: Task[] = [];
-  let ExclusiveStartKey: Record<string, unknown> | undefined;
-  do {
-    const page = await ddb.send(
-      new QueryCommand({
-        TableName: tables.tasks,
-        IndexName: "byBoard",
-        KeyConditionExpression: "boardId = :b",
-        ExpressionAttributeValues: { ":b": boardId },
-        ExclusiveStartKey,
-      }),
-    );
-    tasks.push(...(page.Items ?? []).map(toTask));
-    ExclusiveStartKey = page.LastEvaluatedKey;
-  } while (ExclusiveStartKey);
+  const tasks = await queryBoardTasks(boardId);
   return json(200, { tasks });
 }
 

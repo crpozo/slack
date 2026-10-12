@@ -151,22 +151,27 @@ export function TaskDetails({
       showToast(`A task can have at most ${MAX_TASK_ATTACHMENTS} attachments.`);
       list.splice(Math.max(room, 0));
     }
-    for (const file of list) {
-      setUploads((u) => [...u, { name: file.name, progress: 0 }]);
-      try {
-        const attachment = await uploadFile(file, board.boardId, (p) =>
-          setUploads((u) => u.map((x) => (x.name === file.name ? { ...x, progress: p } : x))),
-        );
-        const current =
-          useTasks.getState().tasksByBoard[board.boardId]?.find((t) => t.taskId === taskId)
-            ?.attachments ?? [];
-        await editTask(taskId, { attachments: [...current, attachment] });
-      } catch (err) {
-        showToast(err instanceof Error ? err.message : `Couldn't upload ${file.name}.`);
-      } finally {
-        setUploads((u) => u.filter((x) => x.name !== file.name));
+    if (list.length === 0) return;
+    setUploads((u) => [...u, ...list.map((f) => ({ name: f.name, progress: 0 }))]);
+    const setProgress = (name: string, progress: number) =>
+      setUploads((u) => u.map((x) => (x.name === name ? { ...x, progress } : x)));
+    // Uploads run in parallel; one PUT then attaches everything that made it.
+    const results = await Promise.allSettled(
+      list.map((file) => uploadFile(file, board.boardId, (p) => setProgress(file.name, p))),
+    );
+    setUploads((u) => u.filter((x) => !list.some((f) => f.name === x.name)));
+    const added = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+    results.forEach((r, i) => {
+      if (r.status === "rejected") {
+        const err: unknown = r.reason;
+        showToast(err instanceof Error ? err.message : `Couldn't upload ${list[i]?.name}.`);
       }
-    }
+    });
+    if (added.length === 0) return;
+    const current =
+      useTasks.getState().tasksByBoard[board.boardId]?.find((t) => t.taskId === taskId)
+        ?.attachments ?? [];
+    await editTask(taskId, { attachments: [...current, ...added] });
   }
 
   function removeAttachment(key: string) {

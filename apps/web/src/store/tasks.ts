@@ -34,26 +34,36 @@ export interface TasksState {
   reset: () => void;
 }
 
+type TaskPatch = Partial<Task> | ((t: Task) => Task);
+
+const applyPatch = (task: Task, patch: TaskPatch): Task =>
+  typeof patch === "function" ? patch(task) : { ...task, ...patch };
+
+const patchList = (tasks: Task[], taskId: string, patch: TaskPatch): Task[] =>
+  tasks.map((t) => (t.taskId === taskId ? applyPatch(t, patch) : t));
+
+const mapValues = <T>(record: Record<string, T>, fn: (value: T) => T): Record<string, T> =>
+  Object.fromEntries(Object.entries(record).map(([key, value]) => [key, fn(value)]));
+
+/** The board list after a `board.updated` push, from the current user's point of view. */
+function nextBoards(boards: Board[], board: Board, myUserId: string): Board[] {
+  const mine = board.ownerId === myUserId || board.members.includes(myUserId);
+  if (!mine) return boards.filter((b) => b.boardId !== board.boardId);
+  if (boards.some((b) => b.boardId === board.boardId)) {
+    return boards.map((b) => (b.boardId === board.boardId ? board : b));
+  }
+  return [...boards, board].sort((a, b) => a.createdAt - b.createdAt);
+}
+
 const message = (err: unknown, fallback: string) =>
   err instanceof Error && err.message ? err.message : fallback;
 
 export function createTasksStore(api: TasksApi = tasksApi) {
   return create<TasksState>((set, get) => {
     /** Replaces one task everywhere it appears. */
-    const patchTask = (taskId: string, patch: Partial<Task> | ((t: Task) => Task)) =>
+    const patchTask = (taskId: string, patch: TaskPatch) =>
       set((s) => ({
-        tasksByBoard: Object.fromEntries(
-          Object.entries(s.tasksByBoard).map(([boardId, tasks]) => [
-            boardId,
-            tasks.map((t) =>
-              t.taskId === taskId
-                ? typeof patch === "function"
-                  ? patch(t)
-                  : { ...t, ...patch }
-                : t,
-            ),
-          ]),
-        ),
+        tasksByBoard: mapValues(s.tasksByBoard, (tasks) => patchList(tasks, taskId, patch)),
       }));
     const findTask = (taskId: string) =>
       Object.values(get().tasksByBoard)
@@ -104,7 +114,7 @@ export function createTasksStore(api: TasksApi = tasksApi) {
 
       async createTask(boardId, title, description) {
         const now = Date.now();
-        const tempId = `pending_${now}_${Math.random().toString(36).slice(2, 8)}`;
+        const tempId = `pending_${crypto.randomUUID()}`;
         const optimistic: Task = {
           taskId: tempId,
           boardId,
@@ -206,16 +216,7 @@ export function createTasksStore(api: TasksApi = tasksApi) {
 
       applyEvent(event, myUserId) {
         if (event.type === "board.updated") {
-          const { board } = event;
-          set((s) => {
-            const mine = board.ownerId === myUserId || board.members.includes(myUserId);
-            const known = s.boards.some((b) => b.boardId === board.boardId);
-            let boards = s.boards;
-            if (!mine) boards = s.boards.filter((b) => b.boardId !== board.boardId);
-            else if (known) boards = s.boards.map((b) => (b.boardId === board.boardId ? board : b));
-            else boards = [...s.boards, board].sort((a, b) => a.createdAt - b.createdAt);
-            return { boards };
-          });
+          set((s) => ({ boards: nextBoards(s.boards, event.board, myUserId) }));
           return;
         }
         const { boardId } = event;

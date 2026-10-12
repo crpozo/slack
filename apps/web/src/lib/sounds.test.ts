@@ -174,7 +174,7 @@ describe("autoplay unlock", () => {
     const before = FakeAudioContext.instances.length;
     target.dispatchEvent(new Event("keydown"));
     await flush();
-    expect(FakeAudioContext.instances.length).toBe(before); // listener removed, no new work
+    expect(FakeAudioContext.instances).toHaveLength(before); // listener removed, no new work
   });
 
   it("keeps listening while the browser still blocks audio", async () => {

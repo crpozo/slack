@@ -21,7 +21,13 @@ export function StreamMedia({
     el.srcObject = stream;
     if (stream) void el.play().catch(() => {}); // autoplay may need a gesture; we had one
   }, [stream]);
-  if (kind === "audio") return <audio ref={ref} autoPlay className="hidden" />;
+  if (kind === "audio") {
+    return (
+      <audio ref={ref} autoPlay className="hidden">
+        <track kind="captions" />
+      </audio>
+    );
+  }
   return (
     <video ref={ref} autoPlay playsInline muted={muted} className={className} aria-label={label}>
       <track kind="captions" />

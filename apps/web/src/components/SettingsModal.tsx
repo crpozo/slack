@@ -146,7 +146,10 @@ function NotificationSettings() {
   const [enabled, setEnabled] = useState(soundsEnabled);
   useEffect(() => onSoundsChange(setEnabled), []);
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5">
+    <label
+      aria-label="Play notification sounds"
+      className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5"
+    >
       <span>
         <span className="block text-sm font-medium text-ink">Play notification sounds</span>
         <span className="block text-xs text-ink-secondary">

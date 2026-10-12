@@ -167,6 +167,9 @@ class ChatController {
       client.on("call.end", (event) => calls.handle(event)),
     );
 
+    const onOnline = () => client.reconnectNow();
+    window.addEventListener("online", onOnline);
+
     // Task Manager pushes (sent by the HTTP API's Lambda through this socket).
     const applyBoardEvent = (event: BoardEvent) => {
       const me = store().me;
@@ -177,14 +180,10 @@ class ChatController {
       client.on("board.task_updated", applyBoardEvent),
       client.on("board.task_deleted", applyBoardEvent),
       client.on("board.updated", applyBoardEvent),
+      // Keep the connection alive: API Gateway drops idle sockets after 10 minutes.
+      startHeartbeat(client),
+      () => window.removeEventListener("online", onOnline),
     );
-
-    // Keep the connection alive: API Gateway drops idle sockets after 10 minutes.
-    this.cleanups.push(startHeartbeat(client));
-
-    const onOnline = () => client.reconnectNow();
-    window.addEventListener("online", onOnline);
-    this.cleanups.push(() => window.removeEventListener("online", onOnline));
 
     client.connect();
   }
