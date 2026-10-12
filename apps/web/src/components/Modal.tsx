@@ -46,7 +46,7 @@ export function Modal({ title, onClose, children, footer, width = "md" }: ModalP
             data-close
             onClick={onClose}
             className="rounded-md p-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink"
-            aria-label="Cerrar"
+            aria-label="Close"
           >
             <CloseIcon />
           </button>

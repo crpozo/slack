@@ -24,7 +24,7 @@ function MessageActions({ message }: { message: ChatMessage }) {
           type="button"
           onClick={() => chat.toggleReaction(message, emoji)}
           className="flex h-7 w-7 items-center justify-center rounded-md text-base hover:bg-surface-hover"
-          aria-label={`Reaccionar con ${emoji}`}
+          aria-label={`React with ${emoji}`}
         >
           {emoji}
         </button>
@@ -33,8 +33,8 @@ function MessageActions({ message }: { message: ChatMessage }) {
         type="button"
         onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}
         className="flex h-7 w-7 items-center justify-center rounded-md text-ink-secondary hover:bg-surface-hover hover:text-ink"
-        aria-label="Más reacciones"
-        title="Más reacciones"
+        aria-label="More reactions"
+        title="More reactions"
       >
         <SmilePlusIcon />
       </button>
@@ -112,13 +112,13 @@ export const MessageItem = memo(function MessageItem({ message, grouped, mine }:
         {message.status === "failed" && (
           <p className="mt-1 flex items-center gap-2 text-xs text-ink-secondary">
             <span className="h-1.5 w-1.5 rounded-full bg-error" />
-            No se envió.
+            Not sent.
             <button
               type="button"
               onClick={() => chat.retry(message)}
               className="font-semibold text-ink underline decoration-primary decoration-2 underline-offset-2"
             >
-              Reintentar
+              Retry
             </button>
           </p>
         )}

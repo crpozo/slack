@@ -110,15 +110,13 @@ export function MessageList({ channelId, title }: { channelId: string; title: st
         className="h-full overflow-y-auto overscroll-contain"
         role="log"
         aria-live="polite"
-        aria-label={`Mensajes de ${title}`}
+        aria-label={`Messages in ${title}`}
       >
         <div ref={contentRef} className="flex min-h-full flex-col justify-end pb-3">
           <div ref={sentinelRef} />
 
           {loadingOlder && (
-            <p className="py-3 text-center text-xs text-ink-secondary">
-              Cargando mensajes anteriores…
-            </p>
+            <p className="py-3 text-center text-xs text-ink-secondary">Loading earlier messages…</p>
           )}
 
           {loaded && cursor === null && (
@@ -126,14 +124,14 @@ export function MessageList({ channelId, title }: { channelId: string; title: st
               <p className="text-lg font-semibold text-ink">{title}</p>
               <p className="text-sm text-ink-secondary">
                 {messages.length
-                  ? "Este es el inicio de la conversación."
-                  : "Aún no hay mensajes. ¡Escribe el primero!"}
+                  ? "This is the start of the conversation."
+                  : "No messages yet. Be the first to write!"}
               </p>
             </div>
           )}
 
           {!loaded && (
-            <div className="space-y-4 px-4 py-6" aria-label="Cargando mensajes">
+            <div className="space-y-4 px-4 py-6" aria-label="Loading messages">
               {[0, 1, 2].map((i) => (
                 <div key={i} className="flex gap-3">
                   <div className="h-9 w-9 animate-pulse rounded-lg bg-surface-hover" />
@@ -179,7 +177,7 @@ export function MessageList({ channelId, title }: { channelId: string; title: st
           onClick={scrollToBottom}
           className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-sky px-3 py-1.5 text-xs font-semibold text-on-accent shadow-md hover:brightness-95"
         >
-          <ArrowDownIcon /> Mensajes nuevos
+          <ArrowDownIcon /> New messages
         </button>
       )}
     </div>

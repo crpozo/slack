@@ -22,11 +22,11 @@ import { Logo } from "./LoginPage";
 const SHORTCUT = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘ K" : "Ctrl K";
 
 const STATUS: Record<WsStatus, { dot: string; label: string }> = {
-  idle: { dot: "bg-warning", label: "Conectando…" },
-  connecting: { dot: "bg-warning", label: "Conectando…" },
-  open: { dot: "bg-success", label: "Conectado" },
-  reconnecting: { dot: "bg-warning", label: "Reconectando…" },
-  closed: { dot: "bg-error", label: "Desconectado" },
+  idle: { dot: "bg-warning", label: "Connecting…" },
+  connecting: { dot: "bg-warning", label: "Connecting…" },
+  open: { dot: "bg-success", label: "Connected" },
+  reconnecting: { dot: "bg-warning", label: "Reconnecting…" },
+  closed: { dot: "bg-error", label: "Disconnected" },
 };
 
 function UnreadBadge({ count, compact }: { count: number; compact: boolean }) {
@@ -35,7 +35,7 @@ function UnreadBadge({ count, compact }: { count: number; compact: boolean }) {
     return (
       <span
         className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border-2 border-surface-sidebar bg-sky"
-        aria-label={`${count} sin leer`}
+        aria-label={`${count} unread`}
       />
     );
   }
@@ -115,7 +115,7 @@ function Section({
 
 const channelIcon = (c: Channel) =>
   c.type === "private" ? (
-    <LockIcon className="text-ink-secondary" aria-label="Privado" />
+    <LockIcon className="text-ink-secondary" aria-label="Private" />
   ) : (
     <HashIcon className="text-ink-secondary" />
   );
@@ -221,8 +221,8 @@ export function Sidebar({
             type="button"
             onClick={onToggleCollapsed}
             className={iconButton}
-            aria-label={compact ? "Expandir barra lateral" : "Contraer barra lateral"}
-            title={`${compact ? "Expandir" : "Contraer"} (Ctrl B)`}
+            aria-label={compact ? "Expand sidebar" : "Collapse sidebar"}
+            title={`${compact ? "Expand" : "Collapse"} (Ctrl B)`}
           >
             {compact ? <PanelLeftOpenIcon /> : <PanelLeftCloseIcon />}
           </button>
@@ -233,8 +233,8 @@ export function Sidebar({
         <button
           type="button"
           onClick={onOpenSwitcher}
-          title={compact ? `Ir a… (${SHORTCUT})` : undefined}
-          aria-label="Ir a un canal"
+          title={compact ? `Jump to… (${SHORTCUT})` : undefined}
+          aria-label="Jump to a channel"
           className={
             compact
               ? iconButton
@@ -244,7 +244,7 @@ export function Sidebar({
           <SearchIcon />
           {!compact && (
             <>
-              <span className="flex-1 text-left">Ir a…</span>
+              <span className="flex-1 text-left">Jump to…</span>
               <kbd className="rounded border border-line px-1 text-[10px]">{SHORTCUT}</kbd>
             </>
           )}
@@ -253,18 +253,18 @@ export function Sidebar({
 
       <nav
         className="flex-1 overflow-y-auto overflow-x-hidden pb-4"
-        aria-label="Canales y mensajes directos"
+        aria-label="Channels and direct messages"
       >
         <Section
-          title="Canales"
+          title="Channels"
           compact={compact}
           action={
             <button
               type="button"
               onClick={onCreateChannel}
               className={iconButton}
-              aria-label="Crear canal"
-              title="Crear canal"
+              aria-label="Create channel"
+              title="Create channel"
             >
               <PlusIcon />
             </button>
@@ -277,7 +277,7 @@ export function Sidebar({
                 compact={compact}
                 label={c.name}
                 icon={channelIcon(c)}
-                title={c.type === "private" ? `#${c.name} (privado)` : undefined}
+                title={c.type === "private" ? `#${c.name} (private)` : undefined}
                 active={c.channelId === activeChannelId}
                 unread={c.channelId === activeChannelId ? 0 : (unread[c.channelId] ?? 0)}
                 onClick={() => navigate(`/app/${c.channelId}`)}
@@ -286,7 +286,7 @@ export function Sidebar({
           </ul>
         </Section>
 
-        <Section title="Mensajes directos" compact={compact}>
+        <Section title="Direct messages" compact={compact}>
           <ul className="space-y-0.5 px-2">
             {dms.map((dm) => {
               const id = dm.userId ? dmChannelId(me.userId, dm.userId) : undefined;
@@ -297,11 +297,7 @@ export function Sidebar({
                   label={dm.name}
                   icon={<Avatar name={dm.name} size={compact ? "md" : "sm"} />}
                   title={
-                    dm.userId
-                      ? compact
-                        ? dm.name
-                        : dm.email
-                      : "Esta persona aún no ha iniciado sesión"
+                    dm.userId ? (compact ? dm.name : dm.email) : "This person hasn't signed in yet"
                   }
                   active={id === activeChannelId}
                   unread={dm.channelId && id !== activeChannelId ? (unread[dm.channelId] ?? 0) : 0}
@@ -312,7 +308,7 @@ export function Sidebar({
             })}
             {dms.length === 0 && !compact && (
               <li className="px-2 py-1 text-xs text-ink-secondary">
-                Aquí aparecerá el equipo cuando inicie sesión.
+                Your team appears here once they sign in.
               </li>
             )}
           </ul>
@@ -330,8 +326,8 @@ export function Sidebar({
           className={`flex min-w-0 items-center gap-2 rounded-md text-left hover:bg-surface-hover ${
             compact ? "p-1" : "flex-1 p-1"
           }`}
-          title={`${myName} · Ajustes`}
-          aria-label="Ajustes de perfil y tema"
+          title={`${myName} · Settings`}
+          aria-label="Profile and theme settings"
         >
           <Avatar name={myName} mine size="sm" />
           {!compact && (
@@ -346,8 +342,8 @@ export function Sidebar({
             type="button"
             onClick={onOpenSettings}
             className={iconButton}
-            aria-label="Ajustes"
-            title="Ajustes"
+            aria-label="Settings"
+            title="Settings"
           >
             <SettingsIcon />
           </button>
@@ -356,8 +352,8 @@ export function Sidebar({
           type="button"
           onClick={onSignOut}
           className={iconButton}
-          aria-label="Cerrar sesión"
-          title="Cerrar sesión"
+          aria-label="Sign out"
+          title="Sign out"
         >
           <LogOutIcon />
         </button>

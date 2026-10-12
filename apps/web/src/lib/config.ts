@@ -57,7 +57,7 @@ export function resolveConfig(
     !userPoolClientId && "VITE_COGNITO_CLIENT_ID",
   ].filter(Boolean);
   if (!wsUrl || !userPoolId || !userPoolClientId) {
-    throw new Error(`Falta ${missing.join(", ")} en apps/web/.env o en /config.json`);
+    throw new Error(`Missing ${missing.join(", ")} in apps/web/.env or /config.json`);
   }
 
   return {

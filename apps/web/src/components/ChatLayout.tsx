@@ -104,7 +104,7 @@ export function ChatLayout({ wsUrl }: { wsUrl: string }) {
   // One WebSocket for the whole signed-in session. (Declared first: effects run in order.)
   useEffect(() => {
     chat.start(wsUrl, () => {
-      useChat.getState().showToast("Tu sesión expiró. Vuelve a iniciar sesión.");
+      useChat.getState().showToast("Your session expired. Please sign in again.");
       void handleSignOut();
     });
     return () => chat.stop();
@@ -198,12 +198,12 @@ export function ChatLayout({ wsUrl }: { wsUrl: string }) {
           <div
             role="separator"
             aria-orientation="vertical"
-            aria-label="Cambiar el ancho de la barra lateral"
+            aria-label="Resize sidebar"
             aria-valuemin={SIDEBAR_MIN_WIDTH}
             aria-valuemax={SIDEBAR_MAX_WIDTH}
             aria-valuenow={sidebar.width}
             tabIndex={0}
-            title="Arrastra para cambiar el ancho · doble clic para restablecer"
+            title="Drag to resize · double-click to reset"
             onPointerDown={onResizeStart}
             onPointerMove={onResizeMove}
             onPointerUp={onResizeEnd}

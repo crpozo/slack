@@ -11,8 +11,8 @@ export function formatBytes(bytes: number): string {
 
 /** Client-side check before asking for a URL; `null` when the file is acceptable. */
 export function validateFile(file: Pick<File, "size">): string | null {
-  if (file.size === 0) return "El archivo está vacío.";
-  if (file.size > MAX_ATTACHMENT_SIZE) return `El archivo supera el límite de ${MAX_SIZE_LABEL}.`;
+  if (file.size === 0) return "The file is empty.";
+  if (file.size > MAX_ATTACHMENT_SIZE) return `The file exceeds the ${MAX_SIZE_LABEL} limit.`;
   return null;
 }
 
@@ -33,8 +33,8 @@ function put(
     xhr.onload = () =>
       xhr.status >= 200 && xhr.status < 300
         ? resolve()
-        : reject(new Error(`La subida falló (HTTP ${xhr.status}).`));
-    xhr.onerror = () => reject(new Error("La subida falló. Revisa tu conexión."));
+        : reject(new Error(`Upload failed (HTTP ${xhr.status}).`));
+    xhr.onerror = () => reject(new Error("Upload failed. Check your connection."));
     xhr.send(file);
   });
 }
@@ -49,7 +49,7 @@ export async function uploadFile(
   if (invalid) throw new Error(invalid);
 
   const contentType = file.type || "application/octet-stream";
-  const name = file.name.slice(-255) || "archivo";
+  const name = file.name.slice(-255) || "file";
   const { url, key } = await chat.presign({
     op: "put",
     channelId,

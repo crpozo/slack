@@ -89,16 +89,16 @@ describe("dmEntries", () => {
       ),
     ).toBe("Bo");
     expect(channelLabel(dmChannelId("u-me", "u-x"), undefined, "u-me", () => undefined)).toBe(
-      "Mensaje directo",
+      "Direct message",
     );
   });
 });
 
 describe("formatDay", () => {
-  it("says Hoy / Ayer for recent days", () => {
+  it("says Today / Yesterday for recent days", () => {
     const now = new Date(2026, 9, 8, 12).getTime();
-    expect(formatDay(now - 1000, now)).toBe("Hoy");
-    expect(formatDay(now - 86_400_000, now)).toBe("Ayer");
+    expect(formatDay(now - 1000, now)).toBe("Today");
+    expect(formatDay(now - 86_400_000, now)).toBe("Yesterday");
   });
 });
 

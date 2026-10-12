@@ -56,7 +56,7 @@ export function ChannelView({
           type="button"
           onClick={onOpenSidebar}
           className="rounded-md p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink md:hidden"
-          aria-label="Abrir menú"
+          aria-label="Open menu"
         >
           <MenuIcon />
         </button>
@@ -69,7 +69,7 @@ export function ChannelView({
         <h1 className="truncate font-semibold text-ink">{label}</h1>
         {isPrivate && (
           <span className="shrink-0 text-xs text-ink-secondary">
-            · {channel.members?.length ?? 1} miembro
+            · {channel.members?.length ?? 1} member
             {(channel.members?.length ?? 1) === 1 ? "" : "s"}
           </span>
         )}
@@ -80,7 +80,7 @@ export function ChannelView({
             className="ml-auto flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink"
           >
             <UserPlusIcon />
-            <span className="hidden sm:inline">Invitar</span>
+            <span className="hidden sm:inline">Invite</span>
           </button>
         )}
       </header>
@@ -88,9 +88,9 @@ export function ChannelView({
 
       {notFound ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-          <p className="text-ink">Este canal no existe o no tienes acceso.</p>
+          <p className="text-ink">This channel doesn't exist or you don't have access.</p>
           <Link to="/app/ch_general" className="btn-primary">
-            Ir a #general
+            Go to #general
           </Link>
         </div>
       ) : (
@@ -101,7 +101,7 @@ export function ChannelView({
             ref={composer}
             channelId={channelId}
             disabled={!channel}
-            placeholder={channel ? `Escribe en ${title}` : "Abriendo conversación…"}
+            placeholder={channel ? `Message ${title}` : "Opening conversation…"}
           />
         </>
       )}
@@ -109,7 +109,7 @@ export function ChannelView({
       {dragging && (
         <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/10">
           <p className="rounded-lg bg-surface px-4 py-2 text-sm font-semibold text-ink shadow">
-            Suelta para adjuntar a {title}
+            Drop to attach to {title}
           </p>
         </div>
       )}

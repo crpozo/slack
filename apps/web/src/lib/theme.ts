@@ -8,12 +8,15 @@ export function isThemePreference(value: unknown): value is ThemePreference {
   return value === "light" || value === "dark" || value === "system";
 }
 
+/** Light (white) unless the user picked Dark or System in Settings. */
+export const DEFAULT_THEME: ThemePreference = "light";
+
 export function getThemePreference(): ThemePreference {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return isThemePreference(stored) ? stored : "system";
+    return isThemePreference(stored) ? stored : DEFAULT_THEME;
   } catch {
-    return "system";
+    return DEFAULT_THEME;
   }
 }
 

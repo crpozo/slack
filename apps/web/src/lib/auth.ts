@@ -35,26 +35,26 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
 /** Fresh id token for the WebSocket handshake. */
 export async function getIdToken(): Promise<string> {
   const token = (await fetchAuthSession()).tokens?.idToken?.toString();
-  if (!token) throw new SessionExpiredError("No hay sesión activa");
+  if (!token) throw new SessionExpiredError("No active session");
   return token;
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
-  NotAuthorizedException: "Email o contraseña incorrectos.",
-  UserNotFoundException: "Email o contraseña incorrectos.",
-  UserNotConfirmedException: "Tu cuenta aún no está confirmada. Contacta al administrador.",
-  PasswordResetRequiredException: "Debes restablecer tu contraseña. Contacta al administrador.",
-  LimitExceededException: "Demasiados intentos. Espera un momento e inténtalo de nuevo.",
-  TooManyRequestsException: "Demasiados intentos. Espera un momento e inténtalo de nuevo.",
-  EmptySignInUsername: "Ingresa tu email.",
-  EmptySignInPassword: "Ingresa tu contraseña.",
-  NetworkError: "Sin conexión. Revisa tu red e inténtalo de nuevo.",
+  NotAuthorizedException: "Incorrect email or password.",
+  UserNotFoundException: "Incorrect email or password.",
+  UserNotConfirmedException: "Your account is not confirmed yet. Contact your administrator.",
+  PasswordResetRequiredException: "You need to reset your password. Contact your administrator.",
+  LimitExceededException: "Too many attempts. Wait a moment and try again.",
+  TooManyRequestsException: "Too many attempts. Wait a moment and try again.",
+  EmptySignInUsername: "Enter your email.",
+  EmptySignInPassword: "Enter your password.",
+  NetworkError: "You're offline. Check your connection and try again.",
 };
 
 /** Spanish message for a Cognito/Amplify sign-in error. */
 export function authErrorMessage(err: unknown): string {
   const name = err instanceof Error ? err.name : "";
-  return ERROR_MESSAGES[name] ?? "No se pudo iniciar sesión. Inténtalo de nuevo.";
+  return ERROR_MESSAGES[name] ?? "Couldn't sign in. Please try again.";
 }
 
 export async function signIn(email: string, password: string): Promise<SessionUser> {
@@ -70,12 +70,12 @@ export async function signIn(email: string, password: string): Promise<SessionUs
   if (result && !result.isSignedIn) {
     throw new Error(
       result.nextStep.signInStep === "CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED"
-        ? "Tu contraseña es temporal. Pide al administrador que la marque como permanente."
-        : "Este inicio de sesión requiere un paso adicional que la app aún no soporta.",
+        ? "Your password is temporary. Ask your administrator to make it permanent."
+        : "This sign-in needs an extra step the app doesn't support yet.",
     );
   }
   const user = await getCurrentUser();
-  if (!user) throw new Error("No se pudo leer la sesión. Inténtalo de nuevo.");
+  if (!user) throw new Error("Couldn't read your session. Please try again.");
   return user;
 }
 

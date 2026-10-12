@@ -33,7 +33,7 @@ function EmojiButton({
   );
 }
 
-/** Searchable emoji grid (Spanish names), with recents; the dataset loads on first open. */
+/** Searchable emoji grid (English names), with recents; the dataset loads on first open. */
 export function EmojiPicker({ onSelect }: EmojiPickerProps) {
   const [groups, setGroups] = useState<EmojiGroup[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -79,8 +79,8 @@ export function EmojiPicker({ onSelect }: EmojiPickerProps) {
             onKeyDown={(e) => {
               if (e.key === "Enter" && results[0]) pick(results[0].emoji);
             }}
-            placeholder="Buscar emoji (p. ej. corazón)"
-            aria-label="Buscar emoji"
+            placeholder="Search emoji (e.g. heart)"
+            aria-label="Search emoji"
             className="w-full bg-transparent py-1.5 text-sm text-ink placeholder:text-ink-secondary focus:outline-none"
           />
         </label>
@@ -89,7 +89,7 @@ export function EmojiPicker({ onSelect }: EmojiPickerProps) {
       {groups && !query && (
         <div className="flex gap-1 overflow-x-auto border-b border-line px-2 py-1" role="tablist">
           {[
-            { id: null, emoji: "🕘", label: "Todo" },
+            { id: null, emoji: "🕘", label: "All" },
             ...groups.map((g) => ({ id: g.id, emoji: g.emojis[0]?.emoji ?? "", label: g.label })),
           ].map((tab) => (
             <button
@@ -110,8 +110,8 @@ export function EmojiPicker({ onSelect }: EmojiPickerProps) {
       )}
 
       <div className="flex-1 overflow-y-auto p-2">
-        {!groups && !failed && <p className="p-2 text-sm text-ink-secondary">Cargando emojis…</p>}
-        {failed && <p className="p-2 text-sm text-ink">No se pudieron cargar los emojis.</p>}
+        {!groups && !failed && <p className="p-2 text-sm text-ink-secondary">Loading emoji…</p>}
+        {failed && <p className="p-2 text-sm text-ink">Couldn't load emoji.</p>}
 
         {groups && query && (
           <div className="grid grid-cols-8 gap-0.5">
@@ -119,7 +119,7 @@ export function EmojiPicker({ onSelect }: EmojiPickerProps) {
               <EmojiButton key={item.emoji} item={item} onPick={() => pick(item.emoji)} />
             ))}
             {results.length === 0 && (
-              <p className="col-span-8 p-2 text-sm text-ink-secondary">Sin resultados.</p>
+              <p className="col-span-8 p-2 text-sm text-ink-secondary">No results.</p>
             )}
           </div>
         )}
@@ -128,7 +128,7 @@ export function EmojiPicker({ onSelect }: EmojiPickerProps) {
           <>
             {activeGroup === null && recent.length > 0 && (
               <section className="mb-2">
-                <h3 className="px-1 pb-1 text-xs font-semibold text-ink-secondary">Recientes</h3>
+                <h3 className="px-1 pb-1 text-xs font-semibold text-ink-secondary">Recent</h3>
                 <div className="grid grid-cols-8 gap-0.5">
                   {recent.map((emoji) => (
                     <EmojiButton

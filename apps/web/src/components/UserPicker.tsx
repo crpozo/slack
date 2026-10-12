@@ -32,8 +32,8 @@ export function UserPicker({ users, selected, onChange, locked = [] }: UserPicke
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Buscar personas…"
-          aria-label="Buscar personas"
+          placeholder="Search people…"
+          aria-label="Search people"
           className="w-full bg-transparent py-2 text-sm text-ink placeholder:text-ink-secondary focus:outline-none"
         />
       </label>
@@ -59,7 +59,7 @@ export function UserPicker({ users, selected, onChange, locked = [] }: UserPicke
                     {u.displayName}
                   </span>
                   <span className="block truncate text-xs text-ink-secondary">
-                    {isLocked ? "Ya es miembro" : u.email}
+                    {isLocked ? "Already a member" : u.email}
                   </span>
                 </span>
                 <span
@@ -75,7 +75,7 @@ export function UserPicker({ users, selected, onChange, locked = [] }: UserPicke
         })}
         {visible.length === 0 && (
           <li className="px-3 py-3 text-sm text-ink-secondary">
-            {users.length === 0 ? "Nadie más ha iniciado sesión todavía." : "Sin resultados."}
+            {users.length === 0 ? "Nobody else has signed in yet." : "No results."}
           </li>
         )}
       </ul>

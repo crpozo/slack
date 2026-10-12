@@ -24,7 +24,7 @@ loadConfig().then(
     render(
       <div className="flex h-full items-center justify-center p-6">
         <p className="max-w-md rounded-lg border border-error/40 bg-error/10 p-4 text-sm text-ink">
-          Configuración incompleta: {err instanceof Error ? err.message : String(err)}
+          Incomplete configuration: {err instanceof Error ? err.message : String(err)}
         </p>
       </div>,
     ),

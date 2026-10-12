@@ -23,8 +23,8 @@ const VISIBILITY: Array<{
   hint: string;
   Icon: typeof LockIcon;
 }> = [
-  { value: "private", label: "Privado", hint: "Solo las personas invitadas", Icon: LockIcon },
-  { value: "public", label: "Público", hint: "Todo el equipo puede verlo", Icon: GlobeIcon },
+  { value: "private", label: "Private", hint: "Only people you invite", Icon: LockIcon },
+  { value: "public", label: "Public", hint: "Visible to the whole team", Icon: GlobeIcon },
 ];
 
 export function CreateChannelModal({
@@ -45,7 +45,7 @@ export function CreateChannelModal({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!CHANNEL_NAME_PATTERN.test(name)) {
-      setError("Usa letras minúsculas, números o guiones (máx. 32).");
+      setError("Use lowercase letters, numbers or hyphens (max. 32).");
       return;
     }
     setBusy(true);
@@ -55,25 +55,25 @@ export function CreateChannelModal({
         await chat.createChannel(name, visibility, visibility === "private" ? invitees : []),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo crear el canal.");
+      setError(err instanceof Error ? err.message : "Couldn't create the channel.");
       setBusy(false);
     }
   }
 
   return (
     <Modal
-      title="Crear canal"
+      title="Create channel"
       onClose={onClose}
       footer={
         <>
-          <SecondaryButton onClick={onClose}>Cancelar</SecondaryButton>
+          <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
           <button
             type="submit"
             form="create-channel"
             className="btn-primary"
             disabled={busy || !name}
           >
-            {busy ? "Creando…" : "Crear"}
+            {busy ? "Creating…" : "Create"}
           </button>
         </>
       }
@@ -81,24 +81,24 @@ export function CreateChannelModal({
       <form id="create-channel" onSubmit={handleSubmit} className="space-y-5">
         <div className="space-y-1.5">
           <label htmlFor="channel-name" className="text-sm font-medium text-ink">
-            Nombre
+            Name
           </label>
           <input
             id="channel-name"
             className="input"
-            placeholder="p. ej. diseño-web"
+            placeholder="e.g. web-design"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             disabled={busy}
           />
           {value && name !== value && (
-            <p className="text-xs text-ink-secondary">Se creará #{name}</p>
+            <p className="text-xs text-ink-secondary">Will be created as #{name}</p>
           )}
         </div>
 
         <fieldset className="space-y-1.5">
-          <legend className="mb-1.5 text-sm font-medium text-ink">Visibilidad</legend>
-          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Visibilidad">
+          <legend className="mb-1.5 text-sm font-medium text-ink">Visibility</legend>
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Visibility">
             {VISIBILITY.map(({ value: v, label, hint, Icon }) => (
               <button
                 key={v}
@@ -124,10 +124,8 @@ export function CreateChannelModal({
         {visibility === "private" && (
           <div className="space-y-1.5">
             <p className="text-sm font-medium text-ink">
-              Invitar personas{" "}
-              <span className="font-normal text-ink-secondary">
-                ({invitees.length} seleccionada{invitees.length === 1 ? "" : "s"})
-              </span>
+              Invite people{" "}
+              <span className="font-normal text-ink-secondary">({invitees.length} selected)</span>
             </p>
             <UserPicker users={others} selected={invitees} onChange={setInvitees} />
           </div>
@@ -153,11 +151,11 @@ export function InviteModal({ channel, onClose }: { channel: Channel; onClose: (
 
   return (
     <Modal
-      title={`Invitar a #${channel.name}`}
+      title={`Invite to #${channel.name}`}
       onClose={onClose}
       footer={
         <>
-          <SecondaryButton onClick={onClose}>Cancelar</SecondaryButton>
+          <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
           <button
             type="button"
             className="btn-primary"
@@ -167,7 +165,7 @@ export function InviteModal({ channel, onClose }: { channel: Channel; onClose: (
               onClose();
             }}
           >
-            Invitar{selected.length > 0 ? ` (${selected.length})` : ""}
+            Invite{selected.length > 0 ? ` (${selected.length})` : ""}
           </button>
         </>
       }

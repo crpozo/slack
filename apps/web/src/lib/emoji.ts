@@ -20,15 +20,15 @@ export interface EmojiGroup {
 export const QUICK_REACTIONS = ["👍️", "❤️", "😂", "🎉", "😮", "🙏"] as const;
 
 const GROUP_LABELS: Record<number, string> = {
-  0: "Caras y emociones",
-  1: "Personas",
-  3: "Animales y naturaleza",
-  4: "Comida y bebida",
-  5: "Viajes y lugares",
-  6: "Actividades",
-  7: "Objetos",
-  8: "Símbolos",
-  9: "Banderas",
+  0: "Smileys & emotion",
+  1: "People",
+  3: "Animals & nature",
+  4: "Food & drink",
+  5: "Travel & places",
+  6: "Activities",
+  7: "Objects",
+  8: "Symbols",
+  9: "Flags",
 };
 
 export function normalizeSearch(text: string): string {
@@ -79,9 +79,9 @@ export function searchEmojis(groups: EmojiGroup[], query: string, limit = 120): 
 
 let groupsPromise: Promise<EmojiGroup[]> | undefined;
 
-/** Loads the Spanish emoji dataset on first use (its own lazily-loaded chunk). */
+/** Loads the English emoji dataset on first use (its own lazily-loaded chunk). */
 export function loadEmojiGroups(): Promise<EmojiGroup[]> {
-  groupsPromise ??= import("emojibase-data/es/compact.json").then((mod) =>
+  groupsPromise ??= import("emojibase-data/en/compact.json").then((mod) =>
     buildGroups((mod as unknown as { default: RawEmoji[] }).default),
   );
   return groupsPromise;

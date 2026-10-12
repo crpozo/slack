@@ -13,15 +13,15 @@ import { getIdToken, SessionExpiredError } from "./auth";
 import { WsClient, type DistributiveOmit } from "./ws";
 
 const ERROR_TEXT: Record<ErrorCode, string> = {
-  BAD_REQUEST: "La solicitud no es válida.",
-  UNAUTHORIZED: "Tu sesión expiró. Vuelve a iniciar sesión.",
-  CHANNEL_NOT_FOUND: "Ese canal no existe o no tienes acceso.",
-  CHANNEL_NAME_TAKEN: "Ya existe un canal con ese nombre.",
-  FILE_NOT_FOUND: "El archivo ya no existe.",
-  FORBIDDEN: "No tienes permiso para hacer eso.",
-  USER_NOT_FOUND: "Esa persona no existe o nunca ha iniciado sesión.",
-  MESSAGE_NOT_FOUND: "Ese mensaje ya no existe.",
-  INTERNAL_ERROR: "Algo falló en el servidor. Inténtalo de nuevo.",
+  BAD_REQUEST: "That request isn't valid.",
+  UNAUTHORIZED: "Your session expired. Please sign in again.",
+  CHANNEL_NOT_FOUND: "That channel doesn't exist or you don't have access.",
+  CHANNEL_NAME_TAKEN: "A channel with that name already exists.",
+  FILE_NOT_FOUND: "That file no longer exists.",
+  FORBIDDEN: "You don't have permission to do that.",
+  USER_NOT_FOUND: "That person doesn't exist or has never signed in.",
+  MESSAGE_NOT_FOUND: "That message no longer exists.",
+  INTERNAL_ERROR: "Something went wrong on the server. Please try again.",
 };
 
 const SEND_TIMEOUT_MS = 15_000;
@@ -124,7 +124,7 @@ class ChatController {
       }),
 
       client.on("error", ({ code, message, requestId }) => {
-        const text = ERROR_TEXT[code] ?? message ?? "Error desconocido.";
+        const text = ERROR_TEXT[code] ?? message ?? "Unknown error.";
         const presign = requestId ? this.presigns.get(requestId) : undefined;
         if (requestId && presign) {
           clearTimeout(presign.timer);
@@ -160,13 +160,13 @@ class ChatController {
     this.sendTimers.clear();
     for (const d of this.presigns.values()) {
       clearTimeout(d.timer);
-      d.reject(new Error("Sesión cerrada"));
+      d.reject(new Error("Signed out"));
     }
     this.presigns.clear();
     for (const pending of [this.pendingCreate, this.pendingName]) {
       if (!pending) continue;
       clearTimeout(pending.timer);
-      pending.reject(new Error("Sesión cerrada"));
+      pending.reject(new Error("Signed out"));
     }
     this.pendingCreate = null;
     this.pendingName = null;
@@ -237,12 +237,12 @@ class ChatController {
     invitees: string[] = [],
   ): Promise<string> {
     const client = this.client;
-    if (!client) throw new Error("Sin conexión");
-    if (this.pendingCreate) throw new Error("Ya se está creando un canal");
+    if (!client) throw new Error("Not connected");
+    if (this.pendingCreate) throw new Error("A channel is already being created");
     const channelId = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingCreate = null;
-        reject(new Error("El servidor no respondió. Inténtalo de nuevo."));
+        reject(new Error("The server didn't respond. Please try again."));
       }, REQUEST_TIMEOUT_MS);
       this.pendingCreate = { name, resolve, reject, timer };
       client.send("channel", { op: "create", name, visibility });
@@ -260,14 +260,14 @@ class ChatController {
   /** Sets your display name; resolves when the server confirms it. */
   updateDisplayName(displayName: string): Promise<void> {
     const client = this.client;
-    if (!client) return Promise.reject(new Error("Sin conexión"));
+    if (!client) return Promise.reject(new Error("Not connected"));
     const name = displayName.trim();
-    this.pendingName?.reject(new Error("Reemplazado por un cambio más reciente"));
+    this.pendingName?.reject(new Error("Replaced by a newer change"));
     if (this.pendingName) clearTimeout(this.pendingName.timer);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingName = null;
-        reject(new Error("El servidor no respondió. Inténtalo de nuevo."));
+        reject(new Error("The server didn't respond. Please try again."));
       }, REQUEST_TIMEOUT_MS);
       this.pendingName = { name, resolve, reject, timer };
       client.send("user", { op: "update", displayName: name });
@@ -307,12 +307,12 @@ class ChatController {
 
   presign(request: PresignRequest): Promise<PresignResultEvent> {
     const client = this.client;
-    if (!client) return Promise.reject(new Error("Sin conexión"));
+    if (!client) return Promise.reject(new Error("Not connected"));
     const requestId = ulid();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.presigns.delete(requestId);
-        reject(new Error("El servidor no respondió. Inténtalo de nuevo."));
+        reject(new Error("The server didn't respond. Please try again."));
       }, REQUEST_TIMEOUT_MS);
       this.presigns.set(requestId, { resolve, reject, timer });
       client.send("presign", { ...request, requestId });

@@ -8,9 +8,9 @@ import { MonitorIcon, MoonIcon, SunIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 
 const THEMES: Array<{ value: ThemePreference; label: string; Icon: typeof SunIcon }> = [
-  { value: "light", label: "Claro", Icon: SunIcon },
-  { value: "dark", label: "Oscuro", Icon: MoonIcon },
-  { value: "system", label: "Sistema", Icon: MonitorIcon },
+  { value: "light", label: "Light", Icon: SunIcon },
+  { value: "dark", label: "Dark", Icon: MoonIcon },
+  { value: "system", label: "System", Icon: MonitorIcon },
 ];
 
 /** Profile (display name) and appearance (theme). */
@@ -42,7 +42,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       await chat.updateDisplayName(trimmed);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar.");
+      setError(err instanceof Error ? err.message : "Couldn't save.");
       setSaving(false);
     }
   }
@@ -50,30 +50,30 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   if (!me) return null;
   return (
     <Modal
-      title="Ajustes"
+      title="Settings"
       onClose={onClose}
       footer={
         <>
-          <SecondaryButton onClick={onClose}>Cancelar</SecondaryButton>
+          <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
           <button
             type="submit"
             form="settings-form"
             className="btn-primary"
             disabled={saving || !valid}
           >
-            {saving ? "Guardando…" : "Guardar"}
+            {saving ? "Saving…" : "Save"}
           </button>
         </>
       }
     >
       <form id="settings-form" onSubmit={handleSubmit} className="space-y-6">
         <section className="space-y-2">
-          <h3 className="text-sm font-semibold text-ink">Perfil</h3>
+          <h3 className="text-sm font-semibold text-ink">Profile</h3>
           <div className="flex items-center gap-3">
             <Avatar name={trimmed || me.email} mine />
             <div className="min-w-0 flex-1 space-y-1">
               <label htmlFor="display-name" className="text-xs font-medium text-ink-secondary">
-                Nombre visible
+                Display name
               </label>
               <input
                 id="display-name"
@@ -81,13 +81,13 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 value={name}
                 maxLength={MAX_DISPLAY_NAME_LENGTH}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="¿Cómo quieres que te vean?"
+                placeholder="How should others see you?"
               />
             </div>
           </div>
           <p className="text-xs text-ink-secondary">
-            Es lo que el equipo ve en mensajes y en la barra lateral. Tu email ({me.email}) no
-            cambia.
+            This is what your team sees in messages and the sidebar. Your email ({me.email})
+            doesn&apos;t change.
           </p>
           {error && (
             <p
@@ -100,8 +100,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         </section>
 
         <section className="space-y-2">
-          <h3 className="text-sm font-semibold text-ink">Tema</h3>
-          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Tema">
+          <h3 className="text-sm font-semibold text-ink">Theme</h3>
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Theme">
             {THEMES.map(({ value, label, Icon }) => (
               <button
                 key={value}

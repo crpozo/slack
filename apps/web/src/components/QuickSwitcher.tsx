@@ -93,7 +93,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
     >
       <div
         role="dialog"
-        aria-label="Ir a un canal"
+        aria-label="Jump to a channel"
         className="w-full max-w-md overflow-hidden rounded-xl border border-line bg-surface shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -107,7 +107,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
               setIndex(0);
             }}
             onKeyDown={handleKey}
-            placeholder="Buscar canal o persona…"
+            placeholder="Search channels or people…"
             className="w-full bg-transparent py-3 text-sm text-ink placeholder:text-ink-secondary focus:outline-none"
           />
         </div>
@@ -132,7 +132,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
             </li>
           ))}
           {items.length === 0 && (
-            <li className="px-3 py-2 text-sm text-ink-secondary">Sin resultados</li>
+            <li className="px-3 py-2 text-sm text-ink-secondary">No results</li>
           )}
         </ul>
       </div>

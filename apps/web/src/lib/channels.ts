@@ -3,7 +3,7 @@ import type { DirectoryUser } from "./config";
 
 /** Local part of an email, used as display name. */
 export function displayName(email: string | undefined): string {
-  return email ? email.split("@")[0] || email : "desconocido";
+  return email ? email.split("@")[0] || email : "unknown";
 }
 
 /** The other participant of a DM (yourself for a self-DM), or `null`. */
@@ -23,8 +23,8 @@ export function channelLabel(
   const peer = dmPeer(channelId, myUserId);
   if (peer === null) return channel?.name ?? channelId;
   const name = nameOf(peer);
-  if (!name) return "Mensaje directo";
-  return peer === myUserId ? `${name} (tú)` : name;
+  if (!name) return "Direct message";
+  return peer === myUserId ? `${name} (you)` : name;
 }
 
 export interface DmEntry {
@@ -68,7 +68,7 @@ export function dmEntries(
     if (channel.type !== "dm") continue;
     const peer = dmPeer(channel.channelId, me.userId);
     if (!peer || peer === me.userId || entries.has(peer)) continue;
-    entries.set(peer, { email: emailById.get(peer) ?? "Mensaje directo", userId: peer });
+    entries.set(peer, { email: emailById.get(peer) ?? "Direct message", userId: peer });
   }
 
   const dmIds = new Set(channels.filter((c) => c.type === "dm").map((c) => c.channelId));
@@ -81,12 +81,12 @@ export function dmEntries(
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-const timeFormat = new Intl.DateTimeFormat("es", {
+const timeFormat = new Intl.DateTimeFormat("en", {
   hour: "2-digit",
   minute: "2-digit",
   hour12: false,
 });
-const dayFormat = new Intl.DateTimeFormat("es", { weekday: "long", day: "numeric", month: "long" });
+const dayFormat = new Intl.DateTimeFormat("en", { weekday: "long", day: "numeric", month: "long" });
 
 export function formatTime(ts: number): string {
   return timeFormat.format(ts);
@@ -94,8 +94,8 @@ export function formatTime(ts: number): string {
 
 export function formatDay(ts: number, now: number = Date.now()): string {
   const day = new Date(ts).toDateString();
-  if (day === new Date(now).toDateString()) return "Hoy";
-  if (day === new Date(now - 86_400_000).toDateString()) return "Ayer";
+  if (day === new Date(now).toDateString()) return "Today";
+  if (day === new Date(now - 86_400_000).toDateString()) return "Yesterday";
   const label = dayFormat.format(ts);
   return label.charAt(0).toUpperCase() + label.slice(1);
 }

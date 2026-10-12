@@ -5,17 +5,17 @@ import { EmojiPicker } from "./EmojiPicker";
 import { SmilePlusIcon } from "./icons";
 import { Popover } from "./Popover";
 
-/** "Ana, Luis y 2 más reaccionaron con 👍" */
+/** "Ana, Luis and 2 others reacted with 👍" */
 function describe(names: string[], emoji: string): string {
   const shown = names.slice(0, 3);
   const rest = names.length - shown.length;
   const who =
     rest > 0
-      ? `${shown.join(", ")} y ${rest} más`
+      ? `${shown.join(", ")} and ${rest} other${rest === 1 ? "" : "s"}`
       : shown.length > 1
-        ? `${shown.slice(0, -1).join(", ")} y ${shown.at(-1)}`
+        ? `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`
         : (shown[0] ?? "");
-  return `${who} reaccionó con ${emoji}`;
+  return `${who} reacted with ${emoji}`;
 }
 
 /** Opens the emoji picker under `anchor` and reacts with the chosen emoji. */
@@ -54,7 +54,7 @@ export function Reactions({ message }: { message: ChatMessage }) {
       {entries.map(([emoji, users]) => {
         const mine = myUserId ? users.includes(myUserId) : false;
         const label = describe(
-          users.map((id) => (id === myUserId ? "Tú" : nameOf(id))),
+          users.map((id) => (id === myUserId ? "You" : nameOf(id))),
           emoji,
         );
         return (
@@ -63,7 +63,7 @@ export function Reactions({ message }: { message: ChatMessage }) {
             type="button"
             onClick={() => chat.toggleReaction(message, emoji)}
             title={label}
-            aria-label={`${label}. ${mine ? "Quitar" : "Añadir"} reacción`}
+            aria-label={`${label}. ${mine ? "Remove" : "Add"} reaction`}
             aria-pressed={mine}
             className={`flex h-6 items-center gap-1 rounded-full border px-2 text-xs transition-colors ${
               mine
@@ -80,8 +80,8 @@ export function Reactions({ message }: { message: ChatMessage }) {
         type="button"
         onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}
         className="flex h-6 items-center rounded-full border border-line px-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink"
-        aria-label="Añadir reacción"
-        title="Añadir reacción"
+        aria-label="Add reaction"
+        title="Add reaction"
       >
         <SmilePlusIcon />
       </button>

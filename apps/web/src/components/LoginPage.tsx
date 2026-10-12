@@ -22,7 +22,7 @@ export function LoginPage({ onSignedIn }: { onSignedIn: (user: SessionUser) => v
     try {
       onSignedIn(await signIn(email, password));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo iniciar sesión.");
+      setError(err instanceof Error ? err.message : "Couldn't sign in.");
       setBusy(false);
     }
   }
@@ -33,7 +33,7 @@ export function LoginPage({ onSignedIn }: { onSignedIn: (user: SessionUser) => v
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
           <Logo />
           <h1 className="text-2xl font-semibold text-ink">MindfulTech Slack</h1>
-          <p className="text-sm text-ink-secondary">Inicia sesión con tu cuenta del equipo</p>
+          <p className="text-sm text-ink-secondary">Sign in with your team account</p>
         </div>
 
         <form
@@ -54,12 +54,12 @@ export function LoginPage({ onSignedIn }: { onSignedIn: (user: SessionUser) => v
               className="input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="tu@mindfultech.ec"
+              placeholder="you@mindfultech.ec"
             />
           </div>
           <div className="space-y-1.5">
             <label htmlFor="password" className="text-sm font-medium text-ink">
-              Contraseña
+              Password
             </label>
             <input
               id="password"
@@ -86,7 +86,7 @@ export function LoginPage({ onSignedIn }: { onSignedIn: (user: SessionUser) => v
             className="btn-primary w-full"
             disabled={busy || !email || !password}
           >
-            {busy ? "Entrando…" : "Iniciar sesión"}
+            {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
       </div>
