@@ -168,4 +168,12 @@ describe("phase 5.1 contract", () => {
       expect(CLIENT_ACTIONS).toContain("call");
     });
   });
+
+  describe("ping", () => {
+    it("is a bare heartbeat frame with its own route", () => {
+      expect(ClientActionSchema.safeParse({ action: "ping" }).success).toBe(true);
+      expect(ClientActionSchema.safeParse({ action: "ping", extra: 1 }).success).toBe(true);
+      expect(CLIENT_ACTIONS).toContain("ping");
+    });
+  });
 });

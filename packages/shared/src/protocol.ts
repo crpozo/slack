@@ -27,6 +27,7 @@ export const CLIENT_ACTIONS = [
   "user",
   "react",
   "call",
+  "ping",
 ] as const;
 export type ClientActionName = (typeof CLIENT_ACTIONS)[number];
 
@@ -292,6 +293,12 @@ export const CallActionSchema = z.discriminatedUnion("signal", [
 export type CallAction = z.infer<typeof CallActionSchema>;
 export type CallSignal = CallAction["signal"];
 
+/**
+ * Heartbeat: API Gateway drops WebSocket connections idle for 10 minutes, so
+ * clients send this every few minutes. The server does nothing with it.
+ */
+export const PingActionSchema = z.object({ action: z.literal("ping") });
+
 export const ClientActionSchema = z.union([
   MessageActionSchema,
   HistoryActionSchema,
@@ -301,6 +308,7 @@ export const ClientActionSchema = z.union([
   UserActionSchema,
   ReactActionSchema,
   CallActionSchema,
+  PingActionSchema,
 ]);
 
 export type MessageAction = z.infer<typeof MessageActionSchema>;
