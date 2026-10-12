@@ -1,5 +1,6 @@
-import { parseAction, PresignActionSchema } from "@mindfultech/shared";
+import { isBoardId, parseAction, PresignActionSchema } from "@mindfultech/shared";
 import { ulid } from "ulid";
+import { getAccessibleBoard } from "../lib/boards";
 import { getAccessibleChannel } from "../lib/channels";
 import { wsHandler } from "../lib/handler";
 import { badRequest, ok, reply, replyError } from "../lib/response";
@@ -20,6 +21,16 @@ function channelOfKey(key: string): string | null {
   return channelId && file ? channelId : null;
 }
 
+/**
+ * Files belong to a channel (`attachments/<channelId>/…`) or, since the Task
+ * Manager, a board (`attachments/<boardId>/…`): either way only its members may
+ * upload to or download from that prefix.
+ */
+async function canUseFolder(id: string, userId: string): Promise<boolean> {
+  if (isBoardId(id)) return (await getAccessibleBoard(id, userId)) !== null;
+  return (await getAccessibleChannel(id, userId)) !== null;
+}
+
 /** `presign`: short-lived S3 URLs; the binary never goes through Lambda. */
 export const handler = wsHandler(async (event, caller) => {
   const parsed = parseAction(PresignActionSchema, event.body);
@@ -27,7 +38,7 @@ export const handler = wsHandler(async (event, caller) => {
   const action = parsed.data;
 
   if (action.op === "put") {
-    if (!(await getAccessibleChannel(action.channelId, caller.userId))) {
+    if (!(await canUseFolder(action.channelId, caller.userId))) {
       return replyError(caller.connectionId, "CHANNEL_NOT_FOUND", undefined, action.requestId);
     }
     const key = `${KEY_PREFIX}${action.channelId}/${ulid()}-${sanitizeFileName(action.name)}`;
@@ -43,7 +54,7 @@ export const handler = wsHandler(async (event, caller) => {
 
   const channelId = channelOfKey(action.key);
   if (!channelId) return badRequest(caller.connectionId, "Invalid key", action.requestId);
-  if (!(await getAccessibleChannel(channelId, caller.userId))) {
+  if (!(await canUseFolder(channelId, caller.userId))) {
     return replyError(caller.connectionId, "CHANNEL_NOT_FOUND", undefined, action.requestId);
   }
   if (!(await objectExists(action.key))) {

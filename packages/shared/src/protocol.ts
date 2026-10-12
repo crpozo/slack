@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Board, Task } from "./tasks";
 
 // ---------------------------------------------------------------------------
 // Limits & constants
@@ -448,6 +449,30 @@ export interface CallDeclineEvent extends CallEventBase {
 export type CallEvent =
   CallOfferEvent | CallAnswerEvent | CallIceCandidateEvent | CallEndEvent | CallDeclineEvent;
 
+/** Task Manager pushes (Phase 6.1): sent to the board's members after an HTTP write. */
+export interface BoardTaskCreatedEvent {
+  type: "board.task_created";
+  boardId: string;
+  task: Task;
+}
+export interface BoardTaskUpdatedEvent {
+  type: "board.task_updated";
+  boardId: string;
+  task: Task;
+}
+export interface BoardTaskDeletedEvent {
+  type: "board.task_deleted";
+  boardId: string;
+  taskId: string;
+}
+/** Members changed (the board itself, with its full member list). */
+export interface BoardUpdatedEvent {
+  type: "board.updated";
+  board: Board;
+}
+export type BoardEvent =
+  BoardTaskCreatedEvent | BoardTaskUpdatedEvent | BoardTaskDeletedEvent | BoardUpdatedEvent;
+
 export type ServerEvent =
   | MessageNewEvent
   | MessageReactionEvent
@@ -457,6 +482,7 @@ export type ServerEvent =
   | UserListEvent
   | UserUpdatedEvent
   | CallEvent
+  | BoardEvent
   | ErrorEvent;
 
 export type ServerEventType = ServerEvent["type"];

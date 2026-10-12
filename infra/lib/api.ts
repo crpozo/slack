@@ -70,6 +70,7 @@ export class Api extends Construct {
       CONNECTIONS_TABLE: data.connections.tableName,
       CHANNELS_TABLE: data.channels.tableName,
       USERS_TABLE: data.users.tableName,
+      BOARDS_TABLE: data.boards.tableName,
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
       WS_ENDPOINT: this.webSocketStage.callbackUrl,
     };
@@ -175,6 +176,8 @@ export class Api extends Construct {
     for (const h of [handlers.message, handlers.history, handlers.presign, handlers.react]) {
       channels.grant(h, "dynamodb:GetItem");
     }
+    // Board files (`attachments/<boardId>/…`) are gated by board membership.
+    data.boards.grant(handlers.presign, "dynamodb:GetItem");
     messages.grant(handlers.message, "dynamodb:PutItem");
     messages.grant(handlers.history, "dynamodb:Query");
     channels.grant(

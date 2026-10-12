@@ -37,6 +37,10 @@ describe("tasks contract", () => {
     expect(CreateTaskSchema.parse({ title: " Ship it " })).toEqual({
       title: "Ship it",
       description: "",
+      assigneeId: null,
+      project: "",
+      notes: "",
+      attachments: [],
     });
     expect(CreateTaskSchema.safeParse({ title: "" }).success).toBe(false);
     expect(
@@ -53,5 +57,35 @@ describe("tasks contract", () => {
     expect(UpdateTaskSchema.safeParse({}).success).toBe(false);
     expect(UpdateTaskSchema.safeParse({ status: "ARCHIVED" }).success).toBe(false);
     expect(UpdateTaskSchema.safeParse({ title: "" }).success).toBe(false);
+  });
+
+  it("validates the detail fields: assignee id, project length, attachments shape and count", () => {
+    const attachment = {
+      key: "attachments/b_1/x.pdf",
+      name: "x.pdf",
+      size: 10,
+      contentType: "application/pdf",
+    };
+    expect(
+      CreateTaskSchema.parse({
+        title: "t",
+        assigneeId: "u2",
+        project: " Web ",
+        notes: "n",
+        attachments: [attachment],
+      }),
+    ).toMatchObject({ assigneeId: "u2", project: "Web", notes: "n", attachments: [attachment] });
+    expect(CreateTaskSchema.safeParse({ title: "t", assigneeId: "bad_id" }).success).toBe(false);
+    expect(CreateTaskSchema.safeParse({ title: "t", project: "x".repeat(41) }).success).toBe(false);
+    expect(CreateTaskSchema.safeParse({ title: "t", attachments: [{ key: "k" }] }).success).toBe(
+      false,
+    );
+    expect(
+      CreateTaskSchema.safeParse({ title: "t", attachments: Array(11).fill(attachment) }).success,
+    ).toBe(false);
+
+    expect(UpdateTaskSchema.parse({ assigneeId: null })).toEqual({ assigneeId: null });
+    expect(UpdateTaskSchema.parse({ attachments: [] })).toEqual({ attachments: [] });
+    expect(UpdateTaskSchema.safeParse({ notes: "x".repeat(5001) }).success).toBe(false);
   });
 });

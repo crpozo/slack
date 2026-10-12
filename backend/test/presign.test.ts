@@ -3,20 +3,34 @@ import { MAX_ATTACHMENT_SIZE, type PresignResultEvent } from "@mindfultech/share
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handler, sanitizeFileName } from "../src/handlers/presign";
-import { GENERAL, mockChannels, privateRow, resetMocks, sentEvents, wsEvent } from "./helpers";
+import { GetCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  BOB,
+  ddbMock,
+  GENERAL,
+  mockChannels,
+  privateRow,
+  resetMocks,
+  sentEvents,
+  wsEvent,
+} from "./helpers";
 
-const put = (overrides: object = {}) =>
+const put = (overrides: object = {}, user?: { userId: string; email: string }) =>
   handler(
-    wsEvent("presign", {
-      action: "presign",
-      op: "put",
-      requestId: "r1",
-      channelId: "ch_general",
-      name: "mi foto.png",
-      contentType: "image/png",
-      size: 5 * 1024 * 1024,
-      ...overrides,
-    }),
+    wsEvent(
+      "presign",
+      {
+        action: "presign",
+        op: "put",
+        requestId: "r1",
+        channelId: "ch_general",
+        name: "mi foto.png",
+        contentType: "image/png",
+        size: 5 * 1024 * 1024,
+        ...overrides,
+      },
+      user ? { user } : {},
+    ),
   );
 
 const s3Mock = mockClient(S3Client);
@@ -133,5 +147,66 @@ describe("presign", () => {
       expect.objectContaining({ code: "CHANNEL_NOT_FOUND", requestId: "r1" }),
       expect.objectContaining({ code: "CHANNEL_NOT_FOUND", requestId: "r9" }),
     ]);
+  });
+
+  describe("board folders (Task Manager attachments)", () => {
+    const BOARD_ID = "b_01HZZZZZZZZZZZZZZZZZZZZZZZ";
+    beforeEach(() => {
+      process.env.BOARDS_TABLE = "slack-test-boards";
+      ddbMock.on(GetCommand, { TableName: "slack-test-boards" }).resolves({});
+      ddbMock
+        .on(GetCommand, { TableName: "slack-test-boards", Key: { boardId: BOARD_ID, sk: "BOARD" } })
+        .resolves({
+          Item: {
+            boardId: BOARD_ID,
+            sk: "BOARD",
+            name: "x",
+            ownerId: "user-owner",
+            members: new Set(["user-owner", "user-alice"]),
+            createdAt: 1,
+          },
+        });
+    });
+
+    it("members upload to and download from attachments/<boardId>/", async () => {
+      const result = await put({ channelId: BOARD_ID });
+      expect(result.statusCode).toBe(200);
+      const [[, event]] = sentEvents() as [[string, PresignResultEvent]];
+      expect(event.key).toMatch(new RegExp(`^attachments/${BOARD_ID}/[0-9A-Z]{26}-mi_foto\\.png$`));
+
+      const get = await handler(
+        wsEvent("presign", {
+          action: "presign",
+          op: "get",
+          requestId: "r2",
+          key: `attachments/${BOARD_ID}/01HZZ-brief.pdf`,
+        }),
+      );
+      expect(get.statusCode).toBe(200);
+    });
+
+    it("non-members get CHANNEL_NOT_FOUND for a board folder, both ways", async () => {
+      const result = await put({ channelId: BOARD_ID }, BOB);
+      expect(result.statusCode).toBe(400);
+      expect(sentEvents()[0]?.[1]).toMatchObject({ code: "CHANNEL_NOT_FOUND" });
+      const get = await handler(
+        wsEvent(
+          "presign",
+          {
+            action: "presign",
+            op: "get",
+            requestId: "r2",
+            key: `attachments/${BOARD_ID}/01HZZ-brief.pdf`,
+          },
+          { user: BOB },
+        ),
+      );
+      expect(get.statusCode).toBe(400);
+    });
+
+    it("an unknown board id is not found either", async () => {
+      const result = await put({ channelId: "b_00000000000000000000000000" });
+      expect(result.statusCode).toBe(400);
+    });
   });
 });
