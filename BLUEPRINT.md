@@ -483,6 +483,17 @@ It is carried out in three sub-phases, each on its own branch with its own PR to
 
 **5.4 acceptance criteria:** one summary message in both chats whichever side hangs up; switching camera and microphone mid-call keeps the call up with no new offer signaled.
 
+#### 5.5 — UX feedback
+
+**Branch:** `feature/f5-5-ux-feedback`
+
+1. **Heartbeat:** API Gateway drops WebSockets idle for 10 minutes. The client sends `{ "action": "ping" }` every 3 minutes while the socket is open (nothing while reconnecting); `ping` is its own route to a no-op Lambda (200, no reply, no table access, no permissions).
+2. **New DM from the sidebar:** a `+` next to "Direct messages" opens a single-select people picker over the directory (`user.list`); picking someone opens the DM immediately.
+3. **Discord-style call layout:** the call renders as an in-flow panel at the top of the DM's chat column (≈48 vh, capped), never a full-screen overlay: the sidebar and the composer stay usable. In other channels a slim "In a call with…" bar offers *Return to call* and *Hang up*; the peer's audio element is mounted globally so it keeps playing while browsing. Accepting a call navigates to its DM. The ringing card stays a fixed notification.
+4. **Dual-track screen share:** three transceivers are negotiated in a fixed order, audio, camera, screen; the screen has its own `RTCRtpSender`, so sharing is `replaceTrack` on it and the camera is never replaced. Incoming tracks are told apart by m-line position (the `track` event fires inside `setRemoteDescription`, before the callee has mapped its senders). While a screen is shared it takes the stage and both cameras move to a strip on the right (a row below, on narrow screens). If both share, the remote screen takes the stage and yours becomes a tile. An older peer without the third transceiver gets "Screen sharing isn't available in this call."
+
+**5.5 acceptance criteria:** a connection left idle for more than 10 minutes stays open; the `+` DM picker opens a DM with anyone in the directory; during a call the sidebar is clickable and a message can be sent from the composer; while sharing, both cameras are visible on both sides and no new offer is signaled.
+
 **Phase 5 wrap-up:** `CHANGELOG.md` and versions bumped to `0.2.0`, README updated and tag `v0.2.0`.
 
 ---

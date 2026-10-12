@@ -12,6 +12,7 @@ import { selectName, useChat, type ChatMessage } from "../store";
 import { pendingMessageId } from "../store/messages";
 import { getIdToken, SessionExpiredError } from "./auth";
 import { calls } from "./call";
+import { startHeartbeat } from "./heartbeat";
 import { WsClient, type DistributiveOmit } from "./ws";
 
 const ERROR_TEXT: Record<ErrorCode, string> = {
@@ -159,6 +160,9 @@ class ChatController {
       client.on("call.decline", (event) => calls.handle(event)),
       client.on("call.end", (event) => calls.handle(event)),
     );
+
+    // Keep the connection alive: API Gateway drops idle sockets after 10 minutes.
+    this.cleanups.push(startHeartbeat(client));
 
     const onOnline = () => client.reconnectNow();
     window.addEventListener("online", onOnline);

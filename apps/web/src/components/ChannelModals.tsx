@@ -182,3 +182,28 @@ export function InviteModal({
     </Modal>
   );
 }
+
+/** Start a direct message with anyone in the directory (the "+" next to Direct messages). */
+export function NewDmModal({
+  onClose,
+  onOpened,
+}: Readonly<{ onClose: () => void; onOpened: (channelId: string) => void }>) {
+  const others = useOtherUsers();
+  return (
+    <Modal
+      title="New direct message"
+      onClose={onClose}
+      footer={<SecondaryButton onClick={onClose}>Cancel</SecondaryButton>}
+    >
+      <UserPicker
+        users={others}
+        selected={[]}
+        mode="single"
+        onChange={([userId]) => {
+          const channelId = userId && chat.openDm(userId);
+          if (channelId) onOpened(channelId);
+        }}
+      />
+    </Modal>
+  );
+}

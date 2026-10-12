@@ -5,6 +5,7 @@ import { calls, useCall } from "../lib/call";
 import { channelLabel, dmPeer } from "../lib/channels";
 import { supportsCalls } from "../lib/media";
 import { useChat, useNameOf } from "../store";
+import { CallPanel } from "./CallLayer";
 import { Composer, type ComposerHandle } from "./Composer";
 import { InviteModal } from "./ChannelModals";
 import { HashIcon, LockIcon, MenuIcon, PhoneIcon, UserPlusIcon, VideoIcon } from "./icons";
@@ -124,6 +125,7 @@ export function ChannelView({
         </div>
       ) : (
         <>
+          <CallPanel channelId={channelId} />
           <MessageList channelId={channelId} title={title} />
           <Composer
             key={channelId}

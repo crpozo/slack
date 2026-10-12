@@ -2,7 +2,7 @@ import type { UserProfile } from "@mindfultech/shared";
 import { useMemo, useState } from "react";
 import { normalizeSearch } from "../lib/emoji";
 import { Avatar } from "./Avatar";
-import { CheckIcon, SearchIcon } from "./icons";
+import { CheckIcon, ChevronRightIcon, SearchIcon } from "./icons";
 
 interface UserPickerProps {
   users: UserProfile[];
@@ -10,20 +10,30 @@ interface UserPickerProps {
   onChange: (userIds: string[]) => void;
   /** Already members: shown checked and locked. */
   locked?: string[];
+  /** `single`: picking a person calls `onChange([userId])` right away, no checkboxes. */
+  mode?: "multi" | "single";
 }
 
 /** Searchable multi-select over the user directory. */
-export function UserPicker({ users, selected, onChange, locked = [] }: Readonly<UserPickerProps>) {
+export function UserPicker({
+  users,
+  selected,
+  onChange,
+  locked = [],
+  mode = "multi",
+}: Readonly<UserPickerProps>) {
   const [query, setQuery] = useState("");
   const visible = useMemo(() => {
     const q = normalizeSearch(query);
     return users.filter((u) => !q || normalizeSearch(`${u.displayName} ${u.email}`).includes(q));
   }, [users, query]);
 
-  const toggle = (userId: string) =>
+  const toggle = (userId: string) => {
+    if (mode === "single") return onChange([userId]);
     onChange(
       selected.includes(userId) ? selected.filter((id) => id !== userId) : [...selected, userId],
     );
+  };
 
   return (
     <div className="space-y-2">
@@ -40,7 +50,7 @@ export function UserPicker({ users, selected, onChange, locked = [] }: Readonly<
       <ul
         className="max-h-56 overflow-y-auto rounded-lg border border-line"
         role="listbox"
-        aria-multiselectable="true"
+        aria-multiselectable={mode === "multi"}
       >
         {visible.map((u) => {
           const isLocked = locked.includes(u.userId);
@@ -62,13 +72,17 @@ export function UserPicker({ users, selected, onChange, locked = [] }: Readonly<
                     {isLocked ? "Already a member" : u.email}
                   </span>
                 </span>
-                <span
-                  className={`flex h-5 w-5 items-center justify-center rounded border ${
-                    checked ? "border-primary bg-primary text-on-accent" : "border-line"
-                  } ${isLocked ? "opacity-50" : ""}`}
-                >
-                  {checked && <CheckIcon className="text-xs" />}
-                </span>
+                {mode === "multi" ? (
+                  <span
+                    className={`flex h-5 w-5 items-center justify-center rounded border ${
+                      checked ? "border-primary bg-primary text-on-accent" : "border-line"
+                    } ${isLocked ? "opacity-50" : ""}`}
+                  >
+                    {checked && <CheckIcon className="text-xs" />}
+                  </span>
+                ) : (
+                  <ChevronRightIcon className="text-ink-secondary" />
+                )}
               </button>
             </li>
           );

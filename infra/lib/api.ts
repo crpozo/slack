@@ -125,6 +125,7 @@ export class Api extends Construct {
       user: fn("user"),
       react: fn("react"),
       call: fn("call"),
+      ping: fn("ping"),
     } satisfies Record<Exclude<Handler, "authorizer">, NodejsFunction>;
 
     const integration = (name: keyof typeof handlers) =>
@@ -204,6 +205,7 @@ export class Api extends Construct {
     );
 
     // Every handler that replies to the sender or broadcasts uses @connections.
+    // (`ping` and `typing` are no-ops: no permissions at all.)
     for (const h of [handlers.default, ...routeHandlers]) {
       this.webSocketApi.grantManageConnections(h);
     }

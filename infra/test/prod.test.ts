@@ -293,6 +293,21 @@ describe("phase 5.1 resources", () => {
     expect(actionsOn("message", "DataUsers")).toEqual([]);
   });
 
+  it("routes ping to a no-op Lambda with no DynamoDB or @connections permissions", () => {
+    const t = template();
+    expect(matching(t, "AWS::ApiGatewayV2::Route", { RouteKey: "ping" })).toHaveLength(1);
+    expect(
+      matching(t, "AWS::Lambda::Function", {
+        FunctionName: "slack-dev-ping",
+        Runtime: "nodejs22.x",
+      }),
+    ).toHaveLength(1);
+    const policies = Object.keys(t.findResources("AWS::IAM::Policy")).filter((id) =>
+      id.startsWith("ApipingFnServiceRoleDefaultPolicy"),
+    );
+    expect(policies).toEqual([]);
+  });
+
   it("routes call signaling to a Lambda that only touches connections", () => {
     const t = template();
     expect(matching(t, "AWS::ApiGatewayV2::Route", { RouteKey: "call" })).toHaveLength(1);

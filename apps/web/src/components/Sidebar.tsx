@@ -146,6 +146,7 @@ interface SidebarProps {
   onToggleCollapsed?: () => void;
   onOpenSwitcher: () => void;
   onCreateChannel: () => void;
+  onNewDm: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
 }
@@ -156,6 +157,7 @@ export function Sidebar({
   onToggleCollapsed,
   onOpenSwitcher,
   onCreateChannel,
+  onNewDm,
   onOpenSettings,
   onSignOut,
 }: Readonly<SidebarProps>) {
@@ -296,7 +298,21 @@ export function Sidebar({
           </ul>
         </Section>
 
-        <Section title="Direct messages" compact={compact}>
+        <Section
+          title="Direct messages"
+          compact={compact}
+          action={
+            <button
+              type="button"
+              onClick={onNewDm}
+              className={iconButton}
+              aria-label="New direct message"
+              title="New direct message"
+            >
+              <PlusIcon />
+            </button>
+          }
+        >
           <ul className="space-y-0.5 px-2">
             {dms.map((dm) => {
               const id = dm.userId ? dmChannelId(me.userId, dm.userId) : undefined;

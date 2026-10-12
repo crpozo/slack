@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { calls, useCall, type CallView } from "../lib/call";
 import { listInputDevices, loadMediaPrefs, supportsScreenShare } from "../lib/media";
 import { useNameOf } from "../store";
@@ -48,6 +49,7 @@ function ControlButton({
   label,
   highlight = false,
   danger = false,
+  disabled = false,
   onClick,
   children,
 }: Readonly<{
@@ -56,6 +58,7 @@ function ControlButton({
   /** Inverted colors: the mic or camera is off, or the screen is being shared. */
   highlight?: boolean;
   danger?: boolean;
+  disabled?: boolean;
   onClick: () => void;
   children: ReactNode;
 }>) {
@@ -66,9 +69,10 @@ function ControlButton({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       title={label}
-      className={`flex h-12 w-12 items-center justify-center rounded-full text-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${tone}`}
+      className={`flex h-11 w-11 items-center justify-center rounded-full text-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-40 ${tone}`}
     >
       {children}
     </button>
@@ -117,7 +121,7 @@ function DeviceMenu({
         title={`Choose ${labels.title.toLowerCase()}`}
         aria-expanded={!!anchor}
         onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}
-        className="-ml-2 flex h-7 w-7 items-center justify-center self-end rounded-full bg-white/15 text-sm text-white ring-2 ring-[#0E0D12] hover:bg-white/25 focus-visible:outline-none focus-visible:ring-primary"
+        className="-ml-2 flex h-6 w-6 items-center justify-center self-end rounded-full bg-white/15 text-xs text-white ring-2 ring-[#0E0D12] hover:bg-white/25 focus-visible:outline-none focus-visible:ring-primary"
       >
         <ChevronUpIcon />
       </button>
@@ -165,8 +169,13 @@ function DeviceMenu({
 /** Ringing notification: who is calling, with Accept and Decline. */
 function IncomingCall({ call }: Readonly<{ call: CallView }>) {
   const nameOf = useNameOf();
+  const navigate = useNavigate();
   const name = nameOf(call.peerId);
   const video = call.media === "video";
+  function accept() {
+    navigate(`/app/${call.channelId}`); // the call panel lives in that DM
+    void calls.accept();
+  }
   return (
     <section
       aria-label={`Incoming call from ${name}`}
@@ -192,7 +201,7 @@ function IncomingCall({ call }: Readonly<{ call: CallView }>) {
         </button>
         <button
           type="button"
-          onClick={() => void calls.accept()}
+          onClick={accept}
           className="flex items-center justify-center gap-2 rounded-lg bg-success px-3 py-2 text-sm font-semibold text-on-accent hover:bg-success/85"
         >
           {video ? <VideoIcon /> : <PhoneIcon />} Accept
@@ -202,35 +211,130 @@ function IncomingCall({ call }: Readonly<{ call: CallView }>) {
   );
 }
 
-/** Full-screen call: remote video (or avatar) large, local preview small, controls. */
+/** A participant's camera, or their avatar while it is off. */
+function CameraTile({
+  stream,
+  on,
+  name,
+  mirrored = false,
+  label,
+  className = "",
+}: Readonly<{
+  stream: MediaStream | null;
+  on: boolean;
+  name: string;
+  mirrored?: boolean;
+  label: string;
+  className?: string;
+}>) {
+  return (
+    <div
+      className={`relative shrink-0 overflow-hidden rounded-xl border border-white/15 bg-black ${className}`}
+    >
+      {on && stream ? (
+        <StreamMedia
+          kind="video"
+          stream={stream}
+          muted
+          label={label}
+          className={`h-full w-full object-cover ${mirrored ? "-scale-x-100" : ""}`}
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center">
+          <Avatar name={name} size="md" />
+        </div>
+      )}
+      <span className="absolute bottom-1 left-1.5 max-w-[calc(100%-0.75rem)] truncate rounded bg-black/55 px-1.5 py-0.5 text-[11px] text-white">
+        {name}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * In-column call panel (Discord-style): the sidebar and the composer stay
+ * usable. Without a screen share, the peer's camera (or avatar) is the stage
+ * and your camera is a small picture-in-picture. While a screen is shared it
+ * takes the stage and both cameras move to a strip on the right (below, on
+ * narrow screens), so nobody's camera is ever hidden.
+ */
 function ActiveCall({ call }: Readonly<{ call: CallView }>) {
   const nameOf = useNameOf();
   const name = nameOf(call.peerId);
   const elapsed = useElapsed(call.connectedAt);
-  const remoteVideo =
-    call.phase === "connected" && !!call.remoteStream && (call.peer.camOn || call.peer.sharing);
-  const canShare = supportsScreenShare();
+  const connected = call.phase === "connected";
+  const peerSharing = connected && call.peer.sharing && !!call.remoteScreen;
+  const sharing = peerSharing || !!call.localScreen;
+  const peerCamOn = connected && call.peer.camOn && !!call.remoteStream;
+  const canShare = supportsScreenShare() && call.canShare;
 
-  return (
-    <section
-      aria-label={`Call with ${name}`}
-      className="fixed inset-0 z-40 flex flex-col bg-[#0E0D12] text-white"
-    >
-      <StreamMedia kind="audio" stream={call.remoteStream} />
+  const peerTile = (className: string) => (
+    <CameraTile
+      stream={call.remoteStream}
+      on={peerCamOn}
+      name={name}
+      label={`Video from ${name}`}
+      className={className}
+    />
+  );
+  const myTile = (className: string) => (
+    <CameraTile
+      stream={call.localCamera}
+      on={!!call.localCamera}
+      name="You"
+      mirrored
+      label="Your camera"
+      className={className}
+    />
+  );
 
-      <header className="flex items-center gap-3 px-4 py-3">
-        <div className="min-w-0">
-          <p className="truncate font-semibold">{name}</p>
-          <p className="text-sm text-white/70" aria-live="polite">
-            {statusText(call, elapsed)}
-            {call.phase === "connected" && !call.peer.micOn && " · Muted"}
-            {call.peer.sharing && " · Sharing screen"}
-          </p>
+  let stage: ReactNode;
+  if (sharing) {
+    stage = (
+      <div className="flex h-full min-h-0 flex-col gap-2 p-2 sm:flex-row">
+        <div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-black">
+          {peerSharing ? (
+            <StreamMedia
+              kind="video"
+              stream={call.remoteScreen}
+              muted
+              label={`Screen from ${name}`}
+              className="h-full w-full object-contain"
+            />
+          ) : (
+            <StreamMedia
+              kind="video"
+              stream={call.localScreen}
+              muted
+              label="Your shared screen"
+              className="h-full w-full object-contain"
+            />
+          )}
         </div>
-      </header>
-
-      <div className="relative min-h-0 flex-1">
-        {remoteVideo ? (
+        <div className="flex shrink-0 gap-2 overflow-x-auto sm:w-40 sm:flex-col sm:overflow-y-auto sm:overflow-x-hidden">
+          {peerTile("aspect-video h-20 sm:h-auto sm:w-full")}
+          {myTile("aspect-video h-20 sm:h-auto sm:w-full")}
+          {peerSharing && call.localScreen && (
+            <div className="relative aspect-video h-20 shrink-0 overflow-hidden rounded-xl border border-white/15 bg-black sm:h-auto sm:w-full">
+              <StreamMedia
+                kind="video"
+                stream={call.localScreen}
+                muted
+                label="Your shared screen"
+                className="h-full w-full object-contain"
+              />
+              <span className="absolute bottom-1 left-1.5 rounded bg-black/55 px-1.5 py-0.5 text-[11px] text-white">
+                Your screen
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  } else {
+    stage = (
+      <div className="relative h-full">
+        {peerCamOn ? (
           <StreamMedia
             kind="video"
             stream={call.remoteStream}
@@ -239,30 +343,41 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
             className="h-full w-full object-contain"
           />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-4">
+          <div className="flex h-full flex-col items-center justify-center gap-3">
             <Avatar name={name} size="xl" />
-            {call.phase === "connected" && (
+            {connected && (
               <p className="text-sm text-white/70">
                 {call.media === "video" ? "Camera is off" : "Voice call"}
               </p>
             )}
           </div>
         )}
-
-        {call.localVideo && (
-          <StreamMedia
-            kind="video"
-            stream={call.localVideo}
-            muted
-            label={call.sharing ? "Your shared screen" : "Your camera"}
-            className={`absolute bottom-3 right-3 aspect-video w-32 rounded-xl border border-white/20 bg-black object-cover shadow-lg sm:w-56 ${
-              call.sharing ? "" : "-scale-x-100"
-            }`}
-          />
+        {call.localCamera && (
+          <div className="absolute bottom-2 right-2 w-28 shadow-lg sm:w-44">
+            {myTile("aspect-video w-full")}
+          </div>
         )}
       </div>
+    );
+  }
 
-      <footer className="flex items-center justify-center gap-3 px-4 pb-6 pt-4">
+  return (
+    <section
+      aria-label={`Call with ${name}`}
+      className="flex h-[min(48vh,520px)] min-h-[300px] shrink-0 flex-col border-b border-line bg-[#0E0D12] text-white"
+    >
+      <header className="flex items-center gap-2 px-4 py-2 text-sm">
+        <p className="truncate font-semibold">{name}</p>
+        <p className="truncate text-white/70" aria-live="polite">
+          {statusText(call, elapsed)}
+          {connected && !call.peer.micOn && " · Muted"}
+          {call.peer.sharing && " · Sharing screen"}
+        </p>
+      </header>
+
+      <div className="min-h-0 flex-1">{stage}</div>
+
+      <footer className="flex items-center justify-center gap-3 px-4 py-2.5">
         <div className="flex">
           <ControlButton
             label={call.micOn ? "Mute microphone" : "Unmute microphone"}
@@ -283,10 +398,11 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
           </ControlButton>
           <DeviceMenu kind="video" currentId={call.cameraDeviceId} />
         </div>
-        {canShare && (
+        {supportsScreenShare() && (
           <ControlButton
             label={call.sharing ? "Stop sharing screen" : "Share screen"}
             highlight={call.sharing}
+            disabled={!canShare}
             onClick={() => void calls.toggleScreenShare()}
           >
             <ScreenShareIcon />
@@ -300,9 +416,57 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
   );
 }
 
-/** Mounted once in the chat layout: shows the ringing card or the call view. */
+/** Slim bar shown in other channels while a call is going on elsewhere. */
+function OngoingCallBar({ call }: Readonly<{ call: CallView }>) {
+  const nameOf = useNameOf();
+  const navigate = useNavigate();
+  const name = nameOf(call.peerId);
+  const elapsed = useElapsed(call.connectedAt);
+  return (
+    <div
+      role="status"
+      aria-label="Ongoing call"
+      className="flex items-center gap-3 border-b border-line bg-[#0E0D12] px-4 py-2 text-sm text-white"
+    >
+      <PhoneIcon className="shrink-0 text-success" />
+      <p className="min-w-0 flex-1 truncate">
+        {call.phase === "connected" ? "In a call with" : "Calling"} <strong>{name}</strong>
+        {elapsed && <span className="text-white/70"> · {elapsed}</span>}
+      </p>
+      <button
+        type="button"
+        onClick={() => navigate(`/app/${call.channelId}`)}
+        className="rounded-md bg-white/15 px-3 py-1 font-medium hover:bg-white/25"
+      >
+        Return to call
+      </button>
+      <button
+        type="button"
+        onClick={() => calls.hangUp()}
+        aria-label="Hang up"
+        title="Hang up"
+        className="rounded-md bg-error p-1.5 text-white hover:bg-error/85"
+      >
+        <PhoneOffIcon />
+      </button>
+    </div>
+  );
+}
+
+/** Lives in the chat column above the messages: the call in this DM, or a bar for one elsewhere. */
+export function CallPanel({ channelId }: Readonly<{ channelId: string }>) {
+  const call = useCall((s) => s.call);
+  if (!call || call.phase === "incoming") return null;
+  return call.channelId === channelId ? <ActiveCall call={call} /> : <OngoingCallBar call={call} />;
+}
+
+/**
+ * Mounted once in the layout: the ringing card (which may appear anywhere) and
+ * the peer's audio, which keeps playing while you browse other channels.
+ */
 export function CallLayer() {
   const call = useCall((s) => s.call);
   if (!call) return null;
-  return call.phase === "incoming" ? <IncomingCall call={call} /> : <ActiveCall call={call} />;
+  if (call.phase === "incoming") return <IncomingCall call={call} />;
+  return <StreamMedia kind="audio" stream={call.remoteStream} />;
 }
