@@ -2,9 +2,10 @@ import { canAccessChannel, isDmChannel } from "@mindfultech/shared";
 import { useRef, useState, type DragEvent } from "react";
 import { Link } from "react-router-dom";
 import { channelLabel } from "../lib/channels";
-import { useChat } from "../store";
+import { useChat, useNameOf } from "../store";
 import { Composer, type ComposerHandle } from "./Composer";
-import { HashIcon, MenuIcon } from "./icons";
+import { InviteModal } from "./ChannelModals";
+import { HashIcon, LockIcon, MenuIcon, UserPlusIcon } from "./icons";
 import { MessageList } from "./MessageList";
 
 export function ChannelView({
@@ -17,13 +18,16 @@ export function ChannelView({
   const me = useChat((s) => s.me);
   const channel = useChat((s) => s.channels.find((c) => c.channelId === channelId));
   const channelsLoaded = useChat((s) => s.channelsLoaded);
-  const directory = useChat((s) => s.directory);
+  const nameOf = useNameOf();
+  const [inviting, setInviting] = useState(false);
   const composer = useRef<ComposerHandle>(null);
   const [dragging, setDragging] = useState(false);
 
   if (!me) return null;
   const dm = isDmChannel(channelId);
-  const label = channelLabel(channelId, channel, me.userId, directory);
+  const label = channelLabel(channelId, channel, me.userId, (id) => nameOf(id));
+  const isPrivate = channel?.type === "private";
+  const canInvite = isPrivate && channel.createdBy === me.userId;
   const title = dm ? label : `#${label}`;
   const allowed = canAccessChannel(channelId, me.userId);
   const notFound = !allowed || (channelsLoaded && !channel && !dm);
@@ -56,9 +60,31 @@ export function ChannelView({
         >
           <MenuIcon />
         </button>
-        {!dm && <HashIcon className="text-ink-secondary" />}
+        {!dm &&
+          (isPrivate ? (
+            <LockIcon className="text-ink-secondary" />
+          ) : (
+            <HashIcon className="text-ink-secondary" />
+          ))}
         <h1 className="truncate font-semibold text-ink">{label}</h1>
+        {isPrivate && (
+          <span className="shrink-0 text-xs text-ink-secondary">
+            · {channel.members?.length ?? 1} miembro
+            {(channel.members?.length ?? 1) === 1 ? "" : "s"}
+          </span>
+        )}
+        {canInvite && (
+          <button
+            type="button"
+            onClick={() => setInviting(true)}
+            className="ml-auto flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink"
+          >
+            <UserPlusIcon />
+            <span className="hidden sm:inline">Invitar</span>
+          </button>
+        )}
       </header>
+      {inviting && channel && <InviteModal channel={channel} onClose={() => setInviting(false)} />}
 
       {notFound ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
