@@ -26,7 +26,7 @@ export function Toast() {
           type="button"
           onClick={() => showToast(null)}
           className="text-ink-secondary hover:text-ink"
-          aria-label="Cerrar"
+          aria-label="Close"
         >
           <CloseIcon />
         </button>

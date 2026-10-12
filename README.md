@@ -1,29 +1,29 @@
 # slack
 
-Slack interno de MindfulTech: canales, DMs y adjuntos en tiempo real sobre AWS serverless
+MindfulTech's internal Slack: real-time channels, DMs and attachments on AWS serverless
 (Cognito + API Gateway WebSocket + Lambda + DynamoDB + S3 + CloudFront).
 
-El plan completo, la arquitectura y el alcance del MVP están en [BLUEPRINT.md](./BLUEPRINT.md).
+The full plan, the architecture and the MVP scope are in [BLUEPRINT.md](./BLUEPRINT.md).
 
-> **Versión 0.1.0 (MVP).** Cambios en [CHANGELOG.md](./CHANGELOG.md).
+> **Version 0.1.0 (MVP).** Changes in [CHANGELOG.md](./CHANGELOG.md).
 
-## Estructura
+## Structure
 
 ```
-apps/web          SPA React + Vite + Tailwind (design system MindfulTech)
-packages/shared   Contrato del protocolo WebSocket (zod) + helpers de ids
-backend           Handlers Lambda (Node 22) + tests Vitest
-infra             AWS CDK v2: stacks SlackDev y SlackProd
+apps/web          React + Vite + Tailwind SPA (MindfulTech design system)
+packages/shared   WebSocket protocol contract (zod) + id helpers
+backend           Lambda handlers (Node 22) + Vitest tests
+infra             AWS CDK v2: SlackDev and SlackProd stacks
 ```
 
-## Prerrequisitos
+## Prerequisites
 
-- Node 22 (`nvm use` lee `.nvmrc`)
+- Node 22 (`nvm use` reads `.nvmrc`)
 - pnpm 10 (`corepack enable`)
-- AWS CLI v2 con un perfil configurado para la cuenta destino, región `us-east-1`
-  (`export AWS_PROFILE=<perfil>`)
+- AWS CLI v2 with a profile configured for the target account, region `us-east-1`
+  (`export AWS_PROFILE=<profile>`)
 
-## Puesta en marcha
+## Getting started
 
 ```bash
 pnpm install
@@ -31,35 +31,36 @@ pnpm lint      # ESLint + typecheck + Prettier
 pnpm test      # Vitest (shared + backend)
 ```
 
-### Primer deploy en dev
+### First deploy to dev
 
 ```bash
-pnpm bootstrap     # solo la primera vez por cuenta/región (cdk bootstrap)
-pnpm deploy:dev    # build web → cdk deploy SlackDev → seed de #general
+pnpm bootstrap     # only the first time per account/region (cdk bootstrap)
+pnpm deploy:dev    # build web → cdk deploy SlackDev → seed #general
 ```
 
-`cdk deploy` compila `apps/web` (Vite) durante el synth, sube `dist/` al bucket privado y lo
-sirve por CloudFront (HTTPS, OAC, cabeceras de seguridad, rutas SPA). Los assets con hash se
-cachean 1 año; `index.html` y `config.json` nunca, y cada deploy invalida CloudFront.
+`cdk deploy` builds `apps/web` (Vite) during synth, uploads `dist/` to the private bucket and
+serves it through CloudFront (HTTPS, OAC, security headers, SPA routes). Hashed assets are
+cached for 1 year; `index.html` and `config.json` never are, and every deploy invalidates
+CloudFront.
 
-La web no lleva URLs ni ids de Cognito compilados: CDK escribe `/config.json` con el
-`WebSocketUrl`, `UserPoolId` y `UserPoolClientId` de **ese** stack, y la SPA lo lee al arrancar
-(en `pnpm dev` no existe y se usan las `VITE_*` de `apps/web/.env`). La lista de personas para
-DMs sale de `VITE_USERS` en tu `.env` local, o de la variable `WEB_USERS` al desplegar
-(`WEB_USERS="a@x.ec=sub,b@x.ec=sub" pnpm deploy:dev`).
+The web app has no URLs or Cognito ids compiled in: CDK writes `/config.json` with the
+`WebSocketUrl`, `UserPoolId` and `UserPoolClientId` of **that** stack, and the SPA reads it on
+startup (under `pnpm dev` it doesn't exist and the `VITE_*` values from `apps/web/.env` are used
+instead). The list of people for DMs comes from `VITE_USERS` in your local `.env`, or from the
+`WEB_USERS` variable when deploying (`WEB_USERS="a@x.ec=sub,b@x.ec=sub" pnpm deploy:dev`).
 
-Al terminar, CDK imprime 5 outputs: `UserPoolId`, `UserPoolClientId`, `WebSocketUrl`,
-`CloudFrontUrl` (la app publicada) y `AttachmentsBucket`. Para volver a verlos:
+When it finishes, CDK prints 5 outputs: `UserPoolId`, `UserPoolClientId`, `WebSocketUrl`,
+`CloudFrontUrl` (the published app) and `AttachmentsBucket`. To see them again:
 
 ```bash
 aws cloudformation describe-stacks --stack-name SlackDev \
   --query "Stacks[0].Outputs[].[OutputKey,OutputValue]" --output table
 ```
 
-### Crear los usuarios en Cognito
+### Create the Cognito users
 
-El registro público está deshabilitado: los usuarios se crean a mano. Repite por cada persona
-(contraseña de al menos 8 caracteres):
+Public sign-up is disabled: users are created by hand. Repeat for each person (password of at
+least 8 characters):
 
 ```bash
 POOL_ID=<UserPoolId>
@@ -74,171 +75,176 @@ aws cognito-idp admin-create-user \
 aws cognito-idp admin-set-user-password \
   --user-pool-id "$POOL_ID" \
   --username "$EMAIL" \
-  --password '<contraseña>' \
+  --password '<password>' \
   --permanent
 ```
 
-### Configurar y levantar la web
+### Configure and run the web app
 
 ```bash
 cp apps/web/.env.example apps/web/.env
 ```
 
-| Variable                    | Valor                                      |
-| --------------------------- | ------------------------------------------ |
-| `VITE_WS_URL`               | output `WebSocketUrl`                      |
-| `VITE_COGNITO_USER_POOL_ID` | output `UserPoolId`                        |
-| `VITE_COGNITO_CLIENT_ID`    | output `UserPoolClientId`                  |
-| `VITE_USERS`                | equipo para los DMs: `email=sub,email=sub` |
+| Variable                    | Value                               |
+| --------------------------- | ----------------------------------- |
+| `VITE_WS_URL`               | `WebSocketUrl` output               |
+| `VITE_COGNITO_USER_POOL_ID` | `UserPoolId` output                 |
+| `VITE_COGNITO_CLIENT_ID`    | `UserPoolClientId` output           |
+| `VITE_USERS`                | optional: `email=sub,…` (see below) |
 
-El `sub` (id de Cognito) de cada persona sale de:
-
-```bash
-aws cognito-idp list-users --user-pool-id <UserPoolId> \
-  --query "Users[].[Attributes[?Name=='email'].Value|[0], Attributes[?Name=='sub'].Value|[0]]" \
-  --output text
-```
-
-Si a alguien le falta el `sub`, su DM aparece deshabilitado hasta que la app lo aprenda de un
-mensaje suyo en un canal.
+Since Phase 5.1 the people directory comes from the backend (everyone who has signed in at
+least once), so `VITE_USERS` is no longer needed. It only serves to list someone in the DMs who
+has never signed in yet.
 
 ```bash
 pnpm dev     # http://localhost:5173
 ```
 
-La UI: login con email y contraseña (la sesión persiste al recargar), canales y DMs en la barra
-lateral con badge de no leídos, `+` para crear canal, `Ctrl/⌘ + K` para saltar de canal, Enter
-envía y Shift + Enter hace salto de línea, y se puede arrastrar, pegar o adjuntar archivos de
-hasta 25 MB. En móvil la barra lateral es un menú desplegable.
+The UI:
 
-### Probar el WebSocket con `wscat`
+- **Session:** login with email and password; the session persists across reloads.
+- **Sidebar:** channels (🔒 for private ones) and DMs with an unread badge. Widen it by dragging
+  its edge and collapse it to icons only with the header button or `Ctrl/⌘ + B`; both are
+  remembered. On mobile it is a slide-out menu.
+- **Channels:** `+` opens "Create channel", with Public/Private (private by default) and
+  invitations from the directory. Whoever creates a private channel sees "Invite" in its header.
+- **Messages:** Enter sends and Shift + Enter adds a new line. Files up to 25 MB can be
+  attached, pasted or dropped, and emoji inserted with the composer's 🙂 button.
+- **Reactions:** hovering over a message shows quick reactions and the full picker (with
+  search). The chips under the message show the count; a click adds or removes yours.
+- **Settings** (click your name, bottom left): display name, which everyone else sees live, and
+  the Light / Dark / System theme (light by default).
+- `Ctrl/⌘ + K` opens the switcher to jump to a channel or person.
 
-Sin token válido la conexión se rechaza:
+### Test the WebSocket with `wscat`
+
+Without a valid token the connection is rejected:
 
 ```bash
-npx wscat -c "<WebSocketUrl>?token=basura"   # → 403 (Deny)
-npx wscat -c "<WebSocketUrl>"                # → 401 (sin token)
+npx wscat -c "<WebSocketUrl>?token=garbage"  # → 403 (Deny)
+npx wscat -c "<WebSocketUrl>"                # → 401 (no token)
 ```
 
-Con un id token real (el client de dev acepta `USER_PASSWORD_AUTH` solo para esto):
+With a real id token (the dev client accepts `USER_PASSWORD_AUTH` only for this):
 
 ```bash
 TOKEN=$(aws cognito-idp initiate-auth \
   --auth-flow USER_PASSWORD_AUTH \
   --client-id <UserPoolClientId> \
-  --auth-parameters USERNAME=<email>,PASSWORD='<contraseña>' \
+  --auth-parameters USERNAME=<email>,PASSWORD='<password>' \
   --query AuthenticationResult.IdToken --output text)
 
 npx wscat -c "<WebSocketUrl>?token=$TOKEN"
 ```
 
-Mensajes de prueba (abre dos terminales para ver el broadcast):
+Test messages (open two terminals to see the broadcast):
 
 ```json
 {"action":"channel","op":"list"}
-{"action":"message","channelId":"ch_general","text":"hola","clientId":"x"}
+{"action":"message","channelId":"ch_general","text":"hello","clientId":"x"}
 {"action":"history","channelId":"ch_general"}
-{"action":"presign","op":"put","requestId":"r1","channelId":"ch_general","name":"foto.png","contentType":"image/png","size":12345}
+{"action":"presign","op":"put","requestId":"r1","channelId":"ch_general","name":"photo.png","contentType":"image/png","size":12345}
 ```
 
-Para subir con la URL prefirmada, `Content-Type` y el tamaño deben coincidir con lo pedido:
-`curl -X PUT -H "Content-Type: image/png" --upload-file foto.png "<url>"`. Una `action`
-desconocida responde `{"type":"error","code":"BAD_REQUEST"}` (ruta `$default`).
+To upload with the presigned URL, `Content-Type` and the size must match what was requested:
+`curl -X PUT -H "Content-Type: image/png" --upload-file photo.png "<url>"`. An unknown `action`
+responds with `{"type":"error","code":"BAD_REQUEST"}` (`$default` route).
 
-### Destruir dev
+### Destroy dev
 
-Cada sesión de trabajo termina con:
+Every work session ends with:
 
 ```bash
 pnpm destroy:dev
 ```
 
-En dev, tablas, user pool, buckets (con `autoDeleteObjects`) y log groups se eliminan con el
-stack (`destroy:dev` no compila la web: pasa `-c skipWebBuild=true`). En prod (`SlackProd`)
-todo se conserva (`RETAIN`) y el stack tiene protección contra borrado.
+In dev, tables, the user pool, buckets (with `autoDeleteObjects`) and log groups are deleted with
+the stack (`destroy:dev` doesn't build the web app: it passes `-c skipWebBuild=true`). In prod
+(`SlackProd`) everything is kept (`RETAIN`) and the stack has termination protection.
 
-## Producción
+## Production
 
-### 1. Certificado y DNS (a mano, una sola vez)
+### 1. Certificate and DNS (by hand, once)
 
-1. En **ACM `us-east-1`**, solicita un certificado público para `slack.mindfultech.ec` y
-   `ws.mindfultech.ec` (un certificado, dos nombres) con validación DNS.
-2. En Namecheap, crea los CNAME de validación que muestra ACM y espera al estado _Issued_.
+1. In **ACM `us-east-1`**, request a public certificate for `slack.mindfultech.ec` and
+   `ws.mindfultech.ec` (one certificate, two names) with DNS validation.
+2. In Namecheap, create the validation CNAMEs that ACM shows and wait for the _Issued_ status.
 
-### 2. Primer deploy
+### 2. First deploy
 
 ```bash
-export CERT_ARN=arn:aws:acm:us-east-1:<cuenta>:certificate/<id>
-export WEB_USERS="persona1@mindfultech.ec=<sub>,persona2@mindfultech.ec=<sub>"
+export CERT_ARN=arn:aws:acm:us-east-1:<account>:certificate/<id>
+export WEB_USERS="person1@mindfultech.ec=<sub>,person2@mindfultech.ec=<sub>"
 pnpm deploy:prod
 ```
 
-Sin `CERT_ARN`, `SlackProd` se despliega igual y se sirve en los hostnames de CloudFront y
-execute-api; con él, CloudFront responde en `slack.mindfultech.ec`, el WebSocket en
-`wss://ws.mindfultech.ec` y `config.json` apunta a ese dominio.
+Without `CERT_ARN`, `SlackProd` still deploys and is served on the CloudFront and execute-api
+hostnames; with it, CloudFront answers on `slack.mindfultech.ec`, the WebSocket on
+`wss://ws.mindfultech.ec`, and `config.json` points to that domain.
 
-| Contexto (`-c`)         | Variable de entorno        | Para qué                                     |
-| ----------------------- | -------------------------- | -------------------------------------------- |
-| `certificateArn`        | `CERT_ARN`                 | Activa los dominios propios                  |
-| `appDomain`             | `SLACK_APP_DOMAIN`         | Por defecto `slack.mindfultech.ec` en prod   |
-| `wsDomain`              | `SLACK_WS_DOMAIN`          | Por defecto `ws.mindfultech.ec` en prod      |
-| `hostedZoneId`          | `HOSTED_ZONE_ID`           | Crea alias en Route 53 (si el DNS está allí) |
-| `hostedZoneName`        | `HOSTED_ZONE_NAME`         | Por defecto el dominio padre                 |
-| `webUsers`              | `WEB_USERS`                | Directorio de DMs en `config.json`           |
-| `githubOidcProviderArn` | `GITHUB_OIDC_PROVIDER_ARN` | Reusar un proveedor OIDC de GitHub existente |
+| Context (`-c`)          | Environment variable       | Purpose                                        |
+| ----------------------- | -------------------------- | ---------------------------------------------- |
+| `certificateArn`        | `CERT_ARN`                 | Enables the custom domains                     |
+| `appDomain`             | `SLACK_APP_DOMAIN`         | Defaults to `slack.mindfultech.ec` in prod     |
+| `wsDomain`              | `SLACK_WS_DOMAIN`          | Defaults to `ws.mindfultech.ec` in prod        |
+| `hostedZoneId`          | `HOSTED_ZONE_ID`           | Creates Route 53 aliases (if the DNS is there) |
+| `hostedZoneName`        | `HOSTED_ZONE_NAME`         | Defaults to the parent domain                  |
+| `webUsers`              | `WEB_USERS`                | DM directory in `config.json`                  |
+| `githubOidcProviderArn` | `GITHUB_OIDC_PROVIDER_ARN` | Reuse an existing GitHub OIDC provider         |
 
-### 3. DNS de la app
+### 3. App DNS
 
-Con el DNS en Namecheap, crea dos CNAME con los outputs del deploy:
+With the DNS on Namecheap, create two CNAMEs with the deploy outputs:
 
 - `slack` → `AppDnsTarget` (`<id>.cloudfront.net`)
 - `ws` → `WsDnsTarget` (`d-<id>.execute-api.us-east-1.amazonaws.com`)
 
-Si el dominio estuviera en Route 53, pasa `HOSTED_ZONE_ID` y CDK crea los registros.
+If the domain were on Route 53, pass `HOSTED_ZONE_ID` and CDK creates the records.
 
-### 4. Usuarios
+### 4. Users
 
-Crea las dos cuentas con los comandos de [Crear los usuarios en Cognito](#crear-los-usuarios-en-cognito)
-usando el `UserPoolId` de `SlackProd`.
+Create the two accounts with the commands in [Create the Cognito users](#create-the-cognito-users)
+using the `UserPoolId` of `SlackProd`.
 
-### 5. Deploy continuo (GitHub Actions)
+### 5. Continuous deployment (GitHub Actions)
 
-`.github/workflows/deploy.yml` despliega `SlackProd` en cada push a `main` (lint + tests →
-`pnpm deploy:prod`). Se autentica por **OIDC** con el rol `slack-github-deploy` que crea el
-propio stack, sin access keys en GitHub; el rol solo puede asumir los roles de bootstrap de CDK
-y sembrar `#general`, y solo desde `main` de `crpozo/slack`.
+`.github/workflows/deploy.yml` deploys `SlackProd` on every push to `main` (lint + tests →
+`pnpm deploy:prod`). It authenticates via **OIDC** with the `slack-github-deploy` role that the
+stack itself creates, with no access keys in GitHub; the role can only assume the CDK bootstrap
+roles and seed `#general`, and only from `main` of `crpozo/slack`.
 
-Tras el primer deploy manual, en _Settings → Secrets and variables → Actions → Variables_:
+After the first manual deploy, in _Settings → Secrets and variables → Actions → Variables_:
 
-- `AWS_DEPLOY_ROLE_ARN` = output `GitHubDeployRoleArn` (sin esta variable el workflow no corre)
-- `CERT_ARN`, `WEB_USERS` y, si aplica, `HOSTED_ZONE_ID` y `GITHUB_OIDC_PROVIDER_ARN`
+- `AWS_DEPLOY_ROLE_ARN` = `GitHubDeployRoleArn` output (without this variable the workflow
+  doesn't run)
+- `CERT_ARN`, `WEB_USERS` and, if applicable, `HOSTED_ZONE_ID` and `GITHUB_OIDC_PROVIDER_ARN`
 
-Si la cuenta ya tenía un proveedor OIDC de GitHub, el primer `deploy:prod` falla al crearlo:
-repite con `GITHUB_OIDC_PROVIDER_ARN=arn:aws:iam::<cuenta>:oidc-provider/token.actions.githubusercontent.com`.
+If the account already had a GitHub OIDC provider, the first `deploy:prod` fails to create it:
+retry with `GITHUB_OIDC_PROVIDER_ARN=arn:aws:iam::<account>:oidc-provider/token.actions.githubusercontent.com`.
 
-Como todo merge a `main` llega a producción, prueba cada cambio en `SlackDev` antes de aprobar
-el PR.
+Since every merge to `main` reaches production, test each change on `SlackDev` before approving
+the PR.
 
 ## Scripts
 
-| Script             | Qué hace                                               |
+| Script             | What it does                                           |
 | ------------------ | ------------------------------------------------------ |
-| `pnpm dev`         | Vite dev server de la web                              |
-| `pnpm build`       | Build de todos los paquetes                            |
-| `pnpm lint`        | ESLint + `tsc --noEmit` + Prettier en todo el monorepo |
-| `pnpm test`        | Tests unitarios                                        |
-| `pnpm deploy:dev`  | Build web + deploy de `SlackDev` + seed de `#general`  |
-| `pnpm deploy:prod` | Build web + deploy de `SlackProd` + seed de `#general` |
-| `pnpm destroy:dev` | Destruye `SlackDev`                                    |
+| `pnpm dev`         | Vite dev server for the web app                        |
+| `pnpm build`       | Builds all packages                                    |
+| `pnpm lint`        | ESLint + `tsc --noEmit` + Prettier across the monorepo |
+| `pnpm test`        | Unit tests                                             |
+| `pnpm deploy:dev`  | Web build + deploy `SlackDev` + seed `#general`        |
+| `pnpm deploy:prod` | Web build + deploy `SlackProd` + seed `#general`       |
+| `pnpm destroy:dev` | Destroys `SlackDev`                                    |
 
-## Flujo de ramas
+## Branching
 
-`feature/*` (o `fix/*`) nace de `main` y vuelve a `main` por PR con squash merge; no hay
-`develop`. Commits convencionales (`feat:`, `fix:`, `chore:`, `test:`, `docs:`, `infra:`). CI
-(`pnpm lint` + `pnpm test`) corre en cada PR a `main`. Detalle en la sección 3 de
+`feature/*` (or `fix/*`) branches off `main` and returns to `main` through a PR with squash
+merge; there is no `develop`. Conventional commits (`feat:`, `fix:`, `chore:`, `test:`, `docs:`,
+`infra:`). CI (`pnpm lint` + `pnpm test`) runs on every PR to `main`. Details in section 3 of
 [BLUEPRINT.md](./BLUEPRINT.md).
 
-Las versiones son tags anotados sobre `main` con su entrada en `CHANGELOG.md`:
+Versions are annotated tags on `main` with their entry in `CHANGELOG.md`:
 
 ```bash
 git checkout main && git pull
@@ -246,21 +252,21 @@ git tag -a v0.1.0 -m "v0.1.0 — MVP"
 git push origin v0.1.0
 ```
 
-## Costos y alertas
+## Costs and alerts
 
-Todos los recursos llevan el tag `project=slack`. `SlackProd` crea:
+All resources carry the `project=slack` tag. `SlackProd` creates:
 
-- un **AWS Budget** de USD 5/mes con email al 80 % y 100 %;
-- **Cost Anomaly Detection**: un monitor sobre el tag `project=slack` y un resumen diario por
-  email cuando una anomalía suma ≥ USD 1.
+- an **AWS Budget** of USD 5/month with email alerts at 80% and 100%;
+- **Cost Anomaly Detection**: a monitor on the `project=slack` tag and a daily email summary
+  when an anomaly totals ≥ USD 1.
 
-Ambos avisan al email de la clave de contexto `budgetEmail` (en `infra/cdk.json` o con
-`-c budgetEmail=…`). Es obligatoria: sin ella `SlackProd` no se sintetiza.
-Para que el monitor vea el gasto, activa una vez el tag en _Billing → Cost allocation tags_
-(`project`); AWS tarda hasta 24 h en aplicarlo.
+Both notify the email in the `budgetEmail` context key (in `infra/cdk.json` or with
+`-c budgetEmail=…`). It is required: without it `SlackProd` doesn't synthesize.
+For the monitor to see the spend, activate the tag once in _Billing → Cost allocation tags_
+(`project`); AWS takes up to 24 h to apply it.
 
-## Roadmap v0.2
+## Roadmap
 
-Hilos · renombrar y archivar canales · reacciones · editar y borrar mensajes · búsqueda ·
-presencia online · "escribiendo…" · notificaciones del sistema y menciones `@` · llamadas WebRTC ·
-app de escritorio (Tauri) · tests de integración y E2E · agente IA con Bedrock.
+Threads · rename and archive channels · edit and delete messages · search · online presence ·
+"typing…" · system notifications and `@` mentions · WebRTC calls · desktop app (Tauri) ·
+integration and E2E tests · AI agent with Bedrock.

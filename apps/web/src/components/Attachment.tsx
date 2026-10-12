@@ -4,7 +4,7 @@ import { formatBytes, getDownloadUrl } from "../lib/upload";
 import { useChat } from "../store";
 import { DownloadIcon, FileIcon } from "./icons";
 
-function ImageAttachment({ attachment }: { attachment: AttachmentData }) {
+function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -41,7 +41,7 @@ function ImageAttachment({ attachment }: { attachment: AttachmentData }) {
   );
 }
 
-function FileAttachment({ attachment }: { attachment: AttachmentData }) {
+function FileAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
   const showToast = useChat((s) => s.showToast);
   const [busy, setBusy] = useState(false);
 
@@ -59,7 +59,7 @@ function FileAttachment({ attachment }: { attachment: AttachmentData }) {
       }
     } catch (err) {
       tab?.close();
-      showToast(err instanceof Error ? err.message : "No se pudo descargar el archivo.");
+      showToast(err instanceof Error ? err.message : "Couldn't download the file.");
     } finally {
       setBusy(false);
     }
@@ -81,8 +81,8 @@ function FileAttachment({ attachment }: { attachment: AttachmentData }) {
         onClick={download}
         disabled={busy}
         className="rounded-md p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
-        aria-label={`Descargar ${attachment.name}`}
-        title="Descargar"
+        aria-label={`Download ${attachment.name}`}
+        title="Download"
       >
         <DownloadIcon />
       </button>
@@ -90,7 +90,7 @@ function FileAttachment({ attachment }: { attachment: AttachmentData }) {
   );
 }
 
-export function Attachment({ attachment }: { attachment: AttachmentData }) {
+export function Attachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
   return attachment.contentType.startsWith("image/") ? (
     <ImageAttachment attachment={attachment} />
   ) : (

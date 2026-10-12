@@ -4,6 +4,11 @@ export const GENERAL_CHANNEL_ID = "ch_general";
 
 const DM_PREFIX = "dm_";
 
+/** Alphabetical comparator for ids (member lists, reaction users). */
+export function compareIds(a: string, b: string): number {
+  return a.localeCompare(b);
+}
+
 /** Deterministic DM channel id: same result regardless of argument order. */
 export function dmChannelId(userIdA: string, userIdB: string): string {
   const [first, second] = [userIdA, userIdB].sort();

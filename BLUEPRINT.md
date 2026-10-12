@@ -1,123 +1,123 @@
-# BLUEPRINT — Slack interno MindfulTech (MVP v0.1.0)
+# BLUEPRINT — MindfulTech internal Slack (MVP v0.1.0)
 
-**Fecha:** 2026-10-08 · **Entrega MVP:** 2026-10-09 · **Repo:** https://github.com/crpozo/slack.git
-**Uso de este documento:** cada "Fase" de la sección 4 es un prompt autocontenido para Claude Opus 5.5. Dáselas en orden, una por una, y pídele que no avance a la siguiente hasta que la actual compile y pase tests.
+**Date:** 2026-10-08 · **MVP delivery:** 2026-10-09 · **Repo:** https://github.com/crpozo/slack.git
+**How to use this document:** each "Phase" in section 4 is a self-contained prompt for Claude Opus 5.5. Give them to it in order, one at a time, and ask it not to move on to the next one until the current one builds and passes its tests.
 
 ---
 
-## 0. Decisiones de alcance para llegar mañana
+## 0. Scope decisions to make it by tomorrow
 
-El documento de requerimientos describe el producto completo. En 24 horas entra lo que hace que la app sea *usable entre dos personas*; todo lo demás queda explícitamente fuera y se agenda para v0.2.
+The requirements document describes the full product. In 24 hours we only fit what makes the app *usable between two people*; everything else is explicitly out and scheduled for v0.2.
 
-| Entra en el MVP (mañana) | Queda para v0.2+ |
+| In the MVP (tomorrow) | Deferred to v0.2+ |
 |---|---|
-| Login Cognito (email + password), sesión persistente | Hilos |
-| Canales públicos: `#general` por defecto, crear, listar | Renombrar / archivar canales |
-| DM 1 a 1 (es un canal con `type=dm`) | Reacciones |
-| Mensajes en tiempo real por WebSocket (< 1 s) | Edición y borrado de mensajes |
-| Formato básico (negrita, cursiva, código, links) vía markdown ligero | Búsqueda de texto |
-| Historial paginado hacia atrás (scroll infinito) | Presencia online/offline |
-| Adjuntos: subida con URL prefirmada (PUT), preview inline de imágenes, descarga (GET firmado), límite 25 MB | "Escribiendo..." (dejar la ruta `typing` creada pero sin UI) |
-| Badge de no leídos por canal (calculado en cliente, `lastReadTs` en localStorage) | Notificaciones del sistema, menciones `@` |
-| Reconexión con backoff | Llamadas WebRTC + TURN |
-| Deploy a producción en `slack.mindfultech.ec` / `ws.mindfultech.ec` | Desktop app Tauri (Fase 5 opcional si sobra tiempo) |
-| Tests unitarios de handlers + CI en PR | Tests de integración contra stack dev, E2E Playwright |
-| AWS Budgets, tags, retención de logs | Agente IA con Bedrock |
+| Cognito login (email + password), persistent session | Threads |
+| Public channels: `#general` by default, create, list | Rename / archive channels |
+| 1:1 DMs (a channel with `type=dm`) | Reactions |
+| Real-time messages over WebSocket (< 1 s) | Editing and deleting messages |
+| Basic formatting (bold, italic, code, links) via lightweight markdown | Text search |
+| Backward-paginated history (infinite scroll) | Online/offline presence |
+| Attachments: upload via presigned URL (PUT), inline image preview, download (signed GET), 25 MB limit | "Typing…" (create the `typing` route but no UI) |
+| Per-channel unread badge (computed on the client, `lastReadTs` in localStorage) | System notifications, `@` mentions |
+| Reconnection with backoff | WebRTC calls + TURN |
+| Production deploy at `slack.mindfultech.ec` / `ws.mindfultech.ec` | Tauri desktop app (optional Phase 5 if there is time left) |
+| Handler unit tests + CI on PRs | Integration tests against the dev stack, Playwright E2E |
+| AWS Budgets, tags, log retention | AI agent with Bedrock |
 
-**Regla de oro:** no se construye nada que no esté en la columna izquierda. Si Opus propone algo de la derecha, se rechaza.
+**Golden rule:** nothing gets built that is not in the left column. If Opus proposes something from the right column, it is rejected.
 
 ---
 
-## 1. Resumen de la Arquitectura
+## 1. Architecture Overview
 
-Se respeta exactamente el diagrama: 7 componentes, todo serverless, región `us-east-1`.
+The diagram is followed exactly: 7 components, fully serverless, region `us-east-1`.
 
 ```
-Clientes (navegador / Tauri)
+Clients (browser / Tauri)
    │ https                     │ login (SRP)              │ wss?token=<idToken>
    ▼                           ▼                          ▼
 S3 + CloudFront          Cognito User Pool         API Gateway WebSocket
-(SPA estática)           (2 usuarios, sin          ws.mindfultech.ec
-slack.mindfultech.ec      self-signup)                    │ invoca
+(static SPA)             (2 users, no              ws.mindfultech.ec
+slack.mindfultech.ec      self-signup)                    │ invokes
                                                           ▼
                                                    Lambda (Node 20, ARM, 256 MB)
                                                    authorizer · connect · disconnect
                                                    message · history · presign · channel
-                                                     │ lee/escribe          │ firma URLs
+                                                     │ reads/writes         │ signs URLs
                                                      ▼                      ▼
-                                                 DynamoDB              S3 adjuntos
-                                                 messages              (privado, PUT/GET
-                                                 connections (TTL)      prefirmados)
+                                                 DynamoDB              S3 attachments
+                                                 messages              (private, presigned
+                                                 connections (TTL)      PUT/GET)
                                                  channels
 ```
 
-### Flujo de una sesión
+### Session flow
 
-1. El navegador carga la SPA desde CloudFront (bucket privado con OAC).
-2. Login contra Cognito con `aws-amplify/auth`. Amplify guarda tokens en localStorage y refresca solo → sesión persistente.
-3. El cliente abre **un solo** WebSocket a `wss://ws.mindfultech.ec?token=<idToken>`.
-4. `$connect` pasa por el **Lambda REQUEST authorizer**, que valida el JWT con `aws-jwt-verify` y devuelve `userId`/`email` en el contexto. Sin JWT válido → 401, nunca se abre la conexión.
-5. `connect` guarda `{connectionId, userId, ttl}` en `connections`.
-6. Cada mensaje del cliente es un JSON `{ "action": "...", ... }`. API Gateway enruta por `$request.body.action` a la Lambda correspondiente.
-7. `message` escribe en `messages` y hace fan-out con `@connections` (PostToConnection) a todas las conexiones vivas. Si una conexión devuelve 410 Gone, se borra de `connections`.
-8. `history` consulta `messages` por `channelId` con `ScanIndexForward=false`, `Limit=50` y `ExclusiveStartKey` para paginar hacia atrás.
-9. `presign` genera una URL PUT (subida) o GET (descarga) de S3 con expiración de 5 min. El cliente sube/descarga directo a S3; Lambda nunca toca el binario.
-10. `$disconnect` borra la fila de `connections` (y TTL de 2 h como red de seguridad).
+1. The browser loads the SPA from CloudFront (private bucket with OAC).
+2. Login against Cognito with `aws-amplify/auth`. Amplify stores the tokens in localStorage and refreshes them on its own → persistent session.
+3. The client opens **a single** WebSocket to `wss://ws.mindfultech.ec?token=<idToken>`.
+4. `$connect` goes through the **Lambda REQUEST authorizer**, which validates the JWT with `aws-jwt-verify` and returns `userId`/`email` in the context. No valid JWT → 401, the connection is never opened.
+5. `connect` stores `{connectionId, userId, ttl}` in `connections`.
+6. Every client message is a JSON `{ "action": "...", ... }`. API Gateway routes on `$request.body.action` to the matching Lambda.
+7. `message` writes to `messages` and fans out with `@connections` (PostToConnection) to every live connection. If a connection returns 410 Gone, it is deleted from `connections`.
+8. `history` queries `messages` by `channelId` with `ScanIndexForward=false`, `Limit=50` and `ExclusiveStartKey` to paginate backwards.
+9. `presign` generates an S3 PUT (upload) or GET (download) URL that expires in 5 min. The client uploads/downloads directly to/from S3; Lambda never touches the binary.
+10. `$disconnect` deletes the row from `connections` (with a 2 h TTL as a safety net).
 
-### Modelo de datos (DynamoDB on-demand, sin GSIs, sin streams, sin PITR)
+### Data model (DynamoDB on-demand, no GSIs, no streams, no PITR)
 
-| Tabla | PK | SK | Atributos |
+| Table | PK | SK | Attributes |
 |---|---|---|---|
 | `slack-messages` | `channelId` (S) | `sk` (S) = `${epochMs}#${ulid}` | `messageId`, `userId`, `userEmail`, `text`, `attachments[]` (`{key, name, size, contentType}`), `createdAt` |
 | `slack-connections` | `connectionId` (S) | — | `userId`, `userEmail`, `connectedAt`, `ttl` (N, epoch s, +2 h) |
 | `slack-channels` | `channelId` (S) | — | `name`, `type` (`public` \| `dm`), `createdBy`, `createdAt`, `archived` (bool) |
 
-- `channelId` de un público: `ch_<ulid>`; `#general` tiene id fijo `ch_general` (seed en el deploy).
-- `channelId` de un DM: `dm_<userIdA>_<userIdB>` con los ids ordenados alfabéticamente → siempre el mismo id para el par.
-- Adjuntos en S3: key `attachments/<channelId>/<ulid>-<nombreSaneado>`. Bucket con lifecycle a Glacier IR a 90 días y CORS para PUT desde el origen de la SPA.
+- `channelId` of a public channel: `ch_<ulid>`; `#general` has the fixed id `ch_general` (seeded on deploy).
+- `channelId` of a DM: `dm_<userIdA>_<userIdB>` with the ids sorted alphabetically → always the same id for the pair.
+- Attachments in S3: key `attachments/<channelId>/<ulid>-<sanitizedName>`. Bucket with a lifecycle rule to Glacier IR at 90 days and CORS for PUT from the SPA origin.
 
-### Protocolo WebSocket (contrato compartido en `packages/shared`)
+### WebSocket protocol (shared contract in `packages/shared`)
 
-**Cliente → servidor** (`action` es la route key):
+**Client → server** (`action` is the route key):
 
-| action | payload | respuesta |
+| action | payload | response |
 |---|---|---|
-| `message` | `{ channelId, text, attachments?, clientId }` | broadcast `message.new` a todos (incluido emisor) |
-| `history` | `{ channelId, cursor? }` | `history.page { channelId, items[], nextCursor }` solo al emisor |
-| `channel` | `{ op: "list" }` \| `{ op: "create", name }` \| `{ op: "dm", withUserId }` | `channel.list { channels[] }` broadcast tras create/dm |
-| `presign` | `{ op: "put", channelId, name, contentType, size }` \| `{ op: "get", key }` | `presign.result { url, key, requestId }` solo al emisor |
-| `typing` | `{ channelId }` | (ruta creada, handler no-op en MVP) |
+| `message` | `{ channelId, text, attachments?, clientId }` | broadcast `message.new` to everyone (sender included) |
+| `history` | `{ channelId, cursor? }` | `history.page { channelId, items[], nextCursor }` to the sender only |
+| `channel` | `{ op: "list" }` \| `{ op: "create", name }` \| `{ op: "dm", withUserId }` | `channel.list { channels[] }` broadcast after create/dm |
+| `presign` | `{ op: "put", channelId, name, contentType, size }` \| `{ op: "get", key }` | `presign.result { url, key, requestId }` to the sender only |
+| `typing` | `{ channelId }` | (route created, no-op handler in the MVP) |
 
-**Servidor → cliente:** `{ "type": "message.new" | "history.page" | "channel.list" | "presign.result" | "error", ...payload }`.
+**Server → client:** `{ "type": "message.new" | "history.page" | "channel.list" | "presign.result" | "error", ...payload }`.
 
-Todo payload se valida con **zod** en el handler; payload inválido → `{type:"error", code:"BAD_REQUEST"}` al emisor.
+Every payload is validated with **zod** in the handler; invalid payload → `{type:"error", code:"BAD_REQUEST"}` to the sender.
 
-### Restricciones de costo que el stack debe cumplir desde el primer `cdk deploy`
+### Cost constraints the stack must meet from the very first `cdk deploy`
 
-- Lambda: `architecture: ARM_64`, `memorySize: 256`, `runtime: NODEJS_20_X`, bundling esbuild (`NodejsFunction`), sin VPC, sin provisioned concurrency.
-- CloudWatch: `logRetention: 7 días`, nivel INFO (nunca DEBUG en prod).
-- CloudFront: `PriceClass.PRICE_CLASS_100`, compresión, cache 1 año para assets con hash, `index.html` sin cache.
-- DynamoDB: `BillingMode.PAY_PER_REQUEST`, TTL en `connections`, sin PITR.
-- Cognito: user pool estándar, `selfSignUpEnabled: false`, sin advanced security.
-- `Tags.of(app).add("project", "slack")` en toda la app CDK.
-- `aws_budgets.CfnBudget` de USD 5 con alertas al 80 % y 100 % a carlos@mindfultech.ec.
-- Secrets/config en SSM Parameter Store estándar (si hiciera falta); nada en Secrets Manager.
-- Dos stacks del mismo código: `SlackDev` (se destruye al terminar la sesión) y `SlackProd` (único permanente).
+- Lambda: `architecture: ARM_64`, `memorySize: 256`, `runtime: NODEJS_20_X`, esbuild bundling (`NodejsFunction`), no VPC, no provisioned concurrency.
+- CloudWatch: `logRetention: 7 days`, INFO level (never DEBUG in prod).
+- CloudFront: `PriceClass.PRICE_CLASS_100`, compression, 1-year cache for hashed assets, `index.html` uncached.
+- DynamoDB: `BillingMode.PAY_PER_REQUEST`, TTL on `connections`, no PITR.
+- Cognito: standard user pool, `selfSignUpEnabled: false`, no advanced security.
+- `Tags.of(app).add("project", "slack")` across the whole CDK app.
+- `aws_budgets.CfnBudget` of USD 5 with alerts at 80 % and 100 % to carlos@mindfultech.ec.
+- Secrets/config in standard SSM Parameter Store (if ever needed); nothing in Secrets Manager.
+- Two stacks from the same code: `SlackDev` (destroyed at the end of each session) and `SlackProd` (the only permanent one).
 
 ---
 
-## 2. Estructura del Proyecto (Scaffolding)
+## 2. Project Structure (Scaffolding)
 
-Monorepo con **pnpm workspaces**. Un solo `pnpm install`, un solo `pnpm deploy:prod`.
+Monorepo with **pnpm workspaces**. A single `pnpm install`, a single `pnpm deploy:prod`.
 
 ```
 slack/
 ├── .github/
 │   └── workflows/
-│       ├── ci.yml                 # lint + typecheck + unit tests en cada PR
-│       └── deploy.yml             # merge a main → cdk deploy SlackProd + sync S3 + invalidación CloudFront
+│       ├── ci.yml                 # lint + typecheck + unit tests on every PR
+│       └── deploy.yml             # merge to main → cdk deploy SlackProd + S3 sync + CloudFront invalidation
 ├── apps/
-│   ├── web/                       # React 18 + Vite + TypeScript + Tailwind (SPA, sin SSR)
+│   ├── web/                       # React 18 + Vite + TypeScript + Tailwind (SPA, no SSR)
 │   │   ├── index.html
 │   │   ├── vite.config.ts
 │   │   ├── .env.example           # VITE_WS_URL, VITE_COGNITO_USER_POOL_ID, VITE_COGNITO_CLIENT_ID
@@ -125,44 +125,44 @@ slack/
 │   │       ├── main.tsx
 │   │       ├── App.tsx            # router: /login | /app/:channelId
 │   │       ├── lib/
-│   │       │   ├── auth.ts        # wrapper de aws-amplify/auth: signIn, getToken, signOut
-│   │       │   ├── ws.ts          # cliente WebSocket: conexión, backoff, send(action), on(type)
-│   │       │   ├── upload.ts      # presign → PUT a S3 → devuelve attachment
-│   │       │   └── markdown.ts    # negrita/cursiva/código/links (regex, sin lib pesada)
+│   │       │   ├── auth.ts        # aws-amplify/auth wrapper: signIn, getToken, signOut
+│   │       │   ├── ws.ts          # WebSocket client: connection, backoff, send(action), on(type)
+│   │       │   ├── upload.ts      # presign → PUT to S3 → returns attachment
+│   │       │   └── markdown.ts    # bold/italic/code/links (regex, no heavy lib)
 │   │       ├── store/
 │   │       │   └── index.ts       # zustand: user, channels, messagesByChannel, cursors, unread, activeChannel
 │   │       ├── components/
 │   │       │   ├── LoginPage.tsx
-│   │       │   ├── Sidebar.tsx    # lista de canales + DMs + badge no leídos + crear canal
+│   │       │   ├── Sidebar.tsx    # channel list + DMs + unread badge + create channel
 │   │       │   ├── ChannelView.tsx# header + MessageList + Composer
-│   │       │   ├── MessageList.tsx# scroll infinito hacia arriba, IntersectionObserver
-│   │       │   ├── MessageItem.tsx# avatar inicial, nombre, hora, texto renderizado, adjuntos
-│   │       │   ├── Composer.tsx   # textarea, Enter envía, Shift+Enter salto, drag&drop + paste
-│   │       │   └── Attachment.tsx # img inline (GET firmado) o chip de descarga
+│   │       │   ├── MessageList.tsx# upward infinite scroll, IntersectionObserver
+│   │       │   ├── MessageItem.tsx# initial avatar, name, time, rendered text, attachments
+│   │       │   ├── Composer.tsx   # textarea, Enter sends, Shift+Enter newline, drag&drop + paste
+│   │       │   └── Attachment.tsx # inline img (signed GET) or download chip
 │   │       └── styles.css
-│   └── desktop/                   # (Fase 5, opcional) Tauri que carga https://slack.mindfultech.ec
+│   └── desktop/                   # (Phase 5, optional) Tauri app that loads https://slack.mindfultech.ec
 ├── packages/
-│   └── shared/                    # tipos + schemas zod del protocolo, usados por web y backend
+│   └── shared/                    # protocol types + zod schemas, used by web and backend
 │       └── src/
-│           ├── protocol.ts        # ClientAction (zod), ServerEvent (types), constantes
+│           ├── protocol.ts        # ClientAction (zod), ServerEvent (types), constants
 │           └── ids.ts             # dmChannelId(a,b), isDm(), GENERAL_CHANNEL_ID
 ├── backend/
 │   ├── src/
 │   │   ├── handlers/
-│   │   │   ├── authorizer.ts      # REQUEST authorizer: valida ?token= con aws-jwt-verify
+│   │   │   ├── authorizer.ts      # REQUEST authorizer: validates ?token= with aws-jwt-verify
 │   │   │   ├── connect.ts
 │   │   │   ├── disconnect.ts
 │   │   │   ├── message.ts
 │   │   │   ├── history.ts
 │   │   │   ├── channel.ts
 │   │   │   ├── presign.ts
-│   │   │   └── typing.ts          # no-op que responde 200
+│   │   │   └── typing.ts          # no-op that returns 200
 │   │   └── lib/
-│   │       ├── ddb.ts             # DocumentClient + nombres de tabla desde env
-│   │       ├── broadcast.ts       # postToAll(event) con limpieza de 410 Gone
+│   │       ├── ddb.ts             # DocumentClient + table names from env
+│   │       ├── broadcast.ts       # postToAll(event) with 410 Gone cleanup
 │   │       ├── s3.ts              # presign put/get
 │   │       ├── response.ts        # ok(), badRequest(), reply(connectionId, event)
-│   │       └── logger.ts          # console JSON, nivel por env LOG_LEVEL
+│   │       └── logger.ts          # JSON console, level from env LOG_LEVEL
 │   ├── test/                      # Vitest + aws-sdk-client-mock
 │   │   ├── message.test.ts
 │   │   ├── history.test.ts
@@ -172,28 +172,28 @@ slack/
 │   │   └── authorizer.test.ts
 │   └── vitest.config.ts
 ├── infra/                         # AWS CDK v2 (TypeScript)
-│   ├── bin/slack.ts               # instancia SlackStack con stage = dev | prod
+│   ├── bin/slack.ts               # instantiates SlackStack with stage = dev | prod
 │   ├── lib/
-│   │   ├── slack-stack.ts         # orquesta los constructs
+│   │   ├── slack-stack.ts         # wires up the constructs
 │   │   ├── auth.ts                # Cognito User Pool + client
-│   │   ├── data.ts                # 3 tablas DynamoDB
-│   │   ├── storage.ts             # bucket adjuntos (CORS, lifecycle) + bucket web
-│   │   ├── api.ts                 # WebSocketApi + rutas + Lambdas + authorizer + custom domain
+│   │   ├── data.ts                # 3 DynamoDB tables
+│   │   ├── storage.ts             # attachments bucket (CORS, lifecycle) + web bucket
+│   │   ├── api.ts                 # WebSocketApi + routes + Lambdas + authorizer + custom domain
 │   │   ├── web.ts                 # CloudFront + OAC + BucketDeployment + custom domain
-│   │   └── cost.ts                # Budget USD 5, tags
+│   │   └── cost.ts                # USD 5 budget, tags
 │   ├── cdk.json
-│   └── scripts/seed-general.ts    # crea ch_general si no existe (se corre post-deploy)
+│   └── scripts/seed-general.ts    # creates ch_general if missing (runs post-deploy)
 ├── docs/
-│   └── requerimientos.md          # el documento original
-├── BLUEPRINT.md                   # este archivo
-├── README.md                      # git clone + README = proyecto levantado
-├── package.json                   # scripts raíz: dev, test, lint, deploy:dev, deploy:prod, destroy:dev
+│   └── requerimientos.md          # the original document
+├── BLUEPRINT.md                   # this file
+├── README.md                      # git clone + README = project up and running
+├── package.json                   # root scripts: dev, test, lint, deploy:dev, deploy:prod, destroy:dev
 ├── pnpm-workspace.yaml
 ├── tsconfig.base.json
 └── .gitignore
 ```
 
-**Scripts raíz (package.json):**
+**Root scripts (package.json):**
 
 ```json
 {
@@ -211,289 +211,290 @@ slack/
 
 ---
 
-## 3. Estrategia de ramas (trunk-based simplificado)
+## 3. Branching strategy (simplified trunk-based)
 
-> **Cambio (8 oct):** se elimina `develop`. Todas las ramas `feature/*` nacen de `main` y se mezclan directo a `main` por PR. No hay `release/*` ni `hotfix/*`: una versión es un tag sobre `main`.
+> **Change (Oct 8):** `develop` is removed. All `feature/*` branches start from `main` and merge straight back into `main` via PR. There are no `release/*` or `hotfix/*` branches: a version is a tag on `main`.
 
-### Ramas
+### Branches
 
-| Rama | Rol | Protección |
+| Branch | Role | Protection |
 |---|---|---|
-| `main` | Única rama permanente. Siempre debe compilar y pasar tests. Recibe todos los PRs. | Protegida: PR obligatorio, CI verde, 1 aprobación (Carlos o Rene) |
-| `feature/<fase>-<nombre>` | Una rama por Fase del plan (sección 4). Nace de `main`, muere al mezclarse. | — |
-| `fix/<issue>` | Un bug encontrado en pruebas. Nace de `main`, vuelve a `main` por PR. | — |
+| `main` | The only permanent branch. Must always build and pass tests. Receives every PR. | Protected: PR required, green CI, 1 approval (Carlos or Rene) |
+| `feature/<phase>-<name>` | One branch per Phase of the plan (section 4). Starts from `main`, dies once merged. | — |
+| `fix/<issue>` | A bug found during testing. Starts from `main`, goes back to `main` via PR. | — |
 
-### Cronograma de commits
+### Commit timeline
 
 ```
-HOY (8 oct)
+TODAY (Oct 8)
   main ──●  "chore: initial commit"
-         ├── feature/f1-scaffold-infra   ──PR──►  main   ← Fase 1
-         ├── feature/f2-backend-handlers ──PR──►  main   ← Fase 2
-         └── feature/f3-web-client       ──PR──►  main   ← Fase 3
+         ├── feature/f1-scaffold-infra   ──PR──►  main   ← Phase 1
+         ├── feature/f2-backend-handlers ──PR──►  main   ← Phase 2
+         └── feature/f3-web-client       ──PR──►  main   ← Phase 3
 
-MAÑANA (9 oct)
+TOMORROW (Oct 9)
   main ──● feature/f4-prod-deploy ──PR──► main  →  tag v0.1.0
                                                   └── GitHub Actions deploy.yml → SlackProd
 ```
 
-### Reglas operativas
+### Working rules
 
-1. **Convencional commits**: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `infra:`. Un commit por unidad lógica; Opus debe commitear al cerrar cada sub-paso de una Fase.
-2. **Squash merge** de `feature/*` y `fix/*` → `main` (historial limpio, un commit por PR).
-3. **CI (`ci.yml`) corre en cada PR a `main`**: `pnpm lint` + `pnpm test`. Nada se mezcla en rojo.
-4. **Deploy (`deploy.yml`) corre en push a `main`**: build web → `cdk deploy SlackProd` → `aws s3 sync` → invalidación CloudFront. Credenciales por OIDC (rol IAM asumible por GitHub Actions), nunca access keys en secrets. Como cada PR mezclado llega a producción, se prueba en `SlackDev` antes de aprobarlo.
-5. **Stack dev**: cada sesión de trabajo termina con `pnpm destroy:dev`. Está en el checklist del PR.
-6. Carlos y Rene trabajan en features distintas al mismo tiempo (p. ej. Rene F2 backend, Carlos F3 web) y se sincronizan por el contrato de `packages/shared` (F1 lo deja cerrado primero). Antes de abrir el PR, cada uno trae los cambios de `main` a su rama.
-7. Cada bug encontrado en la prueba manual → issue en GitHub → rama `fix/<issue>` desde `main`.
-8. **Versiones**: `git tag v0.1.0 && git push origin v0.1.0` sobre el commit de `main` que se libera.
+1. **Conventional commits**: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `infra:`. One commit per logical unit; Opus must commit when it finishes each sub-step of a Phase.
+2. **Squash merge** of `feature/*` and `fix/*` → `main` (clean history, one commit per PR).
+3. **CI (`ci.yml`) runs on every PR to `main`**: `pnpm lint` + `pnpm test`. Nothing is merged while red.
+4. **Deploy (`deploy.yml`) runs on push to `main`**: web build → `cdk deploy SlackProd` → `aws s3 sync` → CloudFront invalidation. Credentials via OIDC (an IAM role GitHub Actions can assume), never access keys in secrets. Since every merged PR goes to production, it is tested on `SlackDev` before being approved.
+5. **Dev stack**: every work session ends with `pnpm destroy:dev`. It is on the PR checklist.
+6. Carlos and Rene work on different features at the same time (e.g. Rene on F2 backend, Carlos on F3 web) and stay in sync through the `packages/shared` contract (F1 locks it down first). Before opening the PR, each of them pulls the changes from `main` into their branch.
+7. Every bug found during manual testing → GitHub issue → `fix/<issue>` branch from `main`.
+8. **Versions**: `git tag v0.1.0 && git push origin v0.1.0` on the `main` commit being released.
 
-### Comandos de arranque
+### Getting-started commands
 
 ```bash
 git clone https://github.com/crpozo/slack.git && cd slack
-# en GitHub: Settings → Branches → proteger main (require PR + status checks)
+# on GitHub: Settings → Branches → protect main (require PR + status checks)
 git checkout main && git pull
-git checkout -b feature/<fase>-<nombre>
+git checkout -b feature/<phase>-<name>
 ```
 
 ---
 
-## 4. Plan de Acción para Opus 5.5 — Fases de Código
+## 4. Action Plan for Opus 5.5 — Code Phases
 
-Cada fase es un prompt. Pégalo tal cual, precedido de: *"Lee BLUEPRINT.md en la raíz del repo. Estás en la rama `feature/<...>`. Implementa exactamente la Fase N. No implementes nada de las fases siguientes ni de la columna 'Queda para v0.2'. Al terminar, ejecuta los criterios de aceptación y haz commits convencionales."*
+Each phase is a prompt. Paste it as is, preceded by: *"Read BLUEPRINT.md at the repo root. You are on the `feature/<...>` branch. Implement exactly Phase N. Do not implement anything from later phases or from the 'Deferred to v0.2+' column. When you finish, run the acceptance criteria and make conventional commits."*
 
-Tiempos estimados asumiendo que Opus genera el código y tú supervisas: F1 2 h · F2 3 h · F3 5 h · F4 2 h · F5 2 h (opcional). Total ≈ 12–14 h de trabajo efectivo.
-
----
-
-### FASE 1 — Scaffold del monorepo + contrato compartido + infraestructura CDK desplegable
-
-**Rama:** `feature/f1-scaffold-infra` · **Entrega:** `pnpm deploy:dev` levanta todo el stack vacío en AWS.
-
-**Instrucciones para Opus:**
-
-1. Crea el monorepo con pnpm workspaces siguiendo el árbol de la sección 2 (todas las carpetas, aunque algunos archivos queden como stubs). `tsconfig.base.json` estricto, ESLint + Prettier mínimos, Node 20.
-2. `packages/shared/src/protocol.ts`: define con **zod** los schemas de cada `action` del cliente (`message`, `history`, `channel`, `presign`, `typing`) y los tipos TypeScript de cada evento del servidor (`message.new`, `history.page`, `channel.list`, `presign.result`, `error`). Exporta `Message`, `Channel`, `Attachment`. Límites: `text` máx. 4000 chars, `size` máx. 25 MB, `name` de canal `^[a-z0-9-]{1,32}$`.
-3. `packages/shared/src/ids.ts`: `GENERAL_CHANNEL_ID = "ch_general"`, `dmChannelId(a, b)` (ordena alfabéticamente), `isDmChannel(id)`, `newMessageSk()` → `${Date.now()}#${ulid()}`.
-4. `infra/` con CDK v2 TypeScript. Un `SlackStack` parametrizado por `stage` (`dev` | `prod`). Constructs:
-   - **auth.ts**: `UserPool` con `selfSignUpEnabled: false`, login por email, password policy mínima 8 chars, `UserPoolClient` sin secret, auth flows `USER_SRP_AUTH` y `REFRESH_TOKEN_AUTH`. Sin advanced security.
-   - **data.ts**: tablas `slack-${stage}-messages` (PK `channelId` S, SK `sk` S), `slack-${stage}-connections` (PK `connectionId` S, TTL attr `ttl`), `slack-${stage}-channels` (PK `channelId` S). Todas `PAY_PER_REQUEST`, `RemovalPolicy.DESTROY` en dev y `RETAIN` en prod.
-   - **storage.ts**: bucket `attachments` privado, `blockPublicAccess: ALL`, CORS `PUT, GET` desde `*` (se restringe al dominio en F4), lifecycle → `GLACIER_INSTANT_RETRIEVAL` a los 90 días. Bucket `web` privado para la SPA.
-   - **api.ts**: `WebSocketApi` con `routeSelectionExpression: "$request.body.action"`. Un `NodejsFunction` por handler de `backend/src/handlers/*.ts` (ARM_64, 256 MB, NODEJS_20_X, `logRetention: ONE_WEEK`, env con nombres de tablas, bucket y `WS_ENDPOINT`). `WebSocketLambdaAuthorizer` tipo REQUEST sobre `$connect` con `identitySource: ["route.request.querystring.token"]`. Rutas: `$connect`, `$disconnect`, `message`, `history`, `channel`, `presign`, `typing`. Stage `prod` con auto-deploy. Permisos: `grantManageConnections` a message/channel; lectura/escritura de tablas según necesidad; `grantPut`/`grantRead` del bucket a presign.
-   - **web.ts**: `Distribution` con origen S3 vía **OAC**, `PriceClass.PRICE_CLASS_100`, `defaultRootObject: index.html`, error 403/404 → `/index.html` 200 (SPA routing), compresión on. `BucketDeployment` que sube `apps/web/dist` con `cacheControl` 1 año para `/assets/*` y `no-cache` para `index.html`. (El custom domain y certificado se añaden en F4.)
-   - **cost.ts**: `Tags.of(this).add("project","slack")`; `CfnBudget` de USD 5 mensual con notificaciones a `carlos@mindfultech.ec` al 80 % y 100 % (solo en `prod`).
-   - `CfnOutput` de: `UserPoolId`, `UserPoolClientId`, `WebSocketUrl`, `CloudFrontUrl`, `AttachmentsBucket`.
-5. `backend/src/handlers/*.ts`: **stubs** que devuelven `{statusCode: 200}` para que el stack compile y despliegue. La lógica real es F2.
-6. `infra/scripts/seed-general.ts`: PutItem condicional de `ch_general` (`name: "general"`, `type: "public"`). Scripts `deploy:dev` / `deploy:prod` lo ejecutan tras el deploy.
-7. `.github/workflows/ci.yml`: en PR a `main` → `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm test`. Node 20, cache pnpm.
-8. `README.md` inicial: prerequisitos (Node 20, pnpm, AWS CLI con perfil), `pnpm install`, `pnpm deploy:dev`, cómo crear los dos usuarios en Cognito desde consola (`aws cognito-idp admin-create-user` + `admin-set-user-password --permanent`), cómo copiar outputs a `apps/web/.env`.
-
-**Criterios de aceptación F1:**
-- `pnpm install && pnpm lint` en verde.
-- `pnpm deploy:dev` termina sin errores y muestra los 5 outputs.
-- `wscat -c "<WebSocketUrl>?token=basura"` es rechazado (401/403) — el authorizer stub debe devolver **Deny** por defecto.
-- Se pueden crear los dos usuarios en Cognito con los comandos del README.
-- `pnpm destroy:dev` destruye todo sin dejar recursos huérfanos (verificar que los buckets tienen `autoDeleteObjects` en dev).
+Estimated times assuming Opus writes the code and you supervise: F1 2 h · F2 3 h · F3 5 h · F4 2 h · F5 2 h (optional). Total ≈ 12–14 h of actual work.
 
 ---
 
-### FASE 2 — Handlers de Lambda con lógica real + tests unitarios
+### PHASE 1 — Monorepo scaffold + shared contract + deployable CDK infrastructure
 
-**Rama:** `feature/f2-backend-handlers` · **Entrega:** backend completo testeado contra mocks; verificable con `wscat` contra el stack dev.
+**Branch:** `feature/f1-scaffold-infra` · **Deliverable:** `pnpm deploy:dev` brings up the whole empty stack on AWS.
 
-**Instrucciones para Opus:**
+**Instructions for Opus:**
 
-1. **`lib/`** en `backend/src`:
-   - `ddb.ts`: `DynamoDBDocumentClient` singleton; nombres de tabla desde `process.env`.
-   - `response.ts`: `ok()`, `badRequest()`, `reply(connectionId, event)` (usa `ApiGatewayManagementApiClient` con `endpoint = WS_ENDPOINT`).
-   - `broadcast.ts`: `broadcast(event)` → Scan de `connections` (son ≤ 2 filas, un Scan es aceptable a esta escala), `PostToConnection` en paralelo con `Promise.allSettled`; en `GoneException` (410) borra la conexión.
-   - `s3.ts`: `presignPut(key, contentType, size)` y `presignGet(key)` con `@aws-sdk/s3-request-presigner`, `expiresIn: 300`.
-   - `logger.ts`: `log.info/warn/error` en JSON; `debug` solo si `LOG_LEVEL=debug`.
-2. **`authorizer.ts`**: `CognitoJwtVerifier.create({ userPoolId, tokenUse: "id", clientId })` de `aws-jwt-verify`. Lee `event.queryStringParameters.token`. Devuelve policy `Allow` con `context: { userId: sub, email }`; cualquier error → `Deny`. Cachea el verifier fuera del handler.
-3. **`connect.ts`**: lee `userId`/`email` de `event.requestContext.authorizer`, PutItem en `connections` con `ttl = now + 2h`.
-4. **`disconnect.ts`**: DeleteItem de `connections`.
-5. **`message.ts`**: parsea `JSON.parse(event.body)` con el schema zod de `shared`; construye `Message` con `messageId = ulid()`, `sk = newMessageSk()`, `userId`, `userEmail` (del authorizer context guardado en `connections` — hacer GetItem de la conexión para obtener `userId`/`email`), `createdAt`; PutItem en `messages`; `broadcast({ type: "message.new", message, clientId })`. Si el `channelId` no existe en `channels` → error `CHANNEL_NOT_FOUND`.
-6. **`history.ts`**: Query `channelId = :c`, `ScanIndexForward: false`, `Limit: 50`, `ExclusiveStartKey` decodificado desde `cursor` (base64 del LastEvaluatedKey). Responde `history.page { channelId, items (en orden cronológico ascendente), nextCursor }` solo al emisor.
-7. **`channel.ts`**: `op: "list"` → Scan de `channels` filtrando `archived <> true`, incluye públicos y los DMs donde el `userId` participe; `op: "create"` → valida nombre único (GetItem por `ch_<ulid>` no sirve para unicidad por nombre: hacer Scan y comparar `name`, aceptable con < 50 canales), PutItem, broadcast `channel.list`; `op: "dm"` → PutItem condicional de `dm_<a>_<b>` con `type: "dm"`, `members: [a, b]`, broadcast `channel.list`.
-8. **`presign.ts`**: `op: "put"` → valida `size ≤ 25 MB`, sanea `name` (solo `[a-zA-Z0-9._-]`), key `attachments/${channelId}/${ulid()}-${name}`, responde `presign.result { url, key, requestId }`; `op: "get"` → valida que `key` empiece por `attachments/`, responde URL GET.
-9. **`typing.ts`**: responde 200, sin broadcast (se activa en v0.2).
-10. **Tests (Vitest + `aws-sdk-client-mock`)** en `backend/test/`: un archivo por handler. Cubrir: payload inválido → error BAD_REQUEST; `message` persiste y hace broadcast; `history` pagina y devuelve `nextCursor`; `channel.create` rechaza nombre duplicado; `dm` genera el mismo id sin importar el orden; `presign.put` rechaza > 25 MB; `authorizer` deniega token inválido (mockear `CognitoJwtVerifier`). Objetivo: todos los handlers con al menos un caso feliz y uno de error.
-11. Actualiza `infra/lib/api.ts` si algún handler necesita permisos adicionales (p. ej. `message` necesita `GetItem` en `connections` y `channels`).
+1. Create the monorepo with pnpm workspaces following the tree in section 2 (all folders, even if some files stay as stubs). Strict `tsconfig.base.json`, minimal ESLint + Prettier, Node 20.
+2. `packages/shared/src/protocol.ts`: define with **zod** the schemas for each client `action` (`message`, `history`, `channel`, `presign`, `typing`) and the TypeScript types for each server event (`message.new`, `history.page`, `channel.list`, `presign.result`, `error`). Export `Message`, `Channel`, `Attachment`. Limits: `text` max 4000 chars, `size` max 25 MB, channel `name` `^[a-z0-9-]{1,32}$`.
+3. `packages/shared/src/ids.ts`: `GENERAL_CHANNEL_ID = "ch_general"`, `dmChannelId(a, b)` (sorts alphabetically), `isDmChannel(id)`, `newMessageSk()` → `${Date.now()}#${ulid()}`.
+4. `infra/` with CDK v2 TypeScript. A single `SlackStack` parameterized by `stage` (`dev` | `prod`). Constructs:
+   - **auth.ts**: `UserPool` with `selfSignUpEnabled: false`, email sign-in, password policy of at least 8 chars, `UserPoolClient` without a secret, auth flows `USER_SRP_AUTH` and `REFRESH_TOKEN_AUTH`. No advanced security.
+   - **data.ts**: tables `slack-${stage}-messages` (PK `channelId` S, SK `sk` S), `slack-${stage}-connections` (PK `connectionId` S, TTL attr `ttl`), `slack-${stage}-channels` (PK `channelId` S). All `PAY_PER_REQUEST`, `RemovalPolicy.DESTROY` in dev and `RETAIN` in prod.
+   - **storage.ts**: private `attachments` bucket, `blockPublicAccess: ALL`, CORS `PUT, GET` from `*` (restricted to the domain in F4), lifecycle → `GLACIER_INSTANT_RETRIEVAL` after 90 days. Private `web` bucket for the SPA.
+   - **api.ts**: `WebSocketApi` with `routeSelectionExpression: "$request.body.action"`. One `NodejsFunction` per handler in `backend/src/handlers/*.ts` (ARM_64, 256 MB, NODEJS_20_X, `logRetention: ONE_WEEK`, env with table names, bucket and `WS_ENDPOINT`). REQUEST-type `WebSocketLambdaAuthorizer` on `$connect` with `identitySource: ["route.request.querystring.token"]`. Routes: `$connect`, `$disconnect`, `message`, `history`, `channel`, `presign`, `typing`. `prod` stage with auto-deploy. Permissions: `grantManageConnections` to message/channel; table read/write as needed; bucket `grantPut`/`grantRead` to presign.
+   - **web.ts**: `Distribution` with an S3 origin via **OAC**, `PriceClass.PRICE_CLASS_100`, `defaultRootObject: index.html`, 403/404 errors → `/index.html` 200 (SPA routing), compression on. `BucketDeployment` that uploads `apps/web/dist` with a 1-year `cacheControl` for `/assets/*` and `no-cache` for `index.html`. (The custom domain and certificate are added in F4.)
+   - **cost.ts**: `Tags.of(this).add("project","slack")`; monthly USD 5 `CfnBudget` with notifications to `carlos@mindfultech.ec` at 80 % and 100 % (`prod` only).
+   - `CfnOutput` for: `UserPoolId`, `UserPoolClientId`, `WebSocketUrl`, `CloudFrontUrl`, `AttachmentsBucket`.
+5. `backend/src/handlers/*.ts`: **stubs** that return `{statusCode: 200}` so the stack builds and deploys. The real logic is F2.
+6. `infra/scripts/seed-general.ts`: conditional PutItem of `ch_general` (`name: "general"`, `type: "public"`). The `deploy:dev` / `deploy:prod` scripts run it after the deploy.
+7. `.github/workflows/ci.yml`: on PR to `main` → `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm test`. Node 20, pnpm cache.
+8. Initial `README.md`: prerequisites (Node 20, pnpm, AWS CLI with a profile), `pnpm install`, `pnpm deploy:dev`, how to create the two Cognito users from the console (`aws cognito-idp admin-create-user` + `admin-set-user-password --permanent`), how to copy the outputs into `apps/web/.env`.
 
-**Criterios de aceptación F2:**
-- `pnpm test` en verde, cobertura de todos los handlers.
-- Contra el stack dev, con dos terminales `wscat -c "<url>?token=<idToken real>"`:
-  - `{"action":"channel","op":"list"}` devuelve `#general`.
-  - `{"action":"message","channelId":"ch_general","text":"hola","clientId":"x"}` en la terminal A aparece como `message.new` en la terminal B en < 1 s.
-  - `{"action":"history","channelId":"ch_general"}` devuelve el mensaje.
-  - `{"action":"presign","op":"put",...}` devuelve una URL con la que `curl -X PUT --upload-file foto.png "<url>"` responde 200.
-- Logs en CloudWatch en JSON nivel INFO, retención 7 días.
-
-> Para obtener un `idToken` real en pruebas: `aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH ...` (habilitar `USER_PASSWORD_AUTH` en el client solo en dev) o un script `backend/scripts/get-token.ts` con `amazon-cognito-identity-js`.
+**F1 acceptance criteria:**
+- `pnpm install && pnpm lint` green.
+- `pnpm deploy:dev` finishes without errors and prints the 5 outputs.
+- `wscat -c "<WebSocketUrl>?token=garbage"` is rejected (401/403) — the authorizer stub must return **Deny** by default.
+- The two Cognito users can be created with the commands from the README.
+- `pnpm destroy:dev` tears everything down without leaving orphaned resources (check that the buckets have `autoDeleteObjects` in dev).
 
 ---
 
-### FASE 3 — Cliente web (React + Vite): login, canales, mensajes en tiempo real, historial, adjuntos
+### PHASE 2 — Lambda handlers with real logic + unit tests
 
-**Rama:** `feature/f3-web-client` · **Entrega:** la SPA funciona en `pnpm dev` contra el stack dev y en el CloudFront de dev.
+**Branch:** `feature/f2-backend-handlers` · **Deliverable:** complete backend tested against mocks; verifiable with `wscat` against the dev stack.
 
-**Instrucciones para Opus:**
+**Instructions for Opus:**
 
-1. **Setup**: Vite + React 18 + TypeScript + Tailwind. Dependencias: `aws-amplify` (solo `aws-amplify/auth`), `zustand`, `react-router-dom`, `ulid`, `@mindfultech/shared` (workspace). Configura Amplify en `main.tsx` con `VITE_COGNITO_USER_POOL_ID` y `VITE_COGNITO_CLIENT_ID`.
-2. **`lib/auth.ts`**: `signIn(email, password)`, `getIdToken()` (usa `fetchAuthSession`, que refresca solo), `signOut()`, `getCurrentUser()`. Ruta protegida: si no hay sesión → `/login`.
-3. **`lib/ws.ts`** — clase `WsClient`:
-   - `connect()`: obtiene idToken, abre `new WebSocket(`${VITE_WS_URL}?token=${token}`)`.
-   - `send(action, payload)`: `JSON.stringify({ action, ...payload })`; si el socket no está abierto, encola y envía al reconectar.
-   - `on(type, handler)` para eventos del servidor.
-   - **Reconexión con backoff exponencial** (1 s, 2 s, 4 s… máx. 30 s, con jitter) en `onclose`; nunca en bucle apretado. Al reconectar, vuelve a pedir `channel.list` y el `history` del canal activo.
-   - Heartbeat: nada (API Gateway cierra a los 10 min de inactividad / 2 h máx.; la reconexión lo cubre).
-4. **`store/index.ts`** (zustand): `user`, `channels[]`, `activeChannelId`, `messagesByChannel: Record<id, Message[]>`, `cursors: Record<id, string|null>`, `lastReadTs: Record<id, number>` (persistido en localStorage), `unreadCount(id)` = mensajes con `createdAt > lastReadTs[id]` que no son míos. Al recibir `message.new`: si es del canal activo y la ventana tiene foco → marca leído; si no → incrementa unread.
-5. **Componentes**:
-   - `LoginPage`: email + password, errores de Cognito en español, redirige a `/app/ch_general`.
-   - `Sidebar`: secciones "Canales" y "Mensajes directos"; cada ítem con badge de no leídos; botón "+" abre un prompt para crear canal (`channel create`); el DM se crea con `channel dm` hacia el otro usuario (lista de usuarios: hardcodear los dos emails en `VITE_USERS` por ahora — es un MVP de 2 personas). Resalta canal activo. Cmd/Ctrl+K: paleta rápida para saltar de canal (filtra por nombre).
-   - `ChannelView`: header con `#nombre` o email del DM; `MessageList`; `Composer`.
-   - `MessageList`: al montar pide `history`; renderiza ascendente; `IntersectionObserver` en el primer elemento → si `cursors[id]` no es null, pide la siguiente página y **conserva la posición de scroll** al prepender. Al llegar `message.new` con el scroll al fondo → auto-scroll; si no, muestra pill "↓ mensajes nuevos". Agrupa mensajes consecutivos del mismo autor en < 5 min.
-   - `MessageItem`: avatar = inicial del email, nombre (parte local del email), hora `HH:mm`, texto por `markdown.ts`, lista de `Attachment`.
-   - `Composer`: `textarea` auto-height; Enter envía, Shift+Enter salto de línea; drag & drop y `onPaste` de imágenes/archivos → `upload.ts`; muestra chips de adjuntos pendientes con progreso; deshabilita envío mientras sube. Envía `message` con `clientId = ulid()` y hace **optimistic insert** (estado `pending`), que se reconcilia cuando llega el `message.new` con el mismo `clientId`.
-   - `Attachment`: si `contentType` empieza por `image/` → pide `presign get` y renderiza `<img>` (máx. 320 px de alto, click abre en nueva pestaña); si no → chip con nombre, tamaño y botón de descarga (pide `presign get` al hacer click y abre la URL).
-   - `markdown.ts`: `**negrita**`, `_cursiva_`, `` `código` ``, bloques ``` ```, URLs → `<a target=_blank rel=noopener>`. Escapar HTML **antes** de aplicar las regex (nunca `dangerouslySetInnerHTML` con texto sin escapar). Emojis: el usuario los escribe con el teclado del SO; no se incluye picker.
-6. **`lib/upload.ts`**: `uploadFile(file, channelId)` → valida 25 MB en cliente → `presign put` → `fetch(url, { method: "PUT", body: file, headers: { "Content-Type": file.type } })` → devuelve `Attachment { key, name, size, contentType }`.
-7. **UI**: estilo tipo Slack (sidebar oscura, área de mensajes clara), pero sin perder tiempo en pixel-perfect. Tailwind utilitario, sin librería de componentes.
-8. **Build**: `pnpm --filter web build` genera `dist/` con assets hasheados; `infra` lo despliega.
+1. **`lib/`** in `backend/src`:
+   - `ddb.ts`: singleton `DynamoDBDocumentClient`; table names from `process.env`.
+   - `response.ts`: `ok()`, `badRequest()`, `reply(connectionId, event)` (uses `ApiGatewayManagementApiClient` with `endpoint = WS_ENDPOINT`).
+   - `broadcast.ts`: `broadcast(event)` → Scan of `connections` (≤ 2 rows, a Scan is fine at this scale), `PostToConnection` in parallel with `Promise.allSettled`; on `GoneException` (410) it deletes the connection.
+   - `s3.ts`: `presignPut(key, contentType, size)` and `presignGet(key)` with `@aws-sdk/s3-request-presigner`, `expiresIn: 300`.
+   - `logger.ts`: `log.info/warn/error` as JSON; `debug` only if `LOG_LEVEL=debug`.
+2. **`authorizer.ts`**: `CognitoJwtVerifier.create({ userPoolId, tokenUse: "id", clientId })` from `aws-jwt-verify`. Reads `event.queryStringParameters.token`. Returns an `Allow` policy with `context: { userId: sub, email }`; any error → `Deny`. Caches the verifier outside the handler.
+3. **`connect.ts`**: reads `userId`/`email` from `event.requestContext.authorizer`, PutItem into `connections` with `ttl = now + 2h`.
+4. **`disconnect.ts`**: DeleteItem from `connections`.
+5. **`message.ts`**: parses `JSON.parse(event.body)` with the zod schema from `shared`; builds a `Message` with `messageId = ulid()`, `sk = newMessageSk()`, `userId`, `userEmail` (from the authorizer context stored in `connections` — do a GetItem of the connection to get `userId`/`email`), `createdAt`; PutItem into `messages`; `broadcast({ type: "message.new", message, clientId })`. If the `channelId` does not exist in `channels` → `CHANNEL_NOT_FOUND` error.
+6. **`history.ts`**: Query `channelId = :c`, `ScanIndexForward: false`, `Limit: 50`, `ExclusiveStartKey` decoded from `cursor` (base64 of the LastEvaluatedKey). Replies `history.page { channelId, items (in ascending chronological order), nextCursor }` to the sender only.
+7. **`channel.ts`**: `op: "list"` → Scan of `channels` filtering `archived <> true`, includes public channels and the DMs the `userId` takes part in; `op: "create"` → validates a unique name (a GetItem on `ch_<ulid>` does not work for name uniqueness: do a Scan and compare `name`, acceptable with < 50 channels), PutItem, broadcast `channel.list`; `op: "dm"` → conditional PutItem of `dm_<a>_<b>` with `type: "dm"`, `members: [a, b]`, broadcast `channel.list`.
+8. **`presign.ts`**: `op: "put"` → validates `size ≤ 25 MB`, sanitizes `name` (only `[a-zA-Z0-9._-]`), key `attachments/${channelId}/${ulid()}-${name}`, replies `presign.result { url, key, requestId }`; `op: "get"` → validates that `key` starts with `attachments/`, replies with a GET URL.
+9. **`typing.ts`**: returns 200, no broadcast (enabled in v0.2).
+10. **Tests (Vitest + `aws-sdk-client-mock`)** in `backend/test/`: one file per handler. Cover: invalid payload → BAD_REQUEST error; `message` persists and broadcasts; `history` paginates and returns `nextCursor`; `channel.create` rejects a duplicate name; `dm` produces the same id regardless of order; `presign.put` rejects > 25 MB; `authorizer` denies an invalid token (mock `CognitoJwtVerifier`). Goal: every handler with at least one happy path and one error case.
+11. Update `infra/lib/api.ts` if any handler needs extra permissions (e.g. `message` needs `GetItem` on `connections` and `channels`).
 
-**Criterios de aceptación F3:**
-- Login con cada usuario; recargar la página mantiene la sesión.
-- Dos navegadores (Carlos / Rene): un mensaje aparece en el otro en < 1 s.
-- Scroll hacia arriba carga páginas anteriores sin saltos.
-- Arrastrar una imagen de 5 MB → se sube, aparece inline en ambos lados; un PDF de 20 MB → chip descargable; un archivo de 30 MB → error en cliente antes de subir.
-- Cerrar el Wi-Fi 20 s y reabrirlo → reconecta solo y recupera los mensajes perdidos (vía `history`).
-- Badge de no leídos sube en canales no activos y se limpia al entrar.
-- Usuario sin cuenta → Cognito rechaza, no se abre socket.
+**F2 acceptance criteria:**
+- `pnpm test` green, all handlers covered.
+- Against the dev stack, with two terminals running `wscat -c "<url>?token=<real idToken>"`:
+  - `{"action":"channel","op":"list"}` returns `#general`.
+  - `{"action":"message","channelId":"ch_general","text":"hello","clientId":"x"}` in terminal A shows up as `message.new` in terminal B in < 1 s.
+  - `{"action":"history","channelId":"ch_general"}` returns the message.
+  - `{"action":"presign","op":"put",...}` returns a URL for which `curl -X PUT --upload-file photo.png "<url>"` responds 200.
+- CloudWatch logs in JSON at INFO level, 7-day retention.
+
+> To get a real `idToken` for testing: `aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH ...` (enable `USER_PASSWORD_AUTH` on the client in dev only) or a `backend/scripts/get-token.ts` script with `amazon-cognito-identity-js`.
 
 ---
 
-### FASE 4 — Producción: dominios, certificado, pipeline de deploy, README final → release v0.1.0
+### PHASE 3 — Web client (React + Vite): login, channels, real-time messages, history, attachments
 
-**Rama:** `feature/f4-prod-deploy` → `main` + tag `v0.1.0` · **Entrega:** `https://slack.mindfultech.ec` funcionando con `wss://ws.mindfultech.ec`.
+**Branch:** `feature/f3-web-client` · **Deliverable:** the SPA works in `pnpm dev` against the dev stack and on the dev CloudFront.
 
-**Instrucciones para Opus:**
+**Instructions for Opus:**
 
-1. **Certificado**: en `infra/lib/web.ts` y `api.ts`, para `stage === "prod"`, importar un certificado ACM por ARN (`CERT_ARN` desde contexto CDK). El certificado se crea **a mano** en ACM `us-east-1` para `slack.mindfultech.ec` y `ws.mindfultech.ec` (un solo cert con dos SANs), validación DNS → Carlos crea los CNAMEs de validación en Namecheap. Documentar en README el paso exacto.
+1. **Setup**: Vite + React 18 + TypeScript + Tailwind. Dependencies: `aws-amplify` (only `aws-amplify/auth`), `zustand`, `react-router-dom`, `ulid`, `@mindfultech/shared` (workspace). Configure Amplify in `main.tsx` with `VITE_COGNITO_USER_POOL_ID` and `VITE_COGNITO_CLIENT_ID`.
+2. **`lib/auth.ts`**: `signIn(email, password)`, `getIdToken()` (uses `fetchAuthSession`, which refreshes on its own), `signOut()`, `getCurrentUser()`. Protected route: no session → `/login`.
+3. **`lib/ws.ts`** — `WsClient` class:
+   - `connect()`: gets the idToken, opens `new WebSocket(`${VITE_WS_URL}?token=${token}`)`.
+   - `send(action, payload)`: `JSON.stringify({ action, ...payload })`; if the socket is not open, it queues and sends on reconnect.
+   - `on(type, handler)` for server events.
+   - **Reconnection with exponential backoff** (1 s, 2 s, 4 s… max 30 s, with jitter) on `onclose`; never in a tight loop. On reconnect, it requests `channel.list` and the active channel's `history` again.
+   - Heartbeat: none (API Gateway closes after 10 min of inactivity / 2 h max; reconnection covers it).
+4. **`store/index.ts`** (zustand): `user`, `channels[]`, `activeChannelId`, `messagesByChannel: Record<id, Message[]>`, `cursors: Record<id, string|null>`, `lastReadTs: Record<id, number>` (persisted in localStorage), `unreadCount(id)` = messages with `createdAt > lastReadTs[id]` that are not mine. On receiving `message.new`: if it belongs to the active channel and the window has focus → mark as read; otherwise → increment unread.
+5. **Components**:
+   - `LoginPage`: email + password, Cognito errors shown in English, redirects to `/app/ch_general`.
+   - `Sidebar`: "Channels" and "Direct messages" sections; each item with an unread badge; a "+" button opens a prompt to create a channel (`channel create`); the DM is created with `channel dm` towards the other user (user list: hardcode the two emails in `VITE_USERS` for now — it is a 2-person MVP). Highlights the active channel. Cmd/Ctrl+K: quick palette to jump between channels (filters by name).
+   - `ChannelView`: header with `#name` or the DM's email; `MessageList`; `Composer`.
+   - `MessageList`: requests `history` on mount; renders in ascending order; `IntersectionObserver` on the first element → if `cursors[id]` is not null, requests the next page and **preserves the scroll position** when prepending. When `message.new` arrives with the scroll at the bottom → auto-scroll; otherwise, shows a "↓ new messages" pill. Groups consecutive messages from the same author within < 5 min.
+   - `MessageItem`: avatar = initial of the email, name (local part of the email), time `HH:mm`, text via `markdown.ts`, list of `Attachment`.
+   - `Composer`: auto-height `textarea`; Enter sends, Shift+Enter inserts a newline; drag & drop and `onPaste` of images/files → `upload.ts`; shows chips for pending attachments with progress; disables sending while uploading. Sends `message` with `clientId = ulid()` and does an **optimistic insert** (`pending` state), reconciled when the `message.new` with the same `clientId` arrives.
+   - `Attachment`: if `contentType` starts with `image/` → requests `presign get` and renders an `<img>` (max 320 px tall, click opens it in a new tab); otherwise → chip with name, size and a download button (requests `presign get` on click and opens the URL).
+   - `markdown.ts`: `**bold**`, `_italic_`, `` `code` ``, ``` ``` blocks, URLs → `<a target=_blank rel=noopener>`. Escape HTML **before** applying the regexes (never `dangerouslySetInnerHTML` with unescaped text). Emoji: users type them with the OS keyboard; no picker is included.
+6. **`lib/upload.ts`**: `uploadFile(file, channelId)` → validates 25 MB on the client → `presign put` → `fetch(url, { method: "PUT", body: file, headers: { "Content-Type": file.type } })` → returns `Attachment { key, name, size, contentType }`.
+7. **UI**: Slack-like style (dark sidebar, light message area), but without wasting time on pixel-perfection. Utility-first Tailwind, no component library.
+8. **Build**: `pnpm --filter web build` produces `dist/` with hashed assets; `infra` deploys it.
+
+**F3 acceptance criteria:**
+- Login with each user; reloading the page keeps the session.
+- Two browsers (Carlos / Rene): a message shows up in the other one in < 1 s.
+- Scrolling up loads earlier pages without jumps.
+- Dragging in a 5 MB image → it uploads and appears inline on both sides; a 20 MB PDF → downloadable chip; a 30 MB file → client-side error before uploading.
+- Turning Wi-Fi off for 20 s and back on → reconnects on its own and recovers missed messages (via `history`).
+- The unread badge goes up on inactive channels and clears when you open them.
+- User without an account → Cognito rejects them, no socket is opened.
+
+---
+
+### PHASE 4 — Production: domains, certificate, deploy pipeline, final README → release v0.1.0
+
+**Branch:** `feature/f4-prod-deploy` → `main` + tag `v0.1.0` · **Deliverable:** `https://slack.mindfultech.ec` working with `wss://ws.mindfultech.ec`.
+
+**Instructions for Opus:**
+
+1. **Certificate**: in `infra/lib/web.ts` and `api.ts`, for `stage === "prod"`, import an ACM certificate by ARN (`CERT_ARN` from CDK context). The certificate is created **by hand** in ACM `us-east-1` for `slack.mindfultech.ec` and `ws.mindfultech.ec` (a single cert with two SANs), DNS validation → Carlos creates the validation CNAMEs in Namecheap. Document the exact step in the README.
 2. **CloudFront custom domain**: `domainNames: ["slack.mindfultech.ec"]`, `certificate`. Output `CloudFrontDomain`.
-3. **API Gateway custom domain**: `DomainName` para `ws.mindfultech.ec` con el mismo cert, `ApiMapping` al stage. Output `WsDomainTarget` (el `regionalDomainName`).
-4. **DNS en Namecheap** (manual, Carlos): `slack` CNAME → `<dist>.cloudfront.net`; `ws` CNAME → `<regionalDomainName>`. Documentar.
-5. **CORS del bucket de adjuntos**: restringir `allowedOrigins` a `https://slack.mindfultech.ec` en prod (y `http://localhost:5173` + dominio CloudFront en dev).
-6. **`deploy.yml`**: en push a `main`: OIDC → `aws-actions/configure-aws-credentials` con rol `GitHubDeployRole` (crearlo en `infra/lib/cost.ts` o un construct `ci.ts`: trust policy con `token.actions.githubusercontent.com`, condición `repo:crpozo/slack:ref:refs/heads/main`); `pnpm install`; `pnpm build` (web lee `.env.production` con las URLs de prod); `pnpm deploy:prod`; el `BucketDeployment` ya invalida CloudFront (`distribution` + `distributionPaths: ["/*"]`).
-7. **Hardening mínimo**: `message` rechaza `text` vacío sin adjuntos; `presign get` solo si el `key` existe; `authorizer` loguea el `sub` en INFO pero nunca el token.
-8. **Cost Anomaly Detection**: `CfnAnomalyMonitor` + `CfnAnomalySubscription` (email a Carlos) en `cost.ts`, solo prod.
-9. **README final** con las secciones: Qué es · Arquitectura (enlazar BLUEPRINT.md) · Prerrequisitos · Primer deploy (cert → CNAMEs → `deploy:prod` → crear usuarios) · Desarrollo local (`deploy:dev`, `.env`, `pnpm dev`, `destroy:dev`) · Git Flow · Tests · Costos y alertas · Roadmap v0.2 (la columna derecha de la sección 0).
-10. Bump de versión `0.1.0` en todos los `package.json`. `CHANGELOG.md` con lo incluido.
+3. **API Gateway custom domain**: `DomainName` for `ws.mindfultech.ec` with the same cert, `ApiMapping` to the stage. Output `WsDomainTarget` (the `regionalDomainName`).
+4. **DNS in Namecheap** (manual, Carlos): `slack` CNAME → `<dist>.cloudfront.net`; `ws` CNAME → `<regionalDomainName>`. Document it.
+5. **Attachments bucket CORS**: restrict `allowedOrigins` to `https://slack.mindfultech.ec` in prod (and `http://localhost:5173` + the CloudFront domain in dev).
+6. **`deploy.yml`**: on push to `main`: OIDC → `aws-actions/configure-aws-credentials` with the `GitHubDeployRole` role (create it in `infra/lib/cost.ts` or in a `ci.ts` construct: trust policy with `token.actions.githubusercontent.com`, condition `repo:crpozo/slack:ref:refs/heads/main`); `pnpm install`; `pnpm build` (web reads `.env.production` with the prod URLs); `pnpm deploy:prod`; the `BucketDeployment` already invalidates CloudFront (`distribution` + `distributionPaths: ["/*"]`).
+7. **Minimal hardening**: `message` rejects empty `text` without attachments; `presign get` only if the `key` exists; `authorizer` logs the `sub` at INFO but never the token.
+8. **Cost Anomaly Detection**: `CfnAnomalyMonitor` + `CfnAnomalySubscription` (email to Carlos) in `cost.ts`, prod only.
+9. **Final README** with the sections: What it is · Architecture (link BLUEPRINT.md) · Prerequisites · First deploy (cert → CNAMEs → `deploy:prod` → create users) · Local development (`deploy:dev`, `.env`, `pnpm dev`, `destroy:dev`) · Git Flow · Tests · Costs and alerts · v0.2 roadmap (the right column of section 0).
+10. Bump the version to `0.1.0` in every `package.json`. `CHANGELOG.md` with what is included.
 
-**Criterios de aceptación F4 (= criterios de aceptación del MVP):**
-- `https://slack.mindfultech.ec` carga con candado verde; `wss://ws.mindfultech.ec` conecta.
-- Un mensaje llega al otro usuario en < 1 s desde dos computadoras distintas.
-- Recargar muestra el historial completo.
-- Adjunto de 25 MB sube, se ve y se descarga; acceder a la URL del objeto sin firma → 403.
-- Conexión sin JWT → rechazada. Usuario inexistente → no entra.
-- `git clone` + README son suficientes para levantar un stack dev desde cero.
-- Budget de USD 5 y Anomaly Detection visibles en la consola de Billing; todos los recursos con tag `project=slack`.
-- Sesión manual de 30 min entre Carlos y Rene; fallos anotados como issues.
-- Merge `feature/f4-prod-deploy` → `main`, tag `v0.1.0`, pipeline en verde.
+**F4 acceptance criteria (= MVP acceptance criteria):**
+- `https://slack.mindfultech.ec` loads with a green padlock; `wss://ws.mindfultech.ec` connects.
+- A message reaches the other user in < 1 s from two different computers.
+- Reloading shows the full history.
+- A 25 MB attachment uploads, displays and downloads; accessing the object URL without a signature → 403.
+- Connection without a JWT → rejected. Non-existent user → cannot get in.
+- `git clone` + README are enough to bring up a dev stack from scratch.
+- USD 5 budget and Anomaly Detection visible in the Billing console; every resource tagged `project=slack`.
+- 30-min manual session between Carlos and Rene; failures logged as issues.
+- Merge `feature/f4-prod-deploy` → `main`, tag `v0.1.0`, pipeline green.
 
 ---
 
-### FASE 5 — Expansión de funcionalidades (v0.2.0)
+### PHASE 5 — Feature expansion (v0.2.0)
 
-> **Añadida el 12 oct**, con el MVP v0.1.0 en producción. Sustituye a la antigua "Fase 5 — Tauri", que pasa a ser la Fase 6. Mueve a la columna izquierda de la sección 0 estos puntos de v0.2: **reacciones**, **canales privados**, **nombres visibles**, **modo oscuro**, **barra lateral colapsable**, **selector de emojis** y **llamadas de voz/vídeo (WebRTC)**.
+> **Added on Oct 12**, with MVP v0.1.0 in production. It replaces the old "Phase 5 — Tauri", which becomes Phase 6. It moves these v0.2 items into the left column of section 0: **reactions**, **private channels**, **display names**, **dark mode**, **collapsible sidebar**, **emoji picker** and **voice/video calls (WebRTC)**.
 
-**Requisitos de negocio**
+**Business requirements**
 
-1. **Llamadas de voz y vídeo** P2P con WebRTC. El WebSocket de API Gateway se usa **solo para señalización** (ofertas/respuestas SDP y candidatos ICE): el audio y el vídeo nunca pasan por AWS, así que el coste extra es USD 0.
-2. **UI/UX:** modo oscuro (Tailwind), barra lateral redimensionable y colapsable (modo solo iconos) y selector de emojis en el compositor.
-3. **Canales privados:** los canales nuevos son **privados por defecto**; quien crea el canal invita a miembros concretos. Solo los miembros ven el canal, su historial y sus adjuntos, y solo ellos reciben sus mensajes.
-4. **Reacciones** con emoji a mensajes concretos.
-5. **Nombres visibles:** cada persona define un nombre en Ajustes, que pasa a ser su identificador principal en la UI (en lugar del email o del `sub` de Cognito).
+1. **Voice and video calls**, P2P with WebRTC. The API Gateway WebSocket is used **for signaling only** (SDP offers/answers and ICE candidates): audio and video never go through AWS, so the extra cost is USD 0.
+2. **UI/UX:** dark mode (Tailwind), resizable and collapsible sidebar (icons-only mode) and an emoji picker in the composer.
+3. **Private channels:** new channels are **private by default**; whoever creates the channel invites specific members. Only members see the channel, its history and its attachments, and only they receive its messages.
+4. **Emoji reactions** on individual messages.
+5. **Display names:** each person sets a name in Settings, which becomes their main identifier in the UI (instead of the email or the Cognito `sub`).
 
-Se ejecuta en tres sub-fases, cada una en su rama y su PR a `main`:
+It is carried out in three sub-phases, each on its own branch with its own PR to `main`:
 
-#### 5.1 — Backend y modelo de datos
+#### 5.1 — Backend and data model
 
-**Rama:** `feature/f5-1-backend` · **Entrega:** protocolo, handlers, tablas y permisos listos y testeados; la UI actual sigue funcionando igual.
+**Branch:** `feature/f5-1-backend` · **Deliverable:** protocol, handlers, tables and permissions ready and tested; the current UI keeps working the same.
 
-1. **Tabla `slack-${stage}-users`** (PK `userId` S; `email`, `displayName`, `createdAt`, `updatedAt`). Se eligió una tabla y no un atributo de Cognito porque todos los clientes leen el directorio en tiempo real con un solo Scan, y la Lambda no necesita permisos de administración de Cognito.
-   - `$connect` hace un upsert de la fila (email del token; `displayName` por defecto = parte local del email, sin pisar uno existente). Así cualquiera que haya iniciado sesión aparece en el directorio, lo que **reemplaza `VITE_USERS`** para DMs e invitaciones.
-   - Nueva acción `user`: `{ op: "list" }` → `user.list { users[] }` al emisor; `{ op: "update", displayName }` (1–40 caracteres, sin caracteres de control) → guarda y difunde `user.updated { user }` a todos.
-   - Los mensajes siguen guardando `userId`/`userEmail`; el nombre se resuelve en el cliente con el directorio, así un cambio de nombre se ve también en el historial.
-2. **Canales privados.** `type` pasa a `public | private | dm`; `members: string[]` en `private` y `dm`.
-   - `channel { op: "create", name, visibility? }`: `visibility` es `private` por defecto; quien crea es miembro. Los nombres son únicos entre públicos y privados.
-   - `channel { op: "invite", channelId, userIds[] }`: solo quien creó el canal (`FORBIDDEN` si no), solo canales privados, y solo usuarios que existan en `users` (`USER_NOT_FOUND`). Difunde `channel.list`, filtrada por persona.
-   - **Autorización en el backend:** `message`, `history`, `presign` y `react` cargan el canal y comprueban acceso (público, o miembro). Si no hay acceso, la respuesta es `CHANNEL_NOT_FOUND`, sin revelar que existe. El fan-out de `message.new` y `message.reaction` va solo a conexiones de miembros. `channel.list` solo incluye públicos y aquellos de los que se es miembro.
-   - Los canales públicos existentes (incluido `#general`) siguen siendo públicos; no hace falta migración.
-3. **Reacciones.** `reactions` en `messages` es un mapa `emoji → string set de userIds`.
-   - Nueva acción `react { channelId, sk, emoji, op: "add" | "remove" }`: `ADD`/`DELETE` atómico sobre el set, idempotente por persona. Los mensajes antiguos sin `reactions` se inicializan al vuelo.
-   - Difunde `message.reaction { channelId, sk, messageId, reactions }` a los miembros. `history.page` y `message.new` incluyen `reactions` como `Record<emoji, userId[]>`.
-   - Emoji: 1–16 caracteres sin espacios ni caracteres de control.
-4. **Permisos mínimos nuevos:**
-   - `connect`: `UpdateItem` en `users`.
-   - `user`: `Scan` y `UpdateItem` en `users`, más difusión.
-   - `react`: `UpdateItem` en `messages` y `GetItem` en `channels`, más difusión.
-   - `history` y `presign`: `GetItem` en `channels`.
-   - `channel`: `UpdateItem` en `channels` y `BatchGetItem` en `users`.
-5. **Tests:** handlers `user` y `react`; invitaciones (creador, `FORBIDDEN`, `USER_NOT_FOUND`); acceso denegado a privados en `message`, `history`, `presign` y `react`; fan-out solo a miembros; upsert del usuario en `$connect`; aserciones CDK de la tabla `users`, las rutas nuevas y los permisos.
+1. **`slack-${stage}-users` table** (PK `userId` S; `email`, `displayName`, `createdAt`, `updatedAt`). A table was chosen over a Cognito attribute because every client reads the directory in real time with a single Scan, and the Lambda does not need Cognito admin permissions.
+   - `$connect` upserts the row (email from the token; `displayName` defaults to the local part of the email, without overwriting an existing one). That way anyone who has signed in shows up in the directory, which **replaces `VITE_USERS`** for DMs and invitations.
+   - New `user` action: `{ op: "list" }` → `user.list { users[] }` to the sender; `{ op: "update", displayName }` (1–40 characters, no control characters) → saves and broadcasts `user.updated { user }` to everyone.
+   - Messages still store `userId`/`userEmail`; the name is resolved on the client from the directory, so a name change also shows up in the history.
+2. **Private channels.** `type` becomes `public | private | dm`; `members: string[]` on `private` and `dm`.
+   - `channel { op: "create", name, visibility? }`: `visibility` is `private` by default; the creator is a member. Names are unique across public and private channels.
+   - `channel { op: "invite", channelId, userIds[] }`: only the channel's creator (`FORBIDDEN` otherwise), only private channels, and only users that exist in `users` (`USER_NOT_FOUND`). Broadcasts `channel.list`, filtered per person.
+   - **Backend authorization:** `message`, `history`, `presign` and `react` load the channel and check access (public, or member). Without access, the response is `CHANNEL_NOT_FOUND`, without revealing that it exists. The fan-out of `message.new` and `message.reaction` goes only to members' connections. `channel.list` only includes public channels and those the user is a member of.
+   - Existing public channels (including `#general`) stay public; no migration is needed.
+3. **Reactions.** `reactions` on `messages` is a map of `emoji → string set of userIds`.
+   - New `react { channelId, sk, emoji, op: "add" | "remove" }` action: atomic `ADD`/`DELETE` on the set, idempotent per person. Old messages without `reactions` are initialized on the fly.
+   - Broadcasts `message.reaction { channelId, sk, messageId, reactions }` to members. `history.page` and `message.new` include `reactions` as `Record<emoji, userId[]>`.
+   - Emoji: 1–16 characters with no spaces or control characters.
+4. **New minimal permissions:**
+   - `connect`: `UpdateItem` on `users`.
+   - `user`: `Scan` and `UpdateItem` on `users`, plus broadcast.
+   - `react`: `UpdateItem` on `messages` and `GetItem` on `channels`, plus broadcast.
+   - `history` and `presign`: `GetItem` on `channels`.
+   - `channel`: `UpdateItem` on `channels` and `BatchGetItem` on `users`.
+5. **Tests:** `user` and `react` handlers; invitations (creator, `FORBIDDEN`, `USER_NOT_FOUND`); denied access to private channels in `message`, `history`, `presign` and `react`; fan-out to members only; user upsert in `$connect`; CDK assertions for the `users` table, the new routes and the permissions.
 
-**Criterios de aceptación 5.1:** `pnpm lint` y `pnpm test` en verde; `cdk synth` sin recursos reemplazados (solo se añaden la tabla `users`, las Lambdas `user`/`react` y sus rutas); con `wscat`, un no-miembro no recibe los mensajes de un canal privado ni puede leer su historial.
+**5.1 acceptance criteria:** `pnpm lint` and `pnpm test` green; `cdk synth` with no replaced resources (only the `users` table, the `user`/`react` Lambdas and their routes are added); with `wscat`, a non-member neither receives a private channel's messages nor can read its history.
 
 #### 5.2 — UI/UX
 
-**Rama:** `feature/f5-2-ui`
+**Branch:** `feature/f5-2-ui`
 
-1. **Modo oscuro:** `darkMode: "class"` en Tailwind. Toggle Claro/Oscuro/Sistema en Ajustes, guardado en localStorage, con la preferencia del SO por defecto. Tokens oscuros derivados del design system MindfulTech: superficies en tonos de `ink`, texto claro y `primary`/`sky` como acentos con contraste AA.
-2. **Barra lateral:** ancho redimensionable arrastrando el borde (200–400 px, persistido) y colapsable a modo solo iconos (avatares/iniciales con badge). Tooltip con el nombre al pasar el ratón. En móvil sigue siendo el cajón actual.
-3. **Selector de emojis** en el compositor (inserta en el cursor) y para reaccionar. Debe ser una librería ligera cargada bajo demanda (`import()` dinámico) para no engordar el bundle inicial.
-4. **Reacciones:** chips bajo cada mensaje (emoji + contador, resaltado si reaccioné), clic para alternar y "+" para el selector.
-5. **Ajustes:** modal con nombre visible (`user update`) y tema. Toda la UI muestra `displayName` (email en tooltip).
-6. **Canales privados:** al crear se elige Público/Privado (por defecto Privado) y se pueden invitar personas desde el directorio `user.list`; el creador ve "Invitar" en la cabecera del canal. Candado en la barra lateral para privados. Los DMs se abren desde el directorio, sin `VITE_USERS`.
+1. **Dark mode:** `darkMode: "class"` in Tailwind. Light / Dark / System toggle in Settings, saved in localStorage, with light as the default theme. Dark tokens derived from the MindfulTech design system: surfaces in `ink` tones, light text and `primary`/`sky` as accents with AA contrast.
+2. **Sidebar:** width resizable by dragging the edge (200–400 px, persisted) and collapsible to an icons-only mode (avatars/initials with badge). Tooltip with the name on hover. On mobile it is still the current drawer.
+3. **Emoji picker** in the composer (inserts at the cursor) and for reacting. It must be a lightweight library loaded on demand (dynamic `import()`) so it does not bloat the initial bundle. It uses the English emojibase dataset (`emojibase-data/en/compact.json`) with the `en` locale, and search works in English.
+4. **Reactions:** chips under each message (emoji + count, highlighted if I reacted), click to toggle and "+" for the picker.
+5. **Settings:** modal with display name (`user update`) and theme. The whole UI shows `displayName` (email in a tooltip).
+6. **Private channels:** when creating one you choose Public/Private (Private by default) and can invite people from the `user.list` directory; the creator sees "Invite" in the channel header. Padlock in the sidebar for private channels. DMs are opened from the directory, without `VITE_USERS`.
+7. **Language:** the UI was translated to English ("Create channel", "Invite", "Typing…", etc.), with light as the default theme.
 
-**Criterios de aceptación 5.2:** tema persistente sin parpadeo al cargar; sidebar colapsada y ancho que sobreviven a la recarga; reacciones en tiempo real en ambos navegadores; un canal privado no aparece para un no invitado hasta que lo invitan; el nombre visible cambia en vivo en la otra sesión.
+**5.2 acceptance criteria:** persistent theme with no flash on load; collapsed sidebar and width survive a reload; real-time reactions in both browsers; a private channel does not show up for a non-invited user until they are invited; the display name changes live in the other session.
 
-#### 5.3 — Llamadas WebRTC (P2P)
+#### 5.3 — WebRTC calls (P2P)
 
-**Rama:** `feature/f5-3-webrtc`
+**Branch:** `feature/f5-3-webrtc`
 
-1. **Señalización:** nueva acción `rtc { callId, to, kind: "offer" | "answer" | "ice" | "hangup" | "ring" | "decline", payload }`.
-   - La Lambda solo reenvía `rtc.signal { callId, from, kind, payload }` a las conexiones del usuario `to`, si emisor y destino comparten un DM o canal; no guarda nada.
-   - Límites: payload de 16 KB como máximo, y ofertas/respuestas validadas como SDP de texto.
-2. **Medios:** `RTCPeerConnection` con STUN público y gratuito (`stun:stun.l.google.com:19302`) y **sin TURN**, porque TURN costaría dinero. Limitación documentada: en NAT simétricas o redes corporativas la llamada puede no conectar. Si hace falta, se evaluará un TURN propio en una v0.3.
-3. **UI:** botones de llamada de voz y de vídeo en la cabecera de un DM; modal de llamada entrante (aceptar/rechazar) con tono; vista de llamada con vídeo local/remoto, silenciar, cámara on/off y colgar. Llamadas 1 a 1 solamente.
-4. **Permisos:** solo `ManageConnections` y lectura de `connections`/`channels` para la Lambda `rtc`.
+1. **Signaling:** new `rtc { callId, to, kind: "offer" | "answer" | "ice" | "hangup" | "ring" | "decline", payload }` action.
+   - The Lambda only forwards `rtc.signal { callId, from, kind, payload }` to the `to` user's connections, if sender and recipient share a DM or channel; it stores nothing.
+   - Limits: payload of at most 16 KB, and offers/answers validated as text SDP.
+2. **Media:** `RTCPeerConnection` with a free public STUN server (`stun:stun.l.google.com:19302`) and **no TURN**, because TURN would cost money. Documented limitation: behind symmetric NATs or on corporate networks the call may fail to connect. If needed, a self-hosted TURN will be evaluated in a v0.3.
+3. **UI:** voice and video call buttons in a DM's header; incoming-call modal (accept/decline) with a ringtone; call view with local/remote video, mute, camera on/off and hang up. 1:1 calls only.
+4. **Permissions:** only `ManageConnections` and read access to `connections`/`channels` for the `rtc` Lambda.
 
-**Criterios de aceptación 5.3:** llamada de voz y de vídeo entre dos navegadores en redes domésticas distintas; colgar en un lado cierra el otro; el coste en AWS no cambia (solo mensajes WebSocket de señalización).
+**5.3 acceptance criteria:** voice and video call between two browsers on different home networks; hanging up on one side closes the other; the AWS cost does not change (only signaling WebSocket messages).
 
-**Cierre de la Fase 5:** `CHANGELOG.md` y versiones a `0.2.0`, README actualizado y tag `v0.2.0`.
-
----
-
-### FASE 6 (opcional) — Desktop app con Tauri
-
-**Rama:** `feature/f6-tauri` (nace de `main` después de v0.2.0).
-
-**Instrucciones para Opus:**
-
-1. `apps/desktop` con Tauri 2: ventana única que carga `https://slack.mindfultech.ec` (config `app.windows[0].url`), tamaño 1200×800, título "MindfulTech Slack". **Sin** segundo frontend.
-2. Plugins: `tauri-plugin-notification` (notificación nativa cuando llega `message.new` y la ventana no tiene foco — el frontend web detecta `window.__TAURI__` y lo usa; si no existe, usa la Notification API del navegador), `tauri-plugin-autostart`. Bandeja del sistema con "Abrir" y "Salir"; cerrar la ventana la oculta en lugar de salir.
-3. `.github/workflows/desktop.yml`: en tag `v*`, matriz `macos-latest` + `windows-latest`, `tauri-apps/tauri-action` publica `.dmg` y `.msi` como assets del release. Sin firma de código por ahora (documentar el aviso de Gatekeeper/SmartScreen en README).
-4. Badge en dock/taskbar y Cmd/Ctrl+F quedan para v0.2.
-
-**Criterio de aceptación F6:** el `.dmg` y el `.msi` del release abren la app, muestran el login y reciben una notificación nativa con la ventana en segundo plano.
+**Phase 5 wrap-up:** `CHANGELOG.md` and versions bumped to `0.2.0`, README updated and tag `v0.2.0`.
 
 ---
 
-## 5. Checklist de cierre de mañana
+### PHASE 6 (optional) — Desktop app with Tauri
 
-- [ ] `main` = `v0.1.0`, protegida, CI y deploy en verde
-- [ ] Stack `SlackProd` único; `SlackDev` destruido
-- [ ] Dos usuarios creados en Cognito, ambos han hecho login desde su computadora
-- [ ] Prueba manual de 30 min hecha, issues abiertos con etiqueta `v0.2`
-- [ ] README verificado por la persona que **no** escribió el código
-- [ ] Carlos revisa Cost Explorer filtrando por `project=slack` (debe mostrar centavos)
+**Branch:** `feature/f6-tauri` (starts from `main` after v0.2.0).
+
+**Instructions for Opus:**
+
+1. `apps/desktop` with Tauri 2: a single window that loads `https://slack.mindfultech.ec` (config `app.windows[0].url`), size 1200×800, title "MindfulTech Slack". **No** second frontend.
+2. Plugins: `tauri-plugin-notification` (native notification when `message.new` arrives and the window is not focused — the web frontend detects `window.__TAURI__` and uses it; if it does not exist, it uses the browser Notification API), `tauri-plugin-autostart`. System tray with "Open" and "Quit"; closing the window hides it instead of quitting.
+3. `.github/workflows/desktop.yml`: on tag `v*`, `macos-latest` + `windows-latest` matrix, `tauri-apps/tauri-action` publishes the `.dmg` and `.msi` as release assets. No code signing for now (document the Gatekeeper/SmartScreen warning in the README).
+4. Dock/taskbar badge and Cmd/Ctrl+F are left for v0.2.
+
+**F6 acceptance criterion:** the release's `.dmg` and `.msi` open the app, show the login and receive a native notification with the window in the background.
+
+---
+
+## 5. Tomorrow's wrap-up checklist
+
+- [ ] `main` = `v0.1.0`, protected, CI and deploy green
+- [ ] A single `SlackProd` stack; `SlackDev` destroyed
+- [ ] Two users created in Cognito, both have signed in from their own computer
+- [ ] 30-min manual test done, issues opened with the `v0.2` label
+- [ ] README verified by the person who did **not** write the code
+- [ ] Carlos checks Cost Explorer filtered by `project=slack` (should show cents)

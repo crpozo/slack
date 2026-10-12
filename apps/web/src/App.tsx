@@ -9,7 +9,7 @@ import { useChat } from "./store";
 
 const HOME = `/app/${GENERAL_CHANNEL_ID}`;
 
-export default function App({ config }: { config: AppConfig }) {
+export default function App({ config }: Readonly<{ config: AppConfig }>) {
   const me = useChat((s) => s.me);
   const [checked, setChecked] = useState(false);
 

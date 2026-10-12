@@ -1,6 +1,8 @@
-import type { Channel, Message } from "@mindfultech/shared";
+import type { Channel, Message, UserProfile } from "@mindfultech/shared";
+import { useCallback } from "react";
 import { create } from "zustand";
 import type { SessionUser } from "../lib/auth";
+import { displayName } from "../lib/channels";
 import type { DirectoryUser } from "../lib/config";
 import type { WsStatus } from "../lib/ws";
 import { countUnread, mergeMessages, pendingMessageId, type ChatMessage } from "./messages";
@@ -24,8 +26,10 @@ export interface ChatState {
   lastReadTs: Record<string, number>;
   /** userId → email for everyone we know about. */
   directory: Record<string, string>;
-  /** Users from VITE_USERS, for the DM list. */
+  /** Users from VITE_USERS (optional fallback for the DM list). */
   team: DirectoryUser[];
+  /** Server directory (`user.list` / `user.updated`), keyed by userId. */
+  users: Record<string, UserProfile>;
   toast: string | null;
 
   setSession: (me: SessionUser | null, team?: DirectoryUser[]) => void;
@@ -37,6 +41,9 @@ export interface ChatState {
   receiveMessage: (message: Message, clientId?: string) => void;
   addPending: (message: ChatMessage) => void;
   setPendingStatus: (channelId: string, clientId: string, status: "pending" | "failed") => void;
+  setUsers: (users: UserProfile[]) => void;
+  upsertUser: (user: UserProfile) => void;
+  setReactions: (channelId: string, sk: string, reactions: Record<string, string[]>) => void;
   markRead: (channelId: string) => void;
   /** After a reconnect: forget cached history of inactive channels so it reloads on open. */
   invalidateInactive: () => void;
@@ -82,6 +89,7 @@ const initialState = {
   lastReadTs: {},
   directory: {},
   team: [],
+  users: {},
   toast: null,
 };
 
@@ -150,6 +158,35 @@ export const useChat = create<ChatState>()((set, get) => ({
       };
     }),
 
+  setUsers: (list) =>
+    set((s) => {
+      const users: Record<string, UserProfile> = {};
+      const directory = { ...s.directory };
+      for (const u of list) {
+        users[u.userId] = u;
+        directory[u.userId] = u.email;
+      }
+      return { users, directory };
+    }),
+
+  upsertUser: (user) =>
+    set((s) => ({
+      users: { ...s.users, [user.userId]: user },
+      directory: { ...s.directory, [user.userId]: user.email },
+    })),
+
+  setReactions: (channelId, sk, reactions) =>
+    set((s) => {
+      const messages = s.messagesByChannel[channelId];
+      if (!messages?.some((m) => m.sk === sk)) return {};
+      return {
+        messagesByChannel: {
+          ...s.messagesByChannel,
+          [channelId]: messages.map((m) => (m.sk === sk ? { ...m, reactions } : m)),
+        },
+      };
+    }),
+
   markRead: (channelId) => {
     const { me, messagesByChannel, lastReadTs } = get();
     if (!me) return;
@@ -186,5 +223,24 @@ export function selectUnread(state: ChatState, channelId: string): number {
     state.messagesByChannel[channelId] ?? [],
     state.lastReadTs[channelId] ?? 0,
     state.me.userId,
+  );
+}
+
+/**
+ * Name to show for a user: their display name, else the local part of their
+ * email (from the directory or the message that mentions them).
+ */
+export function selectName(state: ChatState, userId: string, fallbackEmail?: string): string {
+  return state.users[userId]?.displayName ?? displayName(fallbackEmail ?? state.directory[userId]);
+}
+
+/** Stable resolver from userId (and optional email) to the name to show. */
+export function useNameOf(): (userId: string, fallbackEmail?: string) => string {
+  const users = useChat((s) => s.users);
+  const directory = useChat((s) => s.directory);
+  return useCallback(
+    (userId, fallbackEmail) =>
+      users[userId]?.displayName ?? displayName(fallbackEmail ?? directory[userId]),
+    [users, directory],
   );
 }

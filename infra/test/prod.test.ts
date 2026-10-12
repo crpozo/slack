@@ -1,6 +1,7 @@
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { describe, expect, it } from "vitest";
+import { isEmail } from "../lib/cost";
 import { SlackStack } from "../lib/slack-stack";
 
 const CERT = "arn:aws:acm:us-east-1:123456789012:certificate/abc-123";
@@ -16,10 +17,23 @@ function synth(stage: "dev" | "prod", context: Record<string, string> = {}): Tem
   return Template.fromStack(stack);
 }
 
+/** Logical ids of the `type` resources whose properties match `props` (as `hasResourceProperties`). */
+function matching(template: Template, type: string, props: Record<string, unknown>): string[] {
+  return Object.keys(template.findResources(type, { Properties: props }));
+}
+
+function count(template: Template, type: string): number {
+  return Object.keys(template.findResources(type)).length;
+}
+
+function outputValue(template: Template, name: string): unknown {
+  return template.findOutputs(name)[name]?.Value;
+}
+
 describe("attachments CORS", () => {
   it("only allows the app origins and localhost", () => {
     const template = synth("prod");
-    template.hasResourceProperties("AWS::S3::Bucket", {
+    const buckets = matching(template, "AWS::S3::Bucket", {
       CorsConfiguration: {
         CorsRules: [
           Match.objectLike({
@@ -37,6 +51,7 @@ describe("attachments CORS", () => {
         ],
       },
     });
+    expect(buckets).toHaveLength(1);
   });
 
   it("has no wildcard origin in dev either", () => {
@@ -49,10 +64,14 @@ describe("attachments CORS", () => {
 describe("custom domains", () => {
   it("stay off until a certificate is provided", () => {
     const template = synth("prod");
-    template.resourceCountIs("AWS::ApiGatewayV2::DomainName", 0);
-    template.hasResourceProperties("AWS::CloudFront::Distribution", {
-      DistributionConfig: Match.objectLike({ Aliases: Match.absent() }),
-    });
+    expect(count(template, "AWS::ApiGatewayV2::DomainName")).toBe(0);
+    expect(count(template, "AWS::Route53::RecordSet")).toBe(0);
+    expect(
+      matching(template, "AWS::CloudFront::Distribution", {
+        DistributionConfig: Match.objectLike({ Aliases: Match.absent() }),
+      }),
+    ).toHaveLength(1);
+    expect(outputValue(template, "WebSocketUrl")).not.toContain("mindfultech.ec");
   });
 
   it("wire CloudFront, the WebSocket API and config.json to the domains", () => {
@@ -86,33 +105,37 @@ describe("custom domains", () => {
 
   it("create Route 53 alias records when a hosted zone id is given", () => {
     const template = synth("prod", { certificateArn: CERT, hostedZoneId: "Z123" });
-    template.resourceCountIs("AWS::Route53::RecordSet", 2);
-    template.hasResourceProperties("AWS::Route53::RecordSet", {
-      Name: "slack.mindfultech.ec.",
-      Type: "A",
-      HostedZoneId: "Z123",
-    });
-    template.hasResourceProperties("AWS::Route53::RecordSet", {
-      Name: "ws.mindfultech.ec.",
-      Type: "A",
-    });
+    expect(count(template, "AWS::Route53::RecordSet")).toBe(2);
+    for (const name of ["slack.mindfultech.ec.", "ws.mindfultech.ec."]) {
+      expect(
+        matching(template, "AWS::Route53::RecordSet", {
+          Name: name,
+          Type: "A",
+          HostedZoneId: "Z123",
+        }),
+      ).toHaveLength(1);
+    }
   });
 });
 
 describe("cost alerts", () => {
   it("monitors anomalies on the project=slack tag and emails daily in prod", () => {
     const template = synth("prod");
-    template.hasResourceProperties("AWS::CE::AnomalyMonitor", {
-      MonitorType: "CUSTOM",
-      MonitorSpecification: Match.serializedJson({
-        Tags: { Key: "project", Values: ["slack"], MatchOptions: ["EQUALS"] },
+    expect(
+      matching(template, "AWS::CE::AnomalyMonitor", {
+        MonitorType: "CUSTOM",
+        MonitorSpecification: Match.serializedJson({
+          Tags: { Key: "project", Values: ["slack"], MatchOptions: ["EQUALS"] },
+        }),
       }),
-    });
-    template.hasResourceProperties("AWS::CE::AnomalySubscription", {
-      Frequency: "DAILY",
-      Subscribers: [{ Type: "EMAIL", Address: "alerts@example.com" }],
-    });
-    template.resourceCountIs("AWS::Budgets::Budget", 1);
+    ).toHaveLength(1);
+    expect(
+      matching(template, "AWS::CE::AnomalySubscription", {
+        Frequency: "DAILY",
+        Subscribers: [{ Type: "EMAIL", Address: "alerts@example.com" }],
+      }),
+    ).toHaveLength(1);
+    expect(count(template, "AWS::Budgets::Budget")).toBe(1);
   });
 
   it("refuse to synthesize prod without a valid budgetEmail", () => {
@@ -120,21 +143,44 @@ describe("cost alerts", () => {
     expect(() => synth("prod", { budgetEmail: "not-an-email" })).toThrow("budgetEmail");
   });
 
+  it("validate budgetEmail like the previous /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/ pattern", () => {
+    const valid = ["a@b.co", "alerts@example.com", "x@a.b.", "first.last@sub.domain.ec"];
+    const invalid = [
+      "",
+      "a@b",
+      "@b.co",
+      "a@.co",
+      "a@b.",
+      "a@@b.co",
+      "a@b@c.co",
+      "a b@c.co",
+      "a@b.c o",
+    ];
+    for (const value of valid) expect(isEmail(value), value).toBe(true);
+    for (const value of invalid) expect(isEmail(value), value).toBe(false);
+  });
+
   it("output the anomaly monitor ARN in prod", () => {
-    synth("prod").hasOutput("CostAnomalyMonitorArn", {});
+    const template = synth("prod");
+    const [monitorId] = matching(template, "AWS::CE::AnomalyMonitor", {});
+    expect(outputValue(template, "CostAnomalyMonitorArn")).toEqual({
+      "Fn::GetAtt": [monitorId, "MonitorArn"],
+    });
   });
 
   it("are not created in dev", () => {
     const template = synth("dev");
-    template.resourceCountIs("AWS::CE::AnomalyMonitor", 0);
-    template.resourceCountIs("AWS::Budgets::Budget", 0);
+    expect(count(template, "AWS::CE::AnomalyMonitor")).toBe(0);
+    expect(count(template, "AWS::CE::AnomalySubscription")).toBe(0);
+    expect(count(template, "AWS::Budgets::Budget")).toBe(0);
+    expect(template.findOutputs("CostAnomalyMonitorArn")).toEqual({});
   });
 });
 
 describe("GitHub deploy role", () => {
   it("trusts only main of crpozo/slack via OIDC and can only assume CDK roles", () => {
     const template = synth("prod");
-    template.hasResourceProperties("AWS::IAM::Role", {
+    const roles = matching(template, "AWS::IAM::Role", {
       RoleName: "slack-github-deploy",
       AssumeRolePolicyDocument: {
         Statement: [
@@ -150,7 +196,9 @@ describe("GitHub deploy role", () => {
         ],
       },
     });
-    template.hasResourceProperties("AWS::IAM::Policy", {
+    expect(roles).toHaveLength(1);
+    const policies = matching(template, "AWS::IAM::Policy", {
+      Roles: [{ Ref: roles[0] }],
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({
@@ -165,7 +213,10 @@ describe("GitHub deploy role", () => {
         ]),
       },
     });
-    template.hasOutput("GitHubDeployRoleArn", {});
+    expect(policies).toHaveLength(1);
+    expect(outputValue(template, "GitHubDeployRoleArn")).toEqual({
+      "Fn::GetAtt": [roles[0], "Arn"],
+    });
   });
 
   it("reuses an existing OIDC provider when its ARN is given", () => {
@@ -173,11 +224,17 @@ describe("GitHub deploy role", () => {
       githubOidcProviderArn:
         "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com",
     });
-    template.resourceCountIs("Custom::AWSCDKOpenIdConnectProvider", 0);
+    expect(count(template, "Custom::AWSCDKOpenIdConnectProvider")).toBe(0);
+    expect(matching(template, "AWS::IAM::Role", { RoleName: "slack-github-deploy" })).toHaveLength(
+      1,
+    );
   });
 
   it("does not exist in dev", () => {
-    synth("dev").resourceCountIs("Custom::AWSCDKOpenIdConnectProvider", 0);
+    const template = synth("dev");
+    expect(count(template, "Custom::AWSCDKOpenIdConnectProvider")).toBe(0);
+    expect(matching(template, "AWS::IAM::Role", { RoleName: "slack-github-deploy" })).toEqual([]);
+    expect(template.findOutputs("GitHubDeployRoleArn")).toEqual({});
   });
 });
 
@@ -185,24 +242,28 @@ describe("phase 5.1 resources", () => {
   const template = () => synth("dev");
 
   it("adds the users table", () => {
-    template().hasResourceProperties("AWS::DynamoDB::Table", {
-      TableName: "slack-dev-users",
-      KeySchema: [{ AttributeName: "userId", KeyType: "HASH" }],
-      BillingMode: "PAY_PER_REQUEST",
-    });
+    expect(
+      matching(template(), "AWS::DynamoDB::Table", {
+        TableName: "slack-dev-users",
+        KeySchema: [{ AttributeName: "userId", KeyType: "HASH" }],
+        BillingMode: "PAY_PER_REQUEST",
+      }),
+    ).toHaveLength(1);
   });
 
   it("routes the user and react actions to their own Lambdas", () => {
     const t = template();
     for (const routeKey of ["user", "react"]) {
-      t.hasResourceProperties("AWS::ApiGatewayV2::Route", { RouteKey: routeKey });
+      expect(matching(t, "AWS::ApiGatewayV2::Route", { RouteKey: routeKey })).toHaveLength(1);
     }
     for (const name of ["slack-dev-user", "slack-dev-react"]) {
-      t.hasResourceProperties("AWS::Lambda::Function", {
-        FunctionName: name,
-        Runtime: "nodejs22.x",
-        Environment: { Variables: Match.objectLike({ USERS_TABLE: Match.anyValue() }) },
-      });
+      expect(
+        matching(t, "AWS::Lambda::Function", {
+          FunctionName: name,
+          Runtime: "nodejs22.x",
+          Environment: { Variables: Match.objectLike({ USERS_TABLE: Match.anyValue() }) },
+        }),
+      ).toHaveLength(1);
     }
   });
 
@@ -220,7 +281,7 @@ describe("phase 5.1 resources", () => {
       return statements
         .filter((st) => JSON.stringify(st.Resource).includes(`"${table}`))
         .flatMap((st) => (Array.isArray(st.Action) ? st.Action : [st.Action]))
-        .sort();
+        .sort((a, b) => a.localeCompare(b));
     };
 
     expect(actionsOn("connect", "DataUsers")).toEqual(["dynamodb:UpdateItem"]);

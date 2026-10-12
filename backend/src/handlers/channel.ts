@@ -9,15 +9,17 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import {
   ChannelActionSchema,
+  compareIds,
   dmChannelId,
   isChannelMember,
   newChannelId,
   parseAction,
   type Channel,
+  type ChannelAction,
 } from "@mindfultech/shared";
 import { broadcast } from "../lib/broadcast";
 import { ddb, tables } from "../lib/ddb";
-import { wsHandler } from "../lib/handler";
+import { wsHandler, type Caller } from "../lib/handler";
 import { log } from "../lib/logger";
 import { badRequest, ok, reply, replyError } from "../lib/response";
 
@@ -61,21 +63,126 @@ async function putIfAbsent(item: Channel): Promise<boolean> {
   }
 }
 
+/** User ids among `keys` that exist in `users`; retries `UnprocessedKeys` (throttling) once. */
+async function existingUserIds(keys: Record<string, unknown>[], retries = 1): Promise<string[]> {
+  const result: BatchGetCommandOutput = await ddb.send(
+    new BatchGetCommand({
+      RequestItems: { [tables.users]: { Keys: keys, ProjectionExpression: "userId" } },
+    }),
+  );
+  const found = (result.Responses?.[tables.users] ?? []).map((item) => String(item.userId));
+  const unprocessed = result.UnprocessedKeys?.[tables.users]?.Keys;
+  if (!unprocessed?.length || retries <= 0) return found;
+  return [...found, ...(await existingUserIds(unprocessed, retries - 1))];
+}
+
 /** Ids among `userIds` that have no row in `users` (never signed in). */
 async function unknownUsers(userIds: string[]): Promise<string[]> {
-  const found = new Set<string>();
-  let keys: Record<string, unknown>[] | undefined = userIds.map((userId) => ({ userId }));
-  // BatchGet may return UnprocessedKeys under throttling: retry those once.
-  for (let attempt = 0; attempt < 2 && keys?.length; attempt++) {
-    const result: BatchGetCommandOutput = await ddb.send(
-      new BatchGetCommand({
-        RequestItems: { [tables.users]: { Keys: keys, ProjectionExpression: "userId" } },
-      }),
-    );
-    for (const item of result.Responses?.[tables.users] ?? []) found.add(String(item.userId));
-    keys = result.UnprocessedKeys?.[tables.users]?.Keys;
-  }
+  if (userIds.length === 0) return [];
+  const found = new Set(await existingUserIds(userIds.map((userId) => ({ userId }))));
   return userIds.filter((id) => !found.has(id));
+}
+
+type ActionOf<Op extends ChannelAction["op"]> = Extract<ChannelAction, { op: Op }>;
+
+async function listChannels(caller: Caller) {
+  const channels = visibleTo(await scanChannels(), caller.userId);
+  await reply(caller.connectionId, { type: "channel.list", channels });
+  return ok();
+}
+
+async function createChannel(action: ActionOf<"create">, caller: Caller) {
+  const existing = await scanChannels();
+  if (existing.some((c) => c.type !== "dm" && c.name === action.name)) {
+    return replyError(caller.connectionId, "CHANNEL_NAME_TAKEN");
+  }
+  const channel: Channel = {
+    channelId: newChannelId(),
+    name: action.name,
+    type: action.visibility,
+    createdBy: caller.userId,
+    createdAt: Date.now(),
+    archived: false,
+    ...(action.visibility === "private" && { members: [caller.userId] }),
+  };
+  await putIfAbsent(channel);
+  log.info("channel created", {
+    channelId: channel.channelId,
+    type: channel.type,
+    userId: caller.userId,
+  });
+  await broadcastChannelList();
+  return ok();
+}
+
+async function openDm(action: ActionOf<"dm">, caller: Caller) {
+  // DM ids are `dm_<a>_<b>`, so user ids must not contain `_`.
+  if (action.withUserId.includes("_")) {
+    return badRequest(caller.connectionId, "Invalid user id");
+  }
+  const channelId = dmChannelId(caller.userId, action.withUserId);
+  const created = await putIfAbsent({
+    channelId,
+    name: channelId,
+    type: "dm",
+    createdBy: caller.userId,
+    createdAt: Date.now(),
+    archived: false,
+    members: [caller.userId, action.withUserId].sort(compareIds),
+  });
+  if (created) log.info("dm created", { channelId, userId: caller.userId });
+  await broadcastChannelList();
+  return ok();
+}
+
+async function invite(action: ActionOf<"invite">, caller: Caller) {
+  const { Item } = await ddb.send(
+    new GetCommand({ TableName: tables.channels, Key: { channelId: action.channelId } }),
+  );
+  const channel = Item as Channel | undefined;
+  // Non-members can't tell a private channel exists.
+  if (!channel || channel.archived || !isChannelMember(channel, caller.userId)) {
+    return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
+  }
+  if (channel.type !== "private") {
+    return badRequest(caller.connectionId, "Only private channels take invitations");
+  }
+  if (channel.createdBy !== caller.userId) {
+    return replyError(caller.connectionId, "FORBIDDEN", "Only the channel creator can invite");
+  }
+
+  const invitees = [...new Set(action.userIds)];
+  const missing = await unknownUsers(invitees);
+  if (missing.length > 0) {
+    return replyError(
+      caller.connectionId,
+      "USER_NOT_FOUND",
+      `Unknown users: ${missing.join(", ")}`,
+    );
+  }
+
+  const members = [...new Set([...(channel.members ?? []), ...invitees])].sort(compareIds);
+  await ddb.send(
+    new UpdateCommand({
+      TableName: tables.channels,
+      Key: { channelId: channel.channelId },
+      UpdateExpression: "SET members = :members",
+      ConditionExpression: "createdBy = :me AND #type = :private",
+      ExpressionAttributeNames: { "#type": "type" },
+      ExpressionAttributeValues: {
+        ":members": members,
+        ":me": caller.userId,
+        ":private": "private",
+      },
+    }),
+  );
+  log.info("members invited", {
+    channelId: channel.channelId,
+    userId: caller.userId,
+    invited: invitees.length,
+  });
+  await broadcastChannelList();
+  return ok();
 }
 
 /** `channel`: list, create (private by default), open a DM, or invite to a private channel. */
@@ -85,104 +192,13 @@ export const handler = wsHandler(async (event, caller) => {
   const action = parsed.data;
 
   switch (action.op) {
-    case "list": {
-      const channels = visibleTo(await scanChannels(), caller.userId);
-      await reply(caller.connectionId, { type: "channel.list", channels });
-      return ok();
-    }
-
-    case "create": {
-      const existing = await scanChannels();
-      if (existing.some((c) => c.type !== "dm" && c.name === action.name)) {
-        return replyError(caller.connectionId, "CHANNEL_NAME_TAKEN");
-      }
-      const channel: Channel = {
-        channelId: newChannelId(),
-        name: action.name,
-        type: action.visibility,
-        createdBy: caller.userId,
-        createdAt: Date.now(),
-        archived: false,
-        ...(action.visibility === "private" && { members: [caller.userId] }),
-      };
-      await putIfAbsent(channel);
-      log.info("channel created", {
-        channelId: channel.channelId,
-        type: channel.type,
-        userId: caller.userId,
-      });
-      await broadcastChannelList();
-      return ok();
-    }
-
-    case "dm": {
-      // DM ids are `dm_<a>_<b>`, so user ids must not contain `_`.
-      if (action.withUserId.includes("_")) {
-        return badRequest(caller.connectionId, "Invalid user id");
-      }
-      const channelId = dmChannelId(caller.userId, action.withUserId);
-      const created = await putIfAbsent({
-        channelId,
-        name: channelId,
-        type: "dm",
-        createdBy: caller.userId,
-        createdAt: Date.now(),
-        archived: false,
-        members: [caller.userId, action.withUserId].sort(),
-      });
-      if (created) log.info("dm created", { channelId, userId: caller.userId });
-      await broadcastChannelList();
-      return ok();
-    }
-
-    case "invite": {
-      const { Item } = await ddb.send(
-        new GetCommand({ TableName: tables.channels, Key: { channelId: action.channelId } }),
-      );
-      const channel = Item as Channel | undefined;
-      // Non-members can't tell a private channel exists.
-      if (!channel || channel.archived || !isChannelMember(channel, caller.userId)) {
-        return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
-      }
-      if (channel.type !== "private") {
-        return badRequest(caller.connectionId, "Only private channels take invitations");
-      }
-      if (channel.createdBy !== caller.userId) {
-        return replyError(caller.connectionId, "FORBIDDEN", "Only the channel creator can invite");
-      }
-
-      const invitees = [...new Set(action.userIds)];
-      const missing = await unknownUsers(invitees);
-      if (missing.length > 0) {
-        return replyError(
-          caller.connectionId,
-          "USER_NOT_FOUND",
-          `Unknown users: ${missing.join(", ")}`,
-        );
-      }
-
-      const members = [...new Set([...(channel.members ?? []), ...invitees])].sort();
-      await ddb.send(
-        new UpdateCommand({
-          TableName: tables.channels,
-          Key: { channelId: channel.channelId },
-          UpdateExpression: "SET members = :members",
-          ConditionExpression: "createdBy = :me AND #type = :private",
-          ExpressionAttributeNames: { "#type": "type" },
-          ExpressionAttributeValues: {
-            ":members": members,
-            ":me": caller.userId,
-            ":private": "private",
-          },
-        }),
-      );
-      log.info("members invited", {
-        channelId: channel.channelId,
-        userId: caller.userId,
-        invited: invitees.length,
-      });
-      await broadcastChannelList();
-      return ok();
-    }
+    case "list":
+      return listChannels(caller);
+    case "create":
+      return createChannel(action, caller);
+    case "dm":
+      return openDm(action, caller);
+    case "invite":
+      return invite(action, caller);
   }
 });

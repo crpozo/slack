@@ -1,4 +1,4 @@
-import { dmChannelId, type Channel } from "@mindfultech/shared";
+import { dmChannelId, type Channel, compareIds } from "@mindfultech/shared";
 import { describe, expect, it } from "vitest";
 import { channelLabel, dmEntries, formatDay, normalizeChannelName } from "./channels";
 import { parseUsers, resolveConfig } from "./config";
@@ -30,7 +30,7 @@ describe("dmEntries", () => {
     createdBy: me.userId,
     createdAt: 1,
     archived: false,
-    members: [me.userId, peer].sort(),
+    members: [me.userId, peer].sort(compareIds),
   });
 
   it("lists teammates (not me), resolves ids from the directory and links existing DMs", () => {
@@ -46,25 +46,59 @@ describe("dmEntries", () => {
       (id) => dmChannelId(me.userId, id),
     );
     expect(entries).toEqual([
-      { email: "ana@mt.ec", userId: "u-ana", channelId: undefined },
-      { email: "bo@mt.ec", userId: "u-bo", channelId: dmChannelId(me.userId, "u-bo") },
-      { email: "zed@mt.ec", userId: "u-zed", channelId: dmChannelId(me.userId, "u-zed") },
+      { email: "ana@mt.ec", name: "ana", userId: "u-ana", channelId: undefined },
+      { email: "bo@mt.ec", name: "bo", userId: "u-bo", channelId: dmChannelId(me.userId, "u-bo") },
+      {
+        email: "zed@mt.ec",
+        name: "zed",
+        userId: "u-zed",
+        channelId: dmChannelId(me.userId, "u-zed"),
+      },
     ]);
   });
 
-  it("labels DMs with the peer's email", () => {
+  it("lists the server directory by display name, without duplicates", () => {
+    const profile = (userId: string, email: string, displayName: string) => ({
+      userId,
+      email,
+      displayName,
+      updatedAt: 1,
+    });
+    const entries = dmEntries(
+      [{ email: "bo@mt.ec", userId: "u-bo" }],
+      [],
+      me,
+      {},
+      (id) => dmChannelId(me.userId, id),
+      {
+        "u-me": profile("u-me", "me@mt.ec", "Yo"),
+        "u-bo": profile("u-bo", "bo@mt.ec", "Zoe"),
+        "u-al": profile("u-al", "al@mt.ec", "Alba"),
+      },
+    );
+    expect(entries.map((e) => [e.userId, e.name])).toEqual([
+      ["u-al", "Alba"],
+      ["u-bo", "Zoe"],
+    ]);
+  });
+
+  it("labels DMs with the peer's display name", () => {
     expect(
-      channelLabel(dmChannelId("u-me", "u-bo"), undefined, "u-me", { "u-bo": "bo@mt.ec" }),
-    ).toBe("bo@mt.ec");
-    expect(channelLabel(dmChannelId("u-me", "u-x"), undefined, "u-me", {})).toBe("Mensaje directo");
+      channelLabel(dmChannelId("u-me", "u-bo"), undefined, "u-me", (id) =>
+        id === "u-bo" ? "Bo" : undefined,
+      ),
+    ).toBe("Bo");
+    expect(channelLabel(dmChannelId("u-me", "u-x"), undefined, "u-me", () => undefined)).toBe(
+      "Direct message",
+    );
   });
 });
 
 describe("formatDay", () => {
-  it("says Hoy / Ayer for recent days", () => {
+  it("says Today / Yesterday for recent days", () => {
     const now = new Date(2026, 9, 8, 12).getTime();
-    expect(formatDay(now - 1000, now)).toBe("Hoy");
-    expect(formatDay(now - 86_400_000, now)).toBe("Ayer");
+    expect(formatDay(now - 1000, now)).toBe("Today");
+    expect(formatDay(now - 86_400_000, now)).toBe("Yesterday");
   });
 });
 

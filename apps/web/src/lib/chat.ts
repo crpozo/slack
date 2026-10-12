@@ -1,5 +1,7 @@
 import {
+  compareIds,
   dmChannelId,
+  type ChannelVisibility,
   type Attachment,
   type ErrorCode,
   type PresignAction,
@@ -12,15 +14,15 @@ import { getIdToken, SessionExpiredError } from "./auth";
 import { WsClient, type DistributiveOmit } from "./ws";
 
 const ERROR_TEXT: Record<ErrorCode, string> = {
-  BAD_REQUEST: "La solicitud no es válida.",
-  UNAUTHORIZED: "Tu sesión expiró. Vuelve a iniciar sesión.",
-  CHANNEL_NOT_FOUND: "Ese canal no existe o no tienes acceso.",
-  CHANNEL_NAME_TAKEN: "Ya existe un canal con ese nombre.",
-  FILE_NOT_FOUND: "El archivo ya no existe.",
-  FORBIDDEN: "No tienes permiso para hacer eso.",
-  USER_NOT_FOUND: "Esa persona no existe o nunca ha iniciado sesión.",
-  MESSAGE_NOT_FOUND: "Ese mensaje ya no existe.",
-  INTERNAL_ERROR: "Algo falló en el servidor. Inténtalo de nuevo.",
+  BAD_REQUEST: "That request isn't valid.",
+  UNAUTHORIZED: "Your session expired. Please sign in again.",
+  CHANNEL_NOT_FOUND: "That channel doesn't exist or you don't have access.",
+  CHANNEL_NAME_TAKEN: "A channel with that name already exists.",
+  FILE_NOT_FOUND: "That file no longer exists.",
+  FORBIDDEN: "You don't have permission to do that.",
+  USER_NOT_FOUND: "That person doesn't exist or has never signed in.",
+  MESSAGE_NOT_FOUND: "That message no longer exists.",
+  INTERNAL_ERROR: "Something went wrong on the server. Please try again.",
 };
 
 const SEND_TIMEOUT_MS = 15_000;
@@ -39,10 +41,11 @@ const isFocused = () => document.visibilityState === "visible" && document.hasFo
 /** Glue between the WebSocket and the store; one instance per signed-in session. */
 class ChatController {
   private client: WsClient | null = null;
-  private cleanups: Array<() => void> = [];
-  private presigns = new Map<string, Deferred<PresignResultEvent>>();
+  private readonly cleanups: Array<() => void> = [];
+  private readonly presigns = new Map<string, Deferred<PresignResultEvent>>();
   private pendingCreate: (Deferred<string> & { name: string }) | null = null;
-  private sendTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private pendingName: (Deferred<void> & { name: string }) | null = null;
+  private readonly sendTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   start(wsUrl: string, onSessionExpired: () => void): void {
     if (this.client) return;
@@ -60,6 +63,7 @@ class ChatController {
 
       client.onOpen(({ reconnected }) => {
         client.send("channel", { op: "list" });
+        client.send("user", { op: "list" });
         if (reconnected) {
           // Catch up on whatever happened while we were offline.
           store().invalidateInactive();
@@ -85,6 +89,22 @@ class ChatController {
         if (channelId === s.activeChannelId && isFocused()) s.markRead(channelId);
       }),
 
+      client.on("user.list", ({ users }) => store().setUsers(users)),
+
+      client.on("user.updated", ({ user }) => {
+        store().upsertUser(user);
+        const pending = this.pendingName;
+        if (pending && user.userId === store().me?.userId && user.displayName === pending.name) {
+          clearTimeout(pending.timer);
+          this.pendingName = null;
+          pending.resolve();
+        }
+      }),
+
+      client.on("message.reaction", ({ channelId, sk, reactions }) =>
+        store().setReactions(channelId, sk, reactions),
+      ),
+
       client.on("channel.list", ({ channels }) => {
         store().setChannels(channels);
         const pending = this.pendingCreate;
@@ -105,7 +125,7 @@ class ChatController {
       }),
 
       client.on("error", ({ code, message, requestId }) => {
-        const text = ERROR_TEXT[code] ?? message ?? "Error desconocido.";
+        const text = ERROR_TEXT[code] ?? message ?? "Unknown error.";
         const presign = requestId ? this.presigns.get(requestId) : undefined;
         if (requestId && presign) {
           clearTimeout(presign.timer);
@@ -136,19 +156,21 @@ class ChatController {
     // Requests in flight died with the socket; let the next session re-issue them.
     useChat.setState({ historyRequests: {} });
     this.cleanups.forEach((fn) => fn());
-    this.cleanups = [];
+    this.cleanups.length = 0;
     this.sendTimers.forEach((t) => clearTimeout(t));
     this.sendTimers.clear();
     for (const d of this.presigns.values()) {
       clearTimeout(d.timer);
-      d.reject(new Error("Sesión cerrada"));
+      d.reject(new Error("Signed out"));
     }
     this.presigns.clear();
-    if (this.pendingCreate) {
-      clearTimeout(this.pendingCreate.timer);
-      this.pendingCreate.reject(new Error("Sesión cerrada"));
-      this.pendingCreate = null;
+    for (const pending of [this.pendingCreate, this.pendingName]) {
+      if (!pending) continue;
+      clearTimeout(pending.timer);
+      pending.reject(new Error("Signed out"));
     }
+    this.pendingCreate = null;
+    this.pendingName = null;
   }
 
   /** Requests the newest page (`initial`) or the next older one (`older`). */
@@ -206,19 +228,73 @@ class ChatController {
     );
   }
 
-  /** Creates a public channel; resolves with its id once the new list arrives. */
-  createChannel(name: string): Promise<string> {
+  /**
+   * Creates a channel (private by default) and invites `invitees` to it;
+   * resolves with the new channel id once the updated list arrives.
+   */
+  async createChannel(
+    name: string,
+    visibility: ChannelVisibility = "private",
+    invitees: string[] = [],
+  ): Promise<string> {
     const client = this.client;
-    if (!client) return Promise.reject(new Error("Sin conexión"));
-    if (this.pendingCreate) return Promise.reject(new Error("Ya se está creando un canal"));
-    return new Promise((resolve, reject) => {
+    if (!client) throw new Error("Not connected");
+    if (this.pendingCreate) throw new Error("A channel is already being created");
+    const channelId = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingCreate = null;
-        reject(new Error("El servidor no respondió. Inténtalo de nuevo."));
+        reject(new Error("The server didn't respond. Please try again."));
       }, REQUEST_TIMEOUT_MS);
       this.pendingCreate = { name, resolve, reject, timer };
-      // Public until the invite UI lands in Phase 5.2 (the backend default is private).
-      client.send("channel", { op: "create", name, visibility: "public" });
+      client.send("channel", { op: "create", name, visibility });
+    });
+    if (visibility === "private" && invitees.length > 0) this.invite(channelId, invitees);
+    return channelId;
+  }
+
+  /** Adds people to a private channel you created; errors arrive as toasts. */
+  invite(channelId: string, userIds: string[]): void {
+    if (userIds.length === 0) return;
+    this.client?.send("channel", { op: "invite", channelId, userIds });
+  }
+
+  /** Sets your display name; resolves when the server confirms it. */
+  updateDisplayName(displayName: string): Promise<void> {
+    const client = this.client;
+    if (!client) return Promise.reject(new Error("Not connected"));
+    const name = displayName.trim();
+    this.pendingName?.reject(new Error("Replaced by a newer change"));
+    if (this.pendingName) clearTimeout(this.pendingName.timer);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingName = null;
+        reject(new Error("The server didn't respond. Please try again."));
+      }, REQUEST_TIMEOUT_MS);
+      this.pendingName = { name, resolve, reject, timer };
+      client.send("user", { op: "update", displayName: name });
+    });
+  }
+
+  /** Adds or removes your `emoji` reaction, updating the UI right away. */
+  toggleReaction(message: ChatMessage, emoji: string): void {
+    const s = useChat.getState();
+    const me = s.me;
+    if (!me || !this.client || message.status) return;
+    const current = message.reactions ?? {};
+    const mine = current[emoji]?.includes(me.userId) ?? false;
+    const users = mine
+      ? (current[emoji] ?? []).filter((id) => id !== me.userId)
+      : [...(current[emoji] ?? []), me.userId].sort(compareIds);
+    const next = { ...current };
+    if (users.length > 0) next[emoji] = users;
+    else delete next[emoji];
+    // Optimistic; the server's `message.reaction` broadcast is the source of truth.
+    s.setReactions(message.channelId, message.sk, next);
+    this.client.send("react", {
+      channelId: message.channelId,
+      sk: message.sk,
+      emoji,
+      op: mine ? "remove" : "add",
     });
   }
 
@@ -232,12 +308,12 @@ class ChatController {
 
   presign(request: PresignRequest): Promise<PresignResultEvent> {
     const client = this.client;
-    if (!client) return Promise.reject(new Error("Sin conexión"));
+    if (!client) return Promise.reject(new Error("Not connected"));
     const requestId = ulid();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.presigns.delete(requestId);
-        reject(new Error("El servidor no respondió. Inténtalo de nuevo."));
+        reject(new Error("The server didn't respond. Please try again."));
       }, REQUEST_TIMEOUT_MS);
       this.presigns.set(requestId, { resolve, reject, timer });
       client.send("presign", { ...request, requestId });

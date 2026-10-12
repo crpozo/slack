@@ -1,6 +1,6 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { BatchGetCommand, PutCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import { dmChannelId, type ChannelListEvent } from "@mindfultech/shared";
+import { dmChannelId, type ChannelListEvent, compareIds } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handler } from "../src/handlers/channel";
 import {
@@ -99,7 +99,7 @@ describe("channel", () => {
     expect(
       sentEvents()
         .map(([id, e]) => [id, e.type])
-        .sort(),
+        .sort(([a], [b]) => compareIds(a ?? "", b ?? "")),
     ).toEqual([
       ["conn-alice", "channel.list"],
       ["conn-bob", "channel.list"],
@@ -144,7 +144,10 @@ describe("channel", () => {
     const [first, second] = ddbMock.commandCalls(PutCommand).map((c) => c.args[0].input);
     expect(first?.Item?.channelId).toBe(dmChannelId(ALICE.userId, BOB.userId));
     expect(second?.Item?.channelId).toBe(first?.Item?.channelId);
-    expect(first?.Item).toMatchObject({ type: "dm", members: [ALICE.userId, BOB.userId].sort() });
+    expect(first?.Item).toMatchObject({
+      type: "dm",
+      members: [ALICE.userId, BOB.userId].sort(compareIds),
+    });
     expect(first?.ConditionExpression).toBe("attribute_not_exists(channelId)");
   });
 
@@ -244,10 +247,45 @@ describe("channel invite", () => {
     const update = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
     expect(update?.Key).toEqual({ channelId: "ch_team" });
     expect(update?.ExpressionAttributeValues?.[":members"]).toEqual(
-      [ALICE.userId, BOB.userId, "user-carol", "user-dave"].sort(),
+      [ALICE.userId, BOB.userId, "user-carol", "user-dave"].sort(compareIds),
     );
     expect(update?.ConditionExpression).toBe("createdBy = :me AND #type = :private");
     expect(sentEvents().every(([, e]) => e.type === "channel.list")).toBe(true);
+  });
+
+  it("retries keys BatchGet left unprocessed once before accepting the invitees", async () => {
+    ddbMock
+      .on(BatchGetCommand)
+      .resolvesOnce({
+        Responses: { "slack-test-users": [{ userId: BOB.userId }] },
+        UnprocessedKeys: { "slack-test-users": { Keys: [{ userId: "user-dave" }] } },
+      })
+      .resolvesOnce({ Responses: { "slack-test-users": [{ userId: "user-dave" }] } });
+
+    const result = await invite([BOB.userId, "user-dave"]);
+
+    expect(result.statusCode).toBe(200);
+    const calls = ddbMock.commandCalls(BatchGetCommand);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.args[0].input.RequestItems?.["slack-test-users"]?.Keys).toEqual([
+      { userId: "user-dave" },
+    ]);
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
+  });
+
+  it("treats keys still unprocessed after the retry as unknown users", async () => {
+    const unprocessed = { "slack-test-users": { Keys: [{ userId: "user-dave" }] } };
+    ddbMock
+      .on(BatchGetCommand)
+      .resolvesOnce({ Responses: { "slack-test-users": [] }, UnprocessedKeys: unprocessed })
+      .resolvesOnce({ Responses: { "slack-test-users": [] }, UnprocessedKeys: unprocessed });
+
+    const result = await invite(["user-dave"]);
+
+    expect(result.statusCode).toBe(400);
+    expect(ddbMock.commandCalls(BatchGetCommand)).toHaveLength(2);
+    expect(sentEvents()[0]?.[1]).toMatchObject({ code: "USER_NOT_FOUND" });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
   });
 
   it("answers FORBIDDEN to members who did not create the channel", async () => {

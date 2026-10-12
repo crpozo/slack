@@ -34,17 +34,15 @@ export function assertWebSocketUrl(raw: string): string {
   try {
     url = new URL(raw);
   } catch {
-    throw new Error(`URL de WebSocket inválida: ${raw}`);
+    throw new Error(`Invalid WebSocket URL: ${raw}`);
   }
   const secure = url.protocol === "wss:";
   const local = url.protocol === "ws:" && LOCAL_HOSTS.has(url.hostname);
   if (!secure && !local) {
-    throw new Error(`La URL del WebSocket debe usar wss:// (ws:// solo en localhost): ${raw}`);
+    throw new Error(`The WebSocket URL must use wss:// (ws:// only on localhost): ${raw}`);
   }
   if (url.username || url.password || url.search || url.hash) {
-    throw new Error(
-      `La URL del WebSocket no puede llevar credenciales, query ni fragmento: ${raw}`,
-    );
+    throw new Error(`The WebSocket URL can't include credentials, a query or a fragment: ${raw}`);
   }
   return url.href;
 }
@@ -68,9 +66,9 @@ export class WsClient {
 
   private socket: WebSocket | undefined;
   private queue: string[] = [];
-  private handlers = new Map<string, Set<(event: ServerEvent) => void>>();
-  private statusHandlers = new Set<(status: WsStatus) => void>();
-  private openHandlers = new Set<(info: { reconnected: boolean }) => void>();
+  private readonly handlers = new Map<string, Set<(event: ServerEvent) => void>>();
+  private readonly statusHandlers = new Set<(status: WsStatus) => void>();
+  private readonly openHandlers = new Set<(info: { reconnected: boolean }) => void>();
   private attempt = 0;
   private hasConnected = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -113,7 +111,10 @@ export class WsClient {
 
   on<T extends ServerEventType>(type: T, handler: Handler<T>): () => void {
     let set = this.handlers.get(type);
-    if (!set) this.handlers.set(type, (set = new Set()));
+    if (!set) {
+      set = new Set();
+      this.handlers.set(type, set);
+    }
     const h = handler as (event: ServerEvent) => void;
     set.add(h);
     return () => set.delete(h);

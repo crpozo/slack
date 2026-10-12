@@ -1,6 +1,6 @@
 import { GoneException, PostToConnectionCommand } from "@aws-sdk/client-apigatewaymanagementapi";
 import { DeleteCommand, GetCommand, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
-import { dmChannelId, GENERAL_CHANNEL_ID } from "@mindfultech/shared";
+import { dmChannelId, GENERAL_CHANNEL_ID, compareIds } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handler } from "../src/handlers/message";
 import {
@@ -54,7 +54,7 @@ describe("message", () => {
     expect(stored?.Item?.sk).toMatch(/^\d{13}#[0-9A-Z]{26}$/);
 
     const sent = sentEvents();
-    expect(sent.map(([id]) => id).sort()).toEqual(["conn-alice", "conn-bob"]);
+    expect(sent.map(([id]) => id).sort(compareIds)).toEqual(["conn-alice", "conn-bob"]);
     for (const [, event] of sent) {
       expect(event).toEqual({ type: "message.new", message: stored?.Item, clientId: "c1" });
     }
@@ -142,7 +142,7 @@ describe("message", () => {
     expect(
       sentEvents()
         .map(([id]) => id)
-        .sort(),
+        .sort(compareIds),
     ).toEqual(["conn-alice", "conn-bob"]);
   });
 
@@ -174,7 +174,7 @@ describe("message", () => {
     expect(
       sentEvents()
         .map(([id]) => id)
-        .sort(),
+        .sort(compareIds),
     ).toEqual(["conn-alice", "conn-bob"]);
     expect(ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item?.reactions).toEqual({});
   });

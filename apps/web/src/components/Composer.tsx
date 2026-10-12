@@ -13,7 +13,9 @@ import { ulid } from "ulid";
 import { chat } from "../lib/chat";
 import { formatBytes, MAX_SIZE_LABEL, uploadFile, validateFile } from "../lib/upload";
 import { useChat } from "../store";
-import { CloseIcon, FileIcon, PaperclipIcon, SendIcon } from "./icons";
+import { EmojiPicker } from "./EmojiPicker";
+import { CloseIcon, FileIcon, PaperclipIcon, SendIcon, SmileIcon } from "./icons";
+import { Popover } from "./Popover";
 
 interface Upload {
   id: string;
@@ -44,6 +46,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [uploads, setUploads] = useState<Upload[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [emojiAnchor, setEmojiAnchor] = useState<HTMLElement | null>(null);
+
+  /** Inserts at the caret (replacing any selection) and keeps focus in the textarea. */
+  function insertAtCursor(snippet: string) {
+    const el = textareaRef.current;
+    const start = el?.selectionStart ?? text.length;
+    const end = el?.selectionEnd ?? text.length;
+    setText(text.slice(0, start) + snippet + text.slice(end));
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(start + snippet.length, start + snippet.length);
+    });
+  }
 
   const uploading = uploads.some((u) => !u.attachment && !u.error);
   const ready = uploads.flatMap((u) => (u.attachment ? [u.attachment] : []));
@@ -73,7 +88,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       uploadFile(file, channelId, (progress) => update(id, { progress })).then(
         (attachment) => update(id, { attachment, progress: 1 }),
         (err: unknown) =>
-          update(id, { error: err instanceof Error ? err.message : "Error al subir" }),
+          update(id, { error: err instanceof Error ? err.message : "Upload failed" }),
       );
     }
   }
@@ -130,7 +145,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   type="button"
                   onClick={() => setUploads((list) => list.filter((x) => x.id !== u.id))}
                   className="rounded p-0.5 text-ink-secondary hover:bg-surface-hover hover:text-ink"
-                  aria-label={`Quitar ${u.file.name}`}
+                  aria-label={`Remove ${u.file.name}`}
                 >
                   <CloseIcon />
                 </button>
@@ -151,8 +166,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled}
             className="rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
-            aria-label="Adjuntar archivo"
-            title={`Adjuntar (máx. ${MAX_SIZE_LABEL})`}
+            aria-label="Attach file"
+            title={`Attach (max. ${MAX_SIZE_LABEL})`}
           >
             <PaperclipIcon />
           </button>
@@ -166,6 +181,26 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               e.target.value = "";
             }}
           />
+          <button
+            type="button"
+            onClick={(e) => setEmojiAnchor(emojiAnchor ? null : e.currentTarget)}
+            disabled={disabled}
+            className="rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
+            aria-label="Insert emoji"
+            title="Emoji"
+          >
+            <SmileIcon />
+          </button>
+          {emojiAnchor && (
+            <Popover anchor={emojiAnchor} onClose={() => setEmojiAnchor(null)}>
+              <EmojiPicker
+                onSelect={(emoji) => {
+                  insertAtCursor(emoji);
+                  setEmojiAnchor(null);
+                }}
+              />
+            </Popover>
+          )}
           <textarea
             ref={textareaRef}
             rows={1}
@@ -176,7 +211,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             onPaste={handlePaste}
             placeholder={placeholder}
             disabled={disabled}
-            aria-label="Mensaje"
+            aria-label="Message"
             className="max-h-[200px] min-h-[36px] flex-1 resize-none bg-transparent px-1 py-2 text-sm text-ink placeholder:text-ink-secondary/80 focus:outline-none disabled:cursor-not-allowed"
           />
           <button
@@ -184,15 +219,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             onClick={submit}
             disabled={!canSend}
             className="btn-primary h-9 w-9 p-0"
-            aria-label="Enviar"
-            title={uploading ? "Esperando a que terminen las subidas" : "Enviar (Enter)"}
+            aria-label="Send"
+            title={uploading ? "Waiting for uploads to finish" : "Send (Enter)"}
           >
             <SendIcon />
           </button>
         </div>
       </div>
       <p className="mt-1 hidden px-1 text-[11px] text-ink-secondary sm:block">
-        <b>Enter</b> envía · <b>Shift + Enter</b> nueva línea · **negrita** _cursiva_ `código`
+        <b>Enter</b> to send · <b>Shift + Enter</b> for a new line · **bold** _italic_ `code`
       </p>
     </div>
   );
