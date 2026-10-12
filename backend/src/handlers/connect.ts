@@ -1,10 +1,32 @@
-import { PutCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { ddb, tables, type ConnectionItem } from "../lib/ddb";
 import type { WsEvent } from "../lib/handler";
 import { errorFields, log } from "../lib/logger";
 import { ok, type HandlerResult } from "../lib/response";
+import { defaultDisplayName } from "../lib/users";
 
 const CONNECTION_TTL_SECONDS = 2 * 60 * 60;
+
+/**
+ * Keeps the `users` directory current: creates the row on first login and
+ * refreshes the email, never overwriting a display name the user chose.
+ */
+async function upsertUser(userId: string, email: string, now: number): Promise<void> {
+  await ddb.send(
+    new UpdateCommand({
+      TableName: tables.users,
+      Key: { userId },
+      UpdateExpression:
+        "SET email = :email, displayName = if_not_exists(displayName, :name), " +
+        "createdAt = if_not_exists(createdAt, :now), updatedAt = if_not_exists(updatedAt, :now)",
+      ExpressionAttributeValues: {
+        ":email": email,
+        ":name": defaultDisplayName(email),
+        ":now": now,
+      },
+    }),
+  );
+}
 
 /** `$connect`: the authorizer already validated the token; store the connection. */
 export const handler = async (event: WsEvent): Promise<HandlerResult> => {
@@ -23,11 +45,17 @@ export const handler = async (event: WsEvent): Promise<HandlerResult> => {
     ttl: Math.floor(now / 1000) + CONNECTION_TTL_SECONDS,
   };
 
-  try {
-    await ddb.send(new PutCommand({ TableName: tables.connections, Item: item }));
-  } catch (err) {
-    log.error("connect failed", { connectionId, ...errorFields(err) });
+  const [connection, user] = await Promise.allSettled([
+    ddb.send(new PutCommand({ TableName: tables.connections, Item: item })),
+    upsertUser(item.userId, item.userEmail, now),
+  ]);
+  if (connection.status === "rejected") {
+    log.error("connect failed", { connectionId, ...errorFields(connection.reason) });
     return { statusCode: 500 };
+  }
+  // The directory is best effort: a failed upsert must not block the connection.
+  if (user.status === "rejected") {
+    log.warn("user upsert failed", { userId: item.userId, ...errorFields(user.reason) });
   }
   log.info("connected", { connectionId, userId: item.userId });
   return ok();
