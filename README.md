@@ -119,7 +119,9 @@ The UI:
   camera, screen-share and hang-up controls. Calls are peer-to-peer WebRTC: the WebSocket only
   relays the signaling (`call` route), audio and video never go through AWS. There is a public
   STUN server but no TURN relay, so a call may fail to connect behind strict corporate or
-  symmetric NATs.
+  symmetric NATs. The chevrons next to the mic and camera buttons switch devices mid-call
+  without dropping it. When a connected call ends, the caller's app posts one message to the DM,
+  e.g. `📹 Video call ended • 12:45`.
 - **Settings → Audio & Video:** pick the microphone and camera calls use (saved per browser).
 - `Ctrl/⌘ + K` opens the switcher to jump to a channel or person.
 
