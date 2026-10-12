@@ -1,5 +1,10 @@
 import type { CallEvent } from "@mindfultech/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("./sounds", () => ({
+  startRinging: vi.fn(),
+  stopRinging: vi.fn(),
+}));
+import { startRinging, stopRinging } from "./sounds";
 import {
   CallManager,
   callSummaryText,
@@ -449,5 +454,90 @@ describe("camera and screen as separate tracks", () => {
     } finally {
       FakePeerConnection.prototype.getTransceivers = original;
     }
+  });
+});
+
+describe("ring sounds follow the call", () => {
+  const ring = () => vi.mocked(startRinging);
+  const stop = () => vi.mocked(stopRinging);
+  beforeEach(() => {
+    ring().mockClear();
+    stop().mockClear();
+  });
+
+  it("the caller rings 'outgoing' once the offer is out and stops when answered", async () => {
+    const { manager, deps } = setup();
+    await manager.startCall(DM, PEER, "audio");
+    expect(ring()).toHaveBeenCalledWith("outgoing");
+    const callId = deps.send.mock.calls[0]![0].callId as string;
+
+    stop().mockClear();
+    manager.handle({ type: "call.answer", callId, channelId: DM, from: PEER, sdp: "answer-sdp" });
+    expect(stop()).toHaveBeenCalled();
+  });
+
+  it("stops the outgoing ring on decline, on cancel and when nobody answers", async () => {
+    for (const ending of ["declined", "cancelled", "no answer"]) {
+      const { manager, deps } = setup();
+      await manager.startCall(DM, PEER, "video");
+      const callId = deps.send.mock.calls[0]![0].callId as string;
+      stop().mockClear();
+      if (ending === "declined") {
+        manager.handle({
+          type: "call.decline",
+          callId,
+          channelId: DM,
+          from: PEER,
+          reason: "declined",
+        });
+      } else if (ending === "cancelled") {
+        manager.hangUp();
+      } else {
+        vi.advanceTimersByTime(45_000);
+      }
+      expect(stop(), ending).toHaveBeenCalled();
+      expect(useCall.getState().call, ending).toBeNull();
+    }
+  });
+
+  it("the callee rings 'incoming' while the card shows and stops on accept, decline, cancel or timeout", async () => {
+    const endings: Array<[string, (m: CallManager) => void | Promise<void>]> = [
+      ["accept", (m) => m.accept()],
+      ["decline", (m) => m.decline()],
+      [
+        "caller cancelled",
+        (m) =>
+          m.handle({
+            type: "call.end",
+            callId: "call-1",
+            channelId: DM,
+            from: PEER,
+            reason: "cancelled",
+          }),
+      ],
+      ["timeout", () => void vi.advanceTimersByTime(50_000)],
+    ];
+    for (const [name, end] of endings) {
+      const { manager } = setup();
+      ring().mockClear();
+      manager.handle(offerFromPeer("video"));
+      expect(ring(), name).toHaveBeenCalledWith("incoming");
+      stop().mockClear();
+      await end(manager);
+      expect(stop(), name).toHaveBeenCalled();
+      manager.hangUp(); // clean up a call that accept() connected
+    }
+  });
+
+  it("a busy second caller never starts a ring", async () => {
+    const { manager } = await connectedCall("audio");
+    ring().mockClear();
+    manager.handle({
+      ...offerFromPeer("audio"),
+      callId: "call-2",
+      from: "u-carol",
+      channelId: "dm_u-alice_u-carol",
+    });
+    expect(ring()).not.toHaveBeenCalled();
   });
 });

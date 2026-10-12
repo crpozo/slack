@@ -127,6 +127,11 @@ The UI:
   symmetric NATs. The chevrons next to the mic and camera buttons switch devices mid-call
   without dropping it. When a connected call ends, the caller's app posts one message to the DM,
   e.g. `📹 Video call ended • 12:45`.
+- **Sounds:** a soft ring while you call someone, a chime while a call comes in, and a short
+  pop for a new message in a conversation you aren't looking at (never for your own messages).
+  They are synthesized in the browser with Web Audio, so there is nothing to download. Browsers
+  block audio until you have clicked or typed on the page once; until then the visual
+  notifications still show. **Settings → Notifications** turns the sounds off.
 - **Settings → Audio & Video:** pick the microphone and camera calls use (saved per browser),
   with a live, mirrored preview of the camera. The camera only runs while the preview is on
   screen: it is released as soon as the modal closes, the section scrolls away or the tab is

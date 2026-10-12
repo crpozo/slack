@@ -13,6 +13,7 @@ import { pendingMessageId } from "../store/messages";
 import { getIdToken, SessionExpiredError } from "./auth";
 import { calls } from "./call";
 import { startHeartbeat } from "./heartbeat";
+import { playMessageSound } from "./sounds";
 import { WsClient, type DistributiveOmit } from "./ws";
 
 const ERROR_TEXT: Record<ErrorCode, string> = {
@@ -82,7 +83,10 @@ class ChatController {
         if (!s.channels.some((c) => c.channelId === message.channelId)) {
           client.send("channel", { op: "list" }); // e.g. someone just opened a DM with us
         }
-        if (message.channelId === s.activeChannelId && isFocused()) s.markRead(message.channelId);
+        const viewing = message.channelId === s.activeChannelId && isFocused();
+        if (viewing) s.markRead(message.channelId);
+        // A pop for messages from others that you are not already looking at.
+        if (!viewing && message.userId !== s.me?.userId) playMessageSound();
       }),
 
       client.on("history.page", ({ channelId, items, nextCursor }) => {
