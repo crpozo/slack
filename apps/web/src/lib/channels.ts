@@ -1,9 +1,9 @@
-import { dmMembers, type Channel } from "@mindfultech/shared";
+import { dmMembers, type Channel, type UserProfile } from "@mindfultech/shared";
 import type { DirectoryUser } from "./config";
 
 /** Local part of an email, used as display name. */
 export function displayName(email: string | undefined): string {
-  return email ? (email.split("@")[0] ?? email) : "desconocido";
+  return email ? email.split("@")[0] || email : "desconocido";
 }
 
 /** The other participant of a DM (yourself for a self-DM), or `null`. */
@@ -13,29 +13,31 @@ export function dmPeer(channelId: string, myUserId: string): string | null {
   return members[0] === myUserId ? members[1] : members[0];
 }
 
-/** Sidebar/header label: `general` for channels, the peer's email for DMs. */
+/** Sidebar/header label: `general` for channels, the peer's display name for DMs. */
 export function channelLabel(
   channelId: string,
   channel: Channel | undefined,
   myUserId: string,
-  directory: Record<string, string>,
+  nameOf: (userId: string) => string | undefined,
 ): string {
   const peer = dmPeer(channelId, myUserId);
   if (peer === null) return channel?.name ?? channelId;
-  const email = directory[peer];
-  if (!email) return "Mensaje directo";
-  return peer === myUserId ? `${email} (tú)` : email;
+  const name = nameOf(peer);
+  if (!name) return "Mensaje directo";
+  return peer === myUserId ? `${name} (tú)` : name;
 }
 
 export interface DmEntry {
   email: string;
+  /** Display name, falling back to the local part of the email. */
+  name: string;
   userId?: string;
   channelId?: string;
 }
 
 /**
- * DM list: everyone from VITE_USERS plus anyone with an existing DM channel,
- * with user ids resolved from the directory when VITE_USERS lacks them.
+ * DM list: everyone in the server directory (`user.list`), plus VITE_USERS and
+ * anyone with an existing DM channel, never listing the same person twice.
  */
 export function dmEntries(
   team: DirectoryUser[],
@@ -43,6 +45,7 @@ export function dmEntries(
   me: { userId: string; email: string },
   directory: Record<string, string>,
   dmIdFor: (userId: string) => string,
+  profiles: Record<string, UserProfile> = {},
 ): DmEntry[] {
   const idByEmail = new Map(Object.entries(directory).map(([id, email]) => [email, id]));
   const emailById = new Map<string, string>();
@@ -50,10 +53,15 @@ export function dmEntries(
   for (const u of team) if (u.userId) emailById.set(u.userId, u.email);
 
   // Keyed by user id when known (by email otherwise) so nobody appears twice.
-  const entries = new Map<string, DmEntry>();
+  const entries = new Map<string, Omit<DmEntry, "name">>();
+  for (const profile of Object.values(profiles)) {
+    if (profile.userId === me.userId) continue;
+    entries.set(profile.userId, { email: profile.email, userId: profile.userId });
+  }
   for (const user of team) {
     if (user.email === me.email.toLowerCase()) continue;
     const userId = user.userId ?? idByEmail.get(user.email);
+    if (userId && entries.has(userId)) continue;
     entries.set(userId ?? user.email, { email: user.email, userId });
   }
   for (const channel of channels) {
@@ -67,9 +75,10 @@ export function dmEntries(
   return [...entries.values()]
     .map((e) => {
       const id = e.userId ? dmIdFor(e.userId) : undefined;
-      return { ...e, channelId: id && dmIds.has(id) ? id : undefined };
+      const name = (e.userId && profiles[e.userId]?.displayName) || displayName(e.email);
+      return { ...e, name, channelId: id && dmIds.has(id) ? id : undefined };
     })
-    .sort((a, b) => a.email.localeCompare(b.email));
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 const timeFormat = new Intl.DateTimeFormat("es", {

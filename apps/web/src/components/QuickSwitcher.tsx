@@ -11,6 +11,8 @@ interface Item {
   key: string;
   label: string;
   kind: "channel" | "dm";
+  /** Extra searchable text (the email for people). */
+  hint?: string;
   go: () => void;
 }
 
@@ -19,8 +21,14 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
-  const { me, channels, team, directory } = useChat(
-    useShallow((s) => ({ me: s.me, channels: s.channels, team: s.team, directory: s.directory })),
+  const { me, channels, team, directory, users } = useChat(
+    useShallow((s) => ({
+      me: s.me,
+      channels: s.channels,
+      team: s.team,
+      directory: s.directory,
+      users: s.users,
+    })),
   );
 
   const items = useMemo<Item[]>(() => {
@@ -37,13 +45,19 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
         kind: "channel",
         go: go(`/app/${c.channelId}`),
       }));
-    const dmItems: Item[] = dmEntries(team, channels, me, directory, (id) =>
-      dmChannelId(me.userId, id),
+    const dmItems: Item[] = dmEntries(
+      team,
+      channels,
+      me,
+      directory,
+      (id) => dmChannelId(me.userId, id),
+      users,
     )
       .filter((d) => d.userId)
       .map((d) => ({
-        key: d.email,
-        label: d.email,
+        key: d.userId ?? d.email,
+        label: d.name,
+        hint: d.email,
         kind: "dm",
         go: () => {
           const id = chat.openDm(d.userId as string);
@@ -51,8 +65,10 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
         },
       }));
     const q = query.trim().toLowerCase().replace(/^#/, "");
-    return [...publicItems, ...dmItems].filter((i) => i.label.toLowerCase().includes(q));
-  }, [me, channels, team, directory, query, navigate, onClose]);
+    return [...publicItems, ...dmItems].filter((i) =>
+      `${i.label} ${i.hint ?? ""}`.toLowerCase().includes(q),
+    );
+  }, [me, channels, team, directory, users, query, navigate, onClose]);
 
   const active = Math.min(index, Math.max(items.length - 1, 0));
 
@@ -72,7 +88,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 px-4 pt-[15vh]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-scrim/40 px-4 pt-[15vh]"
       onMouseDown={onClose}
     >
       <div
