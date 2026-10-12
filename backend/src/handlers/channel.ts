@@ -1,12 +1,5 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import {
-  BatchGetCommand,
-  type BatchGetCommandOutput,
-  GetCommand,
-  paginateScan,
-  PutCommand,
-  UpdateCommand,
-} from "@aws-sdk/lib-dynamodb";
+import { GetCommand, paginateScan, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import {
   ChannelActionSchema,
   compareIds,
@@ -22,6 +15,7 @@ import { ddb, tables } from "../lib/ddb";
 import { wsHandler, type Caller } from "../lib/handler";
 import { log } from "../lib/logger";
 import { badRequest, ok, reply, replyError } from "../lib/response";
+import { unknownUsers } from "../lib/users";
 
 /** All channels (< 50 at this scale, so a Scan is fine), oldest first. */
 async function scanChannels(): Promise<Channel[]> {
@@ -61,26 +55,6 @@ async function putIfAbsent(item: Channel): Promise<boolean> {
     if (err instanceof ConditionalCheckFailedException) return false;
     throw err;
   }
-}
-
-/** User ids among `keys` that exist in `users`; retries `UnprocessedKeys` (throttling) once. */
-async function existingUserIds(keys: Record<string, unknown>[], retries = 1): Promise<string[]> {
-  const result: BatchGetCommandOutput = await ddb.send(
-    new BatchGetCommand({
-      RequestItems: { [tables.users]: { Keys: keys, ProjectionExpression: "userId" } },
-    }),
-  );
-  const found = (result.Responses?.[tables.users] ?? []).map((item) => String(item.userId));
-  const unprocessed = result.UnprocessedKeys?.[tables.users]?.Keys;
-  if (!unprocessed?.length || retries <= 0) return found;
-  return [...found, ...(await existingUserIds(unprocessed, retries - 1))];
-}
-
-/** Ids among `userIds` that have no row in `users` (never signed in). */
-async function unknownUsers(userIds: string[]): Promise<string[]> {
-  if (userIds.length === 0) return [];
-  const found = new Set(await existingUserIds(userIds.map((userId) => ({ userId }))));
-  return userIds.filter((id) => !found.has(id));
 }
 
 type ActionOf<Op extends ChannelAction["op"]> = Extract<ChannelAction, { op: Op }>;

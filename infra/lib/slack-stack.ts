@@ -11,6 +11,7 @@ import { Data } from "./data";
 import { customDomainsEnabled, LOCAL_DEV_ORIGINS, resolveDomainConfig } from "./domain";
 import type { Stage } from "./stage";
 import { Storage } from "./storage";
+import { TasksApi } from "./tasks-api";
 import { Web } from "./web";
 
 export interface SlackStackProps extends StackProps {
@@ -43,6 +44,18 @@ export class SlackStack extends Stack {
       customDomain: custom && { domainName: custom.wsDomain, certificate: custom.certificate },
     });
 
+    // Task Manager REST-style API (Phase 6). The CloudFront origin is added below,
+    // once the distribution exists.
+    const tasksApi = new TasksApi(this, "TasksApi", {
+      stage,
+      auth,
+      data,
+      allowOrigins: [
+        ...LOCAL_DEV_ORIGINS,
+        ...(domains.appDomain ? [`https://${domains.appDomain}`] : []),
+      ],
+    });
+
     // Team directory for DMs (`email=sub,…`): context `webUsers` or env WEB_USERS.
     const webUsers: unknown = this.node.tryGetContext("webUsers") ?? process.env.WEB_USERS;
     const web = new Web(this, "Web", {
@@ -54,12 +67,14 @@ export class SlackStack extends Stack {
         wsUrl: api.url,
         userPoolId: auth.userPool.userPoolId,
         userPoolClientId: auth.userPoolClient.userPoolClientId,
+        tasksUrl: tasksApi.url,
         ...(typeof webUsers === "string" && webUsers ? { users: webUsers } : {}),
       },
     });
 
     // Presigned uploads/downloads only from the SPA's own origins.
     const cloudFrontOrigin = `https://${web.distribution.distributionDomainName}`;
+    tasksApi.allowOrigins([cloudFrontOrigin]);
     storage.allowBrowserOrigins([
       cloudFrontOrigin,
       ...[domains.appDomain, domains.wsDomain].flatMap((d) => (d ? [`https://${d}`] : [])),
@@ -116,6 +131,7 @@ export class SlackStack extends Stack {
     new CfnOutput(this, "UserPoolId", { value: auth.userPool.userPoolId });
     new CfnOutput(this, "UserPoolClientId", { value: auth.userPoolClient.userPoolClientId });
     new CfnOutput(this, "WebSocketUrl", { value: api.url });
+    new CfnOutput(this, "TasksApiUrl", { value: tasksApi.url });
     new CfnOutput(this, "CloudFrontUrl", { value: cloudFrontOrigin });
     new CfnOutput(this, "AppUrl", {
       value: custom ? `https://${custom.appDomain}` : cloudFrontOrigin,

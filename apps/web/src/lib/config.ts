@@ -11,6 +11,8 @@ export interface AppConfig {
   userPoolId: string;
   userPoolClientId: string;
   users: DirectoryUser[];
+  /** Task Manager HTTP API; absent on deployments without it. */
+  tasksUrl?: string;
 }
 
 /** Shape of `/config.json`, written by CDK next to index.html on every deploy. */
@@ -19,6 +21,7 @@ interface RuntimeConfig {
   userPoolId?: unknown;
   userPoolClientId?: unknown;
   users?: unknown;
+  tasksUrl?: unknown;
 }
 
 /** Parses `VITE_USERS`: comma-separated `email` or `email=sub` entries. */
@@ -34,6 +37,24 @@ export function parseUsers(raw: string | undefined): DirectoryUser[] {
       return { email: email.toLowerCase(), userId: validId };
     })
     .filter((u) => u.email.includes("@"));
+}
+
+/** `https://` anywhere, `http://` only on localhost; no credentials, query or fragment. */
+export function assertHttpUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`Invalid API URL: ${raw}`);
+  }
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) {
+    throw new Error(`The API URL must use https:// (http:// only on localhost): ${raw}`);
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error(`The API URL can't include credentials, a query or a fragment: ${raw}`);
+  }
+  return url.href.replace(/\/$/, "");
 }
 
 const str = (value: unknown): string | undefined =>
@@ -60,11 +81,13 @@ export function resolveConfig(
     throw new Error(`Missing ${missing.join(", ")} in apps/web/.env or /config.json`);
   }
 
+  const tasksUrl = str(runtime?.tasksUrl) ?? str(env.VITE_TASKS_URL);
   return {
     wsUrl: assertWebSocketUrl(wsUrl),
     userPoolId,
     userPoolClientId,
     users: parseUsers(str(runtime?.users) ?? env.VITE_USERS),
+    ...(tasksUrl ? { tasksUrl: assertHttpUrl(tasksUrl) } : {}),
   };
 }
 

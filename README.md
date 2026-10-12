@@ -49,8 +49,9 @@ startup (under `pnpm dev` it doesn't exist and the `VITE_*` values from `apps/we
 instead). The list of people for DMs comes from `VITE_USERS` in your local `.env`, or from the
 `WEB_USERS` variable when deploying (`WEB_USERS="a@x.ec=sub,b@x.ec=sub" pnpm deploy:dev`).
 
-When it finishes, CDK prints 5 outputs: `UserPoolId`, `UserPoolClientId`, `WebSocketUrl`,
-`CloudFrontUrl` (the published app) and `AttachmentsBucket`. To see them again:
+When it finishes, CDK prints the outputs: `UserPoolId`, `UserPoolClientId`, `WebSocketUrl`,
+`TasksApiUrl` (the Task Manager HTTP API), `CloudFrontUrl` (the published app) and
+`AttachmentsBucket`. To see them again:
 
 ```bash
 aws cloudformation describe-stacks --stack-name SlackDev \
@@ -90,6 +91,7 @@ cp apps/web/.env.example apps/web/.env
 | `VITE_WS_URL`               | `WebSocketUrl` output               |
 | `VITE_COGNITO_USER_POOL_ID` | `UserPoolId` output                 |
 | `VITE_COGNITO_CLIENT_ID`    | `UserPoolClientId` output           |
+| `VITE_TASKS_URL`            | `TasksApiUrl` output                |
 | `VITE_USERS`                | optional: `email=sub,…` (see below) |
 
 Since Phase 5.1 the people directory comes from the backend (everyone who has signed in at
@@ -137,6 +139,13 @@ The UI:
   screen: it is released as soon as the modal closes, the section scrolls away or the tab is
   hidden, and it never starts on its own unless camera access was already granted.
 - `Ctrl/⌘ + K` opens the switcher to jump to a channel or person.
+- **Apps → Task Manager:** Kanban boards (To Do / In Progress / Done) that replace the chat
+  column. Create boards, drag cards between columns (or use each card's "Move to…" menu), add and
+  delete tasks; every change shows at once and is rolled back with a message if the server
+  refuses it. A board is private to its owner until they **Share board** with people from the
+  directory; members see it under "Shared with me" and can edit its tasks. The data lives in two
+  DynamoDB tables behind an HTTP API (API Gateway v2) that validates the Cognito id token
+  itself; the Lambda only serves boards whose owner or member list includes the caller.
 
 ### Test the WebSocket with `wscat`
 

@@ -6,6 +6,8 @@ interface ImportMetaEnv {
   readonly VITE_COGNITO_CLIENT_ID: string;
   /** Comma-separated team directory: `email` or `email=cognitoSub`. */
   readonly VITE_USERS?: string;
+  /** Task Manager HTTP API base URL (the `TasksApiUrl` output). */
+  readonly VITE_TASKS_URL?: string;
 }
 
 interface ImportMeta {

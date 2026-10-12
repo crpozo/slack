@@ -131,11 +131,13 @@ export const ChannelDmActionSchema = z.object({
   withUserId: z.string().min(1).max(128),
 });
 
-const userId = z
+/** Cognito `sub`s; `_` is excluded because DM ids are `dm_<a>_<b>`. */
+export const UserIdSchema = z
   .string()
   .min(1)
   .max(128)
   .regex(/^[^_\s]+$/, "user ids cannot contain '_' or whitespace");
+const userId = UserIdSchema;
 
 export const ChannelInviteActionSchema = z.object({
   action: z.literal("channel"),

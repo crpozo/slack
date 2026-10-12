@@ -9,6 +9,7 @@ import { selectUnread, useChat, useNameOf } from "../store";
 import { Avatar } from "./Avatar";
 import {
   HashIcon,
+  KanbanIcon,
   LockIcon,
   LogOutIcon,
   PanelLeftCloseIcon,
@@ -335,6 +336,19 @@ export function Sidebar({
                 Your team appears here once they sign in.
               </li>
             )}
+          </ul>
+        </Section>
+
+        <Section title="Apps" compact={compact}>
+          <ul className="space-y-0.5 px-2">
+            <NavItem
+              compact={compact}
+              label="Task Manager"
+              icon={<KanbanIcon className="text-ink-secondary" />}
+              active={activeChannelId === "tasks"}
+              unread={0}
+              onClick={() => navigate("/app/tasks")}
+            />
           </ul>
         </Section>
       </nav>
