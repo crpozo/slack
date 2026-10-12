@@ -1,4 +1,4 @@
-import { dmChannelId, type Channel } from "@mindfultech/shared";
+import { dmChannelId, type Channel, compareIds } from "@mindfultech/shared";
 import { describe, expect, it } from "vitest";
 import { channelLabel, dmEntries, formatDay, normalizeChannelName } from "./channels";
 import { parseUsers, resolveConfig } from "./config";
@@ -30,7 +30,7 @@ describe("dmEntries", () => {
     createdBy: me.userId,
     createdAt: 1,
     archived: false,
-    members: [me.userId, peer].sort(),
+    members: [me.userId, peer].sort(compareIds),
   });
 
   it("lists teammates (not me), resolves ids from the directory and links existing DMs", () => {

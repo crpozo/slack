@@ -66,9 +66,9 @@ export class WsClient {
 
   private socket: WebSocket | undefined;
   private queue: string[] = [];
-  private handlers = new Map<string, Set<(event: ServerEvent) => void>>();
-  private statusHandlers = new Set<(status: WsStatus) => void>();
-  private openHandlers = new Set<(info: { reconnected: boolean }) => void>();
+  private readonly handlers = new Map<string, Set<(event: ServerEvent) => void>>();
+  private readonly statusHandlers = new Set<(status: WsStatus) => void>();
+  private readonly openHandlers = new Set<(info: { reconnected: boolean }) => void>();
   private attempt = 0;
   private hasConnected = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -111,7 +111,10 @@ export class WsClient {
 
   on<T extends ServerEventType>(type: T, handler: Handler<T>): () => void {
     let set = this.handlers.get(type);
-    if (!set) this.handlers.set(type, (set = new Set()));
+    if (!set) {
+      set = new Set();
+      this.handlers.set(type, set);
+    }
     const h = handler as (event: ServerEvent) => void;
     set.add(h);
     return () => set.delete(h);

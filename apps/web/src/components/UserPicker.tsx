@@ -13,7 +13,7 @@ interface UserPickerProps {
 }
 
 /** Searchable multi-select over the user directory. */
-export function UserPicker({ users, selected, onChange, locked = [] }: UserPickerProps) {
+export function UserPicker({ users, selected, onChange, locked = [] }: Readonly<UserPickerProps>) {
   const [query, setQuery] = useState("");
   const visible = useMemo(() => {
     const q = normalizeSearch(query);

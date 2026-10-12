@@ -1,12 +1,18 @@
-import type { Message } from "@mindfultech/shared";
+import { compareIds, type Message } from "@mindfultech/shared";
+
+function userList(users: unknown): unknown[] {
+  if (users instanceof Set) return [...users];
+  return Array.isArray(users) ? users : [];
+}
 
 /** DynamoDB string sets come back as `Set`s; the wire format uses sorted arrays. */
 export function toReactionLists(raw: unknown): Record<string, string[]> {
   const result: Record<string, string[]> = {};
   if (!raw || typeof raw !== "object") return result;
   for (const [emoji, users] of Object.entries(raw as Record<string, unknown>)) {
-    const list = users instanceof Set ? [...users] : Array.isArray(users) ? users : [];
-    const ids = list.filter((u): u is string => typeof u === "string").sort();
+    const ids = userList(users)
+      .filter((u): u is string => typeof u === "string")
+      .sort(compareIds);
     if (ids.length > 0) result[emoji] = ids;
   }
   return result;

@@ -35,6 +35,46 @@ export interface DmEntry {
   channelId?: string;
 }
 
+type PendingEntry = Omit<DmEntry, "name">;
+
+/** Known emails by user id: VITE_USERS first, overridden by the team list. */
+function emailsById(team: DirectoryUser[], directory: Record<string, string>): Map<string, string> {
+  const emailById = new Map(Object.entries(directory));
+  for (const u of team) if (u.userId) emailById.set(u.userId, u.email);
+  return emailById;
+}
+
+/** Adds the people in `team` not already in `entries` (keyed by user id, or email if unknown). */
+function addTeam(
+  entries: Map<string, PendingEntry>,
+  team: DirectoryUser[],
+  me: { email: string },
+  directory: Record<string, string>,
+): void {
+  const idByEmail = new Map(Object.entries(directory).map(([id, email]) => [email, id]));
+  for (const user of team) {
+    if (user.email === me.email.toLowerCase()) continue;
+    const userId = user.userId ?? idByEmail.get(user.email);
+    if (userId && entries.has(userId)) continue;
+    entries.set(userId ?? user.email, { email: user.email, userId });
+  }
+}
+
+/** Adds the peers of existing DM channels not already in `entries`. */
+function addDmPeers(
+  entries: Map<string, PendingEntry>,
+  channels: Channel[],
+  myUserId: string,
+  emailById: Map<string, string>,
+): void {
+  for (const channel of channels) {
+    if (channel.type !== "dm") continue;
+    const peer = dmPeer(channel.channelId, myUserId);
+    if (!peer || peer === myUserId || entries.has(peer)) continue;
+    entries.set(peer, { email: emailById.get(peer) ?? "Direct message", userId: peer });
+  }
+}
+
 /**
  * DM list: everyone in the server directory (`user.list`), plus VITE_USERS and
  * anyone with an existing DM channel, never listing the same person twice.
@@ -47,29 +87,14 @@ export function dmEntries(
   dmIdFor: (userId: string) => string,
   profiles: Record<string, UserProfile> = {},
 ): DmEntry[] {
-  const idByEmail = new Map(Object.entries(directory).map(([id, email]) => [email, id]));
-  const emailById = new Map<string, string>();
-  for (const [id, email] of Object.entries(directory)) emailById.set(id, email);
-  for (const u of team) if (u.userId) emailById.set(u.userId, u.email);
-
   // Keyed by user id when known (by email otherwise) so nobody appears twice.
-  const entries = new Map<string, Omit<DmEntry, "name">>();
+  const entries = new Map<string, PendingEntry>();
   for (const profile of Object.values(profiles)) {
     if (profile.userId === me.userId) continue;
     entries.set(profile.userId, { email: profile.email, userId: profile.userId });
   }
-  for (const user of team) {
-    if (user.email === me.email.toLowerCase()) continue;
-    const userId = user.userId ?? idByEmail.get(user.email);
-    if (userId && entries.has(userId)) continue;
-    entries.set(userId ?? user.email, { email: user.email, userId });
-  }
-  for (const channel of channels) {
-    if (channel.type !== "dm") continue;
-    const peer = dmPeer(channel.channelId, me.userId);
-    if (!peer || peer === me.userId || entries.has(peer)) continue;
-    entries.set(peer, { email: emailById.get(peer) ?? "Direct message", userId: peer });
-  }
+  addTeam(entries, team, me, directory);
+  addDmPeers(entries, channels, me.userId, emailsById(team, directory));
 
   const dmIds = new Set(channels.filter((c) => c.type === "dm").map((c) => c.channelId));
   return [...entries.values()]

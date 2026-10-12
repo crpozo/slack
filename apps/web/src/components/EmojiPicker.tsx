@@ -16,10 +16,10 @@ interface EmojiPickerProps {
 function EmojiButton({
   item,
   onPick,
-}: {
+}: Readonly<{
   item: Pick<EmojiItem, "emoji" | "label">;
   onPick: () => void;
-}) {
+}>) {
   return (
     <button
       type="button"
@@ -34,7 +34,7 @@ function EmojiButton({
 }
 
 /** Searchable emoji grid (English names), with recents; the dataset loads on first open. */
-export function EmojiPicker({ onSelect }: EmojiPickerProps) {
+export function EmojiPicker({ onSelect }: Readonly<EmojiPickerProps>) {
   const [groups, setGroups] = useState<EmojiGroup[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [query, setQuery] = useState("");

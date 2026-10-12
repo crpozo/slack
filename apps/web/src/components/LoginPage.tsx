@@ -9,7 +9,7 @@ export function Logo() {
   );
 }
 
-export function LoginPage({ onSignedIn }: { onSignedIn: (user: SessionUser) => void }) {
+export function LoginPage({ onSignedIn }: Readonly<{ onSignedIn: (user: SessionUser) => void }>) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +50,6 @@ export function LoginPage({ onSignedIn }: { onSignedIn: (user: SessionUser) => v
               type="email"
               autoComplete="username"
               required
-              autoFocus
               className="input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}

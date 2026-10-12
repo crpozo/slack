@@ -2,7 +2,7 @@ import type { SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement>;
 
-function Icon({ children, ...props }: IconProps) {
+function Icon({ children, ...props }: Readonly<IconProps>) {
   return (
     <svg
       viewBox="0 0 24 24"

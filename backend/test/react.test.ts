@@ -1,3 +1,4 @@
+import { compareIds } from "@mindfultech/shared";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { GetCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import type { MessageReactionEvent } from "@mindfultech/shared";
@@ -56,13 +57,13 @@ describe("react", () => {
     expect(input?.ExpressionAttributeValues?.[":user"]).toEqual(new Set([ALICE.userId]));
 
     const sent = sentEvents() as Array<[string, MessageReactionEvent]>;
-    expect(sent.map(([id]) => id).sort()).toEqual(["conn-alice", "conn-bob"]);
+    expect(sent.map(([id]) => id).sort(compareIds)).toEqual(["conn-alice", "conn-bob"]);
     expect(sent[0]?.[1]).toEqual({
       type: "message.reaction",
       channelId: "ch_general",
       sk: SK,
       messageId: "m1",
-      reactions: { "👍": [ALICE.userId, BOB.userId].sort(), "🎉": [BOB.userId] },
+      reactions: { "👍": [ALICE.userId, BOB.userId].sort(compareIds), "🎉": [BOB.userId] },
     });
   });
 

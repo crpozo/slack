@@ -14,7 +14,7 @@ const THEMES: Array<{ value: ThemePreference; label: string; Icon: typeof SunIco
 ];
 
 /** Profile (display name) and appearance (theme). */
-export function SettingsModal({ onClose }: { onClose: () => void }) {
+export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
   const me = useChat((s) => s.me);
   const nameOf = useNameOf();
   const current = me ? nameOf(me.userId, me.email) : "";

@@ -30,10 +30,10 @@ const VISIBILITY: Array<{
 export function CreateChannelModal({
   onClose,
   onCreated,
-}: {
+}: Readonly<{
   onClose: () => void;
   onCreated: (channelId: string) => void;
-}) {
+}>) {
   const others = useOtherUsers();
   const [value, setValue] = useState("");
   const [visibility, setVisibility] = useState<ChannelVisibility>("private");
@@ -145,7 +145,10 @@ export function CreateChannelModal({
 }
 
 /** Invite more people to a private channel (only its creator sees this). */
-export function InviteModal({ channel, onClose }: { channel: Channel; onClose: () => void }) {
+export function InviteModal({
+  channel,
+  onClose,
+}: Readonly<{ channel: Channel; onClose: () => void }>) {
   const others = useOtherUsers();
   const [selected, setSelected] = useState<string[]>([]);
 

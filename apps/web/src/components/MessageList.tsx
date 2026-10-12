@@ -14,7 +14,7 @@ interface Anchor {
   offset: number;
 }
 
-export function MessageList({ channelId, title }: { channelId: string; title: string }) {
+export function MessageList({ channelId, title }: Readonly<{ channelId: string; title: string }>) {
   const messages = useChat((s) => s.messagesByChannel[channelId] ?? EMPTY);
   const loaded = useChat((s) => channelId in s.cursors);
   const cursor = useChat((s) => s.cursors[channelId]);
@@ -44,7 +44,7 @@ export function MessageList({ channelId, title }: { channelId: string; title: st
     const last = messages.at(-1)?.messageId;
     const prev = previous.current;
 
-    if (!prev || prev.channelId !== channelId || !prev.last) {
+    if (prev?.channelId !== channelId || !prev.last) {
       scrollToBottom();
     } else if (first !== prev.first && anchor.current) {
       const node = el.querySelector<HTMLElement>(

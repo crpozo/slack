@@ -14,7 +14,7 @@ const MARGIN = 8;
  * Floating panel rendered at <body> level (so scroll containers don't clip it),
  * placed below the anchor when it fits, else above, and kept inside the viewport.
  */
-export function Popover({ anchor, onClose, children }: PopoverProps) {
+export function Popover({ anchor, onClose, children }: Readonly<PopoverProps>) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
 

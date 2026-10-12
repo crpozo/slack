@@ -11,10 +11,10 @@ import { MessageList } from "./MessageList";
 export function ChannelView({
   channelId,
   onOpenSidebar,
-}: {
+}: Readonly<{
   channelId: string;
   onOpenSidebar: () => void;
-}) {
+}>) {
   const me = useChat((s) => s.me);
   const channel = useChat((s) => s.channels.find((c) => c.channelId === channelId));
   const channelsLoaded = useChat((s) => s.channelsLoaded);

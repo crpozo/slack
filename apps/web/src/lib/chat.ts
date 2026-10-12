@@ -1,4 +1,5 @@
 import {
+  compareIds,
   dmChannelId,
   type ChannelVisibility,
   type Attachment,
@@ -40,11 +41,11 @@ const isFocused = () => document.visibilityState === "visible" && document.hasFo
 /** Glue between the WebSocket and the store; one instance per signed-in session. */
 class ChatController {
   private client: WsClient | null = null;
-  private cleanups: Array<() => void> = [];
-  private presigns = new Map<string, Deferred<PresignResultEvent>>();
+  private readonly cleanups: Array<() => void> = [];
+  private readonly presigns = new Map<string, Deferred<PresignResultEvent>>();
   private pendingCreate: (Deferred<string> & { name: string }) | null = null;
   private pendingName: (Deferred<void> & { name: string }) | null = null;
-  private sendTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly sendTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   start(wsUrl: string, onSessionExpired: () => void): void {
     if (this.client) return;
@@ -155,7 +156,7 @@ class ChatController {
     // Requests in flight died with the socket; let the next session re-issue them.
     useChat.setState({ historyRequests: {} });
     this.cleanups.forEach((fn) => fn());
-    this.cleanups = [];
+    this.cleanups.length = 0;
     this.sendTimers.forEach((t) => clearTimeout(t));
     this.sendTimers.clear();
     for (const d of this.presigns.values()) {
@@ -283,7 +284,7 @@ class ChatController {
     const mine = current[emoji]?.includes(me.userId) ?? false;
     const users = mine
       ? (current[emoji] ?? []).filter((id) => id !== me.userId)
-      : [...(current[emoji] ?? []), me.userId].sort();
+      : [...(current[emoji] ?? []), me.userId].sort(compareIds);
     const next = { ...current };
     if (users.length > 0) next[emoji] = users;
     else delete next[emoji];

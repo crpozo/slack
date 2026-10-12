@@ -10,7 +10,7 @@ import { SmilePlusIcon } from "./icons";
 import { ReactionPicker, Reactions } from "./Reactions";
 
 /** Hover toolbar: one-click reactions plus the full picker. */
-function MessageActions({ message }: { message: ChatMessage }) {
+function MessageActions({ message }: Readonly<{ message: ChatMessage }>) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   return (
     <div
@@ -51,7 +51,11 @@ interface MessageItemProps {
   mine: boolean;
 }
 
-export const MessageItem = memo(function MessageItem({ message, grouped, mine }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({
+  message,
+  grouped,
+  mine,
+}: Readonly<MessageItemProps>) {
   const html = useMemo(() => renderMarkdown(message.text), [message.text]);
   const time = formatTime(message.createdAt);
   const nameOf = useNameOf();
@@ -112,7 +116,7 @@ export const MessageItem = memo(function MessageItem({ message, grouped, mine }:
         {message.status === "failed" && (
           <p className="mt-1 flex items-center gap-2 text-xs text-ink-secondary">
             <span className="h-1.5 w-1.5 rounded-full bg-error" />
-            Not sent.
+            <span>Not sent.</span>
             <button
               type="button"
               onClick={() => chat.retry(message)}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CloseIcon } from "./icons";
 
@@ -10,35 +10,68 @@ interface ModalProps {
   width?: "sm" | "md";
 }
 
-/** Centered dialog with backdrop; Esc or clicking outside closes it. */
-export function Modal({ title, onClose, children, footer, width = "md" }: ModalProps) {
-  const panel = useRef<HTMLDivElement>(null);
+/**
+ * Shows a native `<dialog>` as modal while mounted (focus trap, top layer, inert page).
+ * Esc closes it natively; that, or a press on the backdrop, calls `onClose`.
+ */
+export function useModalDialog(onClose: () => void) {
+  const ref = useRef<HTMLDialogElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
-  useEffect(() => {
-    // Focus the first field once, so keyboard users land inside the dialog.
-    panel.current?.querySelector<HTMLElement>("input, textarea, button:not([data-close])")?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeRef.current();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+  useLayoutEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (!dialog.open) dialog.showModal();
+    // `close` is dispatched asynchronously: ignore a stale one (e.g. from StrictMode's
+    // unmount/remount) that arrives after the dialog was shown again.
+    const onNativeClose = () => {
+      if (!dialog.open) closeRef.current();
+    };
+    // The backdrop belongs to the dialog: a press outside its box targets the dialog itself.
+    const onBackdropPress = (e: MouseEvent) => {
+      if (e.target !== dialog) return;
+      const box = dialog.getBoundingClientRect();
+      const inside =
+        e.clientX >= box.left &&
+        e.clientX <= box.right &&
+        e.clientY >= box.top &&
+        e.clientY <= box.bottom;
+      if (!inside) closeRef.current();
+    };
+    dialog.addEventListener("close", onNativeClose);
+    dialog.addEventListener("mousedown", onBackdropPress);
+    return () => {
+      // Detach first: closing here (unmount) must not report back as a user close.
+      dialog.removeEventListener("close", onNativeClose);
+      dialog.removeEventListener("mousedown", onBackdropPress);
+      if (dialog.open) dialog.close();
+    };
   }, []);
 
+  return ref;
+}
+
+/** Centered dialog with backdrop; Esc or clicking outside closes it. */
+export function Modal({ title, onClose, children, footer, width = "md" }: Readonly<ModalProps>) {
+  const dialog = useModalDialog(onClose);
+
+  useEffect(() => {
+    // Focus the first field once, so keyboard users land on it rather than on "Close".
+    dialog.current
+      ?.querySelector<HTMLElement>("input, textarea, button:not([data-close])")
+      ?.focus();
+  }, [dialog]);
+
   return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-scrim/40 sm:items-center sm:p-4"
-      onMouseDown={onClose}
+    <dialog
+      ref={dialog}
+      aria-label={title}
+      className={`m-0 mt-auto max-h-[90vh] w-full max-w-full overflow-hidden rounded-t-2xl border border-line bg-surface-raised p-0 text-ink shadow-xl backdrop:bg-scrim/40 sm:m-auto sm:rounded-2xl ${
+        width === "sm" ? "sm:max-w-sm" : "sm:max-w-md"
+      }`}
     >
-      <div
-        ref={panel}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onMouseDown={(e) => e.stopPropagation()}
-        className={`flex max-h-[90vh] w-full flex-col overflow-hidden rounded-t-2xl border border-line bg-surface-raised shadow-xl sm:rounded-2xl ${
-          width === "sm" ? "sm:max-w-sm" : "sm:max-w-md"
-        }`}
-      >
+      <div className="flex max-h-[90vh] flex-col">
         <header className="flex items-center justify-between border-b border-line px-5 py-3">
           <h2 className="font-semibold text-ink">{title}</h2>
           <button
@@ -58,13 +91,13 @@ export function Modal({ title, onClose, children, footer, width = "md" }: ModalP
           </footer>
         )}
       </div>
-    </div>,
+    </dialog>,
     document.body,
   );
 }
 
 /** Secondary button used next to `btn-primary` in modal footers. */
-export function SecondaryButton(props: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+export function SecondaryButton(props: Readonly<React.ButtonHTMLAttributes<HTMLButtonElement>>) {
   return (
     <button
       type="button"

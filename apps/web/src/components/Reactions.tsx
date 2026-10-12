@@ -9,12 +9,13 @@ import { Popover } from "./Popover";
 function describe(names: string[], emoji: string): string {
   const shown = names.slice(0, 3);
   const rest = names.length - shown.length;
-  const who =
-    rest > 0
-      ? `${shown.join(", ")} and ${rest} other${rest === 1 ? "" : "s"}`
-      : shown.length > 1
-        ? `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`
-        : (shown[0] ?? "");
+  let who = shown[0] ?? "";
+  if (rest > 0) {
+    const others = rest === 1 ? "other" : "others";
+    who = `${shown.join(", ")} and ${rest} ${others}`;
+  } else if (shown.length > 1) {
+    who = `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`;
+  }
   return `${who} reacted with ${emoji}`;
 }
 
@@ -23,11 +24,11 @@ export function ReactionPicker({
   message,
   anchor,
   onClose,
-}: {
+}: Readonly<{
   message: ChatMessage;
   anchor: HTMLElement;
   onClose: () => void;
-}) {
+}>) {
   return (
     <Popover anchor={anchor} onClose={onClose}>
       <EmojiPicker
@@ -42,7 +43,7 @@ export function ReactionPicker({
 }
 
 /** Reaction chips under a message: emoji + count, highlighted when I reacted; click toggles. */
-export function Reactions({ message }: { message: ChatMessage }) {
+export function Reactions({ message }: Readonly<{ message: ChatMessage }>) {
   const myUserId = useChat((s) => s.me?.userId);
   const nameOf = useNameOf();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);

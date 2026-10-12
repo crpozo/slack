@@ -3,7 +3,7 @@ import {
   PostToConnectionCommand,
 } from "@aws-sdk/client-apigatewaymanagementapi";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
-import { dmChannelId, type Channel, type ServerEvent } from "@mindfultech/shared";
+import { compareIds, dmChannelId, type Channel, type ServerEvent } from "@mindfultech/shared";
 import { mockClient } from "aws-sdk-client-mock";
 import { vi } from "vitest";
 import type { WsEvent } from "../src/lib/handler";
@@ -66,7 +66,7 @@ export function dmRow(a: string, b: string): Channel {
     createdBy: a,
     createdAt: 2,
     archived: false,
-    members: [a, b].sort(),
+    members: [a, b].sort(compareIds),
   };
 }
 

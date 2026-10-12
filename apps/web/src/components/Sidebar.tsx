@@ -1,9 +1,9 @@
-import { dmChannelId, type Channel } from "@mindfultech/shared";
+import { dmChannelId, GENERAL_CHANNEL_ID, type Channel } from "@mindfultech/shared";
 import { useMemo, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
-import { dmEntries } from "../lib/channels";
+import { dmEntries, type DmEntry } from "../lib/channels";
 import type { WsStatus } from "../lib/ws";
 import { selectUnread, useChat, useNameOf } from "../store";
 import { Avatar } from "./Avatar";
@@ -29,7 +29,7 @@ const STATUS: Record<WsStatus, { dot: string; label: string }> = {
   closed: { dot: "bg-error", label: "Disconnected" },
 };
 
-function UnreadBadge({ count, compact }: { count: number; compact: boolean }) {
+function UnreadBadge({ count, compact }: Readonly<{ count: number; compact: boolean }>) {
   if (count === 0) return null;
   if (compact) {
     return (
@@ -58,12 +58,31 @@ interface NavItemProps {
   onClick: () => void;
 }
 
-function NavItem({ active, unread, compact, label, icon, disabled, title, onClick }: NavItemProps) {
-  const tone = active
-    ? "bg-primary/20 font-semibold text-ink"
-    : unread > 0
-      ? "font-semibold text-ink hover:bg-surface-hover"
-      : "text-ink-secondary hover:bg-surface-hover hover:text-ink";
+/** `#general` first, then alphabetical. */
+function generalFirst(a: Channel, b: Channel): number {
+  if (a.channelId === GENERAL_CHANNEL_ID) return -1;
+  if (b.channelId === GENERAL_CHANNEL_ID) return 1;
+  return a.name.localeCompare(b.name);
+}
+
+function dmTitle(dm: DmEntry, compact: boolean): string {
+  if (!dm.userId) return "This person hasn't signed in yet";
+  return compact ? dm.name : dm.email;
+}
+
+function NavItem({
+  active,
+  unread,
+  compact,
+  label,
+  icon,
+  disabled,
+  title,
+  onClick,
+}: Readonly<NavItemProps>) {
+  let tone = "text-ink-secondary hover:bg-surface-hover hover:text-ink";
+  if (active) tone = "bg-primary/20 font-semibold text-ink";
+  else if (unread > 0) tone = "font-semibold text-ink hover:bg-surface-hover";
   return (
     <li>
       <button
@@ -90,12 +109,12 @@ function Section({
   action,
   compact,
   children,
-}: {
+}: Readonly<{
   title: string;
   action?: ReactNode;
   compact: boolean;
   children: ReactNode;
-}) {
+}>) {
   return (
     <section className={compact ? "mt-3 border-t border-line pt-3 first:border-0" : "mt-4"}>
       {compact ? (
@@ -139,7 +158,7 @@ export function Sidebar({
   onCreateChannel,
   onOpenSettings,
   onSignOut,
-}: SidebarProps) {
+}: Readonly<SidebarProps>) {
   const navigate = useNavigate();
   const nameOf = useNameOf();
   const { me, status, channels, team, directory, users } = useChat(
@@ -159,16 +178,7 @@ export function Sidebar({
   );
 
   const namedChannels = useMemo(
-    () =>
-      channels
-        .filter((c) => c.type !== "dm")
-        .sort((a, b) =>
-          a.channelId === "ch_general"
-            ? -1
-            : b.channelId === "ch_general"
-              ? 1
-              : a.name.localeCompare(b.name),
-        ),
+    () => channels.filter((c) => c.type !== "dm").sort(generalFirst),
     [channels],
   );
   const dms = useMemo(
@@ -296,9 +306,7 @@ export function Sidebar({
                   compact={compact}
                   label={dm.name}
                   icon={<Avatar name={dm.name} size={compact ? "md" : "sm"} />}
-                  title={
-                    dm.userId ? (compact ? dm.name : dm.email) : "This person hasn't signed in yet"
-                  }
+                  title={dmTitle(dm, compact)}
                   active={id === activeChannelId}
                   unread={dm.channelId && id !== activeChannelId ? (unread[dm.channelId] ?? 0) : 0}
                   disabled={!dm.userId}

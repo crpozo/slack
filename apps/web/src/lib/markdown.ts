@@ -21,7 +21,7 @@ export function renderMarkdown(text: string): string {
   const stash: string[] = [];
   const keep = (html: string) => `\uE000${stash.push(html) - 1}\uE000`;
 
-  let html = escapeHtml(text.replace(/\uE000/g, ""));
+  let html = escapeHtml(text.replaceAll("\uE000", ""));
 
   html = html.replace(/```(?:\n)?([\s\S]*?)```/g, (_, code: string) =>
     keep(`<pre><code>${code}</code></pre>`),
@@ -32,7 +32,7 @@ export function renderMarkdown(text: string): string {
   );
   html = html.replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/(^|[^\w])_([^_\n]+?)_(?!\w)/g, "$1<em>$2</em>");
-  html = html.replace(/\n/g, "<br>");
+  html = html.replaceAll("\n", "<br>");
 
   return html.replace(/\uE000(\d+)\uE000/g, (_, i: string) => stash[Number(i)] ?? "");
 }

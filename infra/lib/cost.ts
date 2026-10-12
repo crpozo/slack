@@ -13,6 +13,13 @@ interface CostProps {
   anomalyThresholdUsd?: number;
 }
 
+/** `local@domain.tld`: one `@`, no whitespace, and a dot inside the domain (linear, no regex backtracking). */
+export function isEmail(value: string): boolean {
+  const at = value.indexOf("@");
+  const domain = value.slice(at + 1);
+  return at > 0 && !domain.includes("@") && !/\s/.test(value) && domain.slice(1, -1).includes(".");
+}
+
 export class Cost extends Construct {
   /** ARN of the Cost Anomaly Detection monitor (prod only). */
   readonly anomalyMonitorArn?: string;
@@ -26,7 +33,7 @@ export class Cost extends Construct {
 
     // Fail fast: a prod stack whose cost alerts go nowhere must not deploy.
     const alertEmail = props.alertEmail?.trim();
-    if (!alertEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(alertEmail)) {
+    if (!alertEmail || !isEmail(alertEmail)) {
       throw new Error(
         'Missing or invalid CDK context "budgetEmail": SlackProd needs a recipient for ' +
           "its budget and cost anomaly alerts (set it in infra/cdk.json or pass -c budgetEmail=…).",

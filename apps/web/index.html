@@ -17,7 +17,9 @@
           pref === "dark" ||
           (pref === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
         if (dark) document.documentElement.classList.add("dark");
-      } catch (e) {}
+      } catch (e) {
+        // Storage blocked (e.g. privacy mode): keep the light default; main.tsx re-applies the theme.
+      }
     </script>
   </head>
   <body>

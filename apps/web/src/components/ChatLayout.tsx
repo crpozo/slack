@@ -16,8 +16,6 @@ import {
   saveSidebarPrefs,
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
-  SIDEBAR_MAX_WIDTH,
-  SIDEBAR_MIN_WIDTH,
   type SidebarPrefs,
 } from "../lib/sidebar";
 import { selectUnread, useChat } from "../store";
@@ -42,7 +40,7 @@ function useMediaQuery(query: string): boolean {
   return matches;
 }
 
-export function ChatLayout({ wsUrl }: { wsUrl: string }) {
+export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const { channelId = GENERAL_CHANNEL_ID } = useParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -69,13 +67,13 @@ export function ChatLayout({ wsUrl }: { wsUrl: string }) {
   const collapsed = isDesktop && sidebar.collapsed;
   const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebar.width;
 
-  function onResizeStart(e: React.PointerEvent<HTMLDivElement>) {
+  function onResizeStart(e: React.PointerEvent<HTMLButtonElement>) {
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     dragStart.current = { x: e.clientX, width: sidebar.width };
     setResizing(true);
   }
-  function onResizeMove(e: React.PointerEvent<HTMLDivElement>) {
+  function onResizeMove(e: React.PointerEvent<HTMLButtonElement>) {
     if (!dragStart.current) return;
     const width = clampSidebarWidth(dragStart.current.width + e.clientX - dragStart.current.x);
     setSidebar((prev) => ({ ...prev, width }));
@@ -86,7 +84,7 @@ export function ChatLayout({ wsUrl }: { wsUrl: string }) {
     setResizing(false);
     updateSidebar({});
   }
-  function onResizeKey(e: ReactKeyboardEvent<HTMLDivElement>) {
+  function onResizeKey(e: ReactKeyboardEvent<HTMLButtonElement>) {
     const step = e.shiftKey ? 48 : 16;
     if (e.key === "ArrowLeft") updateSidebar({ width: clampSidebarWidth(sidebar.width - step) });
     else if (e.key === "ArrowRight")
@@ -195,14 +193,9 @@ export function ChatLayout({ wsUrl }: { wsUrl: string }) {
           onSignOut={() => void handleSignOut()}
         />
         {isDesktop && !collapsed && (
-          <div
-            role="separator"
-            aria-orientation="vertical"
+          <button
+            type="button"
             aria-label="Resize sidebar"
-            aria-valuemin={SIDEBAR_MIN_WIDTH}
-            aria-valuemax={SIDEBAR_MAX_WIDTH}
-            aria-valuenow={sidebar.width}
-            tabIndex={0}
             title="Drag to resize · double-click to reset"
             onPointerDown={onResizeStart}
             onPointerMove={onResizeMove}

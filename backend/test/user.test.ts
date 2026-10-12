@@ -1,3 +1,4 @@
+import { compareIds } from "@mindfultech/shared";
 import { ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import type { UserListEvent, UserUpdatedEvent } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -53,7 +54,7 @@ describe("user", () => {
     expect(input?.Key).toEqual({ userId: ALICE.userId }); // never the payload's userId
     expect(input?.ExpressionAttributeValues?.[":name"]).toBe("Alicia");
     const sent = sentEvents() as Array<[string, UserUpdatedEvent]>;
-    expect(sent.map(([id]) => id).sort()).toEqual(["conn-alice", "conn-bob"]);
+    expect(sent.map(([id]) => id).sort(compareIds)).toEqual(["conn-alice", "conn-bob"]);
     expect(sent[0]?.[1]).toEqual({
       type: "user.updated",
       user: { userId: ALICE.userId, email: ALICE.email, displayName: "Alicia", updatedAt: 9 },

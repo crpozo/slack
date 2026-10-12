@@ -7,7 +7,7 @@ export function defaultDisplayName(email: string): string {
 
 /** Row of the `users` table, as sent to clients. */
 export function toUserProfile(item: Record<string, unknown>): UserProfile {
-  const email = String(item.email ?? "");
+  const email = typeof item.email === "string" ? item.email : "";
   return {
     userId: String(item.userId),
     email,
