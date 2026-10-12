@@ -462,12 +462,13 @@ It is carried out in three sub-phases, each on its own branch with its own PR to
 
 **Branch:** `feature/f5-3-webrtc`
 
-1. **Signaling:** new `rtc { callId, to, kind: "offer" | "answer" | "ice" | "hangup" | "ring" | "decline", payload }` action.
-   - The Lambda only forwards `rtc.signal { callId, from, kind, payload }` to the `to` user's connections, if sender and recipient share a DM or channel; it stores nothing.
-   - Limits: payload of at most 16 KB, and offers/answers validated as text SDP.
-2. **Media:** `RTCPeerConnection` with a free public STUN server (`stun:stun.l.google.com:19302`) and **no TURN**, because TURN would cost money. Documented limitation: behind symmetric NATs or on corporate networks the call may fail to connect. If needed, a self-hosted TURN will be evaluated in a v0.3.
-3. **UI:** voice and video call buttons in a DM's header; incoming-call modal (accept/decline) with a ringtone; call view with local/remote video, mute, camera on/off and hang up. 1:1 calls only.
-4. **Permissions:** only `ManageConnections` and read access to `connections`/`channels` for the `rtc` Lambda.
+1. **Signaling:** new `call { callId, channelId, to, signal: "offer" | "answer" | "ice_candidate" | "end" | "decline", … }` action (route `call`).
+   - The Lambda only relays `call.offer | call.answer | call.ice_candidate | call.end | call.decline { callId, channelId, from, … }` to the `to` user's connections, and only between the two members of the DM named by `channelId` (checked from the DM id itself, no table read); it stores nothing. `answer`/`decline`/`end` also reach the sender's other tabs so they stop ringing. An offer that reaches nobody is answered with `call.end { reason: "unavailable" }`.
+   - Limits: SDP of at most 20,000 characters (API Gateway frames cap at 32 KB), ICE candidates of at most 2 KB, all validated with zod.
+2. **Media:** `RTCPeerConnection` with a free public STUN server (`stun:stun.l.google.com:19302`) and **no TURN**, because TURN would cost money. Documented limitation: behind symmetric NATs or on corporate networks the call may fail to connect. If needed, a self-hosted TURN will be evaluated in a v0.3. Both sides always negotiate one audio and one video transceiver, so turning the camera on in a voice call and screen sharing (`getDisplayMedia`) are `replaceTrack`s without renegotiation; a negotiated data channel carries mic/camera/screen state.
+3. **UI:** voice and video call buttons in a DM's header; incoming-call card (accept/decline) with a synthesized ringtone; call view with remote video (large) and local preview (PIP), mute, camera on/off, screen share and hang up. 1:1 calls only; a second caller gets "busy".
+4. **Devices:** Settings → Audio & Video lists microphones and cameras (`enumerateDevices`); the choice is saved in localStorage and requested as `deviceId: { exact }`, falling back to the default device if it was unplugged.
+5. **Permissions:** only `ManageConnections` and `GetItem`/`Scan`/`DeleteItem` on `connections` for the `call` Lambda.
 
 **5.3 acceptance criteria:** voice and video call between two browsers on different home networks; hanging up on one side closes the other; the AWS cost does not change (only signaling WebSocket messages).
 

@@ -114,6 +114,13 @@ The UI:
   search). The chips under the message show the count; a click adds or removes yours.
 - **Settings** (click your name, bottom left): display name, which everyone else sees live, and
   the Light / Dark / System theme (light by default).
+- **Calls (DMs only):** the 📞 and 🎥 buttons in a DM's header start a voice or video call.
+  The other person gets a ringing card (Accept / Decline); during the call there are mic,
+  camera, screen-share and hang-up controls. Calls are peer-to-peer WebRTC: the WebSocket only
+  relays the signaling (`call` route), audio and video never go through AWS. There is a public
+  STUN server but no TURN relay, so a call may fail to connect behind strict corporate or
+  symmetric NATs.
+- **Settings → Audio & Video:** pick the microphone and camera calls use (saved per browser).
 - `Ctrl/⌘ + K` opens the switcher to jump to a channel or person.
 
 ### Test the WebSocket with `wscat`
@@ -268,5 +275,5 @@ For the monitor to see the spend, activate the tag once in _Billing → Cost all
 ## Roadmap
 
 Threads · rename and archive channels · edit and delete messages · search · online presence ·
-"typing…" · system notifications and `@` mentions · WebRTC calls · desktop app (Tauri) ·
+"typing…" · system notifications and `@` mentions · TURN relay for calls · desktop app (Tauri) ·
 integration and E2E tests · AI agent with Bedrock.
