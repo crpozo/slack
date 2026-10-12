@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { calls, useCall, type CallView } from "../lib/call";
-import { supportsScreenShare } from "../lib/media";
+import { listInputDevices, loadMediaPrefs, supportsScreenShare } from "../lib/media";
 import { useNameOf } from "../store";
 import { Avatar } from "./Avatar";
 import {
+  CheckIcon,
+  ChevronUpIcon,
   MicIcon,
   MicOffIcon,
   PhoneIcon,
@@ -12,6 +14,7 @@ import {
   VideoIcon,
   VideoOffIcon,
 } from "./icons";
+import { Popover } from "./Popover";
 
 /** `<video>`/`<audio>` bound to a MediaStream (React can't set `srcObject` as a prop). */
 function StreamMedia({
@@ -97,6 +100,93 @@ function ControlButton({
     >
       {children}
     </button>
+  );
+}
+
+const DEVICE_LABELS = {
+  audio: { title: "Microphone", fallback: "Microphone", empty: "No microphones found" },
+  video: { title: "Camera", fallback: "Camera", empty: "No cameras found" },
+} as const;
+
+/**
+ * Chevron next to the mic/camera button: lists the inputs (`enumerateDevices`)
+ * and swaps to the chosen one mid-call without renegotiating.
+ */
+function DeviceMenu({
+  kind,
+  currentId,
+}: Readonly<{ kind: "audio" | "video"; currentId: string | null }>) {
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const [devices, setDevices] = useState<MediaDeviceInfo[] | null>(null);
+  const labels = DEVICE_LABELS[kind];
+  const close = useCallback(() => setAnchor(null), []);
+
+  useEffect(() => {
+    if (!anchor) return;
+    const refresh = () =>
+      void listInputDevices()
+        .then((d) => setDevices(kind === "audio" ? d.microphones : d.cameras))
+        .catch(() => setDevices([]));
+    refresh();
+    const media = navigator.mediaDevices;
+    media?.addEventListener("devicechange", refresh);
+    return () => media?.removeEventListener("devicechange", refresh);
+  }, [anchor, kind]);
+
+  // With the camera off nothing is captured: show the device it will use.
+  const prefs = loadMediaPrefs();
+  const selected = currentId ?? (kind === "audio" ? prefs.audioInputId : prefs.videoInputId);
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={`Choose ${labels.title.toLowerCase()}`}
+        title={`Choose ${labels.title.toLowerCase()}`}
+        aria-expanded={!!anchor}
+        onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}
+        className="-ml-2 flex h-7 w-7 items-center justify-center self-end rounded-full bg-white/15 text-sm text-white ring-2 ring-[#0E0D12] hover:bg-white/25 focus-visible:outline-none focus-visible:ring-primary"
+      >
+        <ChevronUpIcon />
+      </button>
+      {anchor && (
+        <Popover anchor={anchor} onClose={close}>
+          <section
+            aria-label={labels.title}
+            className="w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-line bg-surface-raised p-1 text-ink shadow-xl"
+          >
+            <h3 className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-ink-secondary">
+              {labels.title}
+            </h3>
+            {devices === null && <p className="px-3 py-2 text-sm text-ink-secondary">Loading…</p>}
+            {devices?.length === 0 && (
+              <p className="px-3 py-2 text-sm text-ink-secondary">{labels.empty}</p>
+            )}
+            {devices?.map((device, i) => {
+              const active =
+                device.deviceId === selected || (!selected && device.deviceId === "default");
+              return (
+                <button
+                  key={device.deviceId}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => {
+                    close();
+                    void calls.switchDevice(kind, device.deviceId);
+                  }}
+                  className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-surface-hover ${
+                    active ? "font-semibold" : ""
+                  }`}
+                >
+                  <CheckIcon className={`shrink-0 ${active ? "text-primary" : "invisible"}`} />
+                  <span className="truncate">{device.label || `${labels.fallback} ${i + 1}`}</span>
+                </button>
+              );
+            })}
+          </section>
+        </Popover>
+      )}
+    </>
   );
 }
 
@@ -201,20 +291,26 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
       </div>
 
       <footer className="flex items-center justify-center gap-3 px-4 pb-6 pt-4">
-        <ControlButton
-          label={call.micOn ? "Mute microphone" : "Unmute microphone"}
-          highlight={!call.micOn}
-          onClick={() => calls.toggleMic()}
-        >
-          {call.micOn ? <MicIcon /> : <MicOffIcon />}
-        </ControlButton>
-        <ControlButton
-          label={call.camOn ? "Turn camera off" : "Turn camera on"}
-          highlight={!call.camOn}
-          onClick={() => void calls.toggleCamera()}
-        >
-          {call.camOn ? <VideoIcon /> : <VideoOffIcon />}
-        </ControlButton>
+        <div className="flex">
+          <ControlButton
+            label={call.micOn ? "Mute microphone" : "Unmute microphone"}
+            highlight={!call.micOn}
+            onClick={() => calls.toggleMic()}
+          >
+            {call.micOn ? <MicIcon /> : <MicOffIcon />}
+          </ControlButton>
+          <DeviceMenu kind="audio" currentId={call.micDeviceId} />
+        </div>
+        <div className="flex">
+          <ControlButton
+            label={call.camOn ? "Turn camera off" : "Turn camera on"}
+            highlight={!call.camOn}
+            onClick={() => void calls.toggleCamera()}
+          >
+            {call.camOn ? <VideoIcon /> : <VideoOffIcon />}
+          </ControlButton>
+          <DeviceMenu kind="video" currentId={call.cameraDeviceId} />
+        </div>
         {canShare && (
           <ControlButton
             label={call.sharing ? "Stop sharing screen" : "Share screen"}

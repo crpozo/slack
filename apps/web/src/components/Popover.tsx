@@ -21,15 +21,22 @@ export function Popover({ anchor, onClose, children }: Readonly<PopoverProps>) {
   useLayoutEffect(() => {
     const panel = ref.current;
     if (!panel) return;
-    const a = anchor.getBoundingClientRect();
-    const { width, height } = panel.getBoundingClientRect();
-    const below = a.bottom + MARGIN;
-    const top =
-      below + height <= window.innerHeight - MARGIN
-        ? below
-        : Math.max(MARGIN, a.top - MARGIN - height);
-    const left = Math.min(Math.max(MARGIN, a.right - width), window.innerWidth - width - MARGIN);
-    setPosition({ top, left });
+    const place = () => {
+      const a = anchor.getBoundingClientRect();
+      const { width, height } = panel.getBoundingClientRect();
+      const below = a.bottom + MARGIN;
+      const top =
+        below + height <= window.innerHeight - MARGIN
+          ? below
+          : Math.max(MARGIN, a.top - MARGIN - height);
+      const left = Math.min(Math.max(MARGIN, a.right - width), window.innerWidth - width - MARGIN);
+      setPosition({ top, left });
+    };
+    place();
+    // Content that loads after opening (e.g. a device list) changes the size: re-place it.
+    const observer = new ResizeObserver(place);
+    observer.observe(panel);
+    return () => observer.disconnect();
   }, [anchor]);
 
   useEffect(() => {

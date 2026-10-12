@@ -192,3 +192,8 @@ export const ScreenShareIcon = (p: IconProps) => (
     <path d="M8 21h8M12 17v4M9 10l3-3 3 3M12 7v6" />
   </Icon>
 );
+export const ChevronUpIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m18 15-6-6-6 6" />
+  </Icon>
+);

@@ -119,3 +119,21 @@ export const supportsCalls = () =>
   typeof RTCPeerConnection !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
 
 export const supportsScreenShare = () => !!navigator.mediaDevices?.getDisplayMedia;
+
+/**
+ * A single new track from exactly `deviceId` (no fallback: the user picked it),
+ * e.g. to swap the microphone or camera in the middle of a call.
+ */
+export async function getDeviceTrack(
+  kind: "audio" | "video",
+  deviceId: string,
+): Promise<MediaStreamTrack> {
+  const constraints = mediaConstraints(
+    { audio: kind === "audio", video: kind === "video" },
+    { audioInputId: deviceId, videoInputId: deviceId },
+  );
+  const stream = await navigator.mediaDevices.getUserMedia(constraints);
+  const [track] = kind === "audio" ? stream.getAudioTracks() : stream.getVideoTracks();
+  if (!track) throw new DOMException("No track", "NotFoundError");
+  return track;
+}
