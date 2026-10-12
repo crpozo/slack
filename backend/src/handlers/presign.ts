@@ -1,5 +1,6 @@
-import { canAccessChannel, parseAction, PresignActionSchema } from "@mindfultech/shared";
+import { parseAction, PresignActionSchema } from "@mindfultech/shared";
 import { ulid } from "ulid";
+import { getAccessibleChannel } from "../lib/channels";
 import { wsHandler } from "../lib/handler";
 import { badRequest, ok, reply, replyError } from "../lib/response";
 import { objectExists, presignGet, presignPut } from "../lib/s3";
@@ -26,7 +27,7 @@ export const handler = wsHandler(async (event, caller) => {
   const action = parsed.data;
 
   if (action.op === "put") {
-    if (!canAccessChannel(action.channelId, caller.userId)) {
+    if (!(await getAccessibleChannel(action.channelId, caller.userId))) {
       return replyError(caller.connectionId, "CHANNEL_NOT_FOUND", undefined, action.requestId);
     }
     const key = `${KEY_PREFIX}${action.channelId}/${ulid()}-${sanitizeFileName(action.name)}`;
@@ -41,8 +42,9 @@ export const handler = wsHandler(async (event, caller) => {
   }
 
   const channelId = channelOfKey(action.key);
-  if (!channelId || !canAccessChannel(channelId, caller.userId)) {
-    return badRequest(caller.connectionId, "Invalid key", action.requestId);
+  if (!channelId) return badRequest(caller.connectionId, "Invalid key", action.requestId);
+  if (!(await getAccessibleChannel(channelId, caller.userId))) {
+    return replyError(caller.connectionId, "CHANNEL_NOT_FOUND", undefined, action.requestId);
   }
   if (!(await objectExists(action.key))) {
     return replyError(caller.connectionId, "FILE_NOT_FOUND", undefined, action.requestId);

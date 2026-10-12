@@ -1,13 +1,9 @@
 import { QueryCommand } from "@aws-sdk/lib-dynamodb";
-import {
-  canAccessChannel,
-  HISTORY_PAGE_SIZE,
-  HistoryActionSchema,
-  parseAction,
-  type Message,
-} from "@mindfultech/shared";
+import { HISTORY_PAGE_SIZE, HistoryActionSchema, parseAction } from "@mindfultech/shared";
+import { getAccessibleChannel } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import { wsHandler } from "../lib/handler";
+import { toWireMessage } from "../lib/messages";
 import { badRequest, ok, reply, replyError } from "../lib/response";
 
 type MessageKey = { channelId: string; sk: string };
@@ -44,15 +40,15 @@ export const handler = wsHandler(async (event, caller) => {
   if (!parsed.success) return badRequest(caller.connectionId, parsed.error);
   const { channelId, cursor } = parsed.data;
 
-  if (!canAccessChannel(channelId, caller.userId)) {
-    return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
-  }
-
   let exclusiveStartKey: MessageKey | undefined;
   if (cursor) {
     const decoded = decodeCursor(cursor, channelId);
     if (!decoded) return badRequest(caller.connectionId, "Invalid cursor");
     exclusiveStartKey = decoded;
+  }
+
+  if (!(await getAccessibleChannel(channelId, caller.userId))) {
+    return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
   }
 
   const page = await ddb.send(
@@ -66,7 +62,7 @@ export const handler = wsHandler(async (event, caller) => {
     }),
   );
 
-  const items = ((page.Items ?? []) as Message[]).reverse();
+  const items = (page.Items ?? []).map(toWireMessage).reverse();
   const last = page.LastEvaluatedKey as MessageKey | undefined;
   await reply(caller.connectionId, {
     type: "history.page",
