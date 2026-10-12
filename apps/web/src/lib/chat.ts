@@ -17,6 +17,9 @@ const ERROR_TEXT: Record<ErrorCode, string> = {
   CHANNEL_NOT_FOUND: "Ese canal no existe o no tienes acceso.",
   CHANNEL_NAME_TAKEN: "Ya existe un canal con ese nombre.",
   FILE_NOT_FOUND: "El archivo ya no existe.",
+  FORBIDDEN: "No tienes permiso para hacer eso.",
+  USER_NOT_FOUND: "Esa persona no existe o nunca ha iniciado sesión.",
+  MESSAGE_NOT_FOUND: "Ese mensaje ya no existe.",
   INTERNAL_ERROR: "Algo falló en el servidor. Inténtalo de nuevo.",
 };
 
@@ -85,8 +88,7 @@ class ChatController {
       client.on("channel.list", ({ channels }) => {
         store().setChannels(channels);
         const pending = this.pendingCreate;
-        const created =
-          pending && channels.find((c) => c.type === "public" && c.name === pending.name);
+        const created = pending && channels.find((c) => c.type !== "dm" && c.name === pending.name);
         if (pending && created) {
           clearTimeout(pending.timer);
           this.pendingCreate = null;
@@ -215,7 +217,8 @@ class ChatController {
         reject(new Error("El servidor no respondió. Inténtalo de nuevo."));
       }, REQUEST_TIMEOUT_MS);
       this.pendingCreate = { name, resolve, reject, timer };
-      client.send("channel", { op: "create", name });
+      // Public until the invite UI lands in Phase 5.2 (the backend default is private).
+      client.send("channel", { op: "create", name, visibility: "public" });
     });
   }
 
