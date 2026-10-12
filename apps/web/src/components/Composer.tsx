@@ -13,7 +13,9 @@ import { ulid } from "ulid";
 import { chat } from "../lib/chat";
 import { formatBytes, MAX_SIZE_LABEL, uploadFile, validateFile } from "../lib/upload";
 import { useChat } from "../store";
-import { CloseIcon, FileIcon, PaperclipIcon, SendIcon } from "./icons";
+import { EmojiPicker } from "./EmojiPicker";
+import { CloseIcon, FileIcon, PaperclipIcon, SendIcon, SmileIcon } from "./icons";
+import { Popover } from "./Popover";
 
 interface Upload {
   id: string;
@@ -44,6 +46,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [uploads, setUploads] = useState<Upload[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [emojiAnchor, setEmojiAnchor] = useState<HTMLElement | null>(null);
+
+  /** Inserts at the caret (replacing any selection) and keeps focus in the textarea. */
+  function insertAtCursor(snippet: string) {
+    const el = textareaRef.current;
+    const start = el?.selectionStart ?? text.length;
+    const end = el?.selectionEnd ?? text.length;
+    setText(text.slice(0, start) + snippet + text.slice(end));
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(start + snippet.length, start + snippet.length);
+    });
+  }
 
   const uploading = uploads.some((u) => !u.attachment && !u.error);
   const ready = uploads.flatMap((u) => (u.attachment ? [u.attachment] : []));
@@ -166,6 +181,26 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               e.target.value = "";
             }}
           />
+          <button
+            type="button"
+            onClick={(e) => setEmojiAnchor(emojiAnchor ? null : e.currentTarget)}
+            disabled={disabled}
+            className="rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
+            aria-label="Insertar emoji"
+            title="Emoji"
+          >
+            <SmileIcon />
+          </button>
+          {emojiAnchor && (
+            <Popover anchor={emojiAnchor} onClose={() => setEmojiAnchor(null)}>
+              <EmojiPicker
+                onSelect={(emoji) => {
+                  insertAtCursor(emoji);
+                  setEmojiAnchor(null);
+                }}
+              />
+            </Popover>
+          )}
           <textarea
             ref={textareaRef}
             rows={1}
