@@ -2,10 +2,15 @@ interface AvatarProps {
   /** Display name (or email); its first letter is shown. */
   name: string | undefined;
   mine?: boolean;
-  size?: "xs" | "sm" | "md";
+  size?: "xs" | "sm" | "md" | "xl";
 }
 
-const SIZES = { xs: "h-5 w-5 text-[10px]", sm: "h-6 w-6 text-xs", md: "h-9 w-9 text-sm" };
+const SIZES = {
+  xs: "h-5 w-5 text-[10px]",
+  sm: "h-6 w-6 text-xs",
+  md: "h-9 w-9 text-sm",
+  xl: "h-24 w-24 text-4xl",
+};
 
 /** Initial on a tinted square: primary for you, sky for others. */
 export function Avatar({ name, mine = false, size = "md" }: Readonly<AvatarProps>) {

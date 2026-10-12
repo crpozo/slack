@@ -1,11 +1,13 @@
 import { canAccessChannel, isDmChannel } from "@mindfultech/shared";
 import { useRef, useState, type DragEvent } from "react";
 import { Link } from "react-router-dom";
-import { channelLabel } from "../lib/channels";
+import { calls, useCall } from "../lib/call";
+import { channelLabel, dmPeer } from "../lib/channels";
+import { supportsCalls } from "../lib/media";
 import { useChat, useNameOf } from "../store";
 import { Composer, type ComposerHandle } from "./Composer";
 import { InviteModal } from "./ChannelModals";
-import { HashIcon, LockIcon, MenuIcon, UserPlusIcon } from "./icons";
+import { HashIcon, LockIcon, MenuIcon, PhoneIcon, UserPlusIcon, VideoIcon } from "./icons";
 import { MessageList } from "./MessageList";
 
 export function ChannelView({
@@ -20,6 +22,7 @@ export function ChannelView({
   const channelsLoaded = useChat((s) => s.channelsLoaded);
   const nameOf = useNameOf();
   const [inviting, setInviting] = useState(false);
+  const inCall = useCall((s) => s.call !== null);
   const composer = useRef<ComposerHandle>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -31,6 +34,8 @@ export function ChannelView({
   const title = dm ? label : `#${label}`;
   const allowed = canAccessChannel(channelId, me.userId);
   const notFound = !allowed || (channelsLoaded && !channel && !dm);
+  const peer = dm ? dmPeer(channelId, me.userId) : null;
+  const canCall = !!peer && peer !== me.userId && allowed && supportsCalls();
 
   function handleDrop(e: DragEvent) {
     e.preventDefault();
@@ -72,6 +77,30 @@ export function ChannelView({
             · {channel.members?.length ?? 1} member
             {(channel.members?.length ?? 1) === 1 ? "" : "s"}
           </span>
+        )}
+        {canCall && (
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => void calls.startCall(channelId, peer, "audio")}
+              disabled={inCall}
+              aria-label={`Start a voice call with ${label}`}
+              title="Voice call"
+              className="rounded-md p-2 text-lg text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <PhoneIcon />
+            </button>
+            <button
+              type="button"
+              onClick={() => void calls.startCall(channelId, peer, "video")}
+              disabled={inCall}
+              aria-label={`Start a video call with ${label}`}
+              title="Video call"
+              className="rounded-md p-2 text-lg text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <VideoIcon />
+            </button>
+          </div>
         )}
         {canInvite && (
           <button
