@@ -290,6 +290,7 @@ describe("phase 5.1 resources", () => {
     expect(actionsOn("react", "DataMessages")).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);
     expect(actionsOn("react", "DataChannels")).toEqual(["dynamodb:GetItem"]);
     expect(actionsOn("history", "DataChannels")).toEqual(["dynamodb:GetItem"]);
+    expect(actionsOn("presign", "DataBoards")).toEqual(["dynamodb:GetItem"]); // board attachments
     expect(actionsOn("message", "DataUsers")).toEqual([]);
   });
 

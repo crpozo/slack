@@ -1,6 +1,7 @@
 import {
   compareIds,
   dmChannelId,
+  type BoardEvent,
   type ChannelVisibility,
   type Attachment,
   type ErrorCode,
@@ -14,6 +15,7 @@ import { getIdToken, SessionExpiredError } from "./auth";
 import { calls } from "./call";
 import { startHeartbeat } from "./heartbeat";
 import { playMessageSound } from "./sounds";
+import { useTasks } from "../store/tasks";
 import { WsClient, type DistributiveOmit } from "./ws";
 
 const ERROR_TEXT: Record<ErrorCode, string> = {
@@ -165,12 +167,23 @@ class ChatController {
       client.on("call.end", (event) => calls.handle(event)),
     );
 
-    // Keep the connection alive: API Gateway drops idle sockets after 10 minutes.
-    this.cleanups.push(startHeartbeat(client));
-
     const onOnline = () => client.reconnectNow();
     window.addEventListener("online", onOnline);
-    this.cleanups.push(() => window.removeEventListener("online", onOnline));
+
+    // Task Manager pushes (sent by the HTTP API's Lambda through this socket).
+    const applyBoardEvent = (event: BoardEvent) => {
+      const me = store().me;
+      if (me) useTasks.getState().applyEvent(event, me.userId);
+    };
+    this.cleanups.push(
+      client.on("board.task_created", applyBoardEvent),
+      client.on("board.task_updated", applyBoardEvent),
+      client.on("board.task_deleted", applyBoardEvent),
+      client.on("board.updated", applyBoardEvent),
+      // Keep the connection alive: API Gateway drops idle sockets after 10 minutes.
+      startHeartbeat(client),
+      () => window.removeEventListener("online", onOnline),
+    );
 
     client.connect();
   }

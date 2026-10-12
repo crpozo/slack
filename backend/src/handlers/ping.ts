@@ -6,4 +6,5 @@ import type { APIGatewayProxyWebsocketHandlerV2 } from "aws-lambda";
  * there is nothing to do here: no reply (a reply would cost a
  * PostToConnection call) and no table access.
  */
-export const handler: APIGatewayProxyWebsocketHandlerV2 = async () => ({ statusCode: 200 });
+export const handler: APIGatewayProxyWebsocketHandlerV2 = () =>
+  Promise.resolve({ statusCode: 200 });

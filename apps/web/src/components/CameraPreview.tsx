@@ -136,7 +136,7 @@ export function CameraPreview({ deviceId }: Readonly<{ deviceId: string }>) {
       {stream && (
         <span className="absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white">
           <span className="h-1.5 w-1.5 rounded-full bg-error" aria-hidden="true" />
-          Camera on
+          <span>Camera on</span>
         </span>
       )}
       {overlay && (

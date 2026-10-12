@@ -251,22 +251,15 @@ function CameraTile({
   );
 }
 
-/**
- * In-column call panel (Discord-style): the sidebar and the composer stay
- * usable. Without a screen share, the peer's camera (or avatar) is the stage
- * and your camera is a small picture-in-picture. While a screen is shared it
- * takes the stage and both cameras move to a strip on the right (below, on
- * narrow screens), so nobody's camera is ever hidden.
- */
-function ActiveCall({ call }: Readonly<{ call: CallView }>) {
-  const nameOf = useNameOf();
-  const name = nameOf(call.peerId);
-  const elapsed = useElapsed(call.connectedAt);
-  const connected = call.phase === "connected";
+/** The video area: the peer (or a shared screen) on the stage, cameras as tiles. */
+function Stage({
+  call,
+  name,
+  connected,
+}: Readonly<{ call: CallView; name: string; connected: boolean }>) {
   const peerSharing = connected && call.peer.sharing && !!call.remoteScreen;
   const sharing = peerSharing || !!call.localScreen;
   const peerCamOn = connected && call.peer.camOn && !!call.remoteStream;
-  const canShare = supportsScreenShare() && call.canShare;
 
   const peerTile = (className: string) => (
     <CameraTile
@@ -288,9 +281,8 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
     />
   );
 
-  let stage: ReactNode;
   if (sharing) {
-    stage = (
+    return (
       <div className="flex h-full min-h-0 flex-col gap-2 p-2 sm:flex-row">
         <div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-black">
           {peerSharing ? (
@@ -331,35 +323,49 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
         </div>
       </div>
     );
-  } else {
-    stage = (
-      <div className="relative h-full">
-        {peerCamOn ? (
-          <StreamMedia
-            kind="video"
-            stream={call.remoteStream}
-            muted
-            label={`Video from ${name}`}
-            className="h-full w-full object-contain"
-          />
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3">
-            <Avatar name={name} size="xl" />
-            {connected && (
-              <p className="text-sm text-white/70">
-                {call.media === "video" ? "Camera is off" : "Voice call"}
-              </p>
-            )}
-          </div>
-        )}
-        {call.localCamera && (
-          <div className="absolute bottom-2 right-2 w-28 shadow-lg sm:w-44">
-            {myTile("aspect-video w-full")}
-          </div>
-        )}
-      </div>
-    );
   }
+  return (
+    <div className="relative h-full">
+      {peerCamOn ? (
+        <StreamMedia
+          kind="video"
+          stream={call.remoteStream}
+          muted
+          label={`Video from ${name}`}
+          className="h-full w-full object-contain"
+        />
+      ) : (
+        <div className="flex h-full flex-col items-center justify-center gap-3">
+          <Avatar name={name} size="xl" />
+          {connected && (
+            <p className="text-sm text-white/70">
+              {call.media === "video" ? "Camera is off" : "Voice call"}
+            </p>
+          )}
+        </div>
+      )}
+      {call.localCamera && (
+        <div className="absolute bottom-2 right-2 w-28 shadow-lg sm:w-44">
+          {myTile("aspect-video w-full")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * In-column call panel (Discord-style): the sidebar and the composer stay
+ * usable. Without a screen share, the peer's camera (or avatar) is the stage
+ * and your camera is a small picture-in-picture. While a screen is shared it
+ * takes the stage and both cameras move to a strip on the right (below, on
+ * narrow screens), so nobody's camera is ever hidden.
+ */
+function ActiveCall({ call }: Readonly<{ call: CallView }>) {
+  const nameOf = useNameOf();
+  const name = nameOf(call.peerId);
+  const elapsed = useElapsed(call.connectedAt);
+  const connected = call.phase === "connected";
+  const canShare = supportsScreenShare() && call.canShare;
 
   return (
     <section
@@ -375,7 +381,9 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
         </p>
       </header>
 
-      <div className="min-h-0 flex-1">{stage}</div>
+      <div className="min-h-0 flex-1">
+        <Stage call={call} name={name} connected={connected} />
+      </div>
 
       <footer className="flex items-center justify-center gap-3 px-4 py-2.5">
         <div className="flex">
@@ -423,8 +431,7 @@ function OngoingCallBar({ call }: Readonly<{ call: CallView }>) {
   const name = nameOf(call.peerId);
   const elapsed = useElapsed(call.connectedAt);
   return (
-    <div
-      role="status"
+    <output
       aria-label="Ongoing call"
       className="flex items-center gap-3 border-b border-line bg-[#0E0D12] px-4 py-2 text-sm text-white"
     >
@@ -449,7 +456,7 @@ function OngoingCallBar({ call }: Readonly<{ call: CallView }>) {
       >
         <PhoneOffIcon />
       </button>
-    </div>
+    </output>
   );
 }
 

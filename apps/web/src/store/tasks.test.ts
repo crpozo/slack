@@ -16,6 +16,10 @@ const task = (id: string, status: Task["status"] = "TODO"): Task => ({
   title: `Task ${id}`,
   description: "",
   status,
+  assigneeId: null,
+  project: "",
+  notes: "",
+  attachments: [],
   createdBy: "me",
   createdAt: 1,
   updatedAt: 1,
@@ -151,5 +155,76 @@ describe("tasks store", () => {
   it("splits boards into mine and shared", () => {
     const shared = { ...board, boardId: "b_2", ownerId: "other", members: ["other", "me"] };
     expect(splitBoards([board, shared], "me")).toEqual({ mine: [board], shared: [shared] });
+  });
+
+  describe("real-time pushes", () => {
+    it("adds, replaces and removes tasks from board.* events, in creation order", async () => {
+      const { store } = await loaded([task("t2")]);
+      store
+        .getState()
+        .applyEvent(
+          { type: "board.task_created", boardId: "b_1", task: { ...task("t1"), createdAt: 0 } },
+          "me",
+        );
+      expect(store.getState().tasksByBoard.b_1?.map((t) => t.taskId)).toEqual(["t1", "t2"]);
+
+      store
+        .getState()
+        .applyEvent({ type: "board.task_updated", boardId: "b_1", task: task("t2", "DONE") }, "me");
+      expect(statusOf(store, "t2")).toBe("DONE");
+
+      store
+        .getState()
+        .applyEvent({ type: "board.task_updated", boardId: "b_1", task: task("t2", "DONE") }, "me");
+      expect(store.getState().tasksByBoard.b_1).toHaveLength(2); // idempotent
+
+      store
+        .getState()
+        .applyEvent({ type: "board.task_deleted", boardId: "b_1", taskId: "t1" }, "me");
+      expect(store.getState().tasksByBoard.b_1?.map((t) => t.taskId)).toEqual(["t2"]);
+    });
+
+    it("ignores events for boards that were never loaded", async () => {
+      const { store } = await loaded([]);
+      store
+        .getState()
+        .applyEvent({ type: "board.task_created", boardId: "b_other", task: task("t9") }, "me");
+      expect(store.getState().tasksByBoard.b_other).toBeUndefined();
+    });
+
+    it("the actor's own echo arriving before the HTTP response leaves exactly one card", async () => {
+      const { settle, store } = await loaded([]);
+      const create = store.getState().createTask("b_1", "Echoed", "");
+      const real = { ...task("t_real"), title: "Echoed" };
+      store.getState().applyEvent({ type: "board.task_created", boardId: "b_1", task: real }, "me");
+      expect(store.getState().tasksByBoard.b_1).toHaveLength(2); // placeholder + echo, briefly
+
+      await settle(real);
+      await create;
+      expect(store.getState().tasksByBoard.b_1?.map((t) => t.taskId)).toEqual(["t_real"]);
+    });
+
+    it("board.updated adds a board I was just added to, updates known ones and drops ones I left", async () => {
+      const { store } = await loaded([]);
+      const shared = {
+        ...board,
+        boardId: "b_2",
+        ownerId: "other",
+        members: ["other", "me"],
+        createdAt: 0,
+      };
+      store.getState().applyEvent({ type: "board.updated", board: shared }, "me");
+      expect(store.getState().boards.map((b) => b.boardId)).toEqual(["b_2"]);
+
+      store
+        .getState()
+        .applyEvent({ type: "board.updated", board: { ...shared, name: "Renamed" } }, "me");
+      expect(store.getState().boards[0]?.name).toBe("Renamed");
+
+      store
+        .getState()
+        .applyEvent({ type: "board.updated", board: { ...shared, members: ["other"] } }, "me");
+      expect(store.getState().boards).toEqual([]);
+    });
   });
 });

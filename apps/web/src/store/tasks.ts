@@ -1,4 +1,4 @@
-import type { Board, Task, TaskStatus } from "@mindfultech/shared";
+import type { Board, BoardEvent, Task, TaskStatus, UpdateTaskInput } from "@mindfultech/shared";
 import { create } from "zustand";
 import { tasksApi, type TasksApi } from "../lib/tasksApi";
 
@@ -22,11 +22,37 @@ export interface TasksState {
   addMembers: (boardId: string, userIds: string[]) => Promise<void>;
   createTask: (boardId: string, title: string, description: string) => Promise<void>;
   moveTask: (taskId: string, status: TaskStatus) => Promise<void>;
-  editTask: (taskId: string, patch: { title?: string; description?: string }) => Promise<void>;
+  editTask: (taskId: string, patch: UpdateTaskInput) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
+  /**
+   * A `board.*` push from the server. Applied idempotently (tasks are replaced
+   * by id), so the actor's own echo and other members' changes converge.
+   */
+  applyEvent: (event: BoardEvent, myUserId: string) => void;
   clearError: () => void;
   /** Forgets everything (sign-out). */
   reset: () => void;
+}
+
+type TaskPatch = Partial<Task> | ((t: Task) => Task);
+
+const applyPatch = (task: Task, patch: TaskPatch): Task =>
+  typeof patch === "function" ? patch(task) : { ...task, ...patch };
+
+const patchList = (tasks: Task[], taskId: string, patch: TaskPatch): Task[] =>
+  tasks.map((t) => (t.taskId === taskId ? applyPatch(t, patch) : t));
+
+const mapValues = <T>(record: Record<string, T>, fn: (value: T) => T): Record<string, T> =>
+  Object.fromEntries(Object.entries(record).map(([key, value]) => [key, fn(value)]));
+
+/** The board list after a `board.updated` push, from the current user's point of view. */
+function nextBoards(boards: Board[], board: Board, myUserId: string): Board[] {
+  const mine = board.ownerId === myUserId || board.members.includes(myUserId);
+  if (!mine) return boards.filter((b) => b.boardId !== board.boardId);
+  if (boards.some((b) => b.boardId === board.boardId)) {
+    return boards.map((b) => (b.boardId === board.boardId ? board : b));
+  }
+  return [...boards, board].sort((a, b) => a.createdAt - b.createdAt);
 }
 
 const message = (err: unknown, fallback: string) =>
@@ -35,20 +61,9 @@ const message = (err: unknown, fallback: string) =>
 export function createTasksStore(api: TasksApi = tasksApi) {
   return create<TasksState>((set, get) => {
     /** Replaces one task everywhere it appears. */
-    const patchTask = (taskId: string, patch: Partial<Task> | ((t: Task) => Task)) =>
+    const patchTask = (taskId: string, patch: TaskPatch) =>
       set((s) => ({
-        tasksByBoard: Object.fromEntries(
-          Object.entries(s.tasksByBoard).map(([boardId, tasks]) => [
-            boardId,
-            tasks.map((t) =>
-              t.taskId === taskId
-                ? typeof patch === "function"
-                  ? patch(t)
-                  : { ...t, ...patch }
-                : t,
-            ),
-          ]),
-        ),
+        tasksByBoard: mapValues(s.tasksByBoard, (tasks) => patchList(tasks, taskId, patch)),
       }));
     const findTask = (taskId: string) =>
       Object.values(get().tasksByBoard)
@@ -99,13 +114,17 @@ export function createTasksStore(api: TasksApi = tasksApi) {
 
       async createTask(boardId, title, description) {
         const now = Date.now();
-        const tempId = `pending_${now}_${Math.random().toString(36).slice(2, 8)}`;
+        const tempId = `pending_${crypto.randomUUID()}`;
         const optimistic: Task = {
           taskId: tempId,
           boardId,
           title,
           description,
           status: "TODO",
+          assigneeId: null,
+          project: "",
+          notes: "",
+          attachments: [],
           createdBy: "",
           createdAt: now,
           updatedAt: now,
@@ -118,7 +137,18 @@ export function createTasksStore(api: TasksApi = tasksApi) {
         }));
         try {
           const task = await api.createTask(boardId, { title, description });
-          patchTask(tempId, () => task);
+          set((s) => {
+            const list = s.tasksByBoard[boardId] ?? [];
+            const echoed = list.some((t) => t.taskId === task.taskId);
+            return {
+              tasksByBoard: {
+                ...s.tasksByBoard,
+                [boardId]: echoed
+                  ? list.filter((t) => t.taskId !== tempId)
+                  : list.map((t) => (t.taskId === tempId ? task : t)),
+              },
+            };
+          });
         } catch (err) {
           set((s) => ({
             tasksByBoard: {
@@ -182,6 +212,27 @@ export function createTasksStore(api: TasksApi = tasksApi) {
             };
           });
         }
+      },
+
+      applyEvent(event, myUserId) {
+        if (event.type === "board.updated") {
+          set((s) => ({ boards: nextBoards(s.boards, event.board, myUserId) }));
+          return;
+        }
+        const { boardId } = event;
+        set((s) => {
+          const list = s.tasksByBoard[boardId];
+          if (!list) return {}; // board not loaded: it will be fetched when opened
+          let next: Task[];
+          if (event.type === "board.task_deleted") {
+            next = list.filter((t) => t.taskId !== event.taskId);
+          } else if (list.some((t) => t.taskId === event.task.taskId)) {
+            next = list.map((t) => (t.taskId === event.task.taskId ? event.task : t));
+          } else {
+            next = [...list, event.task].sort((a, b) => a.createdAt - b.createdAt);
+          }
+          return { tasksByBoard: { ...s.tasksByBoard, [boardId]: next } };
+        });
       },
 
       clearError: () => set({ error: null }),

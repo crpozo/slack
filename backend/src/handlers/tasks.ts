@@ -9,15 +9,27 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import {
   AddBoardMembersSchema,
+  attachmentPrefixFor,
   canAccessBoard,
   CreateBoardSchema,
   CreateTaskSchema,
   MAX_BOARD_MEMBERS,
   UpdateTaskSchema,
+  type Attachment,
   type Board,
+  type ServerEvent,
   type Task,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
+import {
+  BOARD_SK,
+  boardAudience,
+  getAccessibleBoard,
+  memberSk,
+  toBoard,
+  type BoardItem,
+} from "../lib/boards";
+import { deliver, listConnections } from "../lib/broadcast";
 import { ddb, tables } from "../lib/ddb";
 import {
   forbidden,
@@ -31,7 +43,7 @@ import {
   type HttpEvent,
   type HttpResult,
 } from "../lib/http";
-import { log } from "../lib/logger";
+import { errorFields, log } from "../lib/logger";
 import { unknownUsers } from "../lib/users";
 
 /**
@@ -41,32 +53,60 @@ import { unknownUsers } from "../lib/users";
  *   - `{ boardId, sk: "MEMBER#<userId>", userId }`: one per member, indexed by user
  *     (`byUser`) so listing someone's boards is a query.
  * Tasks live in their own table keyed by `taskId`, indexed by board (`byBoard`).
+ *
+ * Every successful write is pushed to the board's members over the chat
+ * WebSocket (`board.*` events) so open boards update without a reload: the
+ * Lambda scans the live connections and posts to those belonging to members,
+ * exactly as the chat handlers broadcast messages.
  */
 
-const BOARD_SK = "BOARD";
-const memberSk = (userId: string) => `MEMBER#${userId}`;
-
-type BoardItem = Omit<Board, "members"> & { sk: string; members?: Set<string> | string[] };
-
-function toBoard(item: BoardItem): Board {
+/** Old rows predate these fields; clients always get the full shape. */
+function toTask(item: Record<string, unknown>): Task {
+  const t = item as unknown as Task & { attachments?: Attachment[] };
   return {
-    boardId: item.boardId,
-    name: item.name,
-    ownerId: item.ownerId,
-    createdAt: item.createdAt,
-    members: [...(item.members ?? [])].sort((a, b) => a.localeCompare(b)),
+    ...t,
+    assigneeId: t.assigneeId ?? null,
+    project: t.project ?? "",
+    notes: t.notes ?? "",
+    attachments: t.attachments ?? [],
   };
 }
 
 /** The board if `caller` may see it; a 404 otherwise, so non-members can't tell it exists. */
 async function accessibleBoard(boardId: string, caller: HttpCaller): Promise<Board> {
-  const { Item } = await ddb.send(
-    new GetCommand({ TableName: tables.boards, Key: { boardId, sk: BOARD_SK } }),
-  );
-  if (!Item) throw notFound("Board not found");
-  const board = toBoard(Item as BoardItem);
-  if (!canAccessBoard(board, caller.userId)) throw notFound("Board not found");
+  const board = await getAccessibleBoard(boardId, caller.userId);
+  if (!board) throw notFound("Board not found");
   return board;
+}
+
+/**
+ * Pushes `event` to every live connection of the board's members. The write
+ * already succeeded, so a failed push is logged and never fails the request:
+ * a client that reloads sees the right data anyway.
+ */
+async function notifyBoard(board: Board, event: ServerEvent): Promise<void> {
+  try {
+    const connections = (await listConnections()).filter(boardAudience(board));
+    await deliver(connections, () => event);
+  } catch (err) {
+    log.error("board broadcast failed", { boardId: board.boardId, ...errorFields(err) });
+  }
+}
+
+/** Assignee must be on the board; attachments must live under this board's prefix. */
+function validateTaskFields(
+  board: Board,
+  fields: { assigneeId?: string | null; attachments?: Attachment[] },
+): void {
+  if (fields.assigneeId && !canAccessBoard(board, fields.assigneeId)) {
+    throw new HttpError(400, "The assignee must be a member of the board");
+  }
+  const prefix = attachmentPrefixFor(board.boardId);
+  for (const a of fields.attachments ?? []) {
+    if (!a.key.startsWith(prefix) || a.key.includes("..")) {
+      throw new HttpError(400, "Attachments must be uploaded to this board");
+    }
+  }
 }
 
 // --- Boards ----------------------------------------------------------------------
@@ -82,19 +122,22 @@ async function listBoards(caller: HttpCaller): Promise<HttpResult> {
     }),
   );
   const ids = [...new Set((Items ?? []).map((i) => String(i.boardId)))];
-  const boards: Board[] = [];
-  for (let i = 0; i < ids.length; i += 100) {
-    const { Responses } = await ddb.send(
-      new BatchGetCommand({
-        RequestItems: {
-          [tables.boards]: {
-            Keys: ids.slice(i, i + 100).map((boardId) => ({ boardId, sk: BOARD_SK })),
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+  const pages = await Promise.all(
+    chunks.map((chunk) =>
+      ddb.send(
+        new BatchGetCommand({
+          RequestItems: {
+            [tables.boards]: { Keys: chunk.map((boardId) => ({ boardId, sk: BOARD_SK })) },
           },
-        },
-      }),
-    );
-    boards.push(...((Responses?.[tables.boards] ?? []) as BoardItem[]).map(toBoard));
-  }
+        }),
+      ),
+    ),
+  );
+  const boards = pages.flatMap((page) =>
+    ((page.Responses?.[tables.boards] ?? []) as BoardItem[]).map(toBoard),
+  );
   // Membership rows and the board row agree except mid-change: trust the board row.
   const visible = boards
     .filter((b) => canAccessBoard(b, caller.userId))
@@ -176,37 +219,48 @@ async function addMembers(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
     }),
   );
   log.info("members added", { boardId, userId: caller.userId, added: newIds.length });
-  const members = [...board.members, ...newIds].sort((a, b) => a.localeCompare(b));
-  return json(200, { board: { ...board, members } });
+  const updated: Board = {
+    ...board,
+    members: [...board.members, ...newIds].sort((a, b) => a.localeCompare(b)),
+  };
+  // Old and new members alike: the new ones gain the board in their list right away.
+  await notifyBoard(updated, { type: "board.updated", board: updated });
+  return json(200, { board: updated });
 }
 
 // --- Tasks -----------------------------------------------------------------------
 
+/** Every task of a board, following the index's pagination. */
+async function queryBoardTasks(
+  boardId: string,
+  startKey?: Record<string, unknown>,
+): Promise<Task[]> {
+  const page = await ddb.send(
+    new QueryCommand({
+      TableName: tables.tasks,
+      IndexName: "byBoard",
+      KeyConditionExpression: "boardId = :b",
+      ExpressionAttributeValues: { ":b": boardId },
+      ExclusiveStartKey: startKey,
+    }),
+  );
+  const items = (page.Items ?? []).map(toTask);
+  if (!page.LastEvaluatedKey) return items;
+  return [...items, ...(await queryBoardTasks(boardId, page.LastEvaluatedKey))];
+}
+
 async function listTasks(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const boardId = pathParam(event, "id");
   await accessibleBoard(boardId, caller);
-  const tasks: Task[] = [];
-  let ExclusiveStartKey: Record<string, unknown> | undefined;
-  do {
-    const page = await ddb.send(
-      new QueryCommand({
-        TableName: tables.tasks,
-        IndexName: "byBoard",
-        KeyConditionExpression: "boardId = :b",
-        ExpressionAttributeValues: { ":b": boardId },
-        ExclusiveStartKey,
-      }),
-    );
-    tasks.push(...((page.Items ?? []) as Task[]));
-    ExclusiveStartKey = page.LastEvaluatedKey;
-  } while (ExclusiveStartKey);
+  const tasks = await queryBoardTasks(boardId);
   return json(200, { tasks });
 }
 
 async function createTask(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const boardId = pathParam(event, "id");
-  await accessibleBoard(boardId, caller);
+  const board = await accessibleBoard(boardId, caller);
   const input = parseBody(CreateTaskSchema, event);
+  validateTaskFields(board, input);
   const now = Date.now();
   const task: Task = {
     taskId: `t_${ulid()}`,
@@ -214,6 +268,10 @@ async function createTask(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
     title: input.title,
     description: input.description,
     status: "TODO",
+    assigneeId: input.assigneeId,
+    project: input.project,
+    notes: input.notes,
+    attachments: input.attachments,
     createdBy: caller.userId,
     createdAt: now,
     updatedAt: now,
@@ -226,27 +284,28 @@ async function createTask(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
     }),
   );
   log.info("task created", { boardId, taskId: task.taskId, userId: caller.userId });
+  await notifyBoard(board, { type: "board.task_created", boardId, task });
   return json(201, { task });
 }
 
-/** The task if its board is accessible to `caller`; a 404 otherwise. */
-async function accessibleTask(taskId: string, caller: HttpCaller): Promise<Task> {
+/** The task and its board if the board is accessible to `caller`; a 404 otherwise. */
+async function accessibleTask(
+  taskId: string,
+  caller: HttpCaller,
+): Promise<{ task: Task; board: Board }> {
   const { Item } = await ddb.send(new GetCommand({ TableName: tables.tasks, Key: { taskId } }));
   if (!Item) throw notFound("Task not found");
-  const task = Item as Task;
-  try {
-    await accessibleBoard(task.boardId, caller);
-  } catch (err) {
-    if (err instanceof HttpError && err.status === 404) throw notFound("Task not found");
-    throw err;
-  }
-  return task;
+  const task = toTask(Item);
+  const board = await getAccessibleBoard(task.boardId, caller.userId);
+  if (!board) throw notFound("Task not found");
+  return { task, board };
 }
 
 async function updateTask(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const taskId = pathParam(event, "taskId");
-  await accessibleTask(taskId, caller);
+  const { board } = await accessibleTask(taskId, caller);
   const patch = parseBody(UpdateTaskSchema, event);
+  validateTaskFields(board, patch);
 
   const names: Record<string, string> = { "#updatedAt": "updatedAt" };
   const values: Record<string, unknown> = { ":updatedAt": Date.now() };
@@ -268,15 +327,18 @@ async function updateTask(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
       ReturnValues: "ALL_NEW",
     }),
   );
+  const task = toTask(Attributes ?? {});
   log.info("task updated", { taskId, userId: caller.userId, fields: Object.keys(patch) });
-  return json(200, { task: Attributes as Task });
+  await notifyBoard(board, { type: "board.task_updated", boardId: board.boardId, task });
+  return json(200, { task });
 }
 
 async function deleteTask(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const taskId = pathParam(event, "taskId");
-  await accessibleTask(taskId, caller);
+  const { board } = await accessibleTask(taskId, caller);
   await ddb.send(new DeleteCommand({ TableName: tables.tasks, Key: { taskId } }));
   log.info("task deleted", { taskId, userId: caller.userId });
+  await notifyBoard(board, { type: "board.task_deleted", boardId: board.boardId, taskId });
   return json(204);
 }
 

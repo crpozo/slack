@@ -147,9 +147,11 @@ describe("task manager API", () => {
     ]);
     expect(actionsOn("DataUsers")).toEqual(["dynamodb:BatchGetItem"]);
     expect(actionsOn("DataMessages")).toEqual([]);
-    expect(statements.some((st) => JSON.stringify(st.Action).includes("ManageConnections"))).toBe(
-      false,
-    );
+    // Real-time pushes over the chat WebSocket: list members' connections, drop stale ones, post.
+    expect(actionsOn("DataConnections")).toEqual(["dynamodb:DeleteItem", "dynamodb:Scan"]);
+    expect(
+      statements.some((st) => [st.Action].flat().includes("execute-api:ManageConnections")),
+    ).toBe(true);
   });
 
   it("writes the API URL into config.json and outputs it", () => {

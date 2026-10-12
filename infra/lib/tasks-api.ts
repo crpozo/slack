@@ -13,6 +13,7 @@ import { Architecture, Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
+import type { Api } from "./api";
 import type { Auth } from "./auth";
 import type { Data } from "./data";
 import { removalPolicyFor, type Stage } from "./stage";
@@ -35,6 +36,8 @@ interface TasksApiProps {
   stage: Stage;
   auth: Auth;
   data: Data;
+  /** The chat WebSocket API: board changes are pushed to members' connections. */
+  wsApi: Api;
   /** Browser origins allowed to call the API (more can be added later with `allowOrigins`). */
   allowOrigins: string[];
 }
@@ -53,7 +56,7 @@ export class TasksApi extends Construct {
 
   constructor(scope: Construct, id: string, props: TasksApiProps) {
     super(scope, id);
-    const { stage, auth, data } = props;
+    const { stage, auth, data, wsApi } = props;
     this.origins = [...props.allowOrigins];
 
     const functionName = `slack-${stage}-tasks`;
@@ -71,6 +74,8 @@ export class TasksApi extends Construct {
         BOARDS_TABLE: data.boards.tableName,
         TASKS_TABLE: data.tasks.tableName,
         USERS_TABLE: data.users.tableName,
+        CONNECTIONS_TABLE: data.connections.tableName,
+        WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
       },
       projectRoot: REPO_ROOT,
       depsLockFilePath: `${REPO_ROOT}pnpm-lock.yaml`,
@@ -129,6 +134,9 @@ export class TasksApi extends Construct {
       "dynamodb:Query",
     );
     data.users.grant(this.handler, "dynamodb:BatchGetItem"); // invitees must exist
+    // Real-time pushes: list live connections, post to members', drop stale ones (410).
+    data.connections.grant(this.handler, "dynamodb:Scan", "dynamodb:DeleteItem");
+    wsApi.webSocketApi.grantManageConnections(this.handler);
   }
 
   /**

@@ -50,6 +50,7 @@ export class SlackStack extends Stack {
       stage,
       auth,
       data,
+      wsApi: api,
       allowOrigins: [
         ...LOCAL_DEV_ORIGINS,
         ...(domains.appDomain ? [`https://${domains.appDomain}`] : []),

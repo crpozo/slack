@@ -3,12 +3,11 @@ import {
   MAX_BOARD_NAME_LENGTH,
   MAX_TASK_DESCRIPTION_LENGTH,
   MAX_TASK_TITLE_LENGTH,
-  TASK_STATUSES,
   type Board,
   type Task,
   type TaskStatus,
 } from "@mindfultech/shared";
-import { useEffect, useMemo, useState, type DragEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type DragEvent, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { tasksApiConfigured } from "../lib/tasksApi";
@@ -16,9 +15,18 @@ import { useChat, useNameOf } from "../store";
 import { splitBoards, useTasks } from "../store/tasks";
 import { Avatar } from "./Avatar";
 import { CallPanel } from "./CallLayer";
-import { ChevronDownIcon, KanbanIcon, MenuIcon, PlusIcon, TrashIcon, UserPlusIcon } from "./icons";
+import {
+  ChevronDownIcon,
+  KanbanIcon,
+  MenuIcon,
+  PaperclipIcon,
+  PlusIcon,
+  TrashIcon,
+  UserPlusIcon,
+} from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 import { Popover } from "./Popover";
+import { TaskDetails } from "./TaskDetails";
 import { UserPicker } from "./UserPicker";
 
 const COLUMNS: Array<{ status: TaskStatus; title: string; accent: string }> = [
@@ -26,11 +34,8 @@ const COLUMNS: Array<{ status: TaskStatus; title: string; accent: string }> = [
   { status: "IN_PROGRESS", title: "In Progress", accent: "bg-warning" },
   { status: "DONE", title: "Done", accent: "bg-success" },
 ];
-const COLUMN_TITLE = Object.fromEntries(COLUMNS.map((c) => [c.status, c.title])) as Record<
-  TaskStatus,
-  string
->;
 const DRAG_TYPE = "application/x-slack-task";
+const acceptsTask = (e: DragEvent) => e.dataTransfer.types.includes(DRAG_TYPE);
 
 const boardPath = (boardId: string) => `/app/tasks/${encodeURIComponent(boardId)}`;
 
@@ -119,6 +124,7 @@ function ShareBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: (
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const shareLabel = selected.length > 0 ? `Share (${selected.length})` : "Share";
 
   async function share() {
     setBusy(true);
@@ -145,7 +151,7 @@ function ShareBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: (
             disabled={busy || selected.length === 0}
             onClick={() => void share()}
           >
-            {busy ? "Sharing…" : `Share${selected.length > 0 ? ` (${selected.length})` : ""}`}
+            {busy ? "Sharing…" : shareLabel}
           </button>
         </>
       }
@@ -282,10 +288,25 @@ function MoveMenu({ task }: Readonly<{ task: Task }>) {
   );
 }
 
+/** Stable colour per project name, so the same tag always looks the same. */
+const TAG_COLORS = [
+  "bg-sky/30 text-ink",
+  "bg-primary/30 text-ink",
+  "bg-warning/40 text-ink",
+  "bg-error/25 text-ink",
+  "bg-success/35 text-ink",
+];
+function tagColor(name: string): string {
+  let hash = 0;
+  for (const ch of name) hash = (hash * 31 + (ch.codePointAt(0) ?? 0)) >>> 0;
+  return TAG_COLORS[hash % TAG_COLORS.length] ?? TAG_COLORS[0]!;
+}
+
 function TaskCard({
   task,
   onDragStart,
-}: Readonly<{ task: Task; onDragStart: (id: string) => void }>) {
+  onOpen,
+}: Readonly<{ task: Task; onDragStart: (id: string) => void; onOpen: (id: string) => void }>) {
   const deleteTask = useTasks((s) => s.deleteTask);
   const nameOf = useNameOf();
   const pending = task.taskId.startsWith("pending_");
@@ -308,19 +329,48 @@ function TaskCard({
         pending ? "opacity-60" : "cursor-grab active:cursor-grabbing"
       } ${dragging ? "opacity-40" : ""}`}
     >
-      <h4 className="text-sm font-medium text-ink">{task.title}</h4>
+      {task.project && (
+        <span
+          className={`mb-1.5 inline-block max-w-full truncate rounded-md px-1.5 py-0.5 text-[11px] font-medium ${tagColor(task.project)}`}
+        >
+          {task.project}
+        </span>
+      )}
+      <h4 className="text-sm font-medium text-ink">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => onOpen(task.taskId)}
+          className="w-full text-left hover:underline disabled:no-underline"
+          aria-label={`Open "${task.title}"`}
+        >
+          {task.title}
+        </button>
+      </h4>
       {task.description && (
         <p className="mt-1 line-clamp-3 whitespace-pre-line text-xs text-ink-secondary">
           {task.description}
         </p>
       )}
       <div className="mt-2 flex items-center gap-1">
-        {task.createdBy && (
-          <span title={`Added by ${nameOf(task.createdBy)}`}>
-            <Avatar name={nameOf(task.createdBy)} size="xs" />
+        {task.attachments.length > 0 && (
+          <span
+            className="flex items-center gap-0.5 text-xs text-ink-secondary"
+            title={`${task.attachments.length} attachment${task.attachments.length === 1 ? "" : "s"}`}
+            aria-label={`${task.attachments.length} attachments`}
+          >
+            <PaperclipIcon /> {task.attachments.length}
           </span>
         )}
         <span className="flex-1" />
+        {task.assigneeId && (
+          <span
+            title={`Assigned to ${nameOf(task.assigneeId)}`}
+            aria-label={`Assigned to ${nameOf(task.assigneeId)}`}
+          >
+            <Avatar name={nameOf(task.assigneeId)} size="xs" />
+          </span>
+        )}
         {!pending && <MoveMenu task={task} />}
         {!pending && (
           <button
@@ -344,19 +394,18 @@ function Column({
   boardId,
   draggingId,
   onDragStart,
+  onOpen,
 }: Readonly<{
   column: (typeof COLUMNS)[number];
   tasks: Task[];
   boardId: string;
   draggingId: string | null;
   onDragStart: (id: string) => void;
+  onOpen: (id: string) => void;
 }>) {
   const moveTask = useTasks((s) => s.moveTask);
   const [over, setOver] = useState(false);
 
-  function accepts(e: DragEvent) {
-    return e.dataTransfer.types.includes(DRAG_TYPE);
-  }
   function handleDrop(e: DragEvent) {
     e.preventDefault();
     setOver(false);
@@ -369,7 +418,7 @@ function Column({
       aria-label={column.title}
       data-status={column.status}
       onDragOver={(e) => {
-        if (!accepts(e)) return;
+        if (!acceptsTask(e)) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
         setOver(true);
@@ -392,7 +441,7 @@ function Column({
       <div className="flex flex-1 flex-col gap-2">
         {column.status === "TODO" && <AddTaskForm boardId={boardId} />}
         {tasks.map((task) => (
-          <TaskCard key={task.taskId} task={task} onDragStart={onDragStart} />
+          <TaskCard key={task.taskId} task={task} onDragStart={onDragStart} onOpen={onOpen} />
         ))}
         {tasks.length === 0 && column.status !== "TODO" && (
           <p className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-ink-secondary">
@@ -411,8 +460,10 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
   const loading = useTasks((s) => s.loadingBoard === board.boardId);
   const loadTasks = useTasks((s) => s.loadTasks);
   const [sharing, setSharing] = useState(false);
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const isOwner = board.ownerId === myUserId;
+  const closeTask = useCallback(() => setOpenTaskId(null), []);
 
   useEffect(() => {
     void loadTasks(board.boardId);
@@ -460,11 +511,13 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
               boardId={board.boardId}
               draggingId={draggingId}
               onDragStart={setDraggingId}
+              onOpen={setOpenTaskId}
             />
           ))}
         </div>
       </div>
       {sharing && <ShareBoardModal board={board} onClose={() => setSharing(false)} />}
+      {openTaskId && <TaskDetails taskId={openTaskId} board={board} onClose={closeTask} />}
     </div>
   );
 }
@@ -672,5 +725,3 @@ function Empty({
     </div>
   );
 }
-
-export { COLUMN_TITLE, TASK_STATUSES as BOARD_STATUSES };
