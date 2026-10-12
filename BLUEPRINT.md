@@ -510,9 +510,23 @@ It is carried out in three sub-phases, each on its own branch with its own PR to
 
 ---
 
-### PHASE 6 (optional) — Desktop app with Tauri
+### PHASE 6 — Task Manager (boards with members)
 
-**Branch:** `feature/f6-tauri` (starts from `main` after v0.2.0).
+**Branch:** `feature/f6-task-manager`
+
+1. **Data (two tables, on-demand):** `boards` with PK `boardId` + SK `sk`: the board row (`sk = "BOARD"`: `name`, `ownerId`, `members` as a string set that includes the owner, `createdAt`) is the single source of truth for access; one membership row per member (`sk = "MEMBER#<userId>"`, `userId`) feeds the `byUser` GSI so listing someone's boards is a query. `tasks` with PK `taskId` and the `byBoard` GSI (`boardId` → `createdAt`); fields `title`, `description`, `status` (`TODO | IN_PROGRESS | DONE`), `createdBy`, `createdAt`, `updatedAt`. Ids are `b_<ulid>` / `t_<ulid>`.
+2. **API (API Gateway v2 HTTP API + JWT authorizer):** `GET /boards`, `POST /boards`, `POST /boards/{id}/members`, `GET /boards/{id}/tasks`, `POST /boards/{id}/tasks`, `PUT /tasks/{taskId}`, `DELETE /tasks/{taskId}`. The authorizer validates the Cognito id token (issuer = the user pool, audience = the web client), so no authorizer Lambda runs; one `tasks` Lambda serves every route and reads the caller from the JWT `sub`. CORS is limited to the app origins (CloudFront, custom domain, localhost). Bodies are validated with zod schemas in `packages/shared/src/tasks.ts`.
+3. **Security:** every handler loads the board row and checks `ownerId === caller || members ∋ caller` before anything else; a board or task the caller may not see answers **404** (never 403, so nothing leaks). Adding members is owner-only (403 otherwise) and invitees must exist in the `users` directory. Creating a board and adding members write the board row and the membership rows in one `TransactWriteItems`. IAM: `GetItem/PutItem/UpdateItem/BatchGetItem/Query` on `boards`, `GetItem/PutItem/UpdateItem/DeleteItem/Query` on `tasks`, `BatchGetItem` on `users`, nothing else.
+4. **Deploy:** `TasksApi` construct in `infra/lib/tasks-api.ts`, wired in `slack-stack.ts`; the URL is written to `config.json` (`tasksUrl`) and output as `TasksApiUrl`; `VITE_TASKS_URL` for `pnpm dev`.
+5. **Frontend:** `APPS → Task Manager` in the sidebar; `/app/tasks[/:boardId]` renders `TaskManager` in place of the chat column (sidebar, settings, calls bar keep working). Board navigation on the left ("My boards" / "Shared with me"; a dropdown on phones), **Share board** (owner only) reusing the people picker, and a Kanban board with HTML5 drag and drop plus a "Move to…" menu for keyboard and touch. A zustand store (`store/tasks.ts`) applies every change optimistically and rolls it back with the server's message on failure.
+
+**Phase 6 acceptance criteria:** a non-member gets 404 from every board/task route and sees nothing in the UI; a member sees the board under "Shared with me" and can add/move/delete tasks but not share; dragging a card sends exactly one `PUT {status}` and survives a reload; a refused change is undone on screen.
+
+---
+
+### PHASE 7 (optional) — Desktop app with Tauri
+
+**Branch:** `feature/f7-tauri` (starts from `main` after v0.2.0).
 
 **Instructions for Opus:**
 
@@ -521,7 +535,7 @@ It is carried out in three sub-phases, each on its own branch with its own PR to
 3. `.github/workflows/desktop.yml`: on tag `v*`, `macos-latest` + `windows-latest` matrix, `tauri-apps/tauri-action` publishes the `.dmg` and `.msi` as release assets. No code signing for now (document the Gatekeeper/SmartScreen warning in the README).
 4. Dock/taskbar badge and Cmd/Ctrl+F are left for v0.2.
 
-**F6 acceptance criterion:** the release's `.dmg` and `.msi` open the app, show the login and receive a native notification with the window in the background.
+**F7 acceptance criterion:** the release's `.dmg` and `.msi` open the app, show the login and receive a native notification with the window in the background.
 
 ---
 
