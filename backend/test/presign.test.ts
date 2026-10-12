@@ -1,4 +1,6 @@
+import { HeadObjectCommand, NotFound, S3Client } from "@aws-sdk/client-s3";
 import { MAX_ATTACHMENT_SIZE, type PresignResultEvent } from "@mindfultech/shared";
+import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handler, sanitizeFileName } from "../src/handlers/presign";
 import { resetMocks, sentEvents, wsEvent } from "./helpers";
@@ -17,8 +19,14 @@ const put = (overrides: object = {}) =>
     }),
   );
 
+const s3Mock = mockClient(S3Client);
+
 describe("presign", () => {
-  beforeEach(resetMocks);
+  beforeEach(() => {
+    resetMocks();
+    s3Mock.reset();
+    s3Mock.on(HeadObjectCommand).resolves({});
+  });
 
   it("put returns a signed PUT URL bound to type and size", async () => {
     const result = await put();
@@ -57,6 +65,38 @@ describe("presign", () => {
     const [[, event]] = sentEvents() as [[string, PresignResultEvent]];
     expect(event).toMatchObject({ type: "presign.result", key, requestId: "r2" });
     expect(new URL(event.url).pathname).toBe(`/${key}`);
+  });
+
+  it("get answers FILE_NOT_FOUND for a key that does not exist", async () => {
+    s3Mock.on(HeadObjectCommand).rejects(new NotFound({ message: "missing", $metadata: {} }));
+    const key = "attachments/ch_general/01ABC-borrado.png";
+
+    const result = await handler(
+      wsEvent("presign", { action: "presign", op: "get", requestId: "r3", key }),
+    );
+
+    expect(result.statusCode).toBe(400);
+    expect(s3Mock.commandCalls(HeadObjectCommand)[0]?.args[0].input).toEqual({
+      Bucket: "slack-test-attachments",
+      Key: key,
+    });
+    expect(sentEvents()).toEqual([
+      ["conn-alice", { type: "error", code: "FILE_NOT_FOUND", requestId: "r3" }],
+    ]);
+  });
+
+  it("get surfaces unexpected S3 errors as INTERNAL_ERROR", async () => {
+    s3Mock.on(HeadObjectCommand).rejects(new Error("throttled"));
+    const result = await handler(
+      wsEvent("presign", {
+        action: "presign",
+        op: "get",
+        requestId: "r4",
+        key: "attachments/ch_general/x.png",
+      }),
+    );
+    expect(result.statusCode).toBe(500);
+    expect(sentEvents()[0]?.[1]).toMatchObject({ code: "INTERNAL_ERROR" });
   });
 
   it("get rejects keys outside attachments/ or with traversal", async () => {

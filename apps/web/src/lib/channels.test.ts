@@ -83,7 +83,7 @@ describe("resolveConfig", () => {
         env,
       ),
     ).toEqual({
-      wsUrl: "wss://deployed",
+      wsUrl: "wss://deployed/",
       userPoolId: "pool",
       userPoolClientId: "client",
       users: [{ email: "a@mt.ec", userId: "u-a" }],
@@ -91,10 +91,14 @@ describe("resolveConfig", () => {
   });
 
   it("falls back to VITE_* in local dev and lets config.json set users", () => {
-    expect(resolveConfig(null, env).wsUrl).toBe("wss://local");
+    expect(resolveConfig(null, env).wsUrl).toBe("wss://local/");
     expect(resolveConfig({ users: "b@mt.ec=u-b" }, env).users).toEqual([
       { email: "b@mt.ec", userId: "u-b" },
     ]);
+  });
+
+  it("rejects an insecure WebSocket URL", () => {
+    expect(() => resolveConfig({ wsUrl: "ws://evil.example" }, env)).toThrow("wss://");
   });
 
   it("names every missing value", () => {

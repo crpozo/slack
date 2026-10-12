@@ -1,9 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { CLIENT_ACTIONS } from "@mindfultech/shared";
 import { Duration } from "aws-cdk-lib";
-import { WebSocketApi, WebSocketStage } from "aws-cdk-lib/aws-apigatewayv2";
+import { ApiMapping, DomainName, WebSocketApi, WebSocketStage } from "aws-cdk-lib/aws-apigatewayv2";
 import { WebSocketLambdaAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import { WebSocketLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import type { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import { PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { Architecture, Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
@@ -25,11 +26,16 @@ interface ApiProps {
   auth: Auth;
   data: Data;
   attachments: Bucket;
+  /** e.g. `ws.mindfultech.ec`, mapped to the stage at the root path. */
+  customDomain?: { domainName: string; certificate: ICertificate };
 }
 
 export class Api extends Construct {
   readonly webSocketApi: WebSocketApi;
   readonly webSocketStage: WebSocketStage;
+  /** Public `wss://` URL clients use: the custom domain when configured. */
+  readonly url: string;
+  readonly domainName?: DomainName;
 
   constructor(scope: Construct, id: string, props: ApiProps) {
     super(scope, id);
@@ -44,6 +50,18 @@ export class Api extends Construct {
       stageName: "prod",
       autoDeploy: true,
     });
+
+    if (props.customDomain) {
+      this.domainName = new DomainName(this, "CustomDomain", props.customDomain);
+      new ApiMapping(this, "CustomDomainMapping", {
+        api: this.webSocketApi,
+        domainName: this.domainName,
+        stage: this.webSocketStage,
+      });
+      this.url = `wss://${props.customDomain.domainName}`;
+    } else {
+      this.url = this.webSocketStage.url;
+    }
 
     const environment = {
       STAGE: stage,
@@ -141,6 +159,14 @@ export class Api extends Construct {
       new PolicyStatement({
         actions: ["s3:PutObject", "s3:GetObject"],
         resources: [props.attachments.arnForObjects("attachments/*")],
+      }),
+    );
+    // ListBucket only so HeadObject on a missing key answers 404 instead of 403.
+    handlers.presign.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["s3:ListBucket"],
+        resources: [props.attachments.bucketArn],
+        conditions: { StringLike: { "s3:prefix": ["attachments/*"] } },
       }),
     );
 

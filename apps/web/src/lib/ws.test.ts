@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { backoffDelay, WsClient } from "./ws";
+import { assertWebSocketUrl, backoffDelay, WsClient } from "./ws";
 
 class FakeSocket {
   static instances: FakeSocket[] = [];
@@ -39,6 +39,38 @@ describe("backoffDelay", () => {
   });
 });
 
+describe("assertWebSocketUrl", () => {
+  it("accepts wss:// anywhere and ws:// only on localhost", () => {
+    expect(assertWebSocketUrl("wss://abc.execute-api.us-east-1.amazonaws.com/prod")).toBe(
+      "wss://abc.execute-api.us-east-1.amazonaws.com/prod",
+    );
+    expect(assertWebSocketUrl("wss://ws.mindfultech.ec")).toBe("wss://ws.mindfultech.ec/");
+    expect(assertWebSocketUrl("ws://localhost:8787")).toBe("ws://localhost:8787/");
+    expect(assertWebSocketUrl("ws://127.0.0.1:8787")).toBe("ws://127.0.0.1:8787/");
+  });
+
+  it("rejects anything else", () => {
+    for (const bad of [
+      "ws://evil.example",
+      "https://ws.mindfultech.ec",
+      "javascript:alert(1)",
+      "wss://user:pass@ws.mindfultech.ec",
+      "wss://ws.mindfultech.ec/?token=stolen",
+      "wss://ws.mindfultech.ec/#x",
+      "not a url",
+      "",
+    ]) {
+      expect(() => assertWebSocketUrl(bad), bad).toThrow();
+    }
+  });
+
+  it("is enforced by the client before connecting", () => {
+    expect(() => new WsClient({ url: "ws://evil.example", getToken: async () => "t" })).toThrow(
+      "wss://",
+    );
+  });
+});
+
 describe("WsClient", () => {
   beforeEach(() => {
     FakeSocket.instances = [];
@@ -64,7 +96,7 @@ describe("WsClient", () => {
     await flush();
 
     const socket = FakeSocket.instances[0]!;
-    expect(socket.url).toBe("wss://ws.example?token=tok");
+    expect(socket.url).toBe("wss://ws.example/?token=tok");
     expect(socket.sent).toEqual([]);
     socket.open();
     expect(socket.sent).toEqual(['{"action":"channel","op":"list"}']);

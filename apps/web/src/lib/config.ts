@@ -1,3 +1,5 @@
+import { assertWebSocketUrl } from "./ws";
+
 export interface DirectoryUser {
   email: string;
   /** Cognito `sub`; unknown until configured or seen in a message. */
@@ -59,7 +61,7 @@ export function resolveConfig(
   }
 
   return {
-    wsUrl,
+    wsUrl: assertWebSocketUrl(wsUrl),
     userPoolId,
     userPoolClientId,
     users: parseUsers(str(runtime?.users) ?? env.VITE_USERS),

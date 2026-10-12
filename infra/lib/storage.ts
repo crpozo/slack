@@ -25,15 +25,6 @@ export class Storage extends Construct {
 
     this.attachments = new Bucket(this, "Attachments", {
       ...common,
-      // Restricted to the SPA origin in F4.
-      cors: [
-        {
-          allowedMethods: [HttpMethods.PUT, HttpMethods.GET],
-          allowedOrigins: ["*"],
-          allowedHeaders: ["*"],
-          maxAge: 3000,
-        },
-      ],
       lifecycleRules: [
         {
           transitions: [
@@ -47,5 +38,16 @@ export class Storage extends Construct {
     });
 
     this.web = new Bucket(this, "Web", common);
+  }
+
+  /** Lets these browser origins PUT/GET attachments through presigned URLs. */
+  allowBrowserOrigins(origins: string[]): void {
+    this.attachments.addCorsRule({
+      allowedMethods: [HttpMethods.PUT, HttpMethods.GET],
+      allowedOrigins: origins,
+      // Presigned PUTs send Content-Type; signed headers must be allowed.
+      allowedHeaders: ["content-type", "content-length"],
+      maxAge: 3000,
+    });
   }
 }

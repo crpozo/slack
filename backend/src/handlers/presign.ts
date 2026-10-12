@@ -2,7 +2,7 @@ import { canAccessChannel, parseAction, PresignActionSchema } from "@mindfultech
 import { ulid } from "ulid";
 import { wsHandler } from "../lib/handler";
 import { badRequest, ok, reply, replyError } from "../lib/response";
-import { presignGet, presignPut } from "../lib/s3";
+import { objectExists, presignGet, presignPut } from "../lib/s3";
 
 const KEY_PREFIX = "attachments/";
 
@@ -43,6 +43,9 @@ export const handler = wsHandler(async (event, caller) => {
   const channelId = channelOfKey(action.key);
   if (!channelId || !canAccessChannel(channelId, caller.userId)) {
     return badRequest(caller.connectionId, "Invalid key", action.requestId);
+  }
+  if (!(await objectExists(action.key))) {
+    return replyError(caller.connectionId, "FILE_NOT_FOUND", undefined, action.requestId);
   }
   const url = await presignGet(action.key);
   await reply(caller.connectionId, {

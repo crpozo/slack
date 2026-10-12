@@ -165,7 +165,12 @@ export function parseAction<T extends z.ZodType>(
 // ---------------------------------------------------------------------------
 
 export type ErrorCode =
-  "BAD_REQUEST" | "UNAUTHORIZED" | "CHANNEL_NOT_FOUND" | "CHANNEL_NAME_TAKEN" | "INTERNAL_ERROR";
+  | "BAD_REQUEST"
+  | "UNAUTHORIZED"
+  | "CHANNEL_NOT_FOUND"
+  | "CHANNEL_NAME_TAKEN"
+  | "FILE_NOT_FOUND"
+  | "INTERNAL_ERROR";
 
 export interface MessageNewEvent {
   type: "message.new";
