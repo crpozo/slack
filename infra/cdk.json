@@ -12,6 +12,9 @@
     "@aws-cdk/aws-lambda-nodejs:useLatestRuntimeVersion": false,
     "@aws-cdk/aws-cloudfront:defaultSecurityPolicyTLSv1.2_2021": true,
     "@aws-cdk/aws-s3:keepNotificationInImportedBucket": false,
-    "budgetEmail": "carlos@mindfultech.ec"
+    "budgetEmail": "carlos@mindfultech.ec",
+    "prod": {
+      "certificateArn": "arn:aws:acm:us-east-1:367083531811:certificate/9e859cd2-794b-4f70-a2be-895649c7c042"
+    }
   }
 }

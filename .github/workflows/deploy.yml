@@ -6,7 +6,7 @@ name: Deploy
 #
 # Repository variables (Settings → Secrets and variables → Actions → Variables):
 #   AWS_DEPLOY_ROLE_ARN        required; the workflow is skipped until it is set
-#   CERT_ARN                   ACM certificate for slack/ws.mindfultech.ec (optional)
+#   CERT_ARN                   optional override; the prod certificate is in infra/cdk.json
 #   HOSTED_ZONE_ID             Route 53 zone for alias records (optional)
 #   WEB_USERS                  DM directory, `email=sub,email=sub` (optional)
 #   GITHUB_OIDC_PROVIDER_ARN   if the account already had a GitHub OIDC provider

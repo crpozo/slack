@@ -217,19 +217,23 @@ the stack (`destroy:dev` doesn't build the web app: it passes `-c skipWebBuild=t
 
 ### 2. First deploy
 
+The prod certificate is committed in `infra/cdk.json` (`"prod": { "certificateArn": "…" }`; an
+ARN is not a secret). Every `SlackProd` deploy — from any laptop or from CI — therefore keeps
+CloudFront on `slack.mindfultech.ec` and the WebSocket on `wss://ws.mindfultech.ec`, with no
+environment variable to forget. (A deploy without it falls back to the `*.cloudfront.net` and
+execute-api hostnames, and the custom domain then answers with CloudFront's 403 page.)
+
 ```bash
-export CERT_ARN=arn:aws:acm:us-east-1:<account>:certificate/<id>
 export WEB_USERS="person1@mindfultech.ec=<sub>,person2@mindfultech.ec=<sub>"
 pnpm deploy:prod
 ```
 
-Without `CERT_ARN`, `SlackProd` still deploys and is served on the CloudFront and execute-api
-hostnames; with it, CloudFront answers on `slack.mindfultech.ec`, the WebSocket on
-`wss://ws.mindfultech.ec`, and `config.json` points to that domain.
+To use another certificate, change `infra/cdk.json`; `-c certificateArn=…` or `CERT_ARN` override
+it for a single deploy. Dev never picks up prod's certificate.
 
 | Context (`-c`)          | Environment variable       | Purpose                                        |
 | ----------------------- | -------------------------- | ---------------------------------------------- |
-| `certificateArn`        | `CERT_ARN`                 | Enables the custom domains                     |
+| `certificateArn`        | `CERT_ARN`                 | Overrides `prod.certificateArn` in cdk.json    |
 | `appDomain`             | `SLACK_APP_DOMAIN`         | Defaults to `slack.mindfultech.ec` in prod     |
 | `wsDomain`              | `SLACK_WS_DOMAIN`          | Defaults to `ws.mindfultech.ec` in prod        |
 | `hostedZoneId`          | `HOSTED_ZONE_ID`           | Creates Route 53 aliases (if the DNS is there) |
@@ -275,7 +279,8 @@ After the first manual deploy, in _Settings → Secrets and variables → Action
 
 - `AWS_DEPLOY_ROLE_ARN` = `GitHubDeployRoleArn` output (without this variable the workflow
   doesn't run)
-- `CERT_ARN`, `WEB_USERS` and, if applicable, `HOSTED_ZONE_ID` and `GITHUB_OIDC_PROVIDER_ARN`
+- `WEB_USERS` and, if applicable, `HOSTED_ZONE_ID` and `GITHUB_OIDC_PROVIDER_ARN` (`CERT_ARN` is
+  no longer needed: the certificate comes from `infra/cdk.json`)
 
 If the account already had a GitHub OIDC provider, the first `deploy:prod` fails to create it:
 retry with `GITHUB_OIDC_PROVIDER_ARN=arn:aws:iam::<account>:oidc-provider/token.actions.githubusercontent.com`.
