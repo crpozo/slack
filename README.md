@@ -185,6 +185,9 @@ Test messages (open two terminals to see the broadcast):
 {"action":"user","op":"list"}
 ```
 
+Push subscriptions use the HTTP API (`TasksApiUrl`) with the id token as a bearer:
+`GET /push/key`, `POST /push/subscribe {"subscription": …}`, `DELETE /push/subscribe {"endpoint": …}`.
+
 Connecting or closing the last connection of a user pushes `user.connected` /
 `user.disconnected` to everyone else; `user.list` includes an `online` snapshot.
 
@@ -248,7 +251,20 @@ If the domain were on Route 53, pass `HOSTED_ZONE_ID` and CDK creates the record
 Create the two accounts with the commands in [Create the Cognito users](#create-the-cognito-users)
 using the `UserPoolId` of `SlackProd`.
 
-### 5. Continuous deployment (GitHub Actions)
+### 5. Push notifications (VAPID keys, once per stage)
+
+Web Push needs a VAPID key pair. It is stored encrypted in Parameter Store (free tier) and never
+in CloudFormation, git or CI:
+
+```bash
+pnpm --filter infra vapid prod --subject mailto:ops@mindfultech.ec   # and/or: vapid dev
+```
+
+The Lambdas read `/slack/<stage>/vapid` at runtime, so this can run before or after a deploy;
+until it exists, push is simply off. `--rotate` replaces the keys (browsers re-subscribe on their
+next visit). On iPhone/iPad, push works only after _Share → Add to Home Screen_ (iOS 16.4+).
+
+### 6. Continuous deployment (GitHub Actions)
 
 `.github/workflows/deploy.yml` deploys `SlackProd` on every push to `main` (lint + tests →
 `pnpm deploy:prod`). It authenticates via **OIDC** with the `slack-github-deploy` role that the

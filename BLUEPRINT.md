@@ -546,6 +546,20 @@ It is carried out in three sub-phases, each on its own branch with its own PR to
 
 **Phase 7 acceptance criteria:** closing one of two tabs keeps the user online for others, closing the last one turns their dot gray within a second; a deleted channel disappears from every member's sidebar without a reload and its viewers land on `#general`; "Web Design" shows as "Web Design" and "web design" is refused as a duplicate.
 
+### Phase 8 — Web Push, mobile, legacy cleanup and board deletion
+
+**Branch:** `feature/f8-mobile-and-push`
+
+1. **VAPID keys at $0:** one SecureString parameter per stage, `/slack/<stage>/vapid` = `{ publicKey, privateKey, subject }`, created once with `pnpm --filter infra vapid <stage> [--subject mailto:…] [--rotate]` (Parameter Store standard tier, AWS-managed `aws/ssm` key; Secrets Manager would cost $0.40/month). CloudFormation can't create SecureStrings, and on purpose the stack doesn't reference the value at all: Lambdas get only `VAPID_PARAMETER` (the name) plus `ssm:GetParameter` on that one ARN, and decrypt it at cold start. The browser reads the public key from `GET /push/key`. A stage without the parameter deploys normally with push off (`/push/key` → 503, the UI says "not set up").
+2. **Subscriptions:** table `slack-<stage>-push-subscriptions` (`userId` + `sk` = sha256(endpoint), one row per device). A `push` Lambda on the HTTP API serves `GET /push/key`, `POST /push/subscribe` and `DELETE /push/subscribe` behind the JWT authorizer; rows are keyed by the caller's own id. Endpoints must be https URLs of a known push service (FCM, Mozilla, Apple, WNS) — checked on save and again on send — so the message Lambda can't be pointed at arbitrary hosts.
+3. **Sending:** after its broadcast the `message` Lambda computes recipients — the DM peer, or channel members `@mentioned` by display name (spaces removed) or email local part — drops anyone with a live connection, and sends `{ title, body (≤120-char preview), url, tag }` with `web-push` (TTL 1 h, high urgency, topic = conversation). Payloads are encrypted to the browser's keys. 404/410 deletes the subscription; nothing here can fail or delay the message.
+4. **Client:** `public/sw.js` shows notifications (one per conversation) and on click focuses an open tab (which navigates itself) or opens one. Settings → *Push notifications* and a one-time *Enable* bar (permission prompts need a click). The subscription is re-synced on sign-in (re-subscribing after a key rotation) and dropped on sign-out. `manifest.webmanifest` + icons make the app installable (needed for push on iOS 16.4+). `sw.js` and the manifest are deployed `no-cache`.
+5. **Mobile:** safe-area padding (`viewport-fit=cover`), `100dvh`, `interactive-widget=resizes-content`, 16px fields on phones (no iOS zoom), tap-to-react on messages, Kanban columns one per screen with snap scrolling.
+6. **Legacy channels:** any member may delete a channel without `slug` (created before Phase 7), without `createdBy`, or whose creator isn't in the users directory (`canDeleteChannel` in `packages/shared`). `#general` stays protected.
+7. **Delete boards:** `DELETE /boards/{id}` (owner only) deletes the tasks, then the membership rows, then the board row (conditional on `ownerId`), and pushes `board.deleted`. Web: gear menu next to the board title (Rename / Delete board), optimistic with rollback.
+
+**Phase 8 acceptance criteria:** with the app closed, a DM or an `@mention` raises a system notification within seconds and clicking it opens the conversation; no push while the recipient has the app open; `cdk synth` output contains no VAPID key; the app is usable one-handed at 390 px wide; a pre-Phase-7 channel can be deleted by any member; deleting a board removes its tasks and moves every member off it.
+
 ---
 
 ### PHASE 7 (optional) — Desktop app with Tauri

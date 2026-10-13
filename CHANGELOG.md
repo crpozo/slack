@@ -13,8 +13,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   either person for a DM). It disappears for every member in real time and whoever is viewing it
   is taken to `#general`.
 
+- **Push notifications** for direct messages and `@mentions` while you're away (Web Push, no
+  paid services): Settings → Push notifications, or the _Enable_ bar. Installable as an app on
+  phones (needed for push on iPhone).
+- **Delete boards** (owner): gear menu next to the board title; tasks are deleted with it.
+- **Phones:** safe areas, no zoom on fields, swipeable Kanban columns, tap a message to react.
+
 ### Fixed
 
+- Old test channels (created before readable names, or without a known creator) can be deleted
+  by any member. `#general` stays protected.
 - Task Manager board now fills the whole chat area with three equal columns.
 - Typing a new task's description no longer sends its first letters (the stray "te") into the
   title.
