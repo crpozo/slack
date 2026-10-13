@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { create } from "zustand";
 import { calls, useCall, type CallView } from "../lib/call";
 import { listInputDevices, loadMediaPrefs, supportsScreenShare } from "../lib/media";
 import { useNameOf } from "../store";
@@ -7,8 +8,10 @@ import { Avatar } from "./Avatar";
 import {
   CheckIcon,
   ChevronUpIcon,
+  MaximizeIcon,
   MicIcon,
   MicOffIcon,
+  MinimizeIcon,
   PhoneIcon,
   PhoneOffIcon,
   ScreenShareIcon,
@@ -17,6 +20,21 @@ import {
 } from "./icons";
 import { Popover } from "./Popover";
 import { StreamMedia } from "./StreamMedia";
+
+/**
+ * Call view size in the chat column: `split` (chat visible below) or expanded to
+ * the whole column (ChannelView hides the messages and composer meanwhile).
+ */
+export const useCallLayout = create<{ expanded: boolean; setExpanded: (v: boolean) => void }>(
+  (set) => ({ expanded: false, setExpanded: (expanded) => set({ expanded }) }),
+);
+
+/** Whether the call view fills the chat column of `channelId` right now. */
+export function useCallExpanded(channelId: string): boolean {
+  const here = useCall((s) => s.call?.channelId === channelId && s.call.phase !== "incoming");
+  const expanded = useCallLayout((s) => s.expanded);
+  return here && expanded;
+}
 
 function useElapsed(since: number | null): string {
   const [now, setNow] = useState(() => Date.now());
@@ -366,13 +384,29 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
   const elapsed = useElapsed(call.connectedAt);
   const connected = call.phase === "connected";
   const canShare = supportsScreenShare() && call.canShare;
+  const expanded = useCallLayout((s) => s.expanded);
+  const setExpanded = useCallLayout((s) => s.setExpanded);
+  // Every call starts in the split view; leaving it (hang up, other channel) resets it.
+  useEffect(() => () => setExpanded(false), [setExpanded]);
 
   return (
     <section
       aria-label={`Call with ${name}`}
-      className="flex h-[min(48vh,520px)] min-h-[300px] shrink-0 flex-col border-b border-line bg-[#0E0D12] text-white"
+      className={`flex flex-col border-b border-line bg-[#0E0D12] text-white ${
+        expanded ? "min-h-0 flex-1" : "h-[min(48vh,520px)] min-h-[300px] shrink-0"
+      }`}
     >
-      <header className="flex items-center gap-2 px-4 py-2 text-sm">
+      <header className="flex items-center gap-2 px-2 py-2 text-sm">
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          aria-pressed={expanded}
+          aria-label={expanded ? "Show the chat" : "Expand the call"}
+          title={expanded ? "Show the chat" : "Expand the call"}
+          className="rounded-md p-1.5 text-white/80 hover:bg-white/15 hover:text-white"
+        >
+          {expanded ? <MinimizeIcon /> : <MaximizeIcon />}
+        </button>
         <p className="truncate font-semibold">{name}</p>
         <p className="truncate text-white/70" aria-live="polite">
           {statusText(call, elapsed)}
