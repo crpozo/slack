@@ -17,6 +17,7 @@ import { BatchWriteCommand, DynamoDBDocumentClient, ScanCommand } from "@aws-sdk
 import { dmChannelId } from "@mindfultech/shared";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { pruneExcluded, type Dataset } from "../scripts/migrate/prune";
 import { createRemapper } from "../scripts/migrate/remap";
 import { migrate, type Clients } from "../scripts/migrate/run";
 
@@ -199,7 +200,8 @@ describe("migrate", () => {
     const report = await migrate(clients, opts);
 
     expect(report.items).toEqual({ users: 2, channels: 2, messages: 1, boards: 3, tasks: 1 });
-    expect(report.files).toEqual({ copied: 2, skipped: 0 });
+    expect(report.files).toEqual({ copied: 2, skipped: 0, excluded: 0 });
+    expect(report.excluded).toEqual([]);
     expect(report.users.every((u) => u.created)).toBe(true);
     expect(opts.passwordFor).not.toHaveBeenCalled();
     expect(cognito.commandCalls(AdminCreateUserCommand)).toHaveLength(0);
@@ -290,7 +292,7 @@ describe("migrate", () => {
       { taskId: "t_1", boardId: BOARD, createdBy: BOB2, assigneeId: ANA2 },
     ]);
     // Same size → skipped; the 20-byte file differs from the 10-byte head → copied again.
-    expect(report.files).toEqual({ copied: 1, skipped: 1 });
+    expect(report.files).toEqual({ copied: 1, skipped: 1, excluded: 0 });
   });
 
   it("retries writes DynamoDB leaves unprocessed", async () => {
@@ -319,5 +321,133 @@ describe("migrate", () => {
   it("fails clearly when a stack isn't deployed", async () => {
     cfn.on(DescribeStacksCommand, { StackName: "SlackProd" }).resolves({ Stacks: [] });
     await expect(migrate(clients, options(false))).rejects.toThrow(/SlackProd has no UserPoolId/);
+  });
+});
+
+// --- leaving test accounts behind ------------------------------------------------
+
+const TEST = "eeeeeeee-5555-4555-8555-555555555555";
+const DM_TEST = dmChannelId(ANA, TEST);
+const TEST_BOARD = "b_01JB0000000000000000000000";
+
+const withTestUser = (): Dataset => ({
+  users: [
+    { userId: ANA, email: "ana@mt.ec" },
+    { userId: TEST, email: "test@mt.ec" },
+  ],
+  channels: [
+    { channelId: "ch_general", type: "public", createdBy: "system" },
+    { channelId: DM_TEST, name: DM_TEST, type: "dm", createdBy: ANA, members: [ANA, TEST] },
+    { channelId: "ch_team", type: "private", createdBy: ANA, members: [ANA, TEST] },
+    { channelId: "ch_lab", type: "private", createdBy: TEST, members: [TEST] },
+    { channelId: "ch_pub", type: "public", createdBy: TEST },
+  ],
+  messages: [
+    // The call summary of the test call lives in the DM.
+    { channelId: DM_TEST, sk: "1#a", userId: ANA, text: "📹 Video call · 0:42" },
+    {
+      channelId: "ch_general",
+      sk: "2#b",
+      userId: TEST,
+      text: "test",
+      attachments: [{ key: "attachments/ch_general/t.png" }],
+    },
+    {
+      channelId: "ch_general",
+      sk: "3#c",
+      userId: ANA,
+      text: "real",
+      reactions: { "👍": new Set([ANA, TEST]), "🧪": new Set([TEST]) },
+    },
+    { channelId: "ch_lab", sk: "4#d", userId: TEST, text: "lab" },
+  ],
+  boards: [
+    { boardId: BOARD, sk: "BOARD", ownerId: ANA, members: new Set([ANA, TEST]) },
+    { boardId: BOARD, sk: `MEMBER#${ANA}`, userId: ANA },
+    { boardId: BOARD, sk: `MEMBER#${TEST}`, userId: TEST },
+    { boardId: TEST_BOARD, sk: "BOARD", ownerId: TEST, members: new Set([TEST]) },
+    { boardId: TEST_BOARD, sk: `MEMBER#${TEST}`, userId: TEST },
+  ],
+  tasks: [
+    { taskId: "t_1", boardId: BOARD, createdBy: ANA, assigneeId: TEST },
+    { taskId: "t_2", boardId: BOARD, createdBy: TEST, assigneeId: null },
+    { taskId: "t_3", boardId: TEST_BOARD, createdBy: TEST, assigneeId: null },
+  ],
+});
+
+describe("pruneExcluded", () => {
+  it("leaves out the test user's data and removes them from what stays", () => {
+    const { data, dropped, skipFile } = pruneExcluded(withTestUser(), new Set([TEST]));
+
+    expect(data.users.map((u) => u.userId)).toEqual([ANA]);
+    expect(data.channels).toEqual([
+      { channelId: "ch_general", type: "public", createdBy: "system" },
+      { channelId: "ch_team", type: "private", createdBy: ANA, members: [ANA] },
+      // A public channel they created stays (deletable by anyone, creator gone).
+      { channelId: "ch_pub", type: "public", createdBy: TEST },
+    ]);
+    expect(data.messages).toEqual([
+      {
+        channelId: "ch_general",
+        sk: "3#c",
+        userId: ANA,
+        text: "real",
+        reactions: { "👍": new Set([ANA]) },
+      },
+    ]);
+    expect(data.boards).toEqual([
+      { boardId: BOARD, sk: "BOARD", ownerId: ANA, members: new Set([ANA]) },
+      { boardId: BOARD, sk: `MEMBER#${ANA}`, userId: ANA },
+    ]);
+    expect(data.tasks).toEqual([
+      { taskId: "t_1", boardId: BOARD, createdBy: ANA, assigneeId: null },
+    ]);
+    expect(dropped).toEqual({ users: 1, channels: 2, messages: 3, boards: 3, tasks: 2 });
+
+    expect(skipFile(`attachments/${DM_TEST}/clip.webm`)).toBe(true);
+    expect(skipFile(`attachments/${TEST_BOARD}/spec.pdf`)).toBe(true);
+    expect(skipFile("attachments/ch_general/t.png")).toBe(true); // their message's file
+    expect(skipFile("attachments/ch_general/other.png")).toBe(false);
+  });
+
+  it("changes nothing when nobody is excluded", () => {
+    const data = withTestUser();
+    const result = pruneExcluded(data, new Set());
+    expect(result.data).toBe(data);
+    expect(result.skipFile(`attachments/${DM_TEST}/x`)).toBe(false);
+  });
+});
+
+describe("migrate with a test account deleted from the dev pool", () => {
+  it("copies nothing of theirs, and says so", async () => {
+    setup();
+    // Bob (the "test" account here) was deleted from Cognito dev; his data is still in the tables.
+    cognito
+      .on(ListUsersCommand, { UserPoolId: "pool-dev" })
+      .resolves({ Users: [user("ana@mt.ec", ANA)] });
+    const lines: string[] = [];
+    const report = await migrate(clients, { ...options(true), log: (l: string) => lines.push(l) });
+
+    expect(report.users.map((u) => u.email)).toEqual(["ana@mt.ec"]);
+    expect(report.excluded).toEqual([{ userId: BOB, email: "bob@mt.ec" }]);
+    expect(written("slack-prod-users")).toEqual([
+      { userId: ANA2, email: "ana@mt.ec", displayName: "Ana" },
+    ]);
+    // The DM with Bob and its message are gone; so is its file.
+    expect(
+      written("slack-prod-channels").map((c) => (c as { channelId: string }).channelId),
+    ).toEqual(["ch_general"]);
+    expect(written("slack-prod-messages")).toEqual([]);
+    expect(report.files).toEqual({ copied: 1, skipped: 0, excluded: 1 });
+    expect(s3.commandCalls(CopyObjectCommand).map((c) => c.args[0].input.Key)).toEqual([
+      "attachments/ch_general/g.png",
+    ]);
+    // Bob's task is gone; Ana's board no longer lists him.
+    expect(written("slack-prod-tasks")).toEqual([]);
+    expect(written("slack-prod-boards")).toEqual([
+      expect.objectContaining({ sk: "BOARD", ownerId: ANA2, members: new Set([ANA2]) }),
+      { boardId: BOARD, sk: `MEMBER#${ANA2}`, userId: ANA2 },
+    ]);
+    expect(lines.join("\n")).toMatch(/bob@mt\.ec: none of their data is copied/);
   });
 });

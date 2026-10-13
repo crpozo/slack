@@ -14,6 +14,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { BatchWriteCommand, DynamoDBDocumentClient, paginateScan } from "@aws-sdk/lib-dynamodb";
+import { pruneExcluded, type Dataset, type Item } from "./prune";
 import { createRemapper, type Remapper } from "./remap";
 
 /** Tables holding user data. `connections` and `push-subscriptions` rebuild themselves. */
@@ -38,10 +39,12 @@ export interface MigrateOptions {
 
 export interface MigrateReport {
   users: Array<{ email: string; oldId: string; newId: string; created: boolean }>;
+  /** Directory users with no account left in the source pool: none of their data is copied. */
+  excluded: Array<{ userId: string; email: string }>;
   items: Record<(typeof TABLES)[number], number>;
-  files: { copied: number; skipped: number };
-  /** Ids found in data with no account to map them to (left unchanged). */
-  unmappedIds: number;
+  /** Rows left out because they belonged to excluded users. */
+  dropped: Record<(typeof TABLES)[number], number>;
+  files: { copied: number; skipped: number; excluded: number };
 }
 
 interface StackInfo {
@@ -155,23 +158,19 @@ async function putAll(
   }
 }
 
-async function copyTable(
-  ddb: DynamoDBDocumentClient,
-  name: (typeof TABLES)[number],
-  opts: MigrateOptions,
-  remap: Remapper,
-): Promise<number> {
-  const source = `slack-${opts.from.stage}-${name}`;
-  const target = `slack-${opts.to.stage}-${name}`;
-  const items: Record<string, unknown>[] = [];
-  for await (const page of paginateScan({ client: ddb }, { TableName: source })) {
-    items.push(...(page.Items ?? []).map((item) => remap.value(item)));
+async function scanTable(ddb: DynamoDBDocumentClient, table: string): Promise<Item[]> {
+  const items: Item[] = [];
+  for await (const page of paginateScan({ client: ddb }, { TableName: table })) {
+    items.push(...(page.Items ?? []));
   }
-  if (opts.apply) await putAll(ddb, target, items);
-  opts.log(
-    `  ${name}: ${items.length} ${opts.apply ? "copied" : "to copy"} (${source} → ${target})`,
+  return items;
+}
+
+async function loadDataset(ddb: DynamoDBDocumentClient, stage: string): Promise<Dataset> {
+  const entries = await Promise.all(
+    TABLES.map(async (name) => [name, await scanTable(ddb, `slack-${stage}-${name}`)] as const),
   );
-  return items.length;
+  return Object.fromEntries(entries) as unknown as Dataset;
 }
 
 /** S3 CopySource: bucket + URL-encoded key (each segment, keeping the slashes). */
@@ -184,9 +183,11 @@ async function copyFiles(
   target: StackInfo,
   opts: MigrateOptions,
   remap: Remapper,
+  skipFile: (key: string) => boolean,
 ): Promise<MigrateReport["files"]> {
   let copied = 0;
   let skipped = 0;
+  let excluded = 0;
   const pages = paginateListObjectsV2(
     { client: s3 },
     { Bucket: source.attachmentsBucket, Prefix: "attachments/" },
@@ -194,6 +195,10 @@ async function copyFiles(
   for await (const page of pages) {
     for (const object of page.Contents ?? []) {
       if (!object.Key) continue;
+      if (skipFile(object.Key)) {
+        excluded++;
+        continue;
+      }
       const key = remap.string(object.Key);
       // Already there with the same size (an earlier run): nothing to do.
       try {
@@ -219,26 +224,10 @@ async function copyFiles(
       copied++;
     }
   }
-  opts.log(`  files: ${copied} ${opts.apply ? "copied" : "to copy"}, ${skipped} already in place`);
-  return { copied, skipped };
-}
-
-/** Directory users (source `users` table) with no Cognito account to map them to. */
-async function countUnmapped(
-  ddb: DynamoDBDocumentClient,
-  opts: MigrateOptions,
-  users: MigrateReport["users"],
-): Promise<number> {
-  const known = new Set(users.map((u) => u.oldId));
-  let count = 0;
-  const pages = paginateScan(
-    { client: ddb },
-    { TableName: `slack-${opts.from.stage}-users`, ProjectionExpression: "userId" },
+  opts.log(
+    `  files: ${copied} ${opts.apply ? "copied" : "to copy"}, ${skipped} already in place, ${excluded} left out`,
   );
-  for await (const page of pages) {
-    for (const item of page.Items ?? []) if (!known.has(String(item.userId))) count++;
-  }
-  return count;
+  return { copied, skipped, excluded };
 }
 
 /**
@@ -265,17 +254,28 @@ export async function migrate(clients: Clients, opts: MigrateOptions): Promise<M
   }
   const remap = createRemapper(new Map(users.map((u) => [u.oldId, u.newId])));
 
+  const dataset = await loadDataset(clients.ddb, opts.from.stage);
+  // Deleted from the source pool (e.g. test accounts): leave everything of theirs behind.
+  const mapped = new Set(users.map((u) => u.oldId));
+  const excluded = dataset.users
+    .filter((u) => !mapped.has(String(u.userId)))
+    .map((u) => ({ userId: String(u.userId), email: typeof u.email === "string" ? u.email : "" }));
+  if (excluded.length > 0) {
+    opts.log("Left out (no account in the source pool any more):");
+    for (const u of excluded) opts.log(`  ${u.email || u.userId}: none of their data is copied`);
+  }
+  const pruned = pruneExcluded(dataset, new Set(excluded.map((u) => u.userId)));
+
   opts.log("Data:");
   const items = {} as MigrateReport["items"];
-  for (const name of TABLES) items[name] = await copyTable(clients.ddb, name, opts, remap);
-
-  const files = await copyFiles(clients.s3, source, target, opts, remap);
-
-  const unmappedIds = await countUnmapped(clients.ddb, opts, users);
-  if (unmappedIds > 0) {
-    opts.log(
-      `  note: ${unmappedIds} user(s) in the directory have no account in ${opts.from.stack}; their data keeps the old ids`,
-    );
+  for (const name of TABLES) {
+    const rows = pruned.data[name].map((item) => remap.value(item));
+    if (opts.apply) await putAll(clients.ddb, `slack-${opts.to.stage}-${name}`, rows);
+    items[name] = rows.length;
+    const left = pruned.dropped[name] ? `, ${pruned.dropped[name]} left out` : "";
+    opts.log(`  ${name}: ${rows.length} ${opts.apply ? "copied" : "to copy"}${left}`);
   }
-  return { users, items, files, unmappedIds };
+
+  const files = await copyFiles(clients.s3, source, target, opts, remap, pruned.skipFile);
+  return { users, excluded, items, dropped: pruned.dropped, files };
 }

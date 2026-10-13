@@ -268,6 +268,11 @@ pnpm --filter infra migrate-dev-to-prod           # dry run: reads, reports, wri
 pnpm --filter infra migrate-dev-to-prod --apply   # migrate
 ```
 
+To leave test accounts behind, delete them from the `SlackDev` user pool before running it:
+anyone without an account there is left out together with their DMs (call summaries included),
+messages, files, boards and tasks, and removed from member lists, reactions and assignments. The
+dry run lists who is left out.
+
 `SlackDev` is only read, never modified. Running it again later only brings over what changed
 (accounts are reused, rows overwritten with the same content, copied files skipped). Keep
 `SlackDev` until you have checked prod; don't run `pnpm destroy:dev` before.

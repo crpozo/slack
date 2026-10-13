@@ -8,6 +8,10 @@
  * Each person without an account in prod is asked for a password (it can be
  * the same as before: Cognito can't export passwords). SlackDev is only read,
  * never changed. Running it again later only brings over what's new.
+ *
+ * Test accounts: delete them from the SlackDev user pool first. Anyone in the
+ * directory without an account there is left behind with everything of theirs
+ * (their DMs and call summaries, messages, files, boards, tasks).
  */
 import { createInterface } from "node:readline";
 import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
