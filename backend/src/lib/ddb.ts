@@ -1,5 +1,5 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { BatchWriteCommand, DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { requireEnv } from "./env";
 
 export const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -37,4 +37,29 @@ export interface ConnectionItem {
   connectedAt: number;
   /** Epoch seconds (DynamoDB TTL). */
   ttl: number;
+}
+
+/** DynamoDB caps BatchWriteItem at 25 requests. */
+const BATCH_SIZE = 25;
+
+type WriteRequest = Record<string, unknown>;
+
+/** One BatchWriteItem, re-sending what DynamoDB left unprocessed (throttling) up to `retries` times. */
+async function writeBatch(table: string, requests: WriteRequest[], retries = 2): Promise<void> {
+  const { UnprocessedItems } = await ddb.send(
+    new BatchWriteCommand({ RequestItems: { [table]: requests } }),
+  );
+  const left = (UnprocessedItems?.[table] ?? []) as WriteRequest[];
+  if (left.length === 0) return;
+  if (retries <= 0) throw new Error(`Couldn't delete ${left.length} items from ${table}`);
+  return writeBatch(table, left, retries - 1);
+}
+
+/** Deletes `keys` from `table` in concurrent batches of 25; throws if any item is left. */
+export async function batchDelete(table: string, keys: Record<string, unknown>[]): Promise<void> {
+  const batches: WriteRequest[][] = [];
+  for (let i = 0; i < keys.length; i += BATCH_SIZE) {
+    batches.push(keys.slice(i, i + BATCH_SIZE).map((Key) => ({ DeleteRequest: { Key } })));
+  }
+  await Promise.all(batches.map((batch) => writeBatch(table, batch)));
 }

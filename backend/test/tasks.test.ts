@@ -1,5 +1,6 @@
 import {
   BatchGetCommand,
+  BatchWriteCommand,
   DeleteCommand,
   GetCommand,
   PutCommand,
@@ -228,6 +229,70 @@ describe("boards", () => {
     });
     expect(outsider.status).toBe(404);
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
+  it("the owner deletes the board: tasks, then membership rows, then the board row", async () => {
+    ddbMock
+      .on(QueryCommand, { TableName: TASKS, IndexName: "byBoard" })
+      .resolves({ Items: [task, { ...task, taskId: "t_2" }] });
+    ddbMock
+      .on(QueryCommand, { TableName: BOARDS, KeyConditionExpression: "boardId = :b" })
+      .resolves({
+        Items: [
+          { boardId: BOARD_ID, sk: "BOARD" },
+          { boardId: BOARD_ID, sk: `MEMBER#${ALICE.userId}` },
+          { boardId: BOARD_ID, sk: `MEMBER#${BOB.userId}` },
+        ],
+      });
+    ddbMock.on(BatchWriteCommand).resolves({});
+
+    const { status } = await call("DELETE /boards/{id}", { params: { id: BOARD_ID } });
+
+    expect(status).toBe(204);
+    const [tasksBatch, membersBatch] = ddbMock
+      .commandCalls(BatchWriteCommand)
+      .map((c) => c.args[0].input.RequestItems);
+    expect(tasksBatch?.[TASKS]).toEqual([
+      { DeleteRequest: { Key: { taskId: "t_1" } } },
+      { DeleteRequest: { Key: { taskId: "t_2" } } },
+    ]);
+    expect(membersBatch?.[BOARDS]).toEqual([
+      { DeleteRequest: { Key: { boardId: BOARD_ID, sk: `MEMBER#${ALICE.userId}` } } },
+      { DeleteRequest: { Key: { boardId: BOARD_ID, sk: `MEMBER#${BOB.userId}` } } },
+    ]);
+    expect(ddbMock.commandCalls(DeleteCommand)[0]?.args[0].input).toMatchObject({
+      TableName: BOARDS,
+      Key: { boardId: BOARD_ID, sk: "BOARD" },
+      ConditionExpression: "ownerId = :me",
+    });
+    expect(pushed()).toEqual(["conn-alice", "conn-bob"]);
+    expect(sentEvents()[0]?.[1]).toEqual({ type: "board.deleted", boardId: BOARD_ID });
+  });
+
+  it("only the owner can delete a board; outsiders get 404", async () => {
+    expect(
+      (await call("DELETE /boards/{id}", { user: BOB, params: { id: BOARD_ID } })).status,
+    ).toBe(403);
+    expect(
+      (await call("DELETE /boards/{id}", { user: CAROL, params: { id: BOARD_ID } })).status,
+    ).toBe(404);
+    expect(ddbMock.commandCalls(BatchWriteCommand)).toHaveLength(0);
+    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
+  });
+
+  it("keeps the board row when its tasks can't all be deleted", async () => {
+    ddbMock
+      .on(QueryCommand, { TableName: TASKS, IndexName: "byBoard" })
+      .resolves({ Items: [task] });
+    ddbMock.on(BatchWriteCommand).resolves({
+      UnprocessedItems: { [TASKS]: [{ DeleteRequest: { Key: { taskId: "t_1" } } }] },
+    });
+
+    const { status } = await call("DELETE /boards/{id}", { params: { id: BOARD_ID } });
+
+    expect(status).toBe(500);
+    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
+    expect(sentEvents()).toEqual([]);
   });
 
   it("a member who is not the owner gets 403 when adding people", async () => {

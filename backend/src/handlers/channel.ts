@@ -1,6 +1,5 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import {
-  BatchWriteCommand,
   DeleteCommand,
   GetCommand,
   paginateQuery,
@@ -25,7 +24,7 @@ import {
 } from "@mindfultech/shared";
 import { broadcast } from "../lib/broadcast";
 import { channelAudience } from "../lib/channels";
-import { ddb, tables } from "../lib/ddb";
+import { batchDelete, ddb, tables } from "../lib/ddb";
 import { wsHandler, type Caller } from "../lib/handler";
 import { log } from "../lib/logger";
 import { badRequest, ok, reply, replyError } from "../lib/response";
@@ -176,23 +175,7 @@ async function invite(action: ActionOf<"invite">, caller: Caller) {
   return ok();
 }
 
-/** DynamoDB caps BatchWriteItem at 25 requests. */
-const BATCH_SIZE = 25;
-
-type WriteRequest = Record<string, unknown>;
-
-/** One BatchWriteItem, re-sending what DynamoDB left unprocessed (throttling) up to `retries` times. */
-async function writeBatch(requests: WriteRequest[], retries = 2): Promise<void> {
-  const { UnprocessedItems } = await ddb.send(
-    new BatchWriteCommand({ RequestItems: { [tables.messages]: requests } }),
-  );
-  const left = (UnprocessedItems?.[tables.messages] ?? []) as WriteRequest[];
-  if (left.length === 0) return;
-  if (retries <= 0) throw new Error(`Couldn't delete ${left.length} messages`);
-  return writeBatch(left, retries - 1);
-}
-
-/** Deletes every message of `channelId`; batches of 25 run concurrently. */
+/** Deletes every message of `channelId` (batches of 25, concurrently). */
 async function deleteMessages(channelId: string): Promise<number> {
   const keys: Array<{ channelId: string; sk: string }> = [];
   const pages = paginateQuery(
@@ -207,11 +190,7 @@ async function deleteMessages(channelId: string): Promise<number> {
   for await (const page of pages) {
     keys.push(...((page.Items ?? []) as typeof keys));
   }
-  const batches: WriteRequest[][] = [];
-  for (let i = 0; i < keys.length; i += BATCH_SIZE) {
-    batches.push(keys.slice(i, i + BATCH_SIZE).map((Key) => ({ DeleteRequest: { Key } })));
-  }
-  await Promise.all(batches.map((batch) => writeBatch(batch)));
+  await batchDelete(tables.messages, keys);
   return keys.length;
 }
 

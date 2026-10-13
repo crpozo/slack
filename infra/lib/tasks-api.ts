@@ -26,6 +26,7 @@ export const TASKS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/boards" },
   { method: HttpMethod.POST, path: "/boards" },
   { method: HttpMethod.PUT, path: "/boards/{id}" },
+  { method: HttpMethod.DELETE, path: "/boards/{id}" },
   { method: HttpMethod.POST, path: "/boards/{id}/members" },
   { method: HttpMethod.GET, path: "/boards/{id}/tasks" },
   { method: HttpMethod.POST, path: "/boards/{id}/tasks" },
@@ -124,6 +125,8 @@ export class TasksApi extends Construct {
       "dynamodb:PutItem",
       "dynamodb:UpdateItem",
       "dynamodb:BatchGetItem",
+      "dynamodb:DeleteItem", // board row (owner only)
+      "dynamodb:BatchWriteItem", // membership rows of a deleted board
     );
     data.boards.grant(this.handler, "dynamodb:Query"); // table + byUser index
     data.tasks.grant(
@@ -133,6 +136,7 @@ export class TasksApi extends Construct {
       "dynamodb:UpdateItem",
       "dynamodb:DeleteItem",
       "dynamodb:Query",
+      "dynamodb:BatchWriteItem", // a deleted board's tasks
     );
     data.users.grant(this.handler, "dynamodb:BatchGetItem"); // invitees must exist
     // Real-time pushes: list live connections, post to members', drop stale ones (410).

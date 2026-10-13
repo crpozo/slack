@@ -37,6 +37,7 @@ function fakeApi() {
     createBoard: vi.fn(() => next<Board>()),
     addMembers: vi.fn(() => next<Board>()),
     renameBoard: vi.fn(() => next<Board>()),
+    deleteBoard: vi.fn(() => next<void>()),
     listTasks: vi.fn(() => next<Task[]>()),
     createTask: vi.fn(() => next<Task>()),
     updateTask: vi.fn(() => next<Task>()),
@@ -171,6 +172,39 @@ describe("tasks store", () => {
     await refused;
     expect(store.getState().boards[0]?.name).toBe("Launch v2");
     expect(store.getState().error).toBe("Only the board owner can rename it");
+  });
+
+  it("deletes a board optimistically and restores it (with its tasks) when refused", async () => {
+    const { api, settle, store } = await loaded([task("t1")]);
+    const other = { ...board, boardId: "b_2", createdAt: 2 };
+    const list = store.getState().loadBoards();
+    await settle([board, other]);
+    await list;
+
+    const refused = store.getState().deleteBoard("b_1");
+    expect(store.getState().boards.map((b) => b.boardId)).toEqual(["b_2"]);
+    expect(store.getState().tasksByBoard.b_1).toBeUndefined();
+    expect(api.deleteBoard).toHaveBeenCalledWith("b_1");
+    await settle(new Error("Only the board owner can delete it"), true);
+    await refused;
+    expect(store.getState().boards.map((b) => b.boardId)).toEqual(["b_1", "b_2"]);
+    expect(store.getState().tasksByBoard.b_1).toHaveLength(1);
+    expect(store.getState().error).toBe("Only the board owner can delete it");
+
+    const ok = store.getState().deleteBoard("b_1");
+    await settle(undefined);
+    await ok;
+    expect(store.getState().boards.map((b) => b.boardId)).toEqual(["b_2"]);
+  });
+
+  it("drops a board deleted by its owner (board.deleted push)", async () => {
+    const { settle, store } = await loaded([task("t1")]);
+    const list = store.getState().loadBoards();
+    await settle([board]);
+    await list;
+    store.getState().applyEvent({ type: "board.deleted", boardId: "b_1" }, "me");
+    expect(store.getState().boards).toEqual([]);
+    expect(store.getState().tasksByBoard.b_1).toBeUndefined();
   });
 
   it("splits boards into mine and shared", () => {

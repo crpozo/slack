@@ -88,6 +88,7 @@ describe("task manager API", () => {
       }),
     ).map((r) => r.Properties as { RouteKey: string; AuthorizationType?: string });
     expect(routes.map((r) => r.RouteKey).sort((a, b) => a.localeCompare(b))).toEqual([
+      "DELETE /boards/{id}",
       "DELETE /tasks/{taskId}",
       "GET /boards",
       "GET /boards/{id}/tasks",
@@ -134,12 +135,15 @@ describe("task manager API", () => {
         .sort((a, b) => a.localeCompare(b));
     expect(actionsOn("DataBoards")).toEqual([
       "dynamodb:BatchGetItem",
+      "dynamodb:BatchWriteItem", // a deleted board's membership rows
+      "dynamodb:DeleteItem", // the board row itself
       "dynamodb:GetItem",
       "dynamodb:PutItem",
       "dynamodb:Query",
       "dynamodb:UpdateItem",
     ]);
     expect(actionsOn("DataTasks")).toEqual([
+      "dynamodb:BatchWriteItem", // a deleted board's tasks
       "dynamodb:DeleteItem",
       "dynamodb:GetItem",
       "dynamodb:PutItem",

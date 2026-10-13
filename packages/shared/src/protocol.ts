@@ -579,8 +579,17 @@ export interface BoardUpdatedEvent {
   type: "board.updated";
   board: Board;
 }
+/** The owner deleted the board (and its tasks). */
+export interface BoardDeletedEvent {
+  type: "board.deleted";
+  boardId: string;
+}
 export type BoardEvent =
-  BoardTaskCreatedEvent | BoardTaskUpdatedEvent | BoardTaskDeletedEvent | BoardUpdatedEvent;
+  | BoardTaskCreatedEvent
+  | BoardTaskUpdatedEvent
+  | BoardTaskDeletedEvent
+  | BoardUpdatedEvent
+  | BoardDeletedEvent;
 
 export type ServerEvent =
   | MessageNewEvent

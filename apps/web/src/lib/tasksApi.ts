@@ -65,6 +65,8 @@ export const tasksApi = {
     request<{ board: Board }>("PUT", `/boards/${encodeURIComponent(boardId)}`, { name }).then(
       (r) => r.board,
     ),
+  deleteBoard: (boardId: string) =>
+    request<void>("DELETE", `/boards/${encodeURIComponent(boardId)}`),
   addMembers: (boardId: string, userIds: string[]) =>
     request<{ board: Board }>("POST", `/boards/${encodeURIComponent(boardId)}/members`, {
       userIds,

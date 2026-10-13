@@ -22,6 +22,8 @@ export interface TasksState {
   addMembers: (boardId: string, userIds: string[]) => Promise<void>;
   /** Optimistic rename; put back with the server's message if refused. */
   renameBoard: (boardId: string, name: string) => Promise<void>;
+  /** Owner only; optimistic, restored with an error toast if the server refuses. */
+  deleteBoard: (boardId: string) => Promise<void>;
   createTask: (boardId: string, title: string, description: string) => Promise<void>;
   moveTask: (taskId: string, status: TaskStatus) => Promise<void>;
   editTask: (taskId: string, patch: UpdateTaskInput) => Promise<void>;
@@ -55,6 +57,13 @@ function nextBoards(boards: Board[], board: Board, myUserId: string): Board[] {
     return boards.map((b) => (b.boardId === board.boardId ? board : b));
   }
   return [...boards, board].sort((a, b) => a.createdAt - b.createdAt);
+}
+
+function omitKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record;
+  const next = { ...record };
+  delete next[key];
+  return next;
 }
 
 const message = (err: unknown, fallback: string) =>
@@ -123,6 +132,31 @@ export function createTasksStore(api: TasksApi = tasksApi) {
         } catch (err) {
           rename(before.name);
           set({ error: message(err, "Couldn't rename the board.") });
+        }
+      },
+
+      async deleteBoard(boardId) {
+        const index = get().boards.findIndex((b) => b.boardId === boardId);
+        const board = get().boards[index];
+        if (!board) return;
+        const tasks = get().tasksByBoard[boardId];
+        set((s) => ({
+          boards: s.boards.filter((b) => b.boardId !== boardId),
+          tasksByBoard: omitKey(s.tasksByBoard, boardId),
+        }));
+        try {
+          await api.deleteBoard(boardId);
+        } catch (err) {
+          set((s) => {
+            if (s.boards.some((b) => b.boardId === boardId)) return {};
+            const boards = [...s.boards];
+            boards.splice(Math.min(index, boards.length), 0, board);
+            return {
+              boards,
+              tasksByBoard: tasks ? { ...s.tasksByBoard, [boardId]: tasks } : s.tasksByBoard,
+              error: message(err, "Couldn't delete the board."),
+            };
+          });
         }
       },
 
@@ -236,6 +270,13 @@ export function createTasksStore(api: TasksApi = tasksApi) {
       applyEvent(event, myUserId) {
         if (event.type === "board.updated") {
           set((s) => ({ boards: nextBoards(s.boards, event.board, myUserId) }));
+          return;
+        }
+        if (event.type === "board.deleted") {
+          set((s) => ({
+            boards: s.boards.filter((b) => b.boardId !== event.boardId),
+            tasksByBoard: omitKey(s.tasksByBoard, event.boardId),
+          }));
           return;
         }
         const { boardId } = event;
