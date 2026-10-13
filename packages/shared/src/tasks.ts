@@ -74,6 +74,9 @@ export const CreateBoardSchema = z.object({
   name: text(MAX_BOARD_NAME_LENGTH).pipe(z.string().min(1)),
 });
 
+/** Rename (owner only). */
+export const UpdateBoardSchema = CreateBoardSchema;
+
 export const AddBoardMembersSchema = z.object({
   userIds: z.array(UserIdSchema).min(1).max(MAX_MEMBERS_PER_REQUEST),
 });
@@ -104,5 +107,6 @@ export const UpdateTaskSchema = z
 
 export type CreateBoardInput = z.infer<typeof CreateBoardSchema>;
 export type AddBoardMembersInput = z.infer<typeof AddBoardMembersSchema>;
+export type UpdateBoardInput = z.infer<typeof UpdateBoardSchema>;
 export type CreateTaskInput = z.input<typeof CreateTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof UpdateTaskSchema>;

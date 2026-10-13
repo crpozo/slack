@@ -36,6 +36,7 @@ function fakeApi() {
     listBoards: vi.fn(() => next<Board[]>()),
     createBoard: vi.fn(() => next<Board>()),
     addMembers: vi.fn(() => next<Board>()),
+    renameBoard: vi.fn(() => next<Board>()),
     listTasks: vi.fn(() => next<Task[]>()),
     createTask: vi.fn(() => next<Task>()),
     updateTask: vi.fn(() => next<Task>()),
@@ -150,6 +151,26 @@ describe("tasks store", () => {
     await settle({ ...board, boardId: "b_2", name: "Roadmap", members: ["me", "u2"] });
     await share;
     expect(store.getState().boards[0]?.members).toEqual(["me", "u2"]);
+  });
+
+  it("renames a board optimistically and rolls back when refused", async () => {
+    const { api, settle, store } = await loaded([]);
+    const list = store.getState().loadBoards();
+    await settle([board]);
+    await list;
+
+    const ok = store.getState().renameBoard("b_1", "Launch v2");
+    expect(store.getState().boards[0]?.name).toBe("Launch v2");
+    expect(api.renameBoard).toHaveBeenCalledWith("b_1", "Launch v2");
+    await settle({ ...board, name: "Launch v2" });
+    await ok;
+
+    const refused = store.getState().renameBoard("b_1", "Nope");
+    expect(store.getState().boards[0]?.name).toBe("Nope");
+    await settle(new Error("Only the board owner can rename it"), true);
+    await refused;
+    expect(store.getState().boards[0]?.name).toBe("Launch v2");
+    expect(store.getState().error).toBe("Only the board owner can rename it");
   });
 
   it("splits boards into mine and shared", () => {

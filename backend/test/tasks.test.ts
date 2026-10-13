@@ -190,6 +190,46 @@ describe("boards", () => {
     });
   });
 
+  it("the owner renames the board and every member hears about it", async () => {
+    ddbMock.on(UpdateCommand).resolves({});
+    const { status, body } = await call("PUT /boards/{id}", {
+      params: { id: BOARD_ID },
+      body: { name: "  Launch v2 " },
+    });
+    expect(status).toBe(200);
+    expect(body.board).toMatchObject({ boardId: BOARD_ID, name: "Launch v2" });
+    const input = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(input?.Key).toEqual({ boardId: BOARD_ID, sk: "BOARD" });
+    expect(input?.ConditionExpression).toBe("ownerId = :me");
+    expect(input?.ExpressionAttributeValues).toEqual({ ":name": "Launch v2", ":me": ALICE.userId });
+    expect(pushed()).toEqual(["conn-alice", "conn-bob"]);
+    expect(sentEvents()[0]?.[1]).toMatchObject({
+      type: "board.updated",
+      board: { name: "Launch v2" },
+    });
+  });
+
+  it("members who are not the owner cannot rename; blank names are refused", async () => {
+    const bob = await call("PUT /boards/{id}", {
+      user: BOB,
+      params: { id: BOARD_ID },
+      body: { name: "x" },
+    });
+    expect(bob.status).toBe(403);
+    const blank = await call("PUT /boards/{id}", {
+      params: { id: BOARD_ID },
+      body: { name: "   " },
+    });
+    expect(blank.status).toBe(400);
+    const outsider = await call("PUT /boards/{id}", {
+      user: CAROL,
+      params: { id: BOARD_ID },
+      body: { name: "x" },
+    });
+    expect(outsider.status).toBe(404);
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
   it("a member who is not the owner gets 403 when adding people", async () => {
     const { status, body } = await call("POST /boards/{id}/members", {
       user: BOB,
