@@ -126,6 +126,22 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     s.markRead(channelId);
   }, [channelId]);
 
+  // The channel or DM on screen was deleted (by anyone): back to #general. This runs
+  // before the store forgets it, so the DM auto-create below never re-opens it.
+  const channelIdRef = useRef(channelId);
+  channelIdRef.current = channelId;
+  useEffect(
+    () =>
+      chat.onChannelDeleted((deletedId, by) => {
+        if (deletedId !== channelIdRef.current) return;
+        navigate(`/app/${GENERAL_CHANNEL_ID}`, { replace: true });
+        if (by !== useChat.getState().me?.userId) {
+          useChat.getState().showToast("This conversation was deleted.");
+        }
+      }),
+    [navigate],
+  );
+
   // A DM link for a conversation that doesn't exist yet: create it.
   const channelsLoaded = useChat((s) => s.channelsLoaded);
   const channelExists = useChat((s) => s.channels.some((c) => c.channelId === channelId));

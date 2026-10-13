@@ -124,16 +124,3 @@ export function formatDay(ts: number, now: number = Date.now()): string {
   const label = dayFormat.format(ts);
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
-
-/** Normalizes user input into a valid channel name (`^[a-z0-9-]{1,32}$`). */
-export function normalizeChannelName(input: string): string {
-  return input
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/^#/, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .slice(0, 32);
-}

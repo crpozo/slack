@@ -26,3 +26,24 @@ export function Avatar({ name, mine = false, size = "md" }: Readonly<AvatarProps
     </span>
   );
 }
+
+/**
+ * Presence: a filled green dot when online, a hollow gray ring when offline.
+ * `overlay` pins it to the bottom-right of a relatively positioned avatar.
+ */
+export function PresenceDot({
+  online,
+  overlay = false,
+}: Readonly<{ online: boolean; overlay?: boolean }>) {
+  const label = online ? "Online" : "Offline";
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full border-2 ${
+        online ? "border-success bg-success" : "border-ink-secondary/70 bg-surface-sidebar"
+      } ${overlay ? "absolute -bottom-0.5 -right-0.5 ring-2 ring-surface-sidebar" : ""}`}
+    />
+  );
+}

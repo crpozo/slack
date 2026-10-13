@@ -1,14 +1,23 @@
-import { canAccessChannel, isDmChannel } from "@mindfultech/shared";
+import { canAccessChannel, GENERAL_CHANNEL_ID, isDmChannel } from "@mindfultech/shared";
 import { useRef, useState, type DragEvent } from "react";
 import { Link } from "react-router-dom";
 import { calls, useCall } from "../lib/call";
 import { channelLabel, dmPeer } from "../lib/channels";
 import { supportsCalls } from "../lib/media";
-import { useChat, useNameOf } from "../store";
+import { useChat, useIsOnline, useNameOf } from "../store";
+import { PresenceDot } from "./Avatar";
 import { CallPanel } from "./CallLayer";
 import { Composer, type ComposerHandle } from "./Composer";
-import { InviteModal } from "./ChannelModals";
-import { HashIcon, LockIcon, MenuIcon, PhoneIcon, UserPlusIcon, VideoIcon } from "./icons";
+import { DeleteChannelModal, InviteModal } from "./ChannelModals";
+import {
+  HashIcon,
+  LockIcon,
+  MenuIcon,
+  PhoneIcon,
+  TrashIcon,
+  UserPlusIcon,
+  VideoIcon,
+} from "./icons";
 import { MessageList } from "./MessageList";
 
 export function ChannelView({
@@ -23,9 +32,12 @@ export function ChannelView({
   const channelsLoaded = useChat((s) => s.channelsLoaded);
   const nameOf = useNameOf();
   const [inviting, setInviting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const inCall = useCall((s) => s.call !== null);
   const composer = useRef<ComposerHandle>(null);
   const [dragging, setDragging] = useState(false);
+  const peerId = me && isDmChannel(channelId) ? dmPeer(channelId, me.userId) : null;
+  const peerOnline = useIsOnline(peerId);
 
   if (!me) return null;
   const dm = isDmChannel(channelId);
@@ -35,8 +47,15 @@ export function ChannelView({
   const title = dm ? label : `#${label}`;
   const allowed = canAccessChannel(channelId, me.userId);
   const notFound = !allowed || (channelsLoaded && !channel && !dm);
-  const peer = dm ? dmPeer(channelId, me.userId) : null;
+  const peer = peerId;
   const canCall = !!peer && peer !== me.userId && allowed && supportsCalls();
+  // DMs belong to both people; channels to their creator; #general to nobody.
+  const canDelete =
+    !!channel &&
+    channelId !== GENERAL_CHANNEL_ID &&
+    (channel.type === "dm" ? allowed : channel.createdBy === me.userId);
+  const iconButton =
+    "rounded-md p-2 text-lg text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40";
 
   function handleDrop(e: DragEvent) {
     e.preventDefault();
@@ -73,48 +92,72 @@ export function ChannelView({
             <HashIcon className="text-ink-secondary" />
           ))}
         <h1 className="truncate font-semibold text-ink">{label}</h1>
+        {peer && (
+          <span className="flex shrink-0 items-center gap-1.5 text-xs text-ink-secondary">
+            <PresenceDot online={peerOnline || peer === me.userId} />
+            <span className="hidden sm:inline">
+              {peerOnline || peer === me.userId ? "Online" : "Offline"}
+            </span>
+          </span>
+        )}
         {isPrivate && (
           <span className="shrink-0 text-xs text-ink-secondary">
             · {channel.members?.length ?? 1} member
             {(channel.members?.length ?? 1) === 1 ? "" : "s"}
           </span>
         )}
-        {canCall && (
-          <div className="ml-auto flex shrink-0 items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          {canCall && (
+            <>
+              <button
+                type="button"
+                onClick={() => void calls.startCall(channelId, peer, "audio")}
+                disabled={inCall}
+                aria-label={`Start a voice call with ${label}`}
+                title="Voice call"
+                className={iconButton}
+              >
+                <PhoneIcon />
+              </button>
+              <button
+                type="button"
+                onClick={() => void calls.startCall(channelId, peer, "video")}
+                disabled={inCall}
+                aria-label={`Start a video call with ${label}`}
+                title="Video call"
+                className={iconButton}
+              >
+                <VideoIcon />
+              </button>
+            </>
+          )}
+          {canInvite && (
             <button
               type="button"
-              onClick={() => void calls.startCall(channelId, peer, "audio")}
-              disabled={inCall}
-              aria-label={`Start a voice call with ${label}`}
-              title="Voice call"
-              className="rounded-md p-2 text-lg text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => setInviting(true)}
+              className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink"
             >
-              <PhoneIcon />
+              <UserPlusIcon />
+              <span className="hidden sm:inline">Invite</span>
             </button>
+          )}
+          {canDelete && (
             <button
               type="button"
-              onClick={() => void calls.startCall(channelId, peer, "video")}
-              disabled={inCall}
-              aria-label={`Start a video call with ${label}`}
-              title="Video call"
-              className="rounded-md p-2 text-lg text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => setDeleting(true)}
+              aria-label={dm ? "Delete conversation" : `Delete #${label}`}
+              title={dm ? "Delete conversation" : "Delete channel"}
+              className="rounded-md p-2 text-lg text-ink-secondary hover:bg-error/15 hover:text-error"
             >
-              <VideoIcon />
+              <TrashIcon />
             </button>
-          </div>
-        )}
-        {canInvite && (
-          <button
-            type="button"
-            onClick={() => setInviting(true)}
-            className="ml-auto flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink"
-          >
-            <UserPlusIcon />
-            <span className="hidden sm:inline">Invite</span>
-          </button>
-        )}
+          )}
+        </div>
       </header>
       {inviting && channel && <InviteModal channel={channel} onClose={() => setInviting(false)} />}
+      {deleting && channel && (
+        <DeleteChannelModal channel={channel} label={title} onClose={() => setDeleting(false)} />
+      )}
 
       {notFound ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">

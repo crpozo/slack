@@ -143,9 +143,7 @@ describe("channel", () => {
     mockScans([general]);
     ddbMock.on(PutCommand).resolves({});
 
-    await handler(
-      wsEvent("channel", { action: "channel", op: "create", name: "  Diseño Web  " }),
-    );
+    await handler(wsEvent("channel", { action: "channel", op: "create", name: "  Diseño Web  " }));
 
     expect(ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item).toMatchObject({
       name: "Diseño Web",

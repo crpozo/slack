@@ -180,7 +180,13 @@ Test messages (open two terminals to see the broadcast):
 {"action":"message","channelId":"ch_general","text":"hello","clientId":"x"}
 {"action":"history","channelId":"ch_general"}
 {"action":"presign","op":"put","requestId":"r1","channelId":"ch_general","name":"photo.png","contentType":"image/png","size":12345}
+{"action":"channel","op":"create","name":"Web Design","visibility":"public"}
+{"action":"channel","op":"delete","channelId":"<channelId>"}
+{"action":"user","op":"list"}
 ```
+
+Connecting or closing the last connection of a user pushes `user.connected` /
+`user.disconnected` to everyone else; `user.list` includes an `online` snapshot.
 
 To upload with the presigned URL, `Content-Type` and the size must match what was requested:
 `curl -X PUT -H "Content-Type: image/png" --upload-file photo.png "<url>"`. An unknown `action`
@@ -306,6 +312,6 @@ For the monitor to see the spend, activate the tag once in _Billing → Cost all
 
 ## Roadmap
 
-Threads · rename and archive channels · edit and delete messages · search · online presence ·
+Threads · rename and archive channels · edit and delete messages · search ·
 "typing…" · system notifications and `@` mentions · TURN relay for calls · desktop app (Tauri) ·
 integration and E2E tests · AI agent with Bedrock.

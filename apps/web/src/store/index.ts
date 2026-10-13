@@ -30,6 +30,8 @@ export interface ChatState {
   team: DirectoryUser[];
   /** Server directory (`user.list` / `user.updated`), keyed by userId. */
   users: Record<string, UserProfile>;
+  /** Presence: users with at least one live connection (`user.connected` / `user.disconnected`). */
+  online: Record<string, true>;
   toast: string | null;
 
   setSession: (me: SessionUser | null, team?: DirectoryUser[]) => void;
@@ -41,7 +43,11 @@ export interface ChatState {
   receiveMessage: (message: Message, clientId?: string) => void;
   addPending: (message: ChatMessage) => void;
   setPendingStatus: (channelId: string, clientId: string, status: "pending" | "failed") => void;
-  setUsers: (users: UserProfile[]) => void;
+  /** `online` replaces the presence snapshot when given. */
+  setUsers: (users: UserProfile[], online?: string[]) => void;
+  setPresence: (userId: string, online: boolean) => void;
+  /** A channel or DM was deleted: forget it and everything cached for it. */
+  removeChannel: (channelId: string) => void;
   upsertUser: (user: UserProfile) => void;
   setReactions: (channelId: string, sk: string, reactions: Record<string, string[]>) => void;
   markRead: (channelId: string) => void;
@@ -90,6 +96,7 @@ const initialState = {
   directory: {},
   team: [],
   users: {},
+  online: {},
   toast: null,
 };
 
@@ -158,7 +165,7 @@ export const useChat = create<ChatState>()((set, get) => ({
       };
     }),
 
-  setUsers: (list) =>
+  setUsers: (list, onlineIds) =>
     set((s) => {
       const users: Record<string, UserProfile> = {};
       const directory = { ...s.directory };
@@ -166,7 +173,35 @@ export const useChat = create<ChatState>()((set, get) => ({
         users[u.userId] = u;
         directory[u.userId] = u.email;
       }
-      return { users, directory };
+      if (!onlineIds) return { users, directory };
+      const online: Record<string, true> = {};
+      for (const id of onlineIds) online[id] = true;
+      return { users, directory, online };
+    }),
+
+  setPresence: (userId, isOnline) =>
+    set((s) => {
+      if (!!s.online[userId] === isOnline) return {};
+      const online = { ...s.online };
+      if (isOnline) online[userId] = true;
+      else delete online[userId];
+      return { online };
+    }),
+
+  removeChannel: (channelId) =>
+    set((s) => {
+      const omit = <T>(record: Record<string, T>) => {
+        if (!(channelId in record)) return record;
+        const next = { ...record };
+        delete next[channelId];
+        return next;
+      };
+      return {
+        channels: s.channels.filter((c) => c.channelId !== channelId),
+        messagesByChannel: omit(s.messagesByChannel),
+        cursors: omit(s.cursors),
+        historyRequests: omit(s.historyRequests),
+      };
     }),
 
   upsertUser: (user) =>
@@ -232,6 +267,11 @@ export function selectUnread(state: ChatState, channelId: string): number {
  */
 export function selectName(state: ChatState, userId: string, fallbackEmail?: string): string {
   return state.users[userId]?.displayName ?? displayName(fallbackEmail ?? state.directory[userId]);
+}
+
+/** Whether `userId` has a live connection right now. */
+export function useIsOnline(userId: string | null | undefined): boolean {
+  return useChat((s) => !!userId && !!s.online[userId]);
 }
 
 /** Stable resolver from userId (and optional email) to the name to show. */

@@ -1,8 +1,13 @@
-import { CHANNEL_NAME_PATTERN, type ChannelVisibility, type Channel } from "@mindfultech/shared";
+import {
+  ChannelNameSchema,
+  MAX_CHANNEL_NAME_LENGTH,
+  slugifyChannelName,
+  type ChannelVisibility,
+  type Channel,
+} from "@mindfultech/shared";
 import { useState, type FormEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
-import { normalizeChannelName } from "../lib/channels";
 import { useChat } from "../store";
 import { GlobeIcon, LockIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
@@ -40,12 +45,14 @@ export function CreateChannelModal({
   const [invitees, setInvitees] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const name = normalizeChannelName(value);
+  // The name is saved as typed ("Web Design"); the slug only guards uniqueness.
+  const name = value.trim();
+  const slug = slugifyChannelName(value);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!CHANNEL_NAME_PATTERN.test(name)) {
-      setError("Use lowercase letters, numbers or hyphens (max. 32).");
+    if (!ChannelNameSchema.safeParse(name).success) {
+      setError(`Use up to ${MAX_CHANNEL_NAME_LENGTH} characters, including a letter or number.`);
       return;
     }
     setBusy(true);
@@ -86,13 +93,14 @@ export function CreateChannelModal({
           <input
             id="channel-name"
             className="input"
-            placeholder="e.g. web-design"
+            placeholder="e.g. Web Design"
             value={value}
+            maxLength={MAX_CHANNEL_NAME_LENGTH}
             onChange={(e) => setValue(e.target.value)}
             disabled={busy}
           />
-          {value && name !== value && (
-            <p className="text-xs text-ink-secondary">Will be created as #{name}</p>
+          {name && !slug && (
+            <p className="text-xs text-ink-secondary">Include at least one letter or number.</p>
           )}
         </div>
 
@@ -204,6 +212,55 @@ export function NewDmModal({
           if (channelId) onOpened(channelId);
         }}
       />
+    </Modal>
+  );
+}
+
+/**
+ * Confirms deleting a channel or DM. The server pushes `channel.deleted` to
+ * everyone who could see it; ChatLayout then moves whoever is viewing it away.
+ */
+export function DeleteChannelModal({
+  channel,
+  label,
+  onClose,
+}: Readonly<{ channel: Channel; label: string; onClose: () => void }>) {
+  const dm = channel.type === "dm";
+  return (
+    <Modal
+      title={dm ? "Delete conversation" : "Delete channel"}
+      width="sm"
+      onClose={onClose}
+      footer={
+        <>
+          <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-lg bg-error px-4 py-2 text-sm font-semibold text-on-accent hover:opacity-90"
+            onClick={() => {
+              chat.deleteChannel(channel.channelId);
+              onClose();
+            }}
+          >
+            Delete
+          </button>
+        </>
+      }
+    >
+      <p className="text-sm text-ink">
+        {dm ? (
+          <>
+            Delete your conversation with <strong>{label}</strong>? All of its messages will be
+            removed for both of you.
+          </>
+        ) : (
+          <>
+            Delete <strong>{label}</strong>? All of its messages will be removed and it will
+            disappear for every member.
+          </>
+        )}
+      </p>
+      <p className="mt-2 text-xs text-ink-secondary">This can't be undone.</p>
     </Modal>
   );
 }

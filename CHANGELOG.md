@@ -3,6 +3,24 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Presence:** green dot for online, hollow gray ring for offline next to people under
+  _Direct messages_ and in the DM header. Multiple tabs/devices count as one presence.
+- **Delete channels and DMs** from the header (creator only for channels, never `#general`;
+  either person for a DM). It disappears for every member in real time and whoever is viewing it
+  is taken to `#general`.
+
+### Fixed
+
+- Task Manager board now fills the whole chat area with three equal columns.
+- Typing a new task's description no longer sends its first letters (the stray "te") into the
+  title.
+- Task Details modal is wider (`max-w-2xl`) with a larger Notes field.
+- New channels keep the name as typed ("Web Design") instead of the slug ("web-design").
+
 ## [0.1.0] — 2026-10-09
 
 First release (MVP): an internal Slack for two people, serverless on AWS `us-east-1`.
