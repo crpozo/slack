@@ -200,6 +200,7 @@ class ChatController {
       client.on("board.task_updated", applyBoardEvent),
       client.on("board.task_deleted", applyBoardEvent),
       client.on("board.updated", applyBoardEvent),
+      client.on("board.deleted", applyBoardEvent),
       // Keep the connection alive: API Gateway drops idle sockets after 10 minutes.
       startHeartbeat(client),
       () => window.removeEventListener("online", onOnline),

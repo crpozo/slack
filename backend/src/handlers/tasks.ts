@@ -31,7 +31,7 @@ import {
   type BoardItem,
 } from "../lib/boards";
 import { deliver, listConnections } from "../lib/broadcast";
-import { ddb, tables } from "../lib/ddb";
+import { batchDelete, ddb, tables } from "../lib/ddb";
 import {
   forbidden,
   HttpError,
@@ -250,6 +250,47 @@ async function renameBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
   return json(200, { board: updated });
 }
 
+/**
+ * Owner only. Cascades: every task first, then the membership rows, then the
+ * board row last — if anything fails part way the board is still there (and
+ * still owned) to retry. Members get `board.deleted`.
+ */
+async function deleteBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const boardId = pathParam(event, "id");
+  const board = await accessibleBoard(boardId, caller);
+  if (board.ownerId !== caller.userId) throw forbidden("Only the board owner can delete it");
+
+  const tasks = await queryBoardTasks(boardId);
+  await batchDelete(
+    tables.tasks,
+    tasks.map((t) => ({ taskId: t.taskId })),
+  );
+  const { Items } = await ddb.send(
+    new QueryCommand({
+      TableName: tables.boards,
+      KeyConditionExpression: "boardId = :b",
+      ExpressionAttributeValues: { ":b": boardId },
+      ProjectionExpression: "boardId, sk",
+    }),
+  );
+  const memberRows = (Items ?? []).filter((i) => i.sk !== BOARD_SK);
+  await batchDelete(
+    tables.boards,
+    memberRows.map((i) => ({ boardId, sk: i.sk })),
+  );
+  await ddb.send(
+    new DeleteCommand({
+      TableName: tables.boards,
+      Key: { boardId, sk: BOARD_SK },
+      ConditionExpression: "ownerId = :me",
+      ExpressionAttributeValues: { ":me": caller.userId },
+    }),
+  );
+  log.info("board deleted", { boardId, userId: caller.userId, tasks: tasks.length });
+  await notifyBoard(board, { type: "board.deleted", boardId });
+  return json(204);
+}
+
 // --- Tasks -----------------------------------------------------------------------
 
 /** Every task of a board, following the index's pagination. */
@@ -370,6 +411,7 @@ const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<H
   "GET /boards": (_e, c) => listBoards(c),
   "POST /boards": createBoard,
   "PUT /boards/{id}": renameBoard,
+  "DELETE /boards/{id}": deleteBoard,
   "POST /boards/{id}/members": addMembers,
   "GET /boards/{id}/tasks": listTasks,
   "POST /boards/{id}/tasks": createTask,

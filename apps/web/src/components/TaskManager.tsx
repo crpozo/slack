@@ -28,7 +28,9 @@ import {
   KanbanIcon,
   MenuIcon,
   PaperclipIcon,
+  PencilIcon,
   PlusIcon,
+  SettingsIcon,
   TrashIcon,
   UserPlusIcon,
 } from "./icons";
@@ -440,7 +442,7 @@ function Column({
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
       }}
       onDrop={handleDrop}
-      className={`flex h-full min-h-[12rem] min-w-0 flex-col rounded-2xl border bg-surface-sidebar p-3 transition-colors ${
+      className={`flex h-full min-h-[12rem] w-[calc(100vw-3rem)] max-w-[22rem] shrink-0 snap-center flex-col rounded-2xl border bg-surface-sidebar p-3 transition-colors md:w-auto md:min-w-0 md:max-w-none ${
         over ? "border-primary bg-primary/10" : "border-line"
       }`}
     >
@@ -466,15 +468,29 @@ function Column({
   );
 }
 
-/** The board's name; the owner clicks it to rename in place (Enter/blur save, Escape cancels). */
-function BoardTitle({ board, editable }: Readonly<{ board: Board; editable: boolean }>) {
+/**
+ * The board's name; the owner renames it in place (click it, or "Rename" in the
+ * board menu). Enter/blur save, Escape cancels.
+ */
+function BoardTitle({
+  board,
+  editable,
+  editing,
+  setEditing,
+}: Readonly<{
+  board: Board;
+  editable: boolean;
+  editing: boolean;
+  setEditing: (editing: boolean) => void;
+}>) {
   const renameBoard = useTasks((s) => s.renameBoard);
-  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(board.name);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (editing) input.current?.focus();
-  }, [editing]);
+    if (!editing) return;
+    setDraft(board.name);
+    input.current?.focus();
+  }, [editing, board.name]);
 
   function commit() {
     setEditing(false);
@@ -507,10 +523,7 @@ function BoardTitle({ board, editable }: Readonly<{ board: Board; editable: bool
     <h2 className="truncate text-lg font-semibold text-ink">
       <button
         type="button"
-        onClick={() => {
-          setDraft(board.name);
-          setEditing(true);
-        }}
+        onClick={() => setEditing(true)}
         title="Click to rename"
         aria-label={`Rename board "${board.name}"`}
         className="rounded-md px-1 -mx-1 hover:bg-surface-hover"
@@ -521,6 +534,96 @@ function BoardTitle({ board, editable }: Readonly<{ board: Board; editable: bool
   );
 }
 
+/** Owner-only gear menu next to the board title: rename or delete. */
+function BoardMenu({
+  board,
+  onRename,
+  onDelete,
+}: Readonly<{ board: Board; onRename: () => void; onDelete: () => void }>) {
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const item = "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm";
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={`Board settings for "${board.name}"`}
+        title="Board settings"
+        aria-expanded={!!anchor}
+        aria-haspopup="menu"
+        onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}
+        className="rounded-md p-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink"
+      >
+        <SettingsIcon />
+      </button>
+      {anchor && (
+        <Popover anchor={anchor} onClose={() => setAnchor(null)}>
+          <div
+            role="menu"
+            aria-label="Board settings"
+            className="w-48 rounded-xl border border-line bg-surface-raised p-1 shadow-xl"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setAnchor(null);
+                onRename();
+              }}
+              className={`${item} text-ink hover:bg-surface-hover`}
+            >
+              <PencilIcon /> Rename board
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setAnchor(null);
+                onDelete();
+              }}
+              className={`${item} text-error hover:bg-error/10`}
+            >
+              <TrashIcon /> Delete board
+            </button>
+          </div>
+        </Popover>
+      )}
+    </>
+  );
+}
+
+function DeleteBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: () => void }>) {
+  const deleteBoard = useTasks((s) => s.deleteBoard);
+  const count = useTasks((s) => s.tasksByBoard[board.boardId]?.length ?? 0);
+  return (
+    <Modal
+      title="Delete board"
+      width="sm"
+      onClose={onClose}
+      footer={
+        <>
+          <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-lg bg-error px-4 py-2 text-sm font-semibold text-on-accent hover:opacity-90"
+            onClick={() => {
+              onClose();
+              void deleteBoard(board.boardId);
+            }}
+          >
+            Delete
+          </button>
+        </>
+      }
+    >
+      <p className="text-sm text-ink">
+        Delete <strong>{board.name}</strong> and its {count} task{count === 1 ? "" : "s"}? It will
+        disappear for every member.
+      </p>
+      <p className="mt-2 text-xs text-ink-secondary">This can't be undone.</p>
+    </Modal>
+  );
+}
+
 function BoardView({ board }: Readonly<{ board: Board }>) {
   const myUserId = useChat((s) => s.me?.userId);
   const nameOf = useNameOf();
@@ -528,6 +631,8 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
   const loading = useTasks((s) => s.loadingBoard === board.boardId);
   const loadTasks = useTasks((s) => s.loadTasks);
   const [sharing, setSharing] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const isOwner = board.ownerId === myUserId;
@@ -546,7 +651,14 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 sm:px-6">
-        <BoardTitle board={board} editable={isOwner} />
+        <BoardTitle board={board} editable={isOwner} editing={renaming} setEditing={setRenaming} />
+        {isOwner && !renaming && (
+          <BoardMenu
+            board={board}
+            onRename={() => setRenaming(true)}
+            onDelete={() => setDeleting(true)}
+          />
+        )}
         <div className="flex items-center -space-x-1" aria-label="Members">
           {board.members.map((id) => (
             <span key={id} title={nameOf(id)} className="rounded-lg ring-2 ring-surface">
@@ -569,9 +681,12 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
         )}
       </div>
 
-      <div className="min-h-0 w-full flex-1 overflow-auto p-4 sm:p-6" aria-busy={loading && !tasks}>
-        {/* Three equal columns spanning the whole chat area; scrolls sideways only on narrow screens. */}
-        <div className="grid min-h-full w-full min-w-[42rem] grid-cols-3 items-stretch gap-4">
+      <div
+        className="min-h-0 w-full flex-1 snap-x snap-mandatory overflow-auto overscroll-x-contain p-4 sm:p-6 md:snap-none"
+        aria-busy={loading && !tasks}
+      >
+        {/* Phones: one column per screen, swiped with snapping. md+: three equal columns spanning the area. */}
+        <div className="flex min-h-full w-max gap-3 md:grid md:w-full md:min-w-[42rem] md:grid-cols-3 md:items-stretch md:gap-4">
           {COLUMNS.map((column) => (
             <Column
               key={column.status}
@@ -586,6 +701,7 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
         </div>
       </div>
       {sharing && <ShareBoardModal board={board} onClose={() => setSharing(false)} />}
+      {deleting && <DeleteBoardModal board={board} onClose={() => setDeleting(false)} />}
       {openTaskId && <TaskDetails taskId={openTaskId} board={board} onClose={closeTask} />}
     </div>
   );

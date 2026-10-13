@@ -104,7 +104,7 @@ export function QuickSwitcher({ onClose }: Readonly<{ onClose: () => void }>) {
           }}
           onKeyDown={handleKey}
           placeholder="Search channels or people…"
-          className="w-full bg-transparent py-3 text-sm text-ink placeholder:text-ink-secondary focus:outline-none"
+          className="w-full bg-transparent py-3 text-base text-ink sm:text-sm placeholder:text-ink-secondary focus:outline-none"
         />
       </div>
       <ul className="max-h-72 overflow-y-auto p-1" role="listbox">

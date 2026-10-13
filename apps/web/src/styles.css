@@ -41,6 +41,14 @@
   body,
   #root {
     @apply h-full;
+    /* Mobile browsers: the visible height, not the height behind the toolbars. */
+    height: 100dvh;
+  }
+
+  /* viewport-fit=cover draws under the iPhone notch and home bar: keep the app clear of them. */
+  #root {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
   }
 
   body {
@@ -53,8 +61,9 @@
     @apply inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-accent transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50;
   }
 
+  /* 16px on phones: iOS Safari zooms into any smaller field on focus. */
   .input {
-    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-secondary/70 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30;
+    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-base text-ink sm:text-sm placeholder:text-ink-secondary/70 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30;
   }
 
   /* Rendered markdown (see lib/markdown.ts). */

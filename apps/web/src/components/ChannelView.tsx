@@ -1,5 +1,6 @@
 import {
   canAccessChannel,
+  canDeleteChannel,
   GENERAL_CHANNEL_ID,
   isDmChannel,
   type Channel,
@@ -34,6 +35,7 @@ function channelAccess(
   channel: Channel | undefined,
   myUserId: string,
   channelsLoaded: boolean,
+  creatorKnown: boolean,
 ) {
   const dm = isDmChannel(channelId);
   const allowed = canAccessChannel(channelId, myUserId);
@@ -46,11 +48,9 @@ function channelAccess(
     notFound: !allowed || (channelsLoaded && !channel && !dm),
     canCall: !!peer && peer !== myUserId && allowed && supportsCalls(),
     canInvite: isPrivate && channel?.createdBy === myUserId,
-    // DMs belong to both people; channels to their creator; #general to nobody.
-    canDelete:
-      !!channel &&
-      channelId !== GENERAL_CHANNEL_ID &&
-      (channel.type === "dm" ? allowed : channel.createdBy === myUserId),
+    // DMs belong to both people; channels to their creator (any member for legacy
+    // channels or a vanished creator); #general to nobody. The server re-checks.
+    canDelete: !!channel && allowed && canDeleteChannel(channel, myUserId, creatorKnown),
   };
 }
 
@@ -191,6 +191,10 @@ export function ChannelView({
   const me = useChat((s) => s.me);
   const channel = useChat((s) => s.channels.find((c) => c.channelId === channelId));
   const channelsLoaded = useChat((s) => s.channelsLoaded);
+  // Until the directory arrives, assume the creator exists (hides the button, never shows it wrongly).
+  const creatorKnown = useChat(
+    (s) => Object.keys(s.users).length === 0 || !!(channel && s.users[channel.createdBy]),
+  );
   const nameOf = useNameOf();
   const [inviting, setInviting] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -200,7 +204,7 @@ export function ChannelView({
   const callExpanded = useCallExpanded(channelId);
 
   if (!me) return null;
-  const access = channelAccess(channelId, channel, me.userId, channelsLoaded);
+  const access = channelAccess(channelId, channel, me.userId, channelsLoaded, creatorKnown);
   const label = channelLabel(channelId, channel, me.userId, (id) => nameOf(id));
   const title = access.dm ? label : `#${label}`;
 

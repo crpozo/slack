@@ -44,7 +44,7 @@ export function UserPicker({
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search people…"
           aria-label="Search people"
-          className="w-full bg-transparent py-2 text-sm text-ink placeholder:text-ink-secondary focus:outline-none"
+          className="w-full bg-transparent py-2 text-base text-ink sm:text-sm placeholder:text-ink-secondary focus:outline-none"
         />
       </label>
       <ul

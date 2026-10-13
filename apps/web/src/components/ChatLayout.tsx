@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useMatch, useNavigate, useParams } from "react-router-dom";
 import { signOut } from "../lib/auth";
+import { signOutPush, syncPush } from "../lib/push";
 import { chat } from "../lib/chat";
 import { dmPeer } from "../lib/channels";
 import {
@@ -22,6 +23,7 @@ import { selectUnread, useChat } from "../store";
 import { useTasks } from "../store/tasks";
 import { CreateChannelModal, NewDmModal } from "./ChannelModals";
 import { CallLayer } from "./CallLayer";
+import { PushPrompt } from "./PushPrompt";
 import { ChannelView } from "./ChannelView";
 import { QuickSwitcher } from "./QuickSwitcher";
 import { SettingsModal } from "./SettingsModal";
@@ -101,6 +103,8 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   }
 
   const handleSignOut = useCallback(async () => {
+    // While the token still works: stop this device's pushes for this account.
+    await signOutPush();
     chat.stop();
     useTasks.getState().reset();
     await signOut().catch(() => {});
@@ -115,6 +119,26 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     });
     return () => chat.stop();
   }, [wsUrl, handleSignOut]);
+
+  // Web Push: keep this device's subscription current (never prompts by itself).
+  const meId = useChat((s) => s.me?.userId);
+  useEffect(() => {
+    if (meId) void syncPush(meId);
+  }, [meId]);
+
+  // A notification was clicked while the app was open: the service worker asks us to navigate.
+  useEffect(() => {
+    const sw = navigator.serviceWorker;
+    if (!sw) return;
+    const onMessage = (e: MessageEvent<{ type?: string; path?: string }>) => {
+      const path = e.data?.path;
+      if (e.data?.type === "navigate" && typeof path === "string" && path.startsWith("/app/")) {
+        navigate(path);
+      }
+    };
+    sw.addEventListener("message", onMessage);
+    return () => sw.removeEventListener("message", onMessage);
+  }, [navigate]);
 
   // Switching channels: load its history once and mark it read.
   useEffect(() => {
@@ -205,7 +229,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
       )}
       <aside
         style={isDesktop ? { width: sidebarWidth } : undefined}
-        className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] md:relative md:z-20 md:max-w-none md:shrink-0 md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] md:relative md:p-0 md:z-20 md:max-w-none md:shrink-0 md:translate-x-0 ${
           resizing ? "" : "transition-[transform,width] duration-200"
         } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
@@ -238,6 +262,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
       </aside>
 
       <main className="flex h-full w-full min-w-0 flex-1 flex-col">
+        <PushPrompt />
         {channelId ? (
           <ChannelView channelId={channelId} onOpenSidebar={() => setSidebarOpen(true)} />
         ) : (

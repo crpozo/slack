@@ -9,7 +9,8 @@
     "seed": "tsx scripts/seed-general.ts",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "vapid": "tsx scripts/vapid.ts"
   },
   "dependencies": {
     "@mindfultech/shared": "workspace:*",
@@ -18,9 +19,12 @@
   },
   "devDependencies": {
     "@aws-sdk/client-dynamodb": "^3.1148.0",
+    "@aws-sdk/client-ssm": "^3.1151.0",
     "@aws-sdk/lib-dynamodb": "^3.1148.0",
+    "@types/web-push": "^3.6.4",
     "aws-cdk": "^2.1145.0",
     "tsx": "^4.23.15",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "web-push": "^3.6.7"
   }
 }

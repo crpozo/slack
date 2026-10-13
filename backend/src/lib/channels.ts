@@ -19,6 +19,16 @@ export async function getAccessibleChannel(
   return channel;
 }
 
+/** The other member of a DM (the sender themself for a self-DM), or `null`. */
+export function dmPeerOf(
+  channel: Pick<Channel, "type" | "members">,
+  userId: string,
+): string | null {
+  if (channel.type !== "dm") return null;
+  const members = channel.members ?? [];
+  return members.find((m) => m !== userId) ?? (members.includes(userId) ? userId : null);
+}
+
 /** Broadcast filter: who may receive events of `channel`. */
 export function channelAudience(channel: Pick<Channel, "type" | "members">) {
   return (connection: { userId: string }) => isChannelMember(channel, connection.userId);

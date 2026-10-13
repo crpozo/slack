@@ -10,6 +10,8 @@ export class Data extends Construct {
   /** Task Manager (Phase 6): board rows + membership rows, see backend/src/handlers/tasks.ts. */
   readonly boards: Table;
   readonly tasks: Table;
+  /** Web Push (Phase 8): one row per browser/device that enabled notifications. */
+  readonly pushSubscriptions: Table;
 
   constructor(scope: Construct, id: string, props: { stage: Stage }) {
     super(scope, id);
@@ -64,6 +66,14 @@ export class Data extends Construct {
       tableName: `slack-${props.stage}-tasks`,
       partitionKey: { name: "taskId", type: AttributeType.STRING },
     });
+    this.pushSubscriptions = new Table(this, "PushSubscriptions", {
+      ...common,
+      tableName: `slack-${props.stage}-push-subscriptions`,
+      partitionKey: { name: "userId", type: AttributeType.STRING },
+      // sha256(endpoint): a user can have several devices.
+      sortKey: { name: "sk", type: AttributeType.STRING },
+    });
+
     this.tasks.addGlobalSecondaryIndex({
       indexName: "byBoard",
       partitionKey: { name: "boardId", type: AttributeType.STRING },

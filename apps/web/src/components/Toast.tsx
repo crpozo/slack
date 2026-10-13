@@ -15,7 +15,7 @@ export function Toast() {
 
   if (!toast) return null;
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4">
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(6rem+env(safe-area-inset-bottom))] z-50 flex justify-center px-4">
       <div
         role="alert"
         className="pointer-events-auto flex max-w-md items-start gap-3 rounded-lg border border-error/40 bg-surface px-4 py-3 text-sm text-ink shadow-lg"

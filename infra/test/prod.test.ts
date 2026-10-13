@@ -291,7 +291,12 @@ describe("phase 5.1 resources", () => {
     expect(actionsOn("react", "DataChannels")).toEqual(["dynamodb:GetItem"]);
     expect(actionsOn("history", "DataChannels")).toEqual(["dynamodb:GetItem"]);
     expect(actionsOn("presign", "DataBoards")).toEqual(["dynamodb:GetItem"]); // board attachments
-    expect(actionsOn("message", "DataUsers")).toEqual([]);
+    // Push (Phase 8): sender's display name and @mention lookup.
+    expect(actionsOn("message", "DataUsers")).toEqual(["dynamodb:GetItem", "dynamodb:Scan"]);
+    expect(actionsOn("message", "DataPushSubscriptions")).toEqual([
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+    ]);
     // Presence (Phase 7): announce to live connections, drop stale ones.
     expect(actionsOn("connect", "DataConnections")).toEqual([
       "dynamodb:DeleteItem",

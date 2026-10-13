@@ -1,0 +1,20 @@
+{
+  "name": "MindfulTech Slack",
+  "short_name": "Slack",
+  "description": "MindfulTech's internal chat, calls and task boards.",
+  "start_url": "/app/ch_general",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#69C7B9",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
