@@ -6,12 +6,19 @@ import { reply } from "./response";
 
 export type LiveConnection = Pick<ConnectionItem, "connectionId" | "userId">;
 
-/** All rows of `connections` (≤ a handful at this scale, so a Scan is fine). */
-export async function listConnections(): Promise<LiveConnection[]> {
+/**
+ * All rows of `connections` (≤ a handful at this scale, so a Scan is fine).
+ * `consistent` reads see writes made just before (presence checks need that).
+ */
+export async function listConnections(consistent = false): Promise<LiveConnection[]> {
   const result: LiveConnection[] = [];
   const pages = paginateScan(
     { client: ddb },
-    { TableName: tables.connections, ProjectionExpression: "connectionId, userId" },
+    {
+      TableName: tables.connections,
+      ProjectionExpression: "connectionId, userId",
+      ...(consistent && { ConsistentRead: true }),
+    },
   );
   for await (const page of pages) {
     result.push(...((page.Items ?? []) as LiveConnection[]));
@@ -55,6 +62,11 @@ export async function deliver(
     }
   }
   return count;
+}
+
+/** Ids of users with at least one live connection. */
+export async function onlineUserIds(): Promise<string[]> {
+  return [...new Set((await listConnections()).map((c) => c.userId))].sort();
 }
 
 /** Sends an event to every live connection (see `deliver`). */

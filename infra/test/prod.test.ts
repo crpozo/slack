@@ -292,6 +292,22 @@ describe("phase 5.1 resources", () => {
     expect(actionsOn("history", "DataChannels")).toEqual(["dynamodb:GetItem"]);
     expect(actionsOn("presign", "DataBoards")).toEqual(["dynamodb:GetItem"]); // board attachments
     expect(actionsOn("message", "DataUsers")).toEqual([]);
+    // Presence (Phase 7): announce to live connections, drop stale ones.
+    expect(actionsOn("connect", "DataConnections")).toEqual([
+      "dynamodb:DeleteItem",
+      "dynamodb:PutItem",
+      "dynamodb:Scan",
+    ]);
+    expect(actionsOn("disconnect", "DataConnections")).toEqual([
+      "dynamodb:DeleteItem",
+      "dynamodb:Scan",
+    ]);
+    // Deleting a channel or DM removes the row and its messages.
+    expect(actionsOn("channel", "DataMessages")).toEqual([
+      "dynamodb:BatchWriteItem",
+      "dynamodb:Query",
+    ]);
+    expect(actionsOn("channel", "DataChannels")).toContain("dynamodb:DeleteItem");
   });
 
   it("routes ping to a no-op Lambda with no DynamoDB or @connections permissions", () => {

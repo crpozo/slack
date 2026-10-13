@@ -145,6 +145,10 @@ export class Api extends Construct {
     connections.grant(handlers.connect, "dynamodb:PutItem");
     users.grant(handlers.connect, "dynamodb:UpdateItem");
     connections.grant(handlers.disconnect, "dynamodb:DeleteItem");
+    // Presence: both announce user.connected / user.disconnected to live
+    // connections (Scan), dropping stale ones on 410 Gone (DeleteItem).
+    connections.grant(handlers.connect, "dynamodb:Scan", "dynamodb:DeleteItem");
+    connections.grant(handlers.disconnect, "dynamodb:Scan");
 
     // Route handlers resolve the caller from the authorizer context and fall
     // back to the connection row (GetItem).
@@ -186,7 +190,10 @@ export class Api extends Construct {
       "dynamodb:GetItem",
       "dynamodb:PutItem",
       "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
     );
+    // Deleting a channel or DM removes its messages too.
+    messages.grant(handlers.channel, "dynamodb:Query", "dynamodb:BatchWriteItem");
     users.grant(handlers.channel, "dynamodb:BatchGetItem"); // invitees must exist
     users.grant(handlers.user, "dynamodb:Scan", "dynamodb:UpdateItem");
     // react: ADD/DELETE on the reaction set; GetItem for no-op removals.
@@ -209,7 +216,7 @@ export class Api extends Construct {
 
     // Every handler that replies to the sender or broadcasts uses @connections.
     // (`ping` and `typing` are no-ops: no permissions at all.)
-    for (const h of [handlers.default, ...routeHandlers]) {
+    for (const h of [handlers.default, handlers.connect, handlers.disconnect, ...routeHandlers]) {
       this.webSocketApi.grantManageConnections(h);
     }
   }

@@ -1,4 +1,5 @@
 import { PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { deliver, listConnections } from "../lib/broadcast";
 import { ddb, tables, type ConnectionItem } from "../lib/ddb";
 import type { WsEvent } from "../lib/handler";
 import { errorFields, log } from "../lib/logger";
@@ -26,6 +27,20 @@ async function upsertUser(userId: string, email: string, now: number): Promise<v
       },
     }),
   );
+}
+
+/**
+ * Presence: tells everyone else this user is online. The new connection itself
+ * is skipped — it can't receive messages until `$connect` returns (it gets the
+ * snapshot from `user.list` instead). Best effort: never blocks the connection.
+ */
+async function announce(connectionId: string, userId: string): Promise<void> {
+  try {
+    const others = (await listConnections()).filter((c) => c.connectionId !== connectionId);
+    await deliver(others, () => ({ type: "user.connected", userId }));
+  } catch (err) {
+    log.warn("presence broadcast failed", { userId, ...errorFields(err) });
+  }
 }
 
 /** `$connect`: the authorizer already validated the token; store the connection. */
@@ -57,6 +72,7 @@ export const handler = async (event: WsEvent): Promise<HandlerResult> => {
   if (user.status === "rejected") {
     log.warn("user upsert failed", { userId: item.userId, ...errorFields(user.reason) });
   }
+  await announce(connectionId, item.userId);
   log.info("connected", { connectionId, userId: item.userId });
   return ok();
 };

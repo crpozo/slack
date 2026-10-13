@@ -3,12 +3,15 @@ import {
   CallActionSchema,
   CLIENT_ACTIONS,
   ClientActionSchema,
+  channelSlug,
+  ChannelNameSchema,
   isChannelMember,
   MAX_ATTACHMENT_SIZE,
   MAX_SDP_LENGTH,
   MAX_TEXT_LENGTH,
   MessageActionSchema,
   parseAction,
+  slugifyChannelName,
 } from "../src";
 
 describe("protocol", () => {
@@ -18,7 +21,9 @@ describe("protocol", () => {
       { action: "history", channelId: "ch_general", cursor: "abc" },
       { action: "channel", op: "list" },
       { action: "channel", op: "create", name: "dev-team" },
+      { action: "channel", op: "create", name: "Dev Team" },
       { action: "channel", op: "dm", withUserId: "user-1" },
+      { action: "channel", op: "delete", channelId: "ch_x" },
       {
         action: "presign",
         op: "put",
@@ -52,7 +57,7 @@ describe("protocol", () => {
       contentType: "application/octet-stream",
       size: MAX_ATTACHMENT_SIZE + 1,
     };
-    const badName = { action: "channel", op: "create", name: "Dev Team" };
+    const badName = { action: "channel", op: "create", name: "!!!" };
     for (const action of [tooLong, tooBig, badName]) {
       expect(ClientActionSchema.safeParse(action).success, JSON.stringify(action)).toBe(false);
     }
@@ -175,5 +180,28 @@ describe("phase 5.1 contract", () => {
       expect(ClientActionSchema.safeParse({ action: "ping", extra: 1 }).success).toBe(true);
       expect(CLIENT_ACTIONS).toContain("ping");
     });
+  });
+});
+
+describe("channel names", () => {
+  it("slugifies readable names", () => {
+    expect(slugifyChannelName("Web Design")).toBe("web-design");
+    expect(slugifyChannelName("  #Diseño   Web!  ")).toBe("diseno-web");
+    expect(slugifyChannelName("a -- b__c")).toBe("a-b-c");
+    expect(slugifyChannelName("--x--")).toBe("x");
+    expect(slugifyChannelName("!!!")).toBe("");
+    expect(slugifyChannelName("a".repeat(31) + " b")).toBe("a".repeat(31));
+  });
+
+  it("uses the stored slug, else derives it from legacy slug-shaped names", () => {
+    expect(channelSlug({ name: "Web Design", slug: "web-design" })).toBe("web-design");
+    expect(channelSlug({ name: "dev-team" })).toBe("dev-team");
+  });
+
+  it("accepts readable names and trims them", () => {
+    expect(ChannelNameSchema.parse("  Q4 Launch 🚀 ")).toBe("Q4 Launch 🚀");
+    for (const bad of ["", "   ", "🚀", "a\u0000b", "x".repeat(41)]) {
+      expect(ChannelNameSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    }
   });
 });

@@ -1,6 +1,6 @@
 import { paginateScan, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { parseAction, UserActionSchema, type UserProfile } from "@mindfultech/shared";
-import { broadcast } from "../lib/broadcast";
+import { broadcast, onlineUserIds } from "../lib/broadcast";
 import { ddb, tables } from "../lib/ddb";
 import { wsHandler } from "../lib/handler";
 import { log } from "../lib/logger";
@@ -23,7 +23,8 @@ export const handler = wsHandler(async (event, caller) => {
   const action = parsed.data;
 
   if (action.op === "list") {
-    await reply(caller.connectionId, { type: "user.list", users: await scanUsers() });
+    const [users, online] = await Promise.all([scanUsers(), onlineUserIds()]);
+    await reply(caller.connectionId, { type: "user.list", users, online });
     return ok();
   }
 

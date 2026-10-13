@@ -33,6 +33,8 @@ describe("user", () => {
       { userId: ALICE.userId, email: ALICE.email, displayName: "alice", updatedAt: 0 },
       { userId: BOB.userId, email: BOB.email, displayName: "Zoe", updatedAt: 5 },
     ]);
+    // Presence snapshot: everyone with a live connection.
+    expect(event.online).toEqual([ALICE.userId, BOB.userId].sort());
   });
 
   it("update sets the caller's own display name and broadcasts user.updated to everyone", async () => {
