@@ -165,7 +165,7 @@ describe("task manager API", () => {
   it("writes the API URL into config.json and outputs it", () => {
     const [entry] = Object.values(
       template.findResources("Custom::CDKBucketDeployment", {
-        Properties: { Include: ["index.html", "config.json"] },
+        Properties: { Include: ["index.html", "config.json", "sw.js", "manifest.webmanifest"] },
       }),
     );
     expect(JSON.stringify(entry?.Properties?.SourceMarkers)).toMatch(/TasksApiHttpApi/);
