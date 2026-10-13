@@ -94,6 +94,7 @@ describe("task manager API", () => {
       "POST /boards",
       "POST /boards/{id}/members",
       "POST /boards/{id}/tasks",
+      "PUT /boards/{id}",
       "PUT /tasks/{taskId}",
     ]);
     expect(routes.every((r) => r.AuthorizationType === "JWT")).toBe(true);

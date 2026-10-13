@@ -453,6 +453,57 @@ function Column({
   );
 }
 
+/** The board's name; the owner clicks it to rename in place (Enter/blur save, Escape cancels). */
+function BoardTitle({ board, editable }: Readonly<{ board: Board; editable: boolean }>) {
+  const renameBoard = useTasks((s) => s.renameBoard);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(board.name);
+
+  function commit() {
+    setEditing(false);
+    const name = draft.trim();
+    if (name && name !== board.name) void renameBoard(board.boardId, name);
+  }
+
+  if (!editable) return <h2 className="truncate text-lg font-semibold text-ink">{board.name}</h2>;
+  if (editing) {
+    return (
+      <input
+        aria-label="Board name"
+        className="input w-64 max-w-full py-1 text-lg font-semibold"
+        value={draft}
+        maxLength={MAX_BOARD_NAME_LENGTH}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          else if (e.key === "Escape") {
+            setDraft(board.name);
+            setEditing(false);
+          }
+        }}
+        ref={(el) => el?.focus()}
+      />
+    );
+  }
+  return (
+    <h2 className="truncate text-lg font-semibold text-ink">
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(board.name);
+          setEditing(true);
+        }}
+        title="Click to rename"
+        aria-label={`Rename board "${board.name}"`}
+        className="rounded-md px-1 -mx-1 hover:bg-surface-hover"
+      >
+        {board.name}
+      </button>
+    </h2>
+  );
+}
+
 function BoardView({ board }: Readonly<{ board: Board }>) {
   const myUserId = useChat((s) => s.me?.userId);
   const nameOf = useNameOf();
@@ -478,7 +529,7 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 sm:px-6">
-        <h2 className="truncate text-lg font-semibold text-ink">{board.name}</h2>
+        <BoardTitle board={board} editable={isOwner} />
         <div className="flex items-center -space-x-1" aria-label="Members">
           {board.members.map((id) => (
             <span key={id} title={nameOf(id)} className="rounded-lg ring-2 ring-surface">

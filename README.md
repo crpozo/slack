@@ -143,7 +143,8 @@ The UI:
   column. Create boards, drag cards between columns (or use each card's "Move to…" menu), add and
   delete tasks; every change shows at once and is rolled back with a message if the server
   refuses it. A board is private to its owner until they **Share board** with people from the
-  directory; members see it under "Shared with me" and can edit its tasks. Click a card for its
+  directory; members see it under "Shared with me" and can edit its tasks. The owner can click the
+  board's name to rename it. Click a card for its
   details: title, project tag, assignee (a board member), notes and attachments, each saved as
   you go. Attachments upload straight to S3 through the same presigned URLs as chat files, keyed
   under the board so only its members can download them. Every change is pushed to the other

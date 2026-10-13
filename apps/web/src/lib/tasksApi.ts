@@ -61,6 +61,10 @@ export const tasksApi = {
   listBoards: () => request<{ boards: Board[] }>("GET", "/boards").then((r) => r.boards),
   createBoard: (name: string) =>
     request<{ board: Board }>("POST", "/boards", { name }).then((r) => r.board),
+  renameBoard: (boardId: string, name: string) =>
+    request<{ board: Board }>("PUT", `/boards/${encodeURIComponent(boardId)}`, { name }).then(
+      (r) => r.board,
+    ),
   addMembers: (boardId: string, userIds: string[]) =>
     request<{ board: Board }>("POST", `/boards/${encodeURIComponent(boardId)}/members`, {
       userIds,

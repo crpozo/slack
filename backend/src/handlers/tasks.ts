@@ -14,6 +14,7 @@ import {
   CreateBoardSchema,
   CreateTaskSchema,
   MAX_BOARD_MEMBERS,
+  UpdateBoardSchema,
   UpdateTaskSchema,
   type Attachment,
   type Board,
@@ -228,6 +229,27 @@ async function addMembers(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
   return json(200, { board: updated });
 }
 
+async function renameBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const boardId = pathParam(event, "id");
+  const board = await accessibleBoard(boardId, caller);
+  if (board.ownerId !== caller.userId) throw forbidden("Only the board owner can rename it");
+  const { name } = parseBody(UpdateBoardSchema, event);
+  await ddb.send(
+    new UpdateCommand({
+      TableName: tables.boards,
+      Key: { boardId, sk: BOARD_SK },
+      UpdateExpression: "SET #name = :name",
+      ConditionExpression: "ownerId = :me",
+      ExpressionAttributeNames: { "#name": "name" },
+      ExpressionAttributeValues: { ":name": name, ":me": caller.userId },
+    }),
+  );
+  log.info("board renamed", { boardId, userId: caller.userId });
+  const updated: Board = { ...board, name };
+  await notifyBoard(updated, { type: "board.updated", board: updated });
+  return json(200, { board: updated });
+}
+
 // --- Tasks -----------------------------------------------------------------------
 
 /** Every task of a board, following the index's pagination. */
@@ -347,6 +369,7 @@ async function deleteTask(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
 const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<HttpResult>> = {
   "GET /boards": (_e, c) => listBoards(c),
   "POST /boards": createBoard,
+  "PUT /boards/{id}": renameBoard,
   "POST /boards/{id}/members": addMembers,
   "GET /boards/{id}/tasks": listTasks,
   "POST /boards/{id}/tasks": createTask,

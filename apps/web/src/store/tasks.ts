@@ -20,6 +20,8 @@ export interface TasksState {
   loadTasks: (boardId: string) => Promise<void>;
   createBoard: (name: string) => Promise<Board>;
   addMembers: (boardId: string, userIds: string[]) => Promise<void>;
+  /** Optimistic rename; put back with the server's message if refused. */
+  renameBoard: (boardId: string, name: string) => Promise<void>;
   createTask: (boardId: string, title: string, description: string) => Promise<void>;
   moveTask: (taskId: string, status: TaskStatus) => Promise<void>;
   editTask: (taskId: string, patch: UpdateTaskInput) => Promise<void>;
@@ -105,6 +107,23 @@ export function createTasksStore(api: TasksApi = tasksApi) {
           tasksByBoard: { ...s.tasksByBoard, [board.boardId]: [] },
         }));
         return board;
+      },
+
+      async renameBoard(boardId, name) {
+        const before = get().boards.find((b) => b.boardId === boardId);
+        if (!before || before.name === name) return;
+        const rename = (n: string) =>
+          set((s) => ({
+            boards: s.boards.map((b) => (b.boardId === boardId ? { ...b, name: n } : b)),
+          }));
+        rename(name);
+        try {
+          const board = await api.renameBoard(boardId, name);
+          set((s) => ({ boards: s.boards.map((b) => (b.boardId === boardId ? board : b)) }));
+        } catch (err) {
+          rename(before.name);
+          set({ error: message(err, "Couldn't rename the board.") });
+        }
       },
 
       async addMembers(boardId, userIds) {

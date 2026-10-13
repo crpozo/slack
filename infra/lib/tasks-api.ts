@@ -25,6 +25,7 @@ const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 export const TASKS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/boards" },
   { method: HttpMethod.POST, path: "/boards" },
+  { method: HttpMethod.PUT, path: "/boards/{id}" },
   { method: HttpMethod.POST, path: "/boards/{id}/members" },
   { method: HttpMethod.GET, path: "/boards/{id}/tasks" },
   { method: HttpMethod.POST, path: "/boards/{id}/tasks" },
