@@ -3,6 +3,7 @@ import {
   CallActionSchema,
   CLIENT_ACTIONS,
   ClientActionSchema,
+  canDeleteChannel,
   channelSlug,
   ChannelNameSchema,
   isChannelMember,
@@ -210,5 +211,38 @@ describe("channel names", () => {
     for (const bad of ["", "   ", "🚀", "a\u0000b", "x".repeat(41)]) {
       expect(ChannelNameSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
     }
+  });
+});
+
+describe("canDeleteChannel", () => {
+  const base = {
+    channelId: "ch_x",
+    type: "public" as const,
+    slug: "x",
+    createdBy: "u-a",
+  };
+  it("lets the creator delete, and others only for legacy or orphaned channels", () => {
+    expect(canDeleteChannel(base, "u-a", true)).toBe(true);
+    expect(canDeleteChannel(base, "u-b", true)).toBe(false);
+    expect(canDeleteChannel({ ...base, slug: undefined }, "u-b", true)).toBe(true);
+    expect(canDeleteChannel({ ...base, createdBy: " " }, "u-b", true)).toBe(true);
+    expect(canDeleteChannel(base, "u-b", false)).toBe(true);
+  });
+  it("never allows #general or non-members", () => {
+    expect(
+      canDeleteChannel({ ...base, channelId: "ch_general", slug: undefined }, "u-a", false),
+    ).toBe(false);
+    const priv = { ...base, type: "private" as const, slug: undefined, members: ["u-a"] };
+    expect(canDeleteChannel(priv, "u-b", false)).toBe(false);
+    expect(canDeleteChannel({ ...priv, members: ["u-a", "u-b"] }, "u-b", true)).toBe(true);
+  });
+  it("lets either member delete a DM", () => {
+    const dm = {
+      channelId: "dm_u-a_u-b",
+      type: "dm" as const,
+      createdBy: "u-a",
+      members: ["u-a", "u-b"],
+    };
+    expect(canDeleteChannel(dm, "u-b", true)).toBe(true);
   });
 });

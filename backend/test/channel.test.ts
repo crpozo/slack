@@ -359,18 +359,22 @@ describe("channel delete", () => {
         { user, connectionId: user === ALICE ? "conn-alice" : "conn-bob" },
       ),
     );
-  const publicRow = { ...general, channelId: "ch_pub", name: "Pub", createdBy: ALICE.userId };
+  const publicRow = {
+    ...general,
+    channelId: "ch_pub",
+    name: "Pub",
+    slug: "pub",
+    createdBy: ALICE.userId,
+  };
   const dm = dmRow(ALICE.userId, BOB.userId);
   const allConnections = [...connections, { connectionId: "conn-carol", userId: "user-carol" }];
 
   beforeEach(() => {
     resetMocks();
-    mockChannels(
-      general as never,
-      publicRow as never,
-      dm,
-      privateRow("ch_team", ALICE.userId, [ALICE.userId, BOB.userId]),
-    );
+    mockChannels(general as never, publicRow as never, dm, {
+      ...privateRow("ch_team", ALICE.userId, [ALICE.userId, BOB.userId]),
+      slug: "team",
+    });
     ddbMock
       .on(ScanCommand, { TableName: "slack-test-connections" })
       .resolves({ Items: allConnections });
@@ -449,10 +453,41 @@ describe("channel delete", () => {
     expect(sentEvents().map(([id]) => id)).toEqual(["conn-alice", "conn-bob"]);
   });
 
+  it("lets any member delete legacy channels: no slug, or no creator", async () => {
+    mockChannels(
+      { ...publicRow, channelId: "ch_old", slug: undefined } as never,
+      { ...publicRow, channelId: "ch_orphan", createdBy: "" } as never,
+    );
+    expect((await remove("ch_old", BOB)).statusCode).toBe(200);
+    expect((await remove("ch_orphan", BOB)).statusCode).toBe(200);
+    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(2);
+  });
+
+  it("lets any member delete a channel whose creator no longer exists", async () => {
+    mockChannels({ ...publicRow, createdBy: "user-gone" } as never);
+    ddbMock.on(BatchGetCommand).resolves({ Responses: { "slack-test-users": [] } });
+
+    expect((await remove("ch_pub", BOB)).statusCode).toBe(200);
+  });
+
+  it("still protects a current user's channel and #general, legacy or not", async () => {
+    ddbMock.on(BatchGetCommand).resolves({
+      Responses: { "slack-test-users": [{ userId: ALICE.userId }] },
+    });
+    expect((await remove("ch_pub", BOB)).statusCode).toBe(400);
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+    // ch_general has no slug (seeded before Phase 7) but stays protected.
+    expect((await remove("ch_general", BOB)).statusCode).toBe(400);
+    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
+  });
+
   it("refuses #general, other people's channels and channels you can't see", async () => {
     expect((await remove("ch_general")).statusCode).toBe(400);
     expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
 
+    ddbMock.on(BatchGetCommand).resolves({
+      Responses: { "slack-test-users": [{ userId: ALICE.userId }] },
+    });
     expect((await remove("ch_pub", BOB)).statusCode).toBe(400);
     expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
 

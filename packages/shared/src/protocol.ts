@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GENERAL_CHANNEL_ID } from "./ids";
 import type { Board, Task } from "./tasks";
 
 // ---------------------------------------------------------------------------
@@ -133,6 +134,29 @@ function trimHyphens(value: string): string {
 /** A channel's slug, also for rows from before `slug` existed. */
 export const channelSlug = (channel: Pick<Channel, "name" | "slug">): string =>
   channel.slug ?? slugifyChannelName(channel.name);
+
+/**
+ * Channels from before Phase 7 (no `slug`) or without a usable creator: any
+ * member may delete them, so old test data can be cleaned up.
+ */
+export function isLegacyChannel(channel: Pick<Channel, "type" | "slug" | "createdBy">): boolean {
+  return channel.type !== "dm" && (!channel.slug || !channel.createdBy?.trim());
+}
+
+/**
+ * Who may delete `channel`: never `#general`; either member of a DM; a
+ * channel's creator — or any member when the channel is legacy or its creator
+ * isn't a known user (`creatorKnown`, checked against the users directory).
+ */
+export function canDeleteChannel(
+  channel: Pick<Channel, "channelId" | "type" | "slug" | "createdBy" | "members">,
+  userId: string,
+  creatorKnown: boolean,
+): boolean {
+  if (channel.channelId === GENERAL_CHANNEL_ID || !isChannelMember(channel, userId)) return false;
+  if (channel.type === "dm" || channel.createdBy === userId) return true;
+  return isLegacyChannel(channel) || !creatorKnown;
+}
 
 // ---------------------------------------------------------------------------
 // Client → server actions
