@@ -212,7 +212,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             placeholder={placeholder}
             disabled={disabled}
             aria-label="Message"
-            className="max-h-[200px] min-h-[36px] flex-1 resize-none bg-transparent px-1 py-2 text-sm text-ink placeholder:text-ink-secondary/80 focus:outline-none disabled:cursor-not-allowed"
+            className="max-h-[200px] min-h-[36px] flex-1 resize-none bg-transparent px-1 py-2 text-base text-ink placeholder:text-ink-secondary/80 focus:outline-none disabled:cursor-not-allowed sm:text-sm"
           />
           <button
             type="button"

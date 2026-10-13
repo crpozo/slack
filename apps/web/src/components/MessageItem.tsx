@@ -64,7 +64,9 @@ export const MessageItem = memo(function MessageItem({
   return (
     <div
       data-message-id={message.messageId}
-      className={`group relative flex gap-3 px-4 hover:bg-surface-sidebar/70 ${grouped ? "py-0.5" : "pt-3 pb-0.5"} ${
+      // Focusable by tap (not by Tab): touch screens have no hover, so a tap reveals the toolbar.
+      tabIndex={-1}
+      className={`group relative flex gap-3 px-4 hover:bg-surface-sidebar/70 focus:bg-surface-sidebar/70 focus:outline-none ${grouped ? "py-0.5" : "pt-3 pb-0.5"} ${
         message.status === "pending" ? "opacity-60" : ""
       }`}
     >

@@ -229,7 +229,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
       )}
       <aside
         style={isDesktop ? { width: sidebarWidth } : undefined}
-        className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] md:relative md:z-20 md:max-w-none md:shrink-0 md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] md:relative md:p-0 md:z-20 md:max-w-none md:shrink-0 md:translate-x-0 ${
           resizing ? "" : "transition-[transform,width] duration-200"
         } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >

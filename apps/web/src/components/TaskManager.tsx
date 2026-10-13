@@ -442,7 +442,7 @@ function Column({
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
       }}
       onDrop={handleDrop}
-      className={`flex h-full min-h-[12rem] min-w-0 flex-col rounded-2xl border bg-surface-sidebar p-3 transition-colors ${
+      className={`flex h-full min-h-[12rem] w-[calc(100vw-3rem)] max-w-[22rem] shrink-0 snap-center flex-col rounded-2xl border bg-surface-sidebar p-3 transition-colors md:w-auto md:min-w-0 md:max-w-none ${
         over ? "border-primary bg-primary/10" : "border-line"
       }`}
     >
@@ -681,9 +681,12 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
         )}
       </div>
 
-      <div className="min-h-0 w-full flex-1 overflow-auto p-4 sm:p-6" aria-busy={loading && !tasks}>
-        {/* Three equal columns spanning the whole chat area; scrolls sideways only on narrow screens. */}
-        <div className="grid min-h-full w-full min-w-[42rem] grid-cols-3 items-stretch gap-4">
+      <div
+        className="min-h-0 w-full flex-1 snap-x snap-mandatory overflow-auto overscroll-x-contain p-4 sm:p-6 md:snap-none"
+        aria-busy={loading && !tasks}
+      >
+        {/* Phones: one column per screen, swiped with snapping. md+: three equal columns spanning the area. */}
+        <div className="flex min-h-full w-max gap-3 md:grid md:w-full md:min-w-[42rem] md:grid-cols-3 md:items-stretch md:gap-4">
           {COLUMNS.map((column) => (
             <Column
               key={column.status}

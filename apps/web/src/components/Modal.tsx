@@ -86,7 +86,7 @@ export function Modal({ title, onClose, children, footer, width = "md" }: Readon
         </header>
         <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
         {footer && (
-          <footer className="flex justify-end gap-2 border-t border-line px-5 py-3">
+          <footer className="flex justify-end gap-2 border-t border-line px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:pb-3">
             {footer}
           </footer>
         )}
