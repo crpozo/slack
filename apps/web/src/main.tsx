@@ -2,6 +2,7 @@ import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { configureAuth } from "./lib/auth";
+import { registerServiceWorker } from "./lib/push";
 import { loadConfig } from "./lib/config";
 import { installAudioUnlock } from "./lib/sounds";
 import { configureTasksApi } from "./lib/tasksApi";
@@ -24,6 +25,8 @@ try {
   configureAuth(config.userPoolId, config.userPoolClientId);
   configureTasksApi(config.tasksUrl ?? null);
   render(<App config={config} />);
+  // Notifications and their clicks go through the service worker; registering never blocks the app.
+  void registerServiceWorker();
 } catch (err: unknown) {
   render(
     <div className="flex h-full items-center justify-center p-6">

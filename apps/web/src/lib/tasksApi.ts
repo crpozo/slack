@@ -1,4 +1,10 @@
-import type { Board, CreateTaskInput, Task, UpdateTaskInput } from "@mindfultech/shared";
+import type {
+  Board,
+  CreateTaskInput,
+  PushSubscriptionJSON,
+  Task,
+  UpdateTaskInput,
+} from "@mindfultech/shared";
 import { getIdToken } from "./auth";
 
 /** A failed request, with the server's message when it sent one. */
@@ -87,3 +93,12 @@ export const tasksApi = {
 };
 
 export type TasksApi = typeof tasksApi;
+
+/** Web Push subscriptions (same HTTP API and auth as the Task Manager). */
+export const pushApi = {
+  /** 503 while the deployment has no VAPID keys. */
+  publicKey: () => request<{ publicKey: string }>("GET", "/push/key").then((r) => r.publicKey),
+  subscribe: (subscription: PushSubscriptionJSON) =>
+    request<void>("POST", "/push/subscribe", { subscription }),
+  unsubscribe: (endpoint: string) => request<void>("DELETE", "/push/subscribe", { endpoint }),
+};

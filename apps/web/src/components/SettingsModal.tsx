@@ -10,6 +10,7 @@ import {
   type InputDevices,
   type MediaPrefs,
 } from "../lib/media";
+import { disablePush, enablePush, usePush, type PushStatus } from "../lib/push";
 import { onSoundsChange, setSoundsEnabled, soundsEnabled } from "../lib/sounds";
 import { getThemePreference, setThemePreference, type ThemePreference } from "../lib/theme";
 import { useChat, useNameOf } from "../store";
@@ -138,6 +139,62 @@ function DeviceSettings() {
         Used for calls. A change applies to your next call or when you turn your camera back on.
       </p>
     </div>
+  );
+}
+
+const PUSH_HINT: Record<PushStatus, string> = {
+  on: "This device gets a notification for direct messages and @mentions while you're away.",
+  off: "Get a notification for direct messages and @mentions while you're away.",
+  denied:
+    "Notifications are blocked for this site. Allow them in your browser's site settings, then try again.",
+  "needs-install":
+    "On iPhone and iPad: tap Share → Add to Home Screen, open the app from there, then turn this on.",
+  unconfigured: "Push notifications aren't set up on this deployment yet.",
+  unsupported: "This browser doesn't support push notifications.",
+};
+
+/** "Push notifications" switch for this device. */
+function PushSettings() {
+  const me = useChat((s) => s.me);
+  const showToast = useChat((s) => s.showToast);
+  const { status, busy } = usePush();
+  const available = status === "on" || status === "off";
+
+  async function toggle(on: boolean) {
+    if (!me) return;
+    try {
+      if (on) await enablePush(me.userId);
+      else await disablePush(me.userId);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Couldn't change notifications.");
+    }
+  }
+
+  return (
+    <label
+      aria-label="Push notifications"
+      className={`flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5 ${
+        available ? "cursor-pointer" : "opacity-80"
+      }`}
+    >
+      <span>
+        <span className="block text-sm font-medium text-ink">Push notifications</span>
+        <span className="block text-xs text-ink-secondary">{PUSH_HINT[status]}</span>
+      </span>
+      <input
+        type="checkbox"
+        role="switch"
+        aria-checked={status === "on"}
+        checked={status === "on"}
+        disabled={!available || busy}
+        onChange={(e) => void toggle(e.target.checked)}
+        className="peer sr-only"
+      />
+      <span
+        aria-hidden="true"
+        className="relative h-6 w-11 shrink-0 rounded-full bg-line transition-colors peer-checked:bg-primary peer-disabled:opacity-50 peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-surface after:shadow after:transition-transform peer-checked:after:translate-x-5"
+      />
+    </label>
   );
 }
 
@@ -283,6 +340,7 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
 
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-ink">Notifications</h3>
+          <PushSettings />
           <NotificationSettings />
         </section>
 
