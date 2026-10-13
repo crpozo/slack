@@ -193,6 +193,13 @@ describe("channel names", () => {
     expect(slugifyChannelName("a".repeat(31) + " b")).toBe("a".repeat(31));
   });
 
+  it("stays linear on long runs of separators (no regex backtracking)", () => {
+    const evil = "-".repeat(100_000) + "a" + "-".repeat(100_000) + "!";
+    const started = performance.now();
+    expect(slugifyChannelName(evil)).toBe("a");
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it("uses the stored slug, else derives it from legacy slug-shaped names", () => {
     expect(channelSlug({ name: "Web Design", slug: "web-design" })).toBe("web-design");
     expect(channelSlug({ name: "dev-team" })).toBe("dev-team");

@@ -177,7 +177,20 @@ async function invite(action: ActionOf<"invite">, caller: Caller) {
 /** DynamoDB caps BatchWriteItem at 25 requests. */
 const BATCH_SIZE = 25;
 
-/** Deletes every message of `channelId`, retrying unprocessed items a few times. */
+type WriteRequest = Record<string, unknown>;
+
+/** One BatchWriteItem, re-sending what DynamoDB left unprocessed (throttling) up to `retries` times. */
+async function writeBatch(requests: WriteRequest[], retries = 2): Promise<void> {
+  const { UnprocessedItems } = await ddb.send(
+    new BatchWriteCommand({ RequestItems: { [tables.messages]: requests } }),
+  );
+  const left = (UnprocessedItems?.[tables.messages] ?? []) as WriteRequest[];
+  if (left.length === 0) return;
+  if (retries <= 0) throw new Error(`Couldn't delete ${left.length} messages`);
+  return writeBatch(left, retries - 1);
+}
+
+/** Deletes every message of `channelId`; batches of 25 run concurrently. */
 async function deleteMessages(channelId: string): Promise<number> {
   const keys: Array<{ channelId: string; sk: string }> = [];
   const pages = paginateQuery(
@@ -192,18 +205,11 @@ async function deleteMessages(channelId: string): Promise<number> {
   for await (const page of pages) {
     keys.push(...((page.Items ?? []) as typeof keys));
   }
+  const batches: WriteRequest[][] = [];
   for (let i = 0; i < keys.length; i += BATCH_SIZE) {
-    let requests = keys
-      .slice(i, i + BATCH_SIZE)
-      .map((Key) => ({ DeleteRequest: { Key } }) as Record<string, unknown>);
-    for (let attempt = 0; requests.length > 0 && attempt < 3; attempt++) {
-      const { UnprocessedItems } = await ddb.send(
-        new BatchWriteCommand({ RequestItems: { [tables.messages]: requests } }),
-      );
-      requests = (UnprocessedItems?.[tables.messages] ?? []) as typeof requests;
-    }
-    if (requests.length > 0) throw new Error(`Couldn't delete ${requests.length} messages`);
+    batches.push(keys.slice(i, i + BATCH_SIZE).map((Key) => ({ DeleteRequest: { Key } })));
   }
+  await Promise.all(batches.map((batch) => writeBatch(batch)));
   return keys.length;
 }
 

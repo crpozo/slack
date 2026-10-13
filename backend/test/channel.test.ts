@@ -420,6 +420,19 @@ describe("channel delete", () => {
     expect(ddbMock.commandCalls(BatchWriteCommand)).toHaveLength(2);
   });
 
+  it("keeps the channel when messages can't be deleted after retries", async () => {
+    const items = [{ channelId: "ch_pub", sk: "1#a" }];
+    ddbMock.on(QueryCommand).resolves({ Items: items });
+    ddbMock.on(BatchWriteCommand).resolves({
+      UnprocessedItems: { "slack-test-messages": [{ DeleteRequest: { Key: items[0] } }] },
+    });
+
+    expect((await remove("ch_pub")).statusCode).toBe(500);
+    expect(ddbMock.commandCalls(BatchWriteCommand)).toHaveLength(3); // 1 + 2 retries
+    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
+    expect(sentEvents().map(([, e]) => e.type)).toEqual(["error"]);
+  });
+
   it("lets either member delete a DM and only tells its members", async () => {
     const result = await remove(dm.channelId, BOB);
 

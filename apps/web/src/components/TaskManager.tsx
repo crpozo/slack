@@ -7,7 +7,15 @@ import {
   type Task,
   type TaskStatus,
 } from "@mindfultech/shared";
-import { useCallback, useEffect, useMemo, useState, type DragEvent, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type FormEvent,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { tasksApiConfigured } from "../lib/tasksApi";
@@ -186,6 +194,12 @@ function AddTaskForm({ boardId }: Readonly<{ boardId: string }>) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const titleInput = useRef<HTMLInputElement>(null);
+  // Focus the title once each time the form opens (never on re-render, which would
+  // pull focus back from the description while typing in it).
+  useEffect(() => {
+    if (open) titleInput.current?.focus();
+  }, [open]);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -222,9 +236,7 @@ function AddTaskForm({ boardId }: Readonly<{ boardId: string }>) {
         maxLength={MAX_TASK_TITLE_LENGTH}
         onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
-        // Focus once on open: an inline focusing ref re-ran on every keystroke and pulled
-        // focus back from the description, so its first letters landed in the title.
-        autoFocus
+        ref={titleInput}
       />
       <textarea
         className="input min-h-[3.5rem] resize-y"
@@ -459,6 +471,10 @@ function BoardTitle({ board, editable }: Readonly<{ board: Board; editable: bool
   const renameBoard = useTasks((s) => s.renameBoard);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(board.name);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (editing) input.current?.focus();
+  }, [editing]);
 
   function commit() {
     setEditing(false);
@@ -483,7 +499,7 @@ function BoardTitle({ board, editable }: Readonly<{ board: Board; editable: bool
             setEditing(false);
           }
         }}
-        autoFocus
+        ref={input}
       />
     );
   }

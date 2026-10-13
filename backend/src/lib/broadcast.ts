@@ -66,7 +66,9 @@ export async function deliver(
 
 /** Ids of users with at least one live connection. */
 export async function onlineUserIds(): Promise<string[]> {
-  return [...new Set((await listConnections()).map((c) => c.userId))].sort();
+  return [...new Set((await listConnections()).map((c) => c.userId))].sort((a, b) =>
+    a.localeCompare(b),
+  );
 }
 
 /** Sends an event to every live connection (see `deliver`). */

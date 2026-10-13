@@ -109,7 +109,7 @@ export function isChannelMember(
  * when non-empty): "Diseño Web!" → "diseno-web". Uniqueness is checked on this.
  */
 export function slugifyChannelName(input: string): string {
-  return input
+  const collapsed = input
     .trim()
     .toLowerCase()
     .normalize("NFD")
@@ -117,10 +117,17 @@ export function slugifyChannelName(input: string): string {
     .replace(/^#/, "")
     .replace(/[\s_]+/g, "-")
     .replace(/[^a-z0-9-]/g, "")
-    .replace(/-{2,}/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 32)
-    .replace(/-+$/, "");
+    .replace(/-+/g, "-");
+  return trimHyphens(trimHyphens(collapsed).slice(0, 32));
+}
+
+/** Strips leading/trailing hyphens without a regex (`-+$` backtracks super-linearly). */
+function trimHyphens(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === "-") start++;
+  while (end > start && value[end - 1] === "-") end--;
+  return value.slice(start, end);
 }
 
 /** A channel's slug, also for rows from before `slug` existed. */

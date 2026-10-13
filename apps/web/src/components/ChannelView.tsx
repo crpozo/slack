@@ -1,4 +1,9 @@
-import { canAccessChannel, GENERAL_CHANNEL_ID, isDmChannel } from "@mindfultech/shared";
+import {
+  canAccessChannel,
+  GENERAL_CHANNEL_ID,
+  isDmChannel,
+  type Channel,
+} from "@mindfultech/shared";
 import { useRef, useState, type DragEvent } from "react";
 import { Link } from "react-router-dom";
 import { calls, useCall } from "../lib/call";
@@ -6,7 +11,7 @@ import { channelLabel, dmPeer } from "../lib/channels";
 import { supportsCalls } from "../lib/media";
 import { useChat, useIsOnline, useNameOf } from "../store";
 import { PresenceDot } from "./Avatar";
-import { CallPanel } from "./CallLayer";
+import { CallPanel, useCallExpanded } from "./CallLayer";
 import { Composer, type ComposerHandle } from "./Composer";
 import { DeleteChannelModal, InviteModal } from "./ChannelModals";
 import {
@@ -19,6 +24,162 @@ import {
   VideoIcon,
 } from "./icons";
 import { MessageList } from "./MessageList";
+
+const ICON_BUTTON =
+  "rounded-md p-2 text-lg text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40";
+
+/** What the current user can see and do in `channelId`. */
+function channelAccess(
+  channelId: string,
+  channel: Channel | undefined,
+  myUserId: string,
+  channelsLoaded: boolean,
+) {
+  const dm = isDmChannel(channelId);
+  const allowed = canAccessChannel(channelId, myUserId);
+  const peer = dm ? dmPeer(channelId, myUserId) : null;
+  const isPrivate = channel?.type === "private";
+  return {
+    dm,
+    isPrivate,
+    peer,
+    notFound: !allowed || (channelsLoaded && !channel && !dm),
+    canCall: !!peer && peer !== myUserId && allowed && supportsCalls(),
+    canInvite: isPrivate && channel?.createdBy === myUserId,
+    // DMs belong to both people; channels to their creator; #general to nobody.
+    canDelete:
+      !!channel &&
+      channelId !== GENERAL_CHANNEL_ID &&
+      (channel.type === "dm" ? allowed : channel.createdBy === myUserId),
+  };
+}
+
+type Access = ReturnType<typeof channelAccess>;
+
+function PeerPresence({ peer, myUserId }: Readonly<{ peer: string; myUserId: string }>) {
+  const online = useIsOnline(peer) || peer === myUserId;
+  return (
+    <span className="flex shrink-0 items-center gap-1.5 text-xs text-ink-secondary">
+      <PresenceDot online={online} />
+      <span className="hidden sm:inline">{online ? "Online" : "Offline"}</span>
+    </span>
+  );
+}
+
+function MemberCount({ channel }: Readonly<{ channel: Channel }>) {
+  const count = channel.members?.length ?? 1;
+  return (
+    <span className="shrink-0 text-xs text-ink-secondary">
+      · {count} member{count === 1 ? "" : "s"}
+    </span>
+  );
+}
+
+function CallButtons({
+  channelId,
+  peer,
+  label,
+}: Readonly<{ channelId: string; peer: string; label: string }>) {
+  const inCall = useCall((s) => s.call !== null);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => void calls.startCall(channelId, peer, "audio")}
+        disabled={inCall}
+        aria-label={`Start a voice call with ${label}`}
+        title="Voice call"
+        className={ICON_BUTTON}
+      >
+        <PhoneIcon />
+      </button>
+      <button
+        type="button"
+        onClick={() => void calls.startCall(channelId, peer, "video")}
+        disabled={inCall}
+        aria-label={`Start a video call with ${label}`}
+        title="Video call"
+        className={ICON_BUTTON}
+      >
+        <VideoIcon />
+      </button>
+    </>
+  );
+}
+
+function ChannelHeader({
+  channelId,
+  channel,
+  label,
+  access,
+  myUserId,
+  onOpenSidebar,
+  onInvite,
+  onDelete,
+}: Readonly<{
+  channelId: string;
+  channel: Channel | undefined;
+  label: string;
+  access: Access;
+  myUserId: string;
+  onOpenSidebar: () => void;
+  onInvite: () => void;
+  onDelete: () => void;
+}>) {
+  const { dm, isPrivate, peer } = access;
+  const KindIcon = isPrivate ? LockIcon : HashIcon;
+  return (
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
+      <button
+        type="button"
+        onClick={onOpenSidebar}
+        className="rounded-md p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink md:hidden"
+        aria-label="Open menu"
+      >
+        <MenuIcon />
+      </button>
+      {!dm && <KindIcon className="text-ink-secondary" />}
+      <h1 className="truncate font-semibold text-ink">{label}</h1>
+      {peer && <PeerPresence peer={peer} myUserId={myUserId} />}
+      {isPrivate && channel && <MemberCount channel={channel} />}
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        {access.canCall && peer && <CallButtons channelId={channelId} peer={peer} label={label} />}
+        {access.canInvite && (
+          <button
+            type="button"
+            onClick={onInvite}
+            className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink"
+          >
+            <UserPlusIcon />
+            <span className="hidden sm:inline">Invite</span>
+          </button>
+        )}
+        {access.canDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label={dm ? "Delete conversation" : `Delete #${label}`}
+            title={dm ? "Delete conversation" : "Delete channel"}
+            className="rounded-md p-2 text-lg text-ink-secondary hover:bg-error/15 hover:text-error"
+          >
+            <TrashIcon />
+          </button>
+        )}
+      </div>
+    </header>
+  );
+}
+
+function NotFound() {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+      <p className="text-ink">This channel doesn't exist or you don't have access.</p>
+      <Link to={`/app/${GENERAL_CHANNEL_ID}`} className="btn-primary">
+        Go to #general
+      </Link>
+    </div>
+  );
+}
 
 export function ChannelView({
   channelId,
@@ -33,29 +194,21 @@ export function ChannelView({
   const nameOf = useNameOf();
   const [inviting, setInviting] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const inCall = useCall((s) => s.call !== null);
   const composer = useRef<ComposerHandle>(null);
   const [dragging, setDragging] = useState(false);
-  const peerId = me && isDmChannel(channelId) ? dmPeer(channelId, me.userId) : null;
-  const peerOnline = useIsOnline(peerId);
+  // The call fills the column: messages and composer stay mounted but hidden.
+  const callExpanded = useCallExpanded(channelId);
 
   if (!me) return null;
-  const dm = isDmChannel(channelId);
+  const access = channelAccess(channelId, channel, me.userId, channelsLoaded);
   const label = channelLabel(channelId, channel, me.userId, (id) => nameOf(id));
-  const isPrivate = channel?.type === "private";
-  const canInvite = isPrivate && channel.createdBy === me.userId;
-  const title = dm ? label : `#${label}`;
-  const allowed = canAccessChannel(channelId, me.userId);
-  const notFound = !allowed || (channelsLoaded && !channel && !dm);
-  const peer = peerId;
-  const canCall = !!peer && peer !== me.userId && allowed && supportsCalls();
-  // DMs belong to both people; channels to their creator; #general to nobody.
-  const canDelete =
-    !!channel &&
-    channelId !== GENERAL_CHANNEL_ID &&
-    (channel.type === "dm" ? allowed : channel.createdBy === me.userId);
-  const iconButton =
-    "rounded-md p-2 text-lg text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40";
+  const title = access.dm ? label : `#${label}`;
+
+  function handleDragOver(e: DragEvent) {
+    if (!channel || !e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    setDragging(true);
+  }
 
   function handleDrop(e: DragEvent) {
     e.preventDefault();
@@ -66,117 +219,42 @@ export function ChannelView({
   return (
     <div
       className="relative flex h-full min-h-0 flex-col"
-      onDragOver={(e) => {
-        if (!channel || !e.dataTransfer.types.includes("Files")) return;
-        e.preventDefault();
-        setDragging(true);
-      }}
+      onDragOver={handleDragOver}
       onDragLeave={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
       }}
       onDrop={handleDrop}
     >
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
-        <button
-          type="button"
-          onClick={onOpenSidebar}
-          className="rounded-md p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink md:hidden"
-          aria-label="Open menu"
-        >
-          <MenuIcon />
-        </button>
-        {!dm &&
-          (isPrivate ? (
-            <LockIcon className="text-ink-secondary" />
-          ) : (
-            <HashIcon className="text-ink-secondary" />
-          ))}
-        <h1 className="truncate font-semibold text-ink">{label}</h1>
-        {peer && (
-          <span className="flex shrink-0 items-center gap-1.5 text-xs text-ink-secondary">
-            <PresenceDot online={peerOnline || peer === me.userId} />
-            <span className="hidden sm:inline">
-              {peerOnline || peer === me.userId ? "Online" : "Offline"}
-            </span>
-          </span>
-        )}
-        {isPrivate && (
-          <span className="shrink-0 text-xs text-ink-secondary">
-            · {channel.members?.length ?? 1} member
-            {(channel.members?.length ?? 1) === 1 ? "" : "s"}
-          </span>
-        )}
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          {canCall && (
-            <>
-              <button
-                type="button"
-                onClick={() => void calls.startCall(channelId, peer, "audio")}
-                disabled={inCall}
-                aria-label={`Start a voice call with ${label}`}
-                title="Voice call"
-                className={iconButton}
-              >
-                <PhoneIcon />
-              </button>
-              <button
-                type="button"
-                onClick={() => void calls.startCall(channelId, peer, "video")}
-                disabled={inCall}
-                aria-label={`Start a video call with ${label}`}
-                title="Video call"
-                className={iconButton}
-              >
-                <VideoIcon />
-              </button>
-            </>
-          )}
-          {canInvite && (
-            <button
-              type="button"
-              onClick={() => setInviting(true)}
-              className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink"
-            >
-              <UserPlusIcon />
-              <span className="hidden sm:inline">Invite</span>
-            </button>
-          )}
-          {canDelete && (
-            <button
-              type="button"
-              onClick={() => setDeleting(true)}
-              aria-label={dm ? "Delete conversation" : `Delete #${label}`}
-              title={dm ? "Delete conversation" : "Delete channel"}
-              className="rounded-md p-2 text-lg text-ink-secondary hover:bg-error/15 hover:text-error"
-            >
-              <TrashIcon />
-            </button>
-          )}
-        </div>
-      </header>
+      <ChannelHeader
+        channelId={channelId}
+        channel={channel}
+        label={label}
+        access={access}
+        myUserId={me.userId}
+        onOpenSidebar={onOpenSidebar}
+        onInvite={() => setInviting(true)}
+        onDelete={() => setDeleting(true)}
+      />
       {inviting && channel && <InviteModal channel={channel} onClose={() => setInviting(false)} />}
       {deleting && channel && (
         <DeleteChannelModal channel={channel} label={title} onClose={() => setDeleting(false)} />
       )}
 
-      {notFound ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-          <p className="text-ink">This channel doesn't exist or you don't have access.</p>
-          <Link to="/app/ch_general" className="btn-primary">
-            Go to #general
-          </Link>
-        </div>
+      {access.notFound ? (
+        <NotFound />
       ) : (
         <>
           <CallPanel channelId={channelId} />
-          <MessageList channelId={channelId} title={title} />
-          <Composer
-            key={channelId}
-            ref={composer}
-            channelId={channelId}
-            disabled={!channel}
-            placeholder={channel ? `Message ${title}` : "Opening conversation…"}
-          />
+          <div className={callExpanded ? "hidden" : "contents"}>
+            <MessageList channelId={channelId} title={title} />
+            <Composer
+              key={channelId}
+              ref={composer}
+              channelId={channelId}
+              disabled={!channel}
+              placeholder={channel ? `Message ${title}` : "Opening conversation…"}
+            />
+          </div>
         </>
       )}
 
