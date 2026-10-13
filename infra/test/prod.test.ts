@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { describe, expect, it } from "vitest";
@@ -6,7 +7,7 @@ import { SlackStack } from "../lib/slack-stack";
 
 const CERT = "arn:aws:acm:us-east-1:123456789012:certificate/abc-123";
 
-function synth(stage: "dev" | "prod", context: Record<string, string> = {}): Template {
+function synth(stage: "dev" | "prod", context: Record<string, unknown> = {}): Template {
   const app = new App({
     context: { "aws:cdk:bundling-stacks": [], budgetEmail: "alerts@example.com", ...context },
   });
@@ -95,12 +96,44 @@ describe("custom domains", () => {
 
     const markers = JSON.stringify(
       template.findResources("Custom::CDKBucketDeployment", {
-        Properties: { Include: ["index.html", "config.json"] },
+        Properties: { Include: ["index.html", "config.json", "sw.js", "manifest.webmanifest"] },
       }),
     );
+    expect(markers).toContain("config.json");
     // A literal URL is written into the config.json asset itself, so the
     // deploy-time markers no longer point at the execute-api hostname.
     expect(markers).not.toContain("execute-api");
+  });
+
+  it("take the certificate from the stage's cdk.json block, for that stage only", () => {
+    const prodBlock = { prod: { certificateArn: CERT } };
+    synth("prod", prodBlock).hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: Match.objectLike({ Aliases: ["slack.mindfultech.ec"] }),
+    });
+    // dev never picks up prod's certificate (nor its domains).
+    expect(count(synth("dev", prodBlock), "AWS::ApiGatewayV2::DomainName")).toBe(0);
+    // An explicit -c flag still wins over the committed value.
+    const other = "arn:aws:acm:us-east-1:123456789012:certificate/other";
+    synth("prod", { ...prodBlock, certificateArn: other }).hasResourceProperties(
+      "AWS::CloudFront::Distribution",
+      {
+        DistributionConfig: Match.objectLike({
+          ViewerCertificate: Match.objectLike({ AcmCertificateArn: other }),
+        }),
+      },
+    );
+  });
+
+  it("commit prod's certificate in cdk.json, so every deploy keeps the domains", () => {
+    const cdkJson = JSON.parse(readFileSync(new URL("../cdk.json", import.meta.url), "utf8")) as {
+      context: { prod?: { certificateArn?: string }; certificateArn?: unknown };
+    };
+    // CloudFront only accepts certificates from us-east-1.
+    expect(cdkJson.context.prod?.certificateArn).toMatch(
+      /^arn:aws:acm:us-east-1:\d{12}:certificate\/[\w-]+$/,
+    );
+    // Not a top-level key: that would apply to dev as well.
+    expect(cdkJson.context.certificateArn).toBeUndefined();
   });
 
   it("create Route 53 alias records when a hosted zone id is given", () => {

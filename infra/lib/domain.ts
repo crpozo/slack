@@ -5,7 +5,12 @@ import type { Stage } from "./stage";
  * Custom domains for a stage. Everything is optional: without a certificate
  * the stack keeps serving on the CloudFront and execute-api hostnames.
  *
- * Each value comes from CDK context (`-c key=value`) or an environment variable:
+ * Each value is looked up, first match wins, in:
+ *   1. CDK context `-c key=value`;
+ *   2. the environment variable;
+ *   3. the stage's block in `infra/cdk.json` (`"prod": { "certificateArn": "…" }`) —
+ *      committed, so a deploy from any laptop or from CI gets the same domains;
+ *   4. the default.
  *
  * | context          | env                | default (prod)          |
  * | ---------------- | ------------------ | ----------------------- |
@@ -28,10 +33,17 @@ export interface DomainConfig {
 const PROD_DEFAULTS = { appDomain: "slack.mindfultech.ec", wsDomain: "ws.mindfultech.ec" };
 
 export function resolveDomainConfig(node: Node, stage: Stage): DomainConfig {
-  const get = (contextKey: string, envKey: string): string | undefined => {
-    const value: unknown = node.tryGetContext(contextKey) ?? process.env[envKey];
-    return typeof value === "string" && value.trim() ? value.trim() : undefined;
-  };
+  const stageBlock: unknown = node.tryGetContext(stage);
+  const fromStageBlock = (key: string): unknown =>
+    stageBlock && typeof stageBlock === "object"
+      ? (stageBlock as Record<string, unknown>)[key]
+      : undefined;
+  const text = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value.trim() : undefined;
+  const get = (contextKey: string, envKey: string): string | undefined =>
+    text(node.tryGetContext(contextKey)) ??
+    text(process.env[envKey]) ??
+    text(fromStageBlock(contextKey));
   const defaults: Partial<typeof PROD_DEFAULTS> = stage === "prod" ? PROD_DEFAULTS : {};
   const appDomain = get("appDomain", "SLACK_APP_DOMAIN") ?? defaults.appDomain;
   return {
