@@ -89,12 +89,15 @@ describe("task manager API", () => {
     ).map((r) => r.Properties as { RouteKey: string; AuthorizationType?: string });
     expect(routes.map((r) => r.RouteKey).sort((a, b) => a.localeCompare(b))).toEqual([
       "DELETE /boards/{id}",
+      "DELETE /push/subscribe",
       "DELETE /tasks/{taskId}",
       "GET /boards",
       "GET /boards/{id}/tasks",
+      "GET /push/key",
       "POST /boards",
       "POST /boards/{id}/members",
       "POST /boards/{id}/tasks",
+      "POST /push/subscribe",
       "PUT /boards/{id}",
       "PUT /tasks/{taskId}",
     ]);
@@ -167,5 +170,70 @@ describe("task manager API", () => {
     );
     expect(JSON.stringify(entry?.Properties?.SourceMarkers)).toMatch(/TasksApiHttpApi/);
     expect(template.findOutputs("TasksApiUrl")).not.toEqual({});
+  });
+});
+
+describe("web push", () => {
+  const statementsOf = (prefix: string) => {
+    const policy = Object.entries(template.findResources("AWS::IAM::Policy")).find(([id]) =>
+      id.startsWith(prefix),
+    )?.[1];
+    return (policy?.Properties?.PolicyDocument?.Statement ?? []) as Array<{
+      Action: string | string[];
+      Resource: unknown;
+    }>;
+  };
+
+  it("stores subscriptions per user and device", () => {
+    expect(
+      matching("AWS::DynamoDB::Table", {
+        TableName: "slack-dev-push-subscriptions",
+        KeySchema: [
+          { AttributeName: "userId", KeyType: "HASH" },
+          { AttributeName: "sk", KeyType: "RANGE" },
+        ],
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("never puts VAPID keys in the template: Lambdas get the parameter's name only", () => {
+    const json = template.toJSON() as { Parameters?: Record<string, unknown> };
+    expect(JSON.stringify(json)).not.toMatch(/privateKey/);
+    // No SSM resource nor deploy-time SSM lookup of the keys (only CDK's BootstrapVersion).
+    expect(Object.keys(template.findResources("AWS::SSM::Parameter"))).toEqual([]);
+    expect(Object.keys(json.Parameters ?? {})).toEqual(["BootstrapVersion"]);
+    for (const name of ["slack-dev-push", "slack-dev-message"]) {
+      expect(
+        matching("AWS::Lambda::Function", {
+          FunctionName: name,
+          Environment: { Variables: Match.objectLike({ VAPID_PARAMETER: "/slack/dev/vapid" }) },
+        }),
+      ).toHaveLength(1);
+    }
+  });
+
+  it("lets push and message read only this stage's VAPID parameter", () => {
+    for (const prefix of ["TasksApiPushFnServiceRoleDefaultPolicy", "ApimessageFnServiceRole"]) {
+      const ssm = statementsOf(prefix).filter((st) =>
+        [st.Action].flat().some((a) => a.startsWith("ssm:")),
+      );
+      expect(ssm).toHaveLength(1);
+      expect(ssm[0]?.Action).toBe("ssm:GetParameter");
+      expect(JSON.stringify(ssm[0]?.Resource)).toContain(":parameter/slack/dev/vapid");
+    }
+  });
+
+  it("gives the push Lambda only its own table", () => {
+    const statements = statementsOf("TasksApiPushFnServiceRoleDefaultPolicy");
+    const dynamo = statements.filter((st) =>
+      [st.Action].flat().some((a) => a.startsWith("dynamodb:")),
+    );
+    expect(
+      dynamo.every((st) => JSON.stringify(st.Resource).includes("DataPushSubscriptions")),
+    ).toBe(true);
+    expect(dynamo.flatMap((st) => [st.Action].flat()).sort()).toEqual([
+      "dynamodb:DeleteItem",
+      "dynamodb:PutItem",
+    ]);
   });
 });

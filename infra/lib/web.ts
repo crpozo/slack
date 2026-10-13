@@ -136,6 +136,9 @@ export class Web extends Construct {
     });
 
     const build = webBuildSource(props.skipBuild ?? false);
+    // Served under fixed names, so they must never be cached: a cached sw.js would
+    // pin every browser to an old service worker.
+    const entryPoints = ["index.html", "config.json", "sw.js", "manifest.webmanifest"];
     // Resolved at deploy time from this stack's own resources: no rebuild needed
     // when the API or user pool ids change, and no chicken-and-egg on first deploy.
     const runtimeConfig = Source.jsonData("config.json", props.runtimeConfig);
@@ -144,7 +147,7 @@ export class Web extends Construct {
     const assets = new BucketDeployment(this, "DeployAssets", {
       destinationBucket: props.bucket,
       sources: [build],
-      exclude: ["index.html", "config.json"],
+      exclude: entryPoints,
       cacheControl: [
         CacheControl.setPublic(),
         CacheControl.maxAge(Duration.days(365)),
@@ -159,7 +162,7 @@ export class Web extends Construct {
       destinationBucket: props.bucket,
       sources: [build, runtimeConfig],
       exclude: ["*"],
-      include: ["index.html", "config.json"],
+      include: entryPoints,
       cacheControl: [CacheControl.noCache()],
       prune: false,
       distribution: this.distribution,

@@ -13,7 +13,8 @@ import type { Bucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import type { Auth } from "./auth";
 import type { Data } from "./data";
-import { removalPolicyFor, type Stage } from "./stage";
+import { removalPolicyFor, vapidParameterName, type Stage } from "./stage";
+import { grantReadVapid } from "./vapid";
 
 const HANDLERS_DIR = fileURLToPath(new URL("../../backend/src/handlers/", import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -118,7 +119,11 @@ export class Api extends Construct {
       connect: fn("connect"),
       disconnect: fn("disconnect"),
       default: fn("default"),
-      message: fn("message"),
+      // Web Push to offline recipients: subscriptions table + the VAPID parameter.
+      message: fn("message", {
+        PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
+        VAPID_PARAMETER: vapidParameterName(stage),
+      }),
       history: fn("history"),
       channel: fn("channel"),
       presign: fn("presign"),
@@ -183,6 +188,11 @@ export class Api extends Construct {
     // Board files (`attachments/<boardId>/…`) are gated by board membership.
     data.boards.grant(handlers.presign, "dynamodb:GetItem");
     messages.grant(handlers.message, "dynamodb:PutItem");
+    // Push: the sender's display name (GetItem), @mention lookup (Scan), each
+    // recipient's devices (Query) and dropping expired ones (DeleteItem).
+    users.grant(handlers.message, "dynamodb:GetItem", "dynamodb:Scan");
+    data.pushSubscriptions.grant(handlers.message, "dynamodb:Query", "dynamodb:DeleteItem");
+    grantReadVapid(handlers.message, stage);
     messages.grant(handlers.history, "dynamodb:Query");
     channels.grant(
       handlers.channel,

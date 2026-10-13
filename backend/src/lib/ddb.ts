@@ -26,6 +26,9 @@ export const tables = {
   get tasks() {
     return requireEnv("TASKS_TABLE");
   },
+  get pushSubscriptions() {
+    return requireEnv("PUSH_SUBSCRIPTIONS_TABLE");
+  },
 };
 
 /** Row of the `connections` table. */

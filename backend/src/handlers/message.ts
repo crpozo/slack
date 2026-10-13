@@ -7,14 +7,19 @@ import {
   type MessageNewEvent,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
-import { broadcast } from "../lib/broadcast";
+import { deliver, listConnections } from "../lib/broadcast";
 import { channelAudience, getAccessibleChannel } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import { wsHandler } from "../lib/handler";
 import { log } from "../lib/logger";
+import { notifyOffline } from "../lib/notify";
 import { badRequest, ok, replyError } from "../lib/response";
 
-/** `message`: persists a message and fans it out as `message.new` to the channel's audience. */
+/**
+ * `message`: persists a message, fans it out as `message.new` to the channel's
+ * audience, and sends a Web Push to recipients (the DM peer, or people
+ * `@mentioned`) who have no live connection.
+ */
 export const handler = wsHandler(async (event, caller) => {
   const parsed = parseAction(MessageActionSchema, event.body);
   if (!parsed.success) return badRequest(caller.connectionId, parsed.error);
@@ -48,6 +53,8 @@ export const handler = wsHandler(async (event, caller) => {
 
   const newMessage: MessageNewEvent = { type: "message.new", message, clientId };
   const inAudience = channelAudience(channel);
-  await broadcast((connection) => (inAudience(connection) ? newMessage : null));
+  const connections = await listConnections();
+  await deliver(connections, (connection) => (inAudience(connection) ? newMessage : null));
+  await notifyOffline(channel, message, new Set(connections.map((c) => c.userId)));
   return ok();
 });

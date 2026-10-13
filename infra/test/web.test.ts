@@ -47,13 +47,13 @@ describe("web hosting", () => {
 
   it("uploads hashed assets as immutable and entry points as no-cache with invalidation", () => {
     template.hasResourceProperties("Custom::CDKBucketDeployment", {
-      Exclude: ["index.html", "config.json"],
+      Exclude: ["index.html", "config.json", "sw.js", "manifest.webmanifest"],
       SystemMetadata: { "cache-control": "public, max-age=31536000, immutable" },
       Prune: false,
     });
     template.hasResourceProperties("Custom::CDKBucketDeployment", {
       Exclude: ["*"],
-      Include: ["index.html", "config.json"],
+      Include: ["index.html", "config.json", "sw.js", "manifest.webmanifest"],
       SystemMetadata: { "cache-control": "no-cache" },
       DistributionPaths: ["/*"],
     });
@@ -62,7 +62,7 @@ describe("web hosting", () => {
   it("writes config.json with the live WebSocket URL and Cognito ids at deploy time", () => {
     const [entry] = Object.values(
       template.findResources("Custom::CDKBucketDeployment", {
-        Properties: { Include: ["index.html", "config.json"] },
+        Properties: { Include: ["index.html", "config.json", "sw.js", "manifest.webmanifest"] },
       }),
     );
     const markers = JSON.stringify(entry?.Properties?.SourceMarkers);

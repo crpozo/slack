@@ -16,7 +16,8 @@ import { Construct } from "constructs";
 import type { Api } from "./api";
 import type { Auth } from "./auth";
 import type { Data } from "./data";
-import { removalPolicyFor, type Stage } from "./stage";
+import { removalPolicyFor, vapidParameterName, type Stage } from "./stage";
+import { grantReadVapid } from "./vapid";
 
 const HANDLERS_DIR = fileURLToPath(new URL("../../backend/src/handlers/", import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -32,6 +33,13 @@ export const TASKS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/boards/{id}/tasks" },
   { method: HttpMethod.PUT, path: "/tasks/{taskId}" },
   { method: HttpMethod.DELETE, path: "/tasks/{taskId}" },
+];
+
+/** Web Push subscriptions (Phase 8), served by their own small Lambda on the same API. */
+export const PUSH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/push/key" },
+  { method: HttpMethod.POST, path: "/push/subscribe" },
+  { method: HttpMethod.DELETE, path: "/push/subscribe" },
 ];
 
 interface TasksApiProps {
@@ -52,6 +60,8 @@ interface TasksApiProps {
 export class TasksApi extends Construct {
   readonly httpApi: HttpApi;
   readonly handler: NodejsFunction;
+  /** `push`: stores browsers' Web Push subscriptions; only touches that table and the VAPID parameter. */
+  readonly pushHandler: NodejsFunction;
   /** Base URL clients call, without a trailing slash. */
   readonly url: string;
   private readonly origins: string[];
@@ -61,32 +71,38 @@ export class TasksApi extends Construct {
     const { stage, auth, data, wsApi } = props;
     this.origins = [...props.allowOrigins];
 
-    const functionName = `slack-${stage}-tasks`;
-    this.handler = new NodejsFunction(this, "Fn", {
-      functionName,
-      entry: `${HANDLERS_DIR}tasks.ts`,
-      handler: "handler",
-      runtime: Runtime.NODEJS_22_X,
-      architecture: Architecture.ARM_64,
-      memorySize: 256,
-      timeout: Duration.seconds(10),
-      environment: {
-        STAGE: stage,
-        LOG_LEVEL: "info",
-        BOARDS_TABLE: data.boards.tableName,
-        TASKS_TABLE: data.tasks.tableName,
-        USERS_TABLE: data.users.tableName,
-        CONNECTIONS_TABLE: data.connections.tableName,
-        WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
-      },
-      projectRoot: REPO_ROOT,
-      depsLockFilePath: `${REPO_ROOT}pnpm-lock.yaml`,
-      bundling: { minify: true, sourceMap: false, target: "node22", externalModules: [] },
-      logGroup: new LogGroup(this, "Logs", {
-        logGroupName: `/aws/lambda/${functionName}`,
-        retention: RetentionDays.ONE_WEEK,
-        removalPolicy: removalPolicyFor(stage),
-      }),
+    const lambda = (id: string, name: string, environment: Record<string, string>) => {
+      const functionName = `slack-${stage}-${name}`;
+      return new NodejsFunction(this, id, {
+        functionName,
+        entry: `${HANDLERS_DIR}${name}.ts`,
+        handler: "handler",
+        runtime: Runtime.NODEJS_22_X,
+        architecture: Architecture.ARM_64,
+        memorySize: 256,
+        timeout: Duration.seconds(10),
+        environment: { STAGE: stage, LOG_LEVEL: "info", ...environment },
+        projectRoot: REPO_ROOT,
+        depsLockFilePath: `${REPO_ROOT}pnpm-lock.yaml`,
+        bundling: { minify: true, sourceMap: false, target: "node22", externalModules: [] },
+        logGroup: new LogGroup(this, `${id === "Fn" ? "" : id}Logs`, {
+          logGroupName: `/aws/lambda/${functionName}`,
+          retention: RetentionDays.ONE_WEEK,
+          removalPolicy: removalPolicyFor(stage),
+        }),
+      });
+    };
+
+    this.handler = lambda("Fn", "tasks", {
+      BOARDS_TABLE: data.boards.tableName,
+      TASKS_TABLE: data.tasks.tableName,
+      USERS_TABLE: data.users.tableName,
+      CONNECTIONS_TABLE: data.connections.tableName,
+      WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+    });
+    this.pushHandler = lambda("PushFn", "push", {
+      PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
+      VAPID_PARAMETER: vapidParameterName(stage),
     });
 
     const region = Stack.of(this).region;
@@ -116,6 +132,10 @@ export class TasksApi extends Construct {
     for (const { method, path } of TASKS_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration });
     }
+    const pushIntegration = new HttpLambdaIntegration("PushIntegration", this.pushHandler);
+    for (const { method, path } of PUSH_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: pushIntegration });
+    }
     this.url = this.httpApi.apiEndpoint;
 
     // --- Permissions: only what the handler calls ---
@@ -142,6 +162,10 @@ export class TasksApi extends Construct {
     // Real-time pushes: list live connections, post to members', drop stale ones (410).
     data.connections.grant(this.handler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.handler);
+
+    // push: the caller's own subscription rows, and the public half of the VAPID keys.
+    data.pushSubscriptions.grant(this.pushHandler, "dynamodb:PutItem", "dynamodb:DeleteItem");
+    grantReadVapid(this.pushHandler, stage);
   }
 
   /**
