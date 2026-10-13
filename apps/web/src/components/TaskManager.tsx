@@ -222,8 +222,9 @@ function AddTaskForm({ boardId }: Readonly<{ boardId: string }>) {
         maxLength={MAX_TASK_TITLE_LENGTH}
         onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
-        // Only the first field of a new form takes focus; the page doesn't move otherwise.
-        ref={(el) => el?.focus()}
+        // Focus once on open: an inline focusing ref re-ran on every keystroke and pulled
+        // focus back from the description, so its first letters landed in the title.
+        autoFocus
       />
       <textarea
         className="input min-h-[3.5rem] resize-y"
@@ -427,7 +428,7 @@ function Column({
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
       }}
       onDrop={handleDrop}
-      className={`flex min-h-[12rem] min-w-[14rem] flex-1 flex-col rounded-2xl border bg-surface-sidebar p-3 transition-colors ${
+      className={`flex h-full min-h-[12rem] min-w-0 flex-col rounded-2xl border bg-surface-sidebar p-3 transition-colors ${
         over ? "border-primary bg-primary/10" : "border-line"
       }`}
     >
@@ -482,7 +483,7 @@ function BoardTitle({ board, editable }: Readonly<{ board: Board; editable: bool
             setEditing(false);
           }
         }}
-        ref={(el) => el?.focus()}
+        autoFocus
       />
     );
   }
@@ -527,7 +528,7 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
   }, [tasks]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 sm:px-6">
         <BoardTitle board={board} editable={isOwner} />
         <div className="flex items-center -space-x-1" aria-label="Members">
@@ -552,8 +553,9 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6" aria-busy={loading && !tasks}>
-        <div className="flex min-h-full gap-4" style={{ minWidth: "min(100%, 52rem)" }}>
+      <div className="min-h-0 w-full flex-1 overflow-auto p-4 sm:p-6" aria-busy={loading && !tasks}>
+        {/* Three equal columns spanning the whole chat area; scrolls sideways only on narrow screens. */}
+        <div className="grid min-h-full w-full min-w-[42rem] grid-cols-3 items-stretch gap-4">
           {COLUMNS.map((column) => (
             <Column
               key={column.status}
@@ -680,7 +682,7 @@ export function TaskManager({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col">
       <CallPanel channelId="tasks" />
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
         <button
@@ -737,7 +739,7 @@ export function TaskManager({
         )}
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 w-full flex-1">
         {configured && boards.length > 0 && (
           <nav
             aria-label="Boards"
@@ -747,7 +749,7 @@ export function TaskManager({
             <BoardList title="Shared with me" boards={shared} activeId={board?.boardId} />
           </nav>
         )}
-        <div className="flex min-w-0 flex-1 flex-col">{content}</div>
+        <div className="flex h-full min-w-0 flex-1 flex-col">{content}</div>
       </div>
 
       {creating && (

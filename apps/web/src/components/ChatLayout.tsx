@@ -221,7 +221,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         )}
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="flex h-full w-full min-w-0 flex-1 flex-col">
         {channelId ? (
           <ChannelView channelId={channelId} onOpenSidebar={() => setSidebarOpen(true)} />
         ) : (

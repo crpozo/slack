@@ -7,7 +7,7 @@ interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
-  width?: "sm" | "md";
+  width?: "sm" | "md" | "lg";
 }
 
 /**
@@ -52,6 +52,8 @@ export function useModalDialog(onClose: () => void) {
   return ref;
 }
 
+const WIDTHS = { sm: "sm:max-w-sm", md: "sm:max-w-md", lg: "sm:max-w-2xl" } as const;
+
 /** Centered dialog with backdrop; Esc or clicking outside closes it. */
 export function Modal({ title, onClose, children, footer, width = "md" }: Readonly<ModalProps>) {
   const dialog = useModalDialog(onClose);
@@ -67,9 +69,7 @@ export function Modal({ title, onClose, children, footer, width = "md" }: Readon
     <dialog
       ref={dialog}
       aria-label={title}
-      className={`m-0 mt-auto max-h-[90vh] w-full max-w-full overflow-hidden rounded-t-2xl border border-line bg-surface-raised p-0 text-ink shadow-xl backdrop:bg-scrim/40 sm:m-auto sm:rounded-2xl ${
-        width === "sm" ? "sm:max-w-sm" : "sm:max-w-md"
-      }`}
+      className={`m-0 mt-auto max-h-[90vh] w-full max-w-full overflow-hidden rounded-t-2xl border border-line bg-surface-raised p-0 text-ink shadow-xl backdrop:bg-scrim/50 backdrop:backdrop-blur-sm sm:m-auto sm:rounded-2xl ${WIDTHS[width]}`}
     >
       <div className="flex max-h-[90vh] flex-col">
         <header className="flex items-center justify-between border-b border-line px-5 py-3">
