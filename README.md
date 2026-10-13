@@ -255,6 +255,23 @@ If the domain were on Route 53, pass `HOSTED_ZONE_ID` and CDK creates the record
 Create the two accounts with the commands in [Create the Cognito users](#create-the-cognito-users)
 using the `UserPoolId` of `SlackProd`.
 
+### Moving data from dev to prod
+
+If the team started out on `SlackDev`, `pnpm --filter infra migrate-dev-to-prod` copies accounts,
+channels, DMs, messages, reactions, boards, tasks and attachments to `SlackProd`. Prod's user pool
+gives everyone a new user id, so every id in the data (DM ids, members, reactions, board owners,
+attachment paths of DMs…) is rewritten; Cognito can't export passwords, so the script asks for a
+new one per person (it can be the same as before).
+
+```bash
+pnpm --filter infra migrate-dev-to-prod           # dry run: reads, reports, writes nothing
+pnpm --filter infra migrate-dev-to-prod --apply   # migrate
+```
+
+`SlackDev` is only read, never modified. Running it again later only brings over what changed
+(accounts are reused, rows overwritten with the same content, copied files skipped). Keep
+`SlackDev` until you have checked prod; don't run `pnpm destroy:dev` before.
+
 ### 5. Push notifications (VAPID keys, once per stage)
 
 Web Push needs a VAPID key pair. It is stored encrypted in Parameter Store (free tier) and never
