@@ -51,6 +51,16 @@ class ChatController {
   private pendingCreate: (Deferred<string> & { name: string }) | null = null;
   private pendingName: (Deferred<void> & { name: string }) | null = null;
   private readonly sendTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly deletedListeners = new Set<(channelId: string, by: string) => void>();
+
+  /**
+   * Called when a channel or DM you can see is deleted (by anyone, you included),
+   * before it leaves the store, so the UI can navigate away first.
+   */
+  onChannelDeleted(listener: (channelId: string, by: string) => void): () => void {
+    this.deletedListeners.add(listener);
+    return () => this.deletedListeners.delete(listener);
+  }
 
   start(wsUrl: string, onSessionExpired: () => void): void {
     if (this.client) return;
@@ -97,7 +107,17 @@ class ChatController {
         if (channelId === s.activeChannelId && isFocused()) s.markRead(channelId);
       }),
 
-      client.on("user.list", ({ users }) => store().setUsers(users)),
+      client.on("user.list", ({ users, online }) => store().setUsers(users, online)),
+
+      // Presence (Phase 7).
+      client.on("user.connected", ({ userId }) => store().setPresence(userId, true)),
+      client.on("user.disconnected", ({ userId }) => store().setPresence(userId, false)),
+
+      client.on("channel.deleted", ({ channelId, by }) => {
+        // Listeners first (they move off the channel), then forget it.
+        this.deletedListeners.forEach((fn) => fn(channelId, by));
+        store().removeChannel(channelId);
+      }),
 
       client.on("user.updated", ({ user }) => {
         store().upsertUser(user);
@@ -273,13 +293,14 @@ class ChatController {
    * resolves with the new channel id once the updated list arrives.
    */
   async createChannel(
-    name: string,
+    rawName: string,
     visibility: ChannelVisibility = "private",
     invitees: string[] = [],
   ): Promise<string> {
     const client = this.client;
     if (!client) throw new Error("Not connected");
     if (this.pendingCreate) throw new Error("A channel is already being created");
+    const name = rawName.trim(); // stored trimmed; `channel.list` is matched on it
     const channelId = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingCreate = null;
@@ -290,6 +311,14 @@ class ChatController {
     });
     if (visibility === "private" && invitees.length > 0) this.invite(channelId, invitees);
     return channelId;
+  }
+
+  /**
+   * Deletes a channel you created, or a DM you're in, with all its messages.
+   * Everyone who could see it gets `channel.deleted`; errors arrive as toasts.
+   */
+  deleteChannel(channelId: string): void {
+    this.client?.send("channel", { op: "delete", channelId });
   }
 
   /** Adds people to a private channel you created; errors arrive as toasts. */

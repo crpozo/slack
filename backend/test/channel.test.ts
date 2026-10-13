@@ -1,12 +1,22 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { BatchGetCommand, PutCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  BatchGetCommand,
+  BatchWriteCommand,
+  DeleteCommand,
+  PutCommand,
+  QueryCommand,
+  ScanCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { dmChannelId, type ChannelListEvent, compareIds } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handler } from "../src/handlers/channel";
 import {
   ALICE,
+  apiMock,
   BOB,
   ddbMock,
+  dmRow,
   mockChannels,
   privateRow,
   resetMocks,
@@ -120,12 +130,36 @@ describe("channel", () => {
     ]);
   });
 
-  it("create rejects an invalid name", async () => {
-    const result = await handler(
-      wsEvent("channel", { action: "channel", op: "create", name: "Not Valid" }),
-    );
-    expect(result.statusCode).toBe(400);
-    expect(sentEvents()[0]?.[1]).toMatchObject({ code: "BAD_REQUEST" });
+  it("create rejects names without letters or numbers, or with control characters", async () => {
+    for (const name of ["!!!", "   ", "bad\u0007name", "x".repeat(41)]) {
+      resetMocks();
+      const result = await handler(wsEvent("channel", { action: "channel", op: "create", name }));
+      expect(result.statusCode).toBe(400);
+      expect(sentEvents()[0]?.[1]).toMatchObject({ code: "BAD_REQUEST" });
+    }
+  });
+
+  it("create keeps the readable name and stores its slug", async () => {
+    mockScans([general]);
+    ddbMock.on(PutCommand).resolves({});
+
+    await handler(wsEvent("channel", { action: "channel", op: "create", name: "  Diseño Web  " }));
+
+    expect(ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item).toMatchObject({
+      name: "Diseño Web",
+      slug: "diseno-web",
+    });
+  });
+
+  it("create treats names with the same slug as duplicates (old rows have no slug)", async () => {
+    mockScans([general, { ...general, channelId: "ch_x", name: "Web Design", slug: "web-design" }]);
+    for (const name of ["General", "web design", "WEB-DESIGN"]) {
+      apiMock.resetHistory();
+      const result = await handler(wsEvent("channel", { action: "channel", op: "create", name }));
+      expect(result.statusCode).toBe(400);
+      expect(sentEvents()[0]?.[1]).toMatchObject({ code: "CHANNEL_NAME_TAKEN" });
+    }
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
   });
 
   it("dm generates the same id regardless of who opens it", async () => {
@@ -313,5 +347,121 @@ describe("channel invite", () => {
     const result = await invite([BOB.userId], ALICE, "ch_general");
     expect(result.statusCode).toBe(400);
     expect(sentEvents()[0]?.[1]).toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
+
+describe("channel delete", () => {
+  const remove = (channelId: string, user = ALICE) =>
+    handler(
+      wsEvent(
+        "channel",
+        { action: "channel", op: "delete", channelId },
+        { user, connectionId: user === ALICE ? "conn-alice" : "conn-bob" },
+      ),
+    );
+  const publicRow = { ...general, channelId: "ch_pub", name: "Pub", createdBy: ALICE.userId };
+  const dm = dmRow(ALICE.userId, BOB.userId);
+  const allConnections = [...connections, { connectionId: "conn-carol", userId: "user-carol" }];
+
+  beforeEach(() => {
+    resetMocks();
+    mockChannels(
+      general as never,
+      publicRow as never,
+      dm,
+      privateRow("ch_team", ALICE.userId, [ALICE.userId, BOB.userId]),
+    );
+    ddbMock
+      .on(ScanCommand, { TableName: "slack-test-connections" })
+      .resolves({ Items: allConnections });
+    ddbMock.on(QueryCommand).resolves({ Items: [] });
+    ddbMock.on(BatchWriteCommand).resolves({});
+    ddbMock.on(DeleteCommand).resolves({});
+  });
+
+  it("deletes the creator's channel and its messages in batches of 25", async () => {
+    const items = Array.from({ length: 30 }, (_, i) => ({ channelId: "ch_pub", sk: `${i}#x` }));
+    ddbMock.on(QueryCommand).resolves({ Items: items });
+
+    const result = await remove("ch_pub");
+
+    expect(result.statusCode).toBe(200);
+    const batches = ddbMock.commandCalls(BatchWriteCommand).map((c) => c.args[0].input);
+    expect(batches.map((b) => b.RequestItems?.["slack-test-messages"]?.length)).toEqual([25, 5]);
+    expect(batches[0]?.RequestItems?.["slack-test-messages"]?.[0]).toEqual({
+      DeleteRequest: { Key: { channelId: "ch_pub", sk: "0#x" } },
+    });
+    expect(ddbMock.commandCalls(DeleteCommand)[0]?.args[0].input).toEqual({
+      TableName: "slack-test-channels",
+      Key: { channelId: "ch_pub" },
+    });
+    // Public: everyone hears about it.
+    expect(sentEvents().map(([id]) => id)).toEqual(["conn-alice", "conn-bob", "conn-carol"]);
+    expect(sentEvents()[0]?.[1]).toEqual({
+      type: "channel.deleted",
+      channelId: "ch_pub",
+      by: ALICE.userId,
+    });
+  });
+
+  it("retries messages BatchWrite left unprocessed", async () => {
+    const items = [{ channelId: "ch_pub", sk: "1#a" }];
+    ddbMock.on(QueryCommand).resolves({ Items: items });
+    ddbMock
+      .on(BatchWriteCommand)
+      .resolvesOnce({
+        UnprocessedItems: {
+          "slack-test-messages": [{ DeleteRequest: { Key: items[0] } }],
+        },
+      })
+      .resolves({});
+
+    expect((await remove("ch_pub")).statusCode).toBe(200);
+    expect(ddbMock.commandCalls(BatchWriteCommand)).toHaveLength(2);
+  });
+
+  it("keeps the channel when messages can't be deleted after retries", async () => {
+    const items = [{ channelId: "ch_pub", sk: "1#a" }];
+    ddbMock.on(QueryCommand).resolves({ Items: items });
+    ddbMock.on(BatchWriteCommand).resolves({
+      UnprocessedItems: { "slack-test-messages": [{ DeleteRequest: { Key: items[0] } }] },
+    });
+
+    expect((await remove("ch_pub")).statusCode).toBe(500);
+    expect(ddbMock.commandCalls(BatchWriteCommand)).toHaveLength(3); // 1 + 2 retries
+    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
+    expect(sentEvents().map(([, e]) => e.type)).toEqual(["error"]);
+  });
+
+  it("lets either member delete a DM and only tells its members", async () => {
+    const result = await remove(dm.channelId, BOB);
+
+    expect(result.statusCode).toBe(200);
+    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(1);
+    expect(sentEvents().map(([id, e]) => [id, e.type])).toEqual([
+      ["conn-alice", "channel.deleted"],
+      ["conn-bob", "channel.deleted"],
+    ]);
+  });
+
+  it("only tells members of a private channel", async () => {
+    await remove("ch_team");
+    expect(sentEvents().map(([id]) => id)).toEqual(["conn-alice", "conn-bob"]);
+  });
+
+  it("refuses #general, other people's channels and channels you can't see", async () => {
+    expect((await remove("ch_general")).statusCode).toBe(400);
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+
+    expect((await remove("ch_pub", BOB)).statusCode).toBe(400);
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+
+    mockChannels(privateRow("ch_secret", BOB.userId, [BOB.userId]));
+    expect((await remove("ch_secret")).statusCode).toBe(400);
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "CHANNEL_NOT_FOUND" });
+
+    expect((await remove("ch_missing")).statusCode).toBe(400);
+    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
+    expect(ddbMock.commandCalls(BatchWriteCommand)).toHaveLength(0);
   });
 });

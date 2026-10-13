@@ -1,8 +1,8 @@
-import { DeleteCommand, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, PutCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handler as connect } from "../src/handlers/connect";
 import { handler as disconnect } from "../src/handlers/disconnect";
-import { ALICE, ddbMock, resetMocks, wsEvent } from "./helpers";
+import { ALICE, BOB, ddbMock, resetMocks, sentEvents, wsEvent } from "./helpers";
 
 describe("connect", () => {
   beforeEach(resetMocks);
@@ -57,6 +57,31 @@ describe("connect", () => {
     expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
   });
 
+  it("announces user.connected to every other connection", async () => {
+    ddbMock.on(PutCommand).resolves({});
+    ddbMock.on(ScanCommand).resolves({
+      Items: [
+        { connectionId: "conn-alice", userId: ALICE.userId },
+        { connectionId: "conn-alice-2", userId: ALICE.userId },
+        { connectionId: "conn-bob", userId: BOB.userId },
+      ],
+    });
+
+    await connect(wsEvent("$connect"));
+
+    // Not the connection being opened: it can't receive anything until $connect returns.
+    expect(sentEvents()).toEqual([
+      ["conn-alice-2", { type: "user.connected", userId: ALICE.userId }],
+      ["conn-bob", { type: "user.connected", userId: ALICE.userId }],
+    ]);
+  });
+
+  it("still connects if the presence broadcast fails", async () => {
+    ddbMock.on(PutCommand).resolves({});
+    ddbMock.on(ScanCommand).rejects(new Error("throttled"));
+    expect((await connect(wsEvent("$connect"))).statusCode).toBe(200);
+  });
+
   it("returns 500 if DynamoDB fails", async () => {
     ddbMock.on(PutCommand).rejects(new Error("boom"));
     const result = await connect(wsEvent("$connect"));
@@ -76,6 +101,7 @@ describe("disconnect", () => {
     expect(ddbMock.commandCalls(DeleteCommand)[0]?.args[0].input).toEqual({
       TableName: "slack-test-connections",
       Key: { connectionId: "conn-alice" },
+      ReturnValues: "ALL_OLD",
     });
   });
 
@@ -83,5 +109,46 @@ describe("disconnect", () => {
     ddbMock.on(DeleteCommand).rejects(new Error("boom"));
     const result = await disconnect(wsEvent("$disconnect"));
     expect(result.statusCode).toBe(200);
+  });
+});
+
+describe("disconnect presence", () => {
+  beforeEach(() => {
+    resetMocks();
+    ddbMock.on(DeleteCommand).resolves({ Attributes: { userId: ALICE.userId } });
+  });
+
+  it("announces user.disconnected when it was the user's last connection", async () => {
+    ddbMock.on(ScanCommand).resolves({ Items: [{ connectionId: "conn-bob", userId: BOB.userId }] });
+
+    await disconnect(wsEvent("$disconnect"));
+
+    expect(ddbMock.commandCalls(ScanCommand)[0]?.args[0].input.ConsistentRead).toBe(true);
+    expect(sentEvents()).toEqual([
+      ["conn-bob", { type: "user.disconnected", userId: ALICE.userId }],
+    ]);
+  });
+
+  it("stays quiet while the user has another tab or device open", async () => {
+    ddbMock.on(ScanCommand).resolves({
+      Items: [
+        { connectionId: "conn-alice-2", userId: ALICE.userId },
+        { connectionId: "conn-bob", userId: BOB.userId },
+      ],
+    });
+
+    await disconnect(wsEvent("$disconnect"));
+
+    expect(sentEvents()).toEqual([]);
+  });
+
+  it("falls back to the deleted row when there is no authorizer context", async () => {
+    ddbMock.on(ScanCommand).resolves({ Items: [{ connectionId: "conn-bob", userId: BOB.userId }] });
+
+    await disconnect(wsEvent("$disconnect", undefined, { user: null }));
+
+    expect(sentEvents()).toEqual([
+      ["conn-bob", { type: "user.disconnected", userId: ALICE.userId }],
+    ]);
   });
 });

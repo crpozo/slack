@@ -6,7 +6,7 @@ import { chat } from "../lib/chat";
 import { dmEntries, type DmEntry } from "../lib/channels";
 import type { WsStatus } from "../lib/ws";
 import { selectUnread, useChat, useNameOf } from "../store";
-import { Avatar } from "./Avatar";
+import { Avatar, PresenceDot } from "./Avatar";
 import {
   HashIcon,
   KanbanIcon,
@@ -164,7 +164,7 @@ export function Sidebar({
 }: Readonly<SidebarProps>) {
   const navigate = useNavigate();
   const nameOf = useNameOf();
-  const { me, status, channels, team, directory, users } = useChat(
+  const { me, status, channels, team, directory, users, online } = useChat(
     useShallow((s) => ({
       me: s.me,
       status: s.status,
@@ -172,6 +172,7 @@ export function Sidebar({
       team: s.team,
       directory: s.directory,
       users: s.users,
+      online: s.online,
     })),
   );
   const unread = useChat(
@@ -317,13 +318,19 @@ export function Sidebar({
           <ul className="space-y-0.5 px-2">
             {dms.map((dm) => {
               const id = dm.userId ? dmChannelId(me.userId, dm.userId) : undefined;
+              const isOnline = !!dm.userId && !!online[dm.userId];
               return (
                 <NavItem
                   key={dm.userId ?? dm.email}
                   compact={compact}
                   label={dm.name}
-                  icon={<Avatar name={dm.name} size={compact ? "md" : "sm"} />}
-                  title={dmTitle(dm, compact)}
+                  icon={
+                    <span className="relative inline-flex">
+                      <Avatar name={dm.name} size={compact ? "md" : "sm"} />
+                      <PresenceDot online={isOnline} overlay />
+                    </span>
+                  }
+                  title={`${dmTitle(dm, compact)} · ${isOnline ? "Online" : "Offline"}`}
                   active={id === activeChannelId}
                   unread={dm.channelId && id !== activeChannelId ? (unread[dm.channelId] ?? 0) : 0}
                   disabled={!dm.userId}

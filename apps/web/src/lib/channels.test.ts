@@ -1,6 +1,6 @@
 import { dmChannelId, type Channel, compareIds } from "@mindfultech/shared";
 import { describe, expect, it } from "vitest";
-import { channelLabel, dmEntries, formatDay, normalizeChannelName } from "./channels";
+import { channelLabel, dmEntries, formatDay } from "./channels";
 import { parseUsers, resolveConfig } from "./config";
 
 const me = { userId: "u-me", email: "me@mt.ec" };
@@ -12,13 +12,6 @@ describe("parseUsers", () => {
       { email: "b@mt.ec", userId: undefined },
       { email: "c@mt.ec", userId: undefined },
     ]);
-  });
-});
-
-describe("normalizeChannelName", () => {
-  it("turns free text into a valid channel name", () => {
-    expect(normalizeChannelName("#Diseño Web 2026!")).toBe("diseno-web-2026");
-    expect(normalizeChannelName("a".repeat(40))).toHaveLength(32);
   });
 });
 

@@ -535,6 +535,17 @@ It is carried out in three sub-phases, each on its own branch with its own PR to
 
 **Phase 6 acceptance criteria:** a non-member gets 404 from every board/task route and sees nothing in the UI; a member sees the board under "Shared with me" and can add/move/delete tasks but not share; dragging a card sends exactly one `PUT {status}` and survives a reload; a refused change is undone on screen.
 
+### Phase 7 — Presence, deletion and Phase 6 cleanup
+
+**Branch:** `feature/f7-presence-and-cleanup`
+
+1. **Task Manager fixes:** the Kanban board is a 3-column grid spanning the whole chat area; the new-task title no longer re-focuses itself on every keystroke (which sent the first letters typed in the description, e.g. "te", into the title); Task Details is a `max-w-2xl` modal with a 14 rem Notes area and a blurred backdrop.
+2. **Presence:** `$connect` sends `user.connected { userId }` to every other live connection (the new one can't receive until `$connect` returns); `$disconnect` deletes its row, does a *consistent* Scan of `connections` and sends `user.disconnected { userId }` only if that user has no other tab or device left. `user.list` carries an `online: string[]` snapshot. The sidebar's direct messages and the DM header show a green dot (online) or a hollow gray ring (offline). Both Lambdas gain `Scan`/`DeleteItem` on `connections` and `execute-api:ManageConnections`.
+3. **Delete channels and DMs:** `{"action":"channel","op":"delete","channelId":…}` — a channel's creator (never `#general`) or either member of a DM. Messages are deleted first (Query + BatchWrite in 25s, retrying unprocessed items), then the row, then `channel.deleted { channelId, by }` goes to everyone who could see it. Clients drop it from the sidebar and whoever is viewing it is sent to `#general`. Attachments stay in S3 (lifecycle rules apply). The channel Lambda gains `DeleteItem` on `channels` and `Query`/`BatchWriteItem` on `messages`.
+4. **Readable channel names:** `channel.create` takes the name as typed (1–40 chars, at least one letter or number) and stores it in `name`; uniqueness is checked on a derived `slug` (`slugifyChannelName`, in `packages/shared`), also stored. Rows from before keep working: their slug is derived from their (already slug-shaped) name.
+
+**Phase 7 acceptance criteria:** closing one of two tabs keeps the user online for others, closing the last one turns their dot gray within a second; a deleted channel disappears from every member's sidebar without a reload and its viewers land on `#general`; "Web Design" shows as "Web Design" and "web design" is refused as a duplicate.
+
 ---
 
 ### PHASE 7 (optional) — Desktop app with Tauri

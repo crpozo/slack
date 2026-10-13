@@ -8,7 +8,10 @@ import type { Board, Task } from "./tasks";
 export const MAX_TEXT_LENGTH = 4000;
 export const MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024; // 25 MB
 export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
+/** Channel slug: what names must be unique on (see `slugifyChannelName`). */
 export const CHANNEL_NAME_PATTERN = /^[a-z0-9-]{1,32}$/;
+/** Human-readable channel name ("Web Design"), shown in the sidebar and header. */
+export const MAX_CHANNEL_NAME_LENGTH = 40;
 export const HISTORY_PAGE_SIZE = 50;
 export const PRESIGN_EXPIRES_SECONDS = 300;
 export const MAX_DISPLAY_NAME_LENGTH = 40;
@@ -53,7 +56,13 @@ export type ChannelVisibility = Extract<ChannelType, "public" | "private">;
 
 export interface Channel {
   channelId: string;
+  /** Human-readable name as typed ("Web Design"); for DMs, the channel id. */
   name: string;
+  /**
+   * Unique, URL-safe form of `name` ("web-design"). Absent on channels created
+   * before names became human-readable, whose `name` already is a slug.
+   */
+  slug?: string;
   type: ChannelType;
   createdBy: string;
   /** Epoch milliseconds. */
@@ -95,6 +104,36 @@ export function isChannelMember(
   return channel.type === "public" || (channel.members ?? []).includes(userId);
 }
 
+/**
+ * Lowercase, hyphenated, accent-free form of a channel name (`^[a-z0-9-]{1,32}$`
+ * when non-empty): "Diseño Web!" → "diseno-web". Uniqueness is checked on this.
+ */
+export function slugifyChannelName(input: string): string {
+  const collapsed = input
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/^#/, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-");
+  return trimHyphens(trimHyphens(collapsed).slice(0, 32));
+}
+
+/** Strips leading/trailing hyphens without a regex (`-+$` backtracks super-linearly). */
+function trimHyphens(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === "-") start++;
+  while (end > start && value[end - 1] === "-") end--;
+  return value.slice(start, end);
+}
+
+/** A channel's slug, also for rows from before `slug` existed. */
+export const channelSlug = (channel: Pick<Channel, "name" | "slug">): string =>
+  channel.slug ?? slugifyChannelName(channel.name);
+
 // ---------------------------------------------------------------------------
 // Client → server actions
 // ---------------------------------------------------------------------------
@@ -118,10 +157,23 @@ export const ChannelListActionSchema = z.object({
   op: z.literal("list"),
 });
 
+/** Trimmed, 1–40 chars, no control characters, and must yield a non-empty slug. */
+export const ChannelNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_CHANNEL_NAME_LENGTH)
+  .refine((v) => !/\p{Cc}/u.test(v), "channel name cannot contain control characters")
+  .refine(
+    (v) => slugifyChannelName(v).length > 0,
+    "channel name needs at least one letter or number",
+  );
+
 export const ChannelCreateActionSchema = z.object({
   action: z.literal("channel"),
   op: z.literal("create"),
-  name: z.string().regex(CHANNEL_NAME_PATTERN),
+  /** Human-readable; the server derives the unique slug from it. */
+  name: ChannelNameSchema,
   /** Defaults to `private`: only the creator (and later invitees) can see it. */
   visibility: z.enum(["public", "private"]).default("private"),
 });
@@ -147,11 +199,22 @@ export const ChannelInviteActionSchema = z.object({
   userIds: z.array(userId).min(1).max(MAX_INVITES_PER_REQUEST),
 });
 
+/**
+ * Deletes a channel (its creator only; never `#general`) or a DM (either member),
+ * together with its messages.
+ */
+export const ChannelDeleteActionSchema = z.object({
+  action: z.literal("channel"),
+  op: z.literal("delete"),
+  channelId,
+});
+
 export const ChannelActionSchema = z.discriminatedUnion("op", [
   ChannelListActionSchema,
   ChannelCreateActionSchema,
   ChannelDmActionSchema,
   ChannelInviteActionSchema,
+  ChannelDeleteActionSchema,
 ]);
 
 export const PresignPutActionSchema = z.object({
@@ -406,6 +469,28 @@ export interface MessageReactionEvent {
 export interface UserListEvent {
   type: "user.list";
   users: UserProfile[];
+  /** Ids of users with at least one live connection (presence snapshot). */
+  online?: string[];
+}
+
+/** A user opened a connection (another tab or device counts too). */
+export interface UserConnectedEvent {
+  type: "user.connected";
+  userId: string;
+}
+
+/** A user's last live connection closed. */
+export interface UserDisconnectedEvent {
+  type: "user.disconnected";
+  userId: string;
+}
+
+/** Sent to everyone who could see the channel; clients drop it and leave it if open. */
+export interface ChannelDeletedEvent {
+  type: "channel.deleted";
+  channelId: string;
+  /** Who deleted it. */
+  by: string;
 }
 
 export interface UserUpdatedEvent {
@@ -478,9 +563,12 @@ export type ServerEvent =
   | MessageReactionEvent
   | HistoryPageEvent
   | ChannelListEvent
+  | ChannelDeletedEvent
   | PresignResultEvent
   | UserListEvent
   | UserUpdatedEvent
+  | UserConnectedEvent
+  | UserDisconnectedEvent
   | CallEvent
   | BoardEvent
   | ErrorEvent;

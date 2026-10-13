@@ -26,3 +26,42 @@ export function Avatar({ name, mine = false, size = "md" }: Readonly<AvatarProps
     </span>
   );
 }
+
+/** 10×10 SVG dots: filled success green, or a hollow gray ring (mid-gray reads in both themes). */
+const dotSrc = (svg: string) => `data:image/svg+xml,${encodeURIComponent(svg)}`;
+const PRESENCE_DOTS = {
+  online: dotSrc(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5" fill="#5FD4B2"/></svg>',
+  ),
+  offline: dotSrc(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="none" stroke="#8A8D96" stroke-width="2"/></svg>',
+  ),
+};
+
+/**
+ * Presence: a filled green dot when online, a hollow gray ring when offline.
+ * `overlay` pins it to the bottom-right of a relatively positioned avatar, on a
+ * sidebar-coloured backing so the hollow ring doesn't show the avatar through it.
+ */
+export function PresenceDot({
+  online,
+  overlay = false,
+}: Readonly<{ online: boolean; overlay?: boolean }>) {
+  const label = online ? "Online" : "Offline";
+  const img = (
+    <img
+      src={online ? PRESENCE_DOTS.online : PRESENCE_DOTS.offline}
+      alt={label}
+      title={label}
+      width={10}
+      height={10}
+      className="block h-2.5 w-2.5"
+    />
+  );
+  if (!overlay) return img;
+  return (
+    <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-surface-sidebar ring-2 ring-surface-sidebar">
+      {img}
+    </span>
+  );
+}

@@ -187,6 +187,7 @@ export function TaskDetails({
   return (
     <Modal
       title="Task details"
+      width="lg"
       onClose={onClose}
       footer={
         <>
@@ -295,7 +296,7 @@ export function TaskDetails({
           </label>
           <textarea
             id="task-notes"
-            className="input min-h-[7rem] resize-y"
+            className="input min-h-[14rem] resize-y leading-relaxed"
             placeholder="Context, links, decisions…"
             maxLength={MAX_TASK_NOTES_LENGTH}
             {...notes}
