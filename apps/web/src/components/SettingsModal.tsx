@@ -11,7 +11,12 @@ import {
   type MediaPrefs,
 } from "../lib/media";
 import { disablePush, enablePush, usePush, type PushStatus } from "../lib/push";
-import { onSoundsChange, previewMessageSound, setSoundsEnabled, soundsEnabled } from "../lib/sounds";
+import {
+  onSoundsChange,
+  previewMessageSound,
+  setSoundsEnabled,
+  soundsEnabled,
+} from "../lib/sounds";
 import { getThemePreference, setThemePreference, type ThemePreference } from "../lib/theme";
 import { useChat, useNameOf } from "../store";
 import { Avatar } from "./Avatar";
