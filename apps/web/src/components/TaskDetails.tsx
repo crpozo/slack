@@ -1,5 +1,5 @@
 import { MAX_TASK_NOTES_LENGTH, MAX_TASK_TITLE_LENGTH, type Board } from "@mindfultech/shared";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { useNameOf } from "../store";
 import { useTasks } from "../store/tasks";
 import { TrashIcon } from "./icons";
@@ -32,12 +32,11 @@ function useDraft(value: string, save: (next: string) => void) {
   };
   return {
     value: draft,
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-      setDraft(e.target.value),
+    onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(e.target.value),
     onFocus: () => setFocused(true),
     onBlur: commit,
     /** Enter commits single-line fields; Escape reverts. */
-    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    onKeyDown: (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !(e.currentTarget instanceof HTMLTextAreaElement)) {
         e.currentTarget.blur();
       } else if (e.key === "Escape") {

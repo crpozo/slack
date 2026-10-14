@@ -5,7 +5,14 @@ import {
   type Board,
   type TaskStatus,
 } from "@mindfultech/shared";
-import { useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import {
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from "react";
 import { formatBytes, getDownloadUrl, uploadFile } from "../lib/upload";
 import { useChat, useNameOf } from "../store";
 import { useTasks } from "../store/tasks";
@@ -86,7 +93,7 @@ export function ProjectAndAssignee({
 }: Readonly<{
   board: Board;
   /** Props of the project `<input>` (value/onChange… from the caller's state). */
-  project: React.InputHTMLAttributes<HTMLInputElement>;
+  project: InputHTMLAttributes<HTMLInputElement>;
   assigneeId: string | null;
   onAssigneeChange: (assigneeId: string | null) => void;
 }>) {

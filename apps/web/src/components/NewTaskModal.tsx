@@ -30,7 +30,9 @@ export function NewTaskModal({ board, onClose }: Readonly<{ board: Board; onClos
   const [notes, setNotes] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const titleInput = useRef<HTMLInputElement>(null);
-  useEffect(() => titleInput.current?.focus(), []);
+  useEffect(() => {
+    titleInput.current?.focus();
+  }, []);
 
   const { uploads, addFiles, full } = useFileUploads(board.boardId, attachments.length, (added) =>
     setAttachments((list) => [...list, ...added]),
