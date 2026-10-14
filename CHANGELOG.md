@@ -19,8 +19,24 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **Delete boards** (owner): gear menu next to the board title; tasks are deleted with it.
 - **Phones:** safe areas, no zoom on fields, swipeable Kanban columns, tap a message to react.
 
+- **Voice messages:** tap the mic next to the composer, record (up to 5 min), send; they play
+  right in the conversation.
+- **Replies:** swipe a message right on a phone (or use Reply in its toolbar) to answer it; the
+  quote shows above your message.
+- **Phone gestures:** long-press a message for reactions (a tap no longer opens them) and swipe
+  in from the left edge to open the sidebar.
+- **Ping** someone from the ⋯ menu next to their name: a toast if they're online, a notification
+  if not.
+
+### Changed
+
+- Deleting a channel or a conversation moved from the header to the ⋯ menu in the sidebar, to
+  avoid accidental deletions.
+
 ### Fixed
 
+- "Registration failed - push service error" when enabling notifications: subscriptions no
+  longer race, the server key is validated first and temporary push-service failures are retried.
 - Old test channels (created before readable names, or without a known creator) can be deleted
   by any member. `#general` stays protected.
 - Task Manager board now fills the whole chat area with three equal columns.

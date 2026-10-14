@@ -50,7 +50,12 @@ export const AttachmentSchema = z.object({
   size: z.number().int().positive().max(MAX_ATTACHMENT_SIZE),
   contentType: z.string().min(1).max(255),
   /** Voice messages: length in milliseconds, shown before the audio loads. */
-  durationMs: z.number().int().positive().max(60 * 60 * 1000).optional(),
+  durationMs: z
+    .number()
+    .int()
+    .positive()
+    .max(60 * 60 * 1000)
+    .optional(),
 });
 export type Attachment = z.infer<typeof AttachmentSchema>;
 

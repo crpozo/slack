@@ -560,6 +560,18 @@ It is carried out in three sub-phases, each on its own branch with its own PR to
 
 **Phase 8 acceptance criteria:** with the app closed, a DM or an `@mention` raises a system notification within seconds and clicking it opens the conversation; no push while the recipient has the app open; `cdk synth` output contains no VAPID key; the app is usable one-handed at 390 px wide; a pre-Phase-7 channel can be deleted by any member; deleting a board removes its tasks and moves every member off it.
 
+### Phase 9 — Native gestures, voice messages, sturdier push, safer deletion
+
+**Branch:** `feature/f9-native-gestures-and-audio`
+
+1. **Gestures without a library** (`apps/web/src/lib/gestures.ts`): a pure classifier (10 px slop, dominant axis) and two hooks; mouse and pen keep hover and clicks. *Long press* (400 ms) opens a message's toolbar on touch — a tap no longer does (hover only on `(hover: hover)` devices, since iOS emulates hover on tap); the toolbar gains **Reply** and, on touch, **Copy text** (row text selection is off on touch). *Swipe right* on a message (rows are `touch-action: pan-y`) follows the finger up to 80 px and starts a reply past 60 px. *Edge swipe*: a touch within 24 px of the left edge drags the mobile drawer open; dragging it left closes it.
+2. **Replies:** `message` takes an optional `replyTo { messageId, sk }`; the Lambda checks the original exists in the same channel and stores a `ReplySnapshot` (author, 140-char preview via the shared `replyPreview`, `hasAttachments`) so replies render without loading the original. Client: per-channel `replyTo` draft in the store, "Replying to Name: preview" banner (× / Esc), quote above the reply that scrolls to the original.
+3. **Voice messages** (`lib/voice.ts`): `MediaRecorder` with `audio/mp4` (AAC, plays everywhere) when supported, else `audio/webm;codecs=opus`; red dot, timer, level meter, Cancel/Send; auto-send at 5 min, discard under 0.5 s; mic from Settings, released on send/cancel, disabled during calls. Uploaded through the existing presigned flow (bare content type, `voice-<date>.m4a`), with `durationMs` on the attachment. Played back with `<audio controls>` (URL refreshed once if expired). Push says "🎤 Voice message".
+4. **Push registration** ("Registration failed - push service error"): one in-flight subscription at a time (sign-in sync and the Enable button raced); VAPID key trimmed and validated (65-byte P-256) before calling the push service; wait for an active service worker; `subscribe` retried 3× (1/3/8 s) clearing leftovers, never on a permission refusal, ending with an actionable message (incl. Brave's Google push setting); a failed silent sync is retried when the app becomes visible.
+5. **Deletion and Ping:** no delete buttons in conversation headers any more. Each sidebar row has a ⋯ menu (hover with a mouse, always on touch): *Delete channel* (only for those allowed) or, for DMs, *Ping* and *Delete conversation*, confirmed by the existing modal. `nudge` WebSocket action + Lambda: a `user.nudge` toast/pop/buzz on the recipient's open tabs, or a Web Push when none is open; nothing stored; one per sender→recipient per minute (conditional write on the recipient's users row: `RATE_LIMITED`).
+
+**Phase 9 acceptance criteria:** a tap on a message never opens the reaction bar but a long press does; swiping a message right shows the reply banner and the sent reply carries the quote; a left-edge swipe opens the drawer on a phone; a recorded voice note plays inline on iPhone and desktop; Ping reaches an open tab as a toast and a closed one as a notification; no delete control remains in any conversation header.
+
 ---
 
 ### PHASE 7 (optional) — Desktop app with Tauri
