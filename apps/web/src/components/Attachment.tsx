@@ -1,8 +1,9 @@
 import type { Attachment as AttachmentData } from "@mindfultech/shared";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatBytes, getDownloadUrl } from "../lib/upload";
+import { formatDuration } from "../lib/voice";
 import { useChat } from "../store";
-import { DownloadIcon, FileIcon } from "./icons";
+import { DownloadIcon, FileIcon, MicIcon } from "./icons";
 
 function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
   const [url, setUrl] = useState<string | null>(null);
@@ -90,10 +91,69 @@ function FileAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>
   );
 }
 
-export function Attachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
-  return attachment.contentType.startsWith("image/") ? (
-    <ImageAttachment attachment={attachment} />
-  ) : (
-    <FileAttachment attachment={attachment} />
+/**
+ * Voice messages and other audio: a native player, so it plays inline with the
+ * platform's controls (lock-screen controls on phones included). Download URLs
+ * expire after 5 minutes: if playback fails on an old one, fetch a fresh URL once.
+ */
+function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const refreshed = useRef(false);
+  const voice = attachment.name.startsWith("voice-");
+
+  useEffect(() => {
+    let cancelled = false;
+    getDownloadUrl(attachment.key).then(
+      (u) => !cancelled && setUrl(u),
+      () => !cancelled && setFailed(true),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [attachment.key]);
+
+  function onError() {
+    if (refreshed.current) return setFailed(true);
+    refreshed.current = true;
+    getDownloadUrl(attachment.key).then(setUrl, () => setFailed(true));
+  }
+
+  if (failed) return <FileAttachment attachment={attachment} />;
+  return (
+    <div className="flex w-80 max-w-full flex-col gap-1 rounded-2xl border border-line bg-surface p-2">
+      <p className="flex items-center gap-1.5 px-1 text-xs text-ink-secondary">
+        <MicIcon className="text-primary" />
+        <span className="truncate">{voice ? "Voice message" : attachment.name}</span>
+        {attachment.durationMs !== undefined && (
+          <span className="ml-auto tabular-nums">{formatDuration(attachment.durationMs)}</span>
+        )}
+      </p>
+      {url ? (
+        <audio
+          controls
+          preload="metadata"
+          src={url}
+          onError={onError}
+          className="h-10 w-full"
+          aria-label={voice ? "Voice message" : attachment.name}
+        >
+          <track kind="captions" />
+        </audio>
+      ) : (
+        <div
+          className="h-10 w-full animate-pulse rounded-full bg-surface-hover"
+          aria-hidden="true"
+        />
+      )}
+    </div>
   );
+}
+
+export function Attachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
+  if (attachment.contentType.startsWith("image/"))
+    return <ImageAttachment attachment={attachment} />;
+  if (attachment.contentType.startsWith("audio/"))
+    return <AudioAttachment attachment={attachment} />;
+  return <FileAttachment attachment={attachment} />;
 }

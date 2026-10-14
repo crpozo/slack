@@ -244,6 +244,20 @@ describe("notifyOffline", () => {
     expect(sendNotification).not.toHaveBeenCalled();
   });
 
+  it("says a voice message is a voice message", async () => {
+    await notifyOffline(
+      dm,
+      {
+        ...message(dm.channelId, ""),
+        attachments: [
+          { key: "k", name: "voice-x.m4a", size: 9, contentType: "audio/mp4", durationMs: 3000 },
+        ],
+      },
+      new Set(),
+    );
+    expect(JSON.parse(String(sendNotification.mock.calls[0]?.[1])).body).toBe("🎤 Voice message");
+  });
+
   it("titles channel notifications with the channel name", async () => {
     ddbMock.on(ScanCommand, { TableName: "slack-test-users" }).resolves({
       Items: [{ userId: BOB.userId, email: BOB.email, displayName: "Bob" }],

@@ -60,7 +60,11 @@ export async function pushRecipients(channel: Channel, message: Message): Promis
 
 function preview(message: Message): string {
   const text = message.text.replace(/\s+/g, " ").trim();
-  if (!text) return message.attachments.length > 0 ? "📎 Sent a file" : "New message";
+  if (!text) {
+    if (message.attachments.some((a) => a.contentType.startsWith("audio/")))
+      return "🎤 Voice message";
+    return message.attachments.length > 0 ? "📎 Sent a file" : "New message";
+  }
   return text.length > PUSH_PREVIEW_LENGTH
     ? `${text.slice(0, PUSH_PREVIEW_LENGTH - 1).trimEnd()}…`
     : text;
