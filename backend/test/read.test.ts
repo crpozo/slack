@@ -71,6 +71,8 @@ describe("read", () => {
     expect(expressions[1]!.ExpressionAttributeValues?.[":reads"]).toEqual({
       [ALICE.userId]: { sk: SK, at: expect.any(Number) },
     });
+    // DynamoDB rejects unused ExpressionAttributeNames (a ValidationException in prod).
+    expect(expressions[1]!.ExpressionAttributeNames).toEqual({ "#reads": "reads" });
     expect(sentEvents()).toHaveLength(2);
   });
 

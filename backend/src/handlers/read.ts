@@ -31,7 +31,11 @@ async function advanceWatermark(
         Key: { channelId },
         UpdateExpression: expression,
         ConditionExpression: condition,
-        ExpressionAttributeNames: { "#reads": "reads", "#u": userId },
+        // DynamoDB rejects names that no expression uses: `#u` only when the path has it.
+        ExpressionAttributeNames: {
+          "#reads": "reads",
+          ...(`${expression} ${condition}`.includes("#u") && { "#u": userId }),
+        },
         ExpressionAttributeValues: values,
       }),
     );
