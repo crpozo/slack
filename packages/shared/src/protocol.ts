@@ -7,14 +7,17 @@ import type { Board, Task } from "./tasks";
 // ---------------------------------------------------------------------------
 
 export const MAX_TEXT_LENGTH = 4000;
-export const MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024; // 25 MB
+export const MAX_ATTACHMENT_SIZE = 500 * 1024 * 1024; // 500 MB (videos, datasets)
 export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 /** Channel slug: what names must be unique on (see `slugifyChannelName`). */
 export const CHANNEL_NAME_PATTERN = /^[a-z0-9-]{1,32}$/;
 /** Human-readable channel name ("Web Design"), shown in the sidebar and header. */
 export const MAX_CHANNEL_NAME_LENGTH = 40;
 export const HISTORY_PAGE_SIZE = 50;
+/** Download URLs: short-lived (the client caches them for a bit less). */
 export const PRESIGN_EXPIRES_SECONDS = 300;
+/** Upload URLs: long enough for 500 MB on a slow connection. */
+export const PRESIGN_PUT_EXPIRES_SECONDS = 30 * 60;
 export const MAX_DISPLAY_NAME_LENGTH = 40;
 export const MAX_EMOJI_LENGTH = 16;
 export const MAX_INVITES_PER_REQUEST = 50;

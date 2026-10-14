@@ -602,6 +602,16 @@ It is carried out in three sub-phases, each on its own branch with its own PR to
 
 ---
 
+### Phase 12 — Large attachments (500 MB)
+
+**Branch:** `feature/f12-large-uploads`
+
+Uploads already go straight to S3 with a presigned **PUT** whose signature pins `Content-Length` (the PUT equivalent of a POST policy's `content-length-range`): the size the server accepts in `presign` is the only size the object can have. So the change is the shared constant `MAX_ATTACHMENT_SIZE` (25 → 500 MB, enforced by the `presign` and `message` schemas), a separate `PRESIGN_PUT_EXPIRES_SECONDS` of 30 minutes for upload URLs (download URLs keep 5 minutes), the client check with "File must be under 500 MB.", and progress UI: "Uploading… n % of size" with a progress bar in the composer and in the task forms, Send disabled while any upload is in flight, Create reading "Uploading…". Nothing passes through API Gateway or Lambda, so no payload limits apply.
+
+**Phase 12 acceptance criteria:** a 400 MB file attaches to a message and to a task, shows a live percentage while uploading, Send/Create stay disabled until it finishes, and a 501 MB file is refused with "File must be under 500 MB." before any request is made.
+
+---
+
 ### PHASE 7 (optional) — Desktop app with Tauri
 
 **Branch:** `feature/f7-tauri` (starts from `main` after v0.2.0).

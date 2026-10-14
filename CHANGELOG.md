@@ -40,6 +40,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **Attachments up to 500 MB** (was 25 MB) in messages and tasks, for videos and datasets; the
+  upload URL stays valid for 30 minutes and the UI shows "Uploading… n %" with a progress bar
+  while the Send / Create button waits for uploads to finish.
 - Deleting a channel or a conversation moved from the header to the ⋯ menu in the sidebar, to
   avoid accidental deletions.
 - Faster first load: the config request starts before the app code arrives, Task Manager,
