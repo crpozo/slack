@@ -34,6 +34,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **Edit messages:** _Edit message_ in a message's toolbar (your own), or ↑ in an empty composer
   to edit your last one; edited messages show "(edited)".
 
+- **New task modal:** _Add task_ opens the full form — title, details, project, assignee, notes and
+  attachments — and _Create_ saves it all at once.
+- **Settings → "Play test"** to hear the notification sound.
+
 ### Changed
 
 - Deleting a channel or a conversation moved from the header to the ⋯ menu in the sidebar, to
@@ -46,6 +50,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- Notification sound is much louder: a knock-and-bell at full volume instead of the quiet pop, and
+  pushes ask the phone for its native alert tone (`sound: "default"`) instead of a silent banner.
 - Swiping in from the left edge on a phone no longer opens `#general` (the drawer slid under the
   finger and caught the tap).
 - iPhones whose push subscription was rotated by Apple get notifications again (the service

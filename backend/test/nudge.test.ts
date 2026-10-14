@@ -50,6 +50,7 @@ describe("nudge", () => {
       url: `/app/${encodeURIComponent(dmChannelId(ALICE.userId, BOB.userId))}`,
       // Grouped with the DM's own notifications.
       tag: dmChannelId(ALICE.userId, BOB.userId),
+      sound: "default",
     });
   });
 

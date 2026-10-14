@@ -1,4 +1,11 @@
-import type { Board, BoardEvent, Task, TaskStatus, UpdateTaskInput } from "@mindfultech/shared";
+import type {
+  Board,
+  BoardEvent,
+  CreateTaskInput,
+  Task,
+  TaskStatus,
+  UpdateTaskInput,
+} from "@mindfultech/shared";
 import { create } from "zustand";
 import { tasksApi, type TasksApi } from "../lib/tasksApi";
 
@@ -24,7 +31,8 @@ export interface TasksState {
   renameBoard: (boardId: string, name: string) => Promise<void>;
   /** Owner only; optimistic, restored with an error toast if the server refuses. */
   deleteBoard: (boardId: string) => Promise<void>;
-  createTask: (boardId: string, title: string, description: string) => Promise<void>;
+  /** Creates a fully formed task (title required; the rest optional). */
+  createTask: (boardId: string, input: CreateTaskInput) => Promise<void>;
   moveTask: (taskId: string, status: TaskStatus) => Promise<void>;
   editTask: (taskId: string, patch: UpdateTaskInput) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
@@ -165,19 +173,19 @@ export function createTasksStore(api: TasksApi = tasksApi) {
         set((s) => ({ boards: s.boards.map((b) => (b.boardId === boardId ? board : b)) }));
       },
 
-      async createTask(boardId, title, description) {
+      async createTask(boardId, input) {
         const now = Date.now();
         const tempId = `pending_${crypto.randomUUID()}`;
         const optimistic: Task = {
           taskId: tempId,
           boardId,
-          title,
-          description,
+          title: input.title,
+          description: input.description ?? "",
           status: "TODO",
-          assigneeId: null,
-          project: "",
-          notes: "",
-          attachments: [],
+          assigneeId: input.assigneeId ?? null,
+          project: input.project ?? "",
+          notes: input.notes ?? "",
+          attachments: input.attachments ?? [],
           createdBy: "",
           createdAt: now,
           updatedAt: now,
@@ -189,7 +197,7 @@ export function createTasksStore(api: TasksApi = tasksApi) {
           },
         }));
         try {
-          const task = await api.createTask(boardId, { title, description });
+          const task = await api.createTask(boardId, input);
           set((s) => {
             const list = s.tasksByBoard[boardId] ?? [];
             const echoed = list.some((t) => t.taskId === task.taskId);

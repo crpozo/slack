@@ -124,7 +124,13 @@ describe("push HTTP API", () => {
 });
 
 describe("sendPush", () => {
-  const payload = { title: "Alicia", body: "hi", url: "/app/x", tag: "dm_a_b" };
+  const payload = {
+    title: "Alicia",
+    body: "hi",
+    url: "/app/x",
+    tag: "dm_a_b",
+    sound: "default" as const,
+  };
 
   it("sends to every device of each user with the VAPID keys", async () => {
     ddbMock.on(QueryCommand, { TableName: PUSH }).resolves({
@@ -233,6 +239,7 @@ describe("notifyOffline", () => {
       title: "Alicia",
       url: `/app/${encodeURIComponent(dmChannelId(ALICE.userId, BOB.userId))}`,
       tag: dm.channelId,
+      sound: "default",
     });
     expect(payload.body).toHaveLength(120);
     expect(payload.body.startsWith("hello x")).toBe(true);

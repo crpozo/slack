@@ -59,6 +59,13 @@ export interface PushPayload {
   url: string;
   /** Collapses notifications of the same conversation into one. */
   tag: string;
+  /**
+   * `"default"`: play the device's native alert tone. Web Push has no sound
+   * field of its own; the service worker turns it into a non-silent
+   * notification (iOS plays its default tone) and the key is there for any
+   * native wrapper (Tauri/APNs) that forwards the payload.
+   */
+  sound: "default";
 }
 
 export const PUSH_PREVIEW_LENGTH = 120;

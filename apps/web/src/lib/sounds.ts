@@ -1,9 +1,11 @@
 /**
- * Notification sounds, synthesized with Web Audio: no audio files, nothing to
- * download or host. Three sounds:
+ * Notification sounds. The rings are synthesized with Web Audio (no files):
  *   - "outgoing": a soft, slow ring for the caller while the other side is rung
  *   - "incoming": the brighter two-tone ring under the incoming-call card
- *   - "message": a short two-note pop for a new message
+ * The message sound is an audio file (`/sounds/notify.wav`: two knocks and a
+ * bell, normalized to -0.2 dBFS) played through an `<audio>` element at full
+ * volume so it cuts through; a synthesized pop is the fallback where the file
+ * can't play.
  *
  * Browsers block audio until the page has had a user gesture. Every start is
  * wrapped so a blocked context just stays silent (the visual notification still
@@ -143,11 +145,31 @@ const RINGS: Record<RingKind, { tones: Tone[]; everyMs: number }> = {
   },
 };
 
-/** Short, soft "pop": two quick rising notes. */
+/** Fallback "pop" when the audio file can't play: two quick rising notes, loud. */
 const MESSAGE_POP: Tone[] = [
-  { at: 0, frequency: 740, duration: 0.12, volume: 0.08, type: "triangle" },
-  { at: 0.1, frequency: 988, duration: 0.18, volume: 0.08, type: "triangle" },
+  { at: 0, frequency: 740, duration: 0.12, volume: 0.6, type: "triangle" },
+  { at: 0.1, frequency: 988, duration: 0.18, volume: 0.6, type: "triangle" },
 ];
+
+/** The message sound: knock-knock + bell, peak-normalized (see `scripts/` history in git). */
+export const MESSAGE_SOUND_URL = "/sounds/notify.wav";
+
+let messageAudio: HTMLAudioElement | null = null;
+
+/** The `<audio>` element for the message sound, created and preloaded on first use. */
+function messageElement(): HTMLAudioElement | null {
+  if (messageAudio) return messageAudio;
+  try {
+    const Ctor = globalThis.Audio;
+    if (!Ctor) return null;
+    messageAudio = new Ctor(MESSAGE_SOUND_URL);
+    messageAudio.preload = "auto";
+    messageAudio.volume = 1.0;
+    return messageAudio;
+  } catch {
+    return null;
+  }
+}
 
 // --- Public API ------------------------------------------------------------------
 
@@ -190,9 +212,8 @@ export function stopRinging(): void {
   ringing = null;
 }
 
-/** Plays the message pop once; silent while sounds are off or audio is blocked. */
-export function playMessageSound(): void {
-  if (muted) return;
+/** The synthesized fallback pop; silent while audio is blocked. */
+function playFallbackPop(): void {
   const ctx = audio();
   if (!ctx) return;
   void unlock().then((ok) => {
@@ -203,4 +224,35 @@ export function playMessageSound(): void {
       // Nothing to do: a failed notification sound is not an error worth surfacing.
     }
   });
+}
+
+/**
+ * Plays the message sound once at full volume; silent while sounds are off or
+ * audio is blocked. Falls back to the synthesized pop if the file can't play.
+ */
+export function playMessageSound(): void {
+  if (muted) return;
+  const el = messageElement();
+  if (!el) {
+    playFallbackPop();
+    return;
+  }
+  el.volume = 1.0;
+  el.currentTime = 0;
+  // `play()` rejects when autoplay is blocked or the file can't be decoded (and
+  // a very old browser could throw instead): either way, the pop stands in.
+  Promise.resolve()
+    .then(() => el.play())
+    .catch(() => playFallbackPop());
+}
+
+/** Settings → "Test": plays the message sound even while sounds are off, so people can hear it. */
+export function previewMessageSound(): void {
+  const wasMuted = muted;
+  muted = false;
+  try {
+    playMessageSound();
+  } finally {
+    muted = wasMuted;
+  }
 }

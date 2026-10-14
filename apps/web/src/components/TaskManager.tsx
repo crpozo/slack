@@ -1,8 +1,6 @@
 import {
   canAccessBoard,
   MAX_BOARD_NAME_LENGTH,
-  MAX_TASK_DESCRIPTION_LENGTH,
-  MAX_TASK_TITLE_LENGTH,
   type Board,
   type Task,
   type TaskStatus,
@@ -36,6 +34,7 @@ import {
 } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 import { Popover } from "./Popover";
+import { NewTaskModal } from "./NewTaskModal";
 import { TaskDetails } from "./TaskDetails";
 import { UserPicker } from "./UserPicker";
 
@@ -191,70 +190,16 @@ function ShareBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: (
 
 // --- Board --------------------------------------------------------------------------
 
-function AddTaskForm({ boardId }: Readonly<{ boardId: string }>) {
-  const createTask = useTasks((s) => s.createTask);
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const titleInput = useRef<HTMLInputElement>(null);
-  // Focus the title once each time the form opens (never on re-render, which would
-  // pull focus back from the description while typing in it).
-  useEffect(() => {
-    if (open) titleInput.current?.focus();
-  }, [open]);
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    const t = title.trim();
-    if (!t) return;
-    void createTask(boardId, t, description.trim());
-    setTitle("");
-    setDescription("");
-    setOpen(false);
-  }
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-2 rounded-xl border border-dashed border-line px-3 py-2 text-sm text-ink-secondary hover:border-primary hover:bg-surface-hover hover:text-ink"
-      >
-        <PlusIcon /> Add task
-      </button>
-    );
-  }
+/** Opens the New task modal (the full form: assignee, project, notes, attachments). */
+function AddTaskButton({ onClick }: Readonly<{ onClick: () => void }>) {
   return (
-    <form
-      onSubmit={submit}
-      className="space-y-2 rounded-xl border border-primary bg-surface p-3 shadow-sm"
-      aria-label="New task"
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-xl border border-dashed border-line px-3 py-2 text-sm text-ink-secondary hover:border-primary hover:bg-surface-hover hover:text-ink"
     >
-      <input
-        className="input"
-        placeholder="What needs to be done?"
-        aria-label="Task title"
-        value={title}
-        maxLength={MAX_TASK_TITLE_LENGTH}
-        onChange={(e) => setTitle(e.target.value)}
-        onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
-        ref={titleInput}
-      />
-      <textarea
-        className="input min-h-[3.5rem] resize-y"
-        placeholder="Details (optional)"
-        aria-label="Task description"
-        value={description}
-        maxLength={MAX_TASK_DESCRIPTION_LENGTH}
-        onChange={(e) => setDescription(e.target.value)}
-      />
-      <div className="flex justify-end gap-2">
-        <SecondaryButton onClick={() => setOpen(false)}>Cancel</SecondaryButton>
-        <button type="submit" className="btn-primary" disabled={!title.trim()}>
-          Add
-        </button>
-      </div>
-    </form>
+      <PlusIcon /> Add task
+    </button>
   );
 }
 
@@ -406,17 +351,17 @@ function TaskCard({
 function Column({
   column,
   tasks,
-  boardId,
   draggingId,
   onDragStart,
   onOpen,
+  onAdd,
 }: Readonly<{
   column: (typeof COLUMNS)[number];
   tasks: Task[];
-  boardId: string;
   draggingId: string | null;
   onDragStart: (id: string) => void;
   onOpen: (id: string) => void;
+  onAdd: () => void;
 }>) {
   const moveTask = useTasks((s) => s.moveTask);
   const [over, setOver] = useState(false);
@@ -454,7 +399,7 @@ function Column({
         </span>
       </header>
       <div className="flex flex-1 flex-col gap-2">
-        {column.status === "TODO" && <AddTaskForm boardId={boardId} />}
+        {column.status === "TODO" && <AddTaskButton onClick={onAdd} />}
         {tasks.map((task) => (
           <TaskCard key={task.taskId} task={task} onDragStart={onDragStart} onOpen={onOpen} />
         ))}
@@ -634,6 +579,7 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
   const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const isOwner = board.ownerId === myUserId;
   const closeTask = useCallback(() => setOpenTaskId(null), []);
@@ -692,10 +638,10 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
               key={column.status}
               column={column}
               tasks={byStatus[column.status]}
-              boardId={board.boardId}
               draggingId={draggingId}
               onDragStart={setDraggingId}
               onOpen={setOpenTaskId}
+              onAdd={() => setCreating(true)}
             />
           ))}
         </div>
@@ -703,6 +649,7 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
       {sharing && <ShareBoardModal board={board} onClose={() => setSharing(false)} />}
       {deleting && <DeleteBoardModal board={board} onClose={() => setDeleting(false)} />}
       {openTaskId && <TaskDetails taskId={openTaskId} board={board} onClose={closeTask} />}
+      {creating && <NewTaskModal board={board} onClose={() => setCreating(false)} />}
     </div>
   );
 }

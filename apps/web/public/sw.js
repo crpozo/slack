@@ -43,6 +43,10 @@ self.addEventListener("push", (event) => {
         body: typeof data.body === "string" ? data.body : "",
         tag,
         renotify: tag !== undefined,
+        // Never a silent notification: the server asks for the device's native
+        // alert tone (`sound: "default"`), which iOS plays unless `silent` is set.
+        silent: false,
+        vibrate: [120, 60, 120],
         icon: "/icons/icon-192.png",
         badge: "/icons/badge-96.png",
         data: { url: typeof data.url === "string" ? data.url : "/" },

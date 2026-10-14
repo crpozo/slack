@@ -11,7 +11,12 @@ import {
   type MediaPrefs,
 } from "../lib/media";
 import { disablePush, enablePush, usePush, type PushStatus } from "../lib/push";
-import { onSoundsChange, setSoundsEnabled, soundsEnabled } from "../lib/sounds";
+import {
+  onSoundsChange,
+  previewMessageSound,
+  setSoundsEnabled,
+  soundsEnabled,
+} from "../lib/sounds";
 import { getThemePreference, setThemePreference, type ThemePreference } from "../lib/theme";
 import { useChat, useNameOf } from "../store";
 import { Avatar } from "./Avatar";
@@ -215,7 +220,17 @@ function NotificationSettings() {
       <span>
         <span className="block text-sm font-medium text-ink">Play notification sounds</span>
         <span className="block text-xs text-ink-secondary">
-          Ringing for calls and a short pop for new messages in other conversations.
+          Ringing for calls and a knock for new messages in other conversations.{" "}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault(); // inside the label: don't flip the switch
+              previewMessageSound();
+            }}
+            className="font-medium text-ink underline decoration-primary decoration-2 underline-offset-2"
+          >
+            Play test
+          </button>
         </span>
       </span>
       <input

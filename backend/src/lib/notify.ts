@@ -89,6 +89,7 @@ export async function notifyOffline(
       body: preview(message),
       url: `/app/${encodeURIComponent(channel.channelId)}`,
       tag: channel.channelId,
+      sound: "default",
     };
     const sent = await sendPush(offline, payload);
     log.info("offline recipients notified", {
