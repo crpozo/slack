@@ -94,7 +94,9 @@ export function resolveConfig(
 /** `/config.json` if the host serves one (CloudFront), `null` otherwise (Vite dev). */
 async function fetchRuntimeConfig(): Promise<RuntimeConfig | null> {
   try {
-    const res = await fetch("/config.json", { cache: "no-store" });
+    // index.html starts this request before the bundle loads: one round trip saved.
+    const early = (window as Window & { __configRequest?: Promise<Response> }).__configRequest;
+    const res = await (early ?? fetch("/config.json", { cache: "no-store" }));
     if (!res.ok || !res.headers.get("content-type")?.includes("json")) return null;
     const body: unknown = await res.json();
     return typeof body === "object" && body !== null ? (body as RuntimeConfig) : null;

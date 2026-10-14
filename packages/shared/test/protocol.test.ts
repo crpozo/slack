@@ -12,6 +12,7 @@ import {
   MAX_TEXT_LENGTH,
   MessageActionSchema,
   parseAction,
+  readBy,
   slugifyChannelName,
 } from "../src";
 
@@ -244,5 +245,34 @@ describe("canDeleteChannel", () => {
       members: ["u-a", "u-b"],
     };
     expect(canDeleteChannel(dm, "u-b", true)).toBe(true);
+  });
+});
+
+describe("phase 10: read marks, edits, typing", () => {
+  const msg = { sk: "1700000000500#01B", userId: "u-a" };
+
+  it("derives readBy from the channel's watermarks (sort keys order by time)", () => {
+    expect(readBy(msg, undefined)).toEqual([]);
+    expect(
+      readBy(msg, {
+        "u-a": { sk: "1700000000900#01Z", at: 1 }, // the author never counts
+        "u-b": { sk: "1700000000500#01B", at: 1 }, // exactly this message
+        "u-c": { sk: "1700000000400#01A", at: 1 }, // an older one: not yet
+        "u-d": { sk: "1700000000900#01Z", at: 1 },
+      }),
+    ).toEqual(["u-b", "u-d"]);
+  });
+
+  it("routes read, edit and typing as WebSocket actions", () => {
+    expect(CLIENT_ACTIONS).toEqual(expect.arrayContaining(["read", "edit", "typing"]));
+    const parse = (action: object) => parseAction(ClientActionSchema, JSON.stringify(action));
+    expect(parse({ action: "read", channelId: "ch_x", sk: "1#a" })).toMatchObject({
+      success: true,
+    });
+    const edit = parse({ action: "edit", channelId: "ch_x", sk: "1#a", text: "  fixed  " });
+    expect(edit).toMatchObject({ success: true, data: { text: "fixed" } });
+    expect(parse({ action: "edit", channelId: "ch_x", sk: "1#a", text: "  " })).toMatchObject({
+      success: false,
+    });
   });
 });

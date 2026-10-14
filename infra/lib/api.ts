@@ -137,6 +137,8 @@ export class Api extends Construct {
         PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
         VAPID_PARAMETER: vapidParameterName(stage),
       }),
+      read: fn("read"),
+      edit: fn("edit"),
     } satisfies Record<Exclude<Handler, "authorizer">, NodejsFunction>;
 
     const integration = (name: keyof typeof handlers) =>
@@ -171,6 +173,9 @@ export class Api extends Construct {
       handlers.react,
       handlers.call,
       handlers.nudge,
+      handlers.typing,
+      handlers.read,
+      handlers.edit,
     ];
     for (const h of routeHandlers) connections.grant(h, "dynamodb:GetItem");
 
@@ -184,14 +189,29 @@ export class Api extends Construct {
       handlers.react,
       handlers.call,
       handlers.nudge,
+      handlers.typing,
+      handlers.read,
+      handlers.edit,
     ]) {
       connections.grant(h, "dynamodb:Scan", "dynamodb:DeleteItem");
     }
 
     // Every handler that touches a channel's content checks access on its row.
-    for (const h of [handlers.message, handlers.history, handlers.presign, handlers.react]) {
+    for (const h of [
+      handlers.message,
+      handlers.history,
+      handlers.presign,
+      handlers.react,
+      handlers.typing,
+      handlers.read,
+      handlers.edit,
+    ]) {
       channels.grant(h, "dynamodb:GetItem");
     }
+    // read: the caller's watermark lives on the channel row (one conditional UpdateItem).
+    channels.grant(handlers.read, "dynamodb:UpdateItem");
+    // edit: SET text on the caller's own message (conditional UpdateItem).
+    messages.grant(handlers.edit, "dynamodb:UpdateItem");
     // Board files (`attachments/<boardId>/…`) are gated by board membership.
     data.boards.grant(handlers.presign, "dynamodb:GetItem");
     // PutItem the message; GetItem the one it replies to (for its snapshot).
@@ -238,7 +258,7 @@ export class Api extends Construct {
     );
 
     // Every handler that replies to the sender or broadcasts uses @connections.
-    // (`ping` and `typing` are no-ops: no permissions at all.)
+    // (`ping` is a no-op: no permissions at all.)
     for (const h of [handlers.default, handlers.connect, handlers.disconnect, ...routeHandlers]) {
       this.webSocketApi.grantManageConnections(h);
     }

@@ -31,6 +31,26 @@ export function swipeOffset(dx: number): number {
 
 const buzz = (ms: number) => navigator.vibrate?.(ms);
 
+/** A click arriving this long after a touch gesture ended still belongs to it. */
+export const CLICK_GUARD_MS = 500;
+
+/**
+ * Swallows the next `click` on the page (for `CLICK_GUARD_MS`). After a touch
+ * drag the browser still synthesizes a click at the lift point when nothing
+ * scrolled, and that click would land on whatever just moved under the finger
+ * (e.g. the drawer's first row). Capture phase, so no handler ever sees it.
+ */
+export function swallowNextClick(): void {
+  const expires = Date.now() + CLICK_GUARD_MS;
+  const guard = (e: Event) => {
+    document.removeEventListener("click", guard, { capture: true });
+    if (Date.now() > expires) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  document.addEventListener("click", guard, { capture: true });
+}
+
 interface MessageGestureOptions {
   onLongPress: () => void;
   onSwipeRight: () => void;
@@ -92,9 +112,12 @@ export function useMessageGestures({ onLongPress, onSwipeRight, enabled }: Messa
   };
 
   const onPointerUp = () => {
-    if (axis.current === "horizontal" && offset >= SWIPE_TRIGGER_PX) {
-      buzz(10);
-      onSwipeRight();
+    if (axis.current === "horizontal") {
+      swallowNextClick();
+      if (offset >= SWIPE_TRIGGER_PX) {
+        buzz(10);
+        onSwipeRight();
+      }
     }
     reset();
   };
@@ -171,10 +194,15 @@ export function useEdgeSwipe({
     const up = (e: globalThis.PointerEvent) => {
       if (e.pointerId !== id) return;
       id = -1;
-      if (axis === "horizontal" && current !== null) {
-        if (open && current < 0.65) onClose();
-        else if (!open && current > 0.35) onOpen();
+      if (axis === "horizontal") {
+        // Whatever ends up under the finger must not receive the synthesized click.
+        swallowNextClick();
+        if (current !== null) {
+          if (open && current < 0.65) onClose();
+          else if (!open && current > 0.35) onOpen();
+        }
       }
+      axis = "pending";
       update(null);
     };
     const opts = { passive: true } as const;

@@ -28,13 +28,28 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **Ping** someone from the ⋯ menu next to their name: a toast if they're online, a notification
   if not.
 
+- **Read receipts:** "✓✓ Read" under your latest message in a direct message once the other
+  person has seen it (one read mark per conversation, never stored per message).
+- **Typing indicator:** "Name is typing…" above the composer.
+- **Edit messages:** _Edit message_ in a message's toolbar (your own), or ↑ in an empty composer
+  to edit your last one; edited messages show "(edited)".
+
 ### Changed
 
 - Deleting a channel or a conversation moved from the header to the ⋯ menu in the sidebar, to
   avoid accidental deletions.
+- Faster first load: the config request starts before the app code arrives, Task Manager,
+  Settings and the quick switcher load on first use, and vendor code is cached across deploys.
+- Calls use two STUN servers and print an ICE trace in the console (`[call]`) for debugging.
+- Push: the service worker and the app log every step (`[sw]`, `[push]`), Settings shows why the
+  last attempt failed, and the server logs the push service's answer for each rejected push.
 
 ### Fixed
 
+- Swiping in from the left edge on a phone no longer opens `#general` (the drawer slid under the
+  finger and caught the tap).
+- iPhones whose push subscription was rotated by Apple get notifications again (the service
+  worker re-subscribes and the app re-sends it).
 - "Registration failed - push service error" when enabling notifications: subscriptions no
   longer race, the server key is validated first and temporary push-service failures are retried.
 - Old test channels (created before readable names, or without a known creator) can be deleted

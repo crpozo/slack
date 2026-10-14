@@ -29,10 +29,18 @@ export function MessageList({ channelId, title }: Readonly<{ channelId: string; 
   const previous = useRef<{ channelId: string; first?: string; last?: string } | null>(null);
   const [showNewPill, setShowNewPill] = useState(false);
 
+  const setListAtBottom = useChat((s) => s.setListAtBottom);
+  const setAtBottom = (value: boolean) => {
+    atBottom.current = value;
+    setListAtBottom(value);
+    // Scrolled down to the newest messages: they count as read now.
+    if (value) chat.sendReadMark(channelId);
+  };
+
   const scrollToBottom = () => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-    atBottom.current = true;
+    setAtBottom(true);
     setShowNewPill(false);
   };
 
@@ -98,8 +106,9 @@ export function MessageList({ channelId, title }: Readonly<{ channelId: string; 
   function handleScroll() {
     const el = scrollRef.current;
     if (!el) return;
-    atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD_PX;
-    if (atBottom.current) setShowNewPill(false);
+    const nowAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD_PX;
+    if (nowAtBottom !== atBottom.current) setAtBottom(nowAtBottom);
+    if (nowAtBottom) setShowNewPill(false);
   }
 
   return (
@@ -164,6 +173,7 @@ export function MessageList({ channelId, title }: Readonly<{ channelId: string; 
                   message={m}
                   grouped={!newDay && isGroupedWith(prev, m)}
                   mine={m.userId === myUserId}
+                  last={i === messages.length - 1}
                 />
               </div>
             );

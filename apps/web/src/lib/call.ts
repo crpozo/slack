@@ -23,8 +23,46 @@ import type { DistributiveOmit } from "./ws";
  * an avatar instead of black video.
  */
 
-/** Free public STUN only: TURN relays media through a server, which costs money. */
-const ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+/**
+ * Free public STUN only (two of Google's, in case one is slow): TURN relays
+ * media through a server, which costs money. Without TURN, two peers both
+ * behind symmetric NAT (typical on cellular) can't connect at all: the
+ * `[call]` ICE trace below shows it as gathering only `host`/`srflx`
+ * candidates and ending in `failed`.
+ */
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+];
+
+/** ICE breadcrumbs in the console: the first thing to read when a call is slow to connect. */
+const trace = (step: string, detail?: Record<string, unknown>) =>
+  console.info("[call]", step, detail ?? "");
+
+/** Which path the media took once connected: direct (`host`/`srflx`) or relayed (`relay`). */
+async function traceSelectedPair(pc: RTCPeerConnection): Promise<void> {
+  if (typeof pc.getStats !== "function") return;
+  try {
+    const stats = await pc.getStats();
+    const pairs: RTCIceCandidatePairStats[] = [];
+    stats.forEach((report: RTCStats) => {
+      if (report.type === "candidate-pair") pairs.push(report as RTCIceCandidatePairStats);
+    });
+    const selected = pairs.find((p) => p.state === "succeeded" && p.nominated);
+    if (!selected) return;
+    const local = stats.get(selected.localCandidateId) as RTCIceCandidate | undefined;
+    const remote = stats.get(selected.remoteCandidateId) as RTCIceCandidate | undefined;
+    trace("selected candidate pair", {
+      local: `${local?.type ?? "?"} ${local?.protocol ?? ""}`,
+      remote: `${remote?.type ?? "?"} ${remote?.protocol ?? ""}`,
+      rttMs:
+        selected.currentRoundTripTime === undefined
+          ? undefined
+          : selected.currentRoundTripTime * 1000,
+    });
+  } catch (err) {
+    trace("getStats failed", { error: String(err) });
+  }
+}
 const RING_TIMEOUT_MS = 45_000;
 const INCOMING_TIMEOUT_MS = 50_000;
 const DISCONNECT_GRACE_MS = 10_000;
@@ -602,9 +640,24 @@ export class CallManager {
   private createPeerConnection(session: Session): RTCPeerConnection {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     session.pc = pc;
+    const startedAt = Date.now();
+    const sinceStart = () => ({ callId: session.callId, afterMs: Date.now() - startedAt });
+    trace("peer connection created", { ...sinceStart(), iceServers: ICE_SERVERS.length });
+
+    pc.addEventListener("icegatheringstatechange", () =>
+      trace(`ice gathering ${pc.iceGatheringState}`, sinceStart()),
+    );
+    pc.addEventListener("iceconnectionstatechange", () =>
+      trace(`ice connection ${pc.iceConnectionState}`, sinceStart()),
+    );
+    pc.addEventListener("icecandidateerror", (e) => {
+      const { url, errorCode, errorText } = e as RTCPeerConnectionIceErrorEvent;
+      trace("ice candidate error", { ...sinceStart(), url, errorCode, errorText });
+    });
 
     pc.addEventListener("icecandidate", ({ candidate }) => {
       if (candidate?.candidate) {
+        trace("local candidate", { type: candidate.type, protocol: candidate.protocol });
         this.signal(session, {
           signal: "ice_candidate",
           candidate: {
@@ -626,9 +679,11 @@ export class CallManager {
     });
 
     pc.addEventListener("connectionstatechange", () => {
+      trace(`connection ${pc.connectionState}`, sinceStart());
       if (!this.isCurrent(session)) return;
       switch (pc.connectionState) {
         case "connected":
+          void traceSelectedPair(pc);
           clearTimeout(session.graceTimer);
           session.graceTimer = undefined;
           if (session.phase !== "connected") {

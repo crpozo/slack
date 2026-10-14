@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GENERAL_CHANNEL_ID } from "./ids";
+import { compareIds, GENERAL_CHANNEL_ID } from "./ids";
 import type { Board, Task } from "./tasks";
 
 // ---------------------------------------------------------------------------
@@ -34,6 +34,8 @@ export const CLIENT_ACTIONS = [
   "call",
   "ping",
   "nudge",
+  "read",
+  "edit",
 ] as const;
 export type ClientActionName = (typeof CLIENT_ACTIONS)[number];
 
@@ -101,6 +103,27 @@ export interface Channel {
   archived: boolean;
   /** `private` and `dm` channels: user ids allowed to see the channel. */
   members?: string[];
+  /**
+   * Read watermarks: per user, the newest message `sk` they have seen (and
+   * when). One row per channel, however many messages: a message is read by
+   * someone iff their watermark is >= its `sk` (sort keys order by time).
+   */
+  reads?: Record<string, ReadMark>;
+}
+
+export interface ReadMark {
+  sk: string;
+  /** Epoch milliseconds. */
+  at: number;
+}
+
+/** Everyone (but the author) whose watermark covers `message`, sorted. */
+export function readBy(message: Pick<Message, "sk" | "userId">, reads: Channel["reads"]): string[] {
+  if (!reads) return [];
+  return Object.entries(reads)
+    .filter(([userId, mark]) => userId !== message.userId && mark.sk >= message.sk)
+    .map(([userId]) => userId)
+    .sort(compareIds);
 }
 
 export interface Message {
@@ -118,6 +141,14 @@ export interface Message {
   reactions?: Record<string, string[]>;
   /** Set when this message answers another one in the same channel. */
   replyTo?: ReplySnapshot;
+  /** The author changed the text after sending (`editedAt`: epoch ms of the last edit). */
+  isEdited?: boolean;
+  editedAt?: number;
+  /**
+   * Who has read it, for the UI. Derived by clients from the channel's read
+   * watermarks (`readBy()`): never stored per message.
+   */
+  readBy?: string[];
 }
 
 export interface UserProfile {
@@ -304,6 +335,21 @@ export const TypingActionSchema = z.object({
   channelId,
 });
 
+/** "I have seen up to this message": moves the caller's watermark forward (never back). */
+export const ReadActionSchema = z.object({
+  action: z.literal("read"),
+  channelId,
+  sk: z.string().min(1).max(128),
+});
+
+/** Replace the text of one of the caller's own messages (attachments stay as they are). */
+export const EditActionSchema = z.object({
+  action: z.literal("edit"),
+  channelId,
+  sk: z.string().min(1).max(128),
+  text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
+});
+
 /** Trimmed, 1–40 chars, no control characters. */
 export const DisplayNameSchema = z
   .string()
@@ -435,6 +481,8 @@ export const NudgeActionSchema = z.object({
     .regex(/^[^_\s]+$/),
 });
 export type NudgeAction = z.infer<typeof NudgeActionSchema>;
+export type ReadAction = z.infer<typeof ReadActionSchema>;
+export type EditAction = z.infer<typeof EditActionSchema>;
 /** One nudge per sender → recipient pair per minute. */
 export const NUDGE_INTERVAL_MS = 60_000;
 
@@ -449,6 +497,8 @@ export const ClientActionSchema = z.union([
   CallActionSchema,
   PingActionSchema,
   NudgeActionSchema,
+  ReadActionSchema,
+  EditActionSchema,
 ]);
 
 export type MessageAction = z.infer<typeof MessageActionSchema>;
@@ -539,6 +589,33 @@ export interface MessageReactionEvent {
   messageId: string;
   /** Full, current reactions of the message. */
   reactions: Record<string, string[]>;
+}
+
+/** The author edited a message: its new text (everything else is unchanged). */
+export interface MessageUpdatedEvent {
+  type: "message.updated";
+  channelId: string;
+  sk: string;
+  messageId: string;
+  text: string;
+  isEdited: true;
+  editedAt: number;
+}
+
+/** `userId` has read `channelId` up to `sk` (their watermark moved forward). */
+export interface ChannelReadEvent {
+  type: "channel.read";
+  channelId: string;
+  userId: string;
+  sk: string;
+  at: number;
+}
+
+/** `userId` is typing in `channelId` (sent at most every few seconds; nothing is stored). */
+export interface UserTypingEvent {
+  type: "user.typing";
+  channelId: string;
+  userId: string;
 }
 
 export interface UserListEvent {
@@ -652,6 +729,9 @@ export type ServerEvent =
   | UserNudgeEvent
   | MessageNewEvent
   | MessageReactionEvent
+  | MessageUpdatedEvent
+  | ChannelReadEvent
+  | UserTypingEvent
   | HistoryPageEvent
   | ChannelListEvent
   | ChannelDeletedEvent

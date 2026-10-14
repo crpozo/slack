@@ -157,7 +157,7 @@ const PUSH_HINT: Record<PushStatus, string> = {
 function PushSettings() {
   const me = useChat((s) => s.me);
   const showToast = useChat((s) => s.showToast);
-  const { status, busy } = usePush();
+  const { status, busy, lastError } = usePush();
   const available = status === "on" || status === "off";
 
   async function toggle(on: boolean) {
@@ -180,6 +180,11 @@ function PushSettings() {
       <span>
         <span className="block text-sm font-medium text-ink">Push notifications</span>
         <span className="block text-xs text-ink-secondary">{PUSH_HINT[status]}</span>
+        {status !== "on" && lastError && (
+          <span className="mt-0.5 block text-xs text-error" role="status">
+            Last attempt failed: {lastError}
+          </span>
+        )}
       </span>
       <input
         type="checkbox"

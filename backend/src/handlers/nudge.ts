@@ -75,11 +75,13 @@ export const handler = wsHandler(async (event, caller) => {
   const reached = await deliver(theirs, () => ({ type: "user.nudge", from: caller.userId }));
   if (reached === 0) {
     const name = await displayNameOf(caller.userId, caller.userEmail);
+    const dm = dmChannelId(caller.userId, toUserId);
     await sendPush([toUserId], {
       title: `👋 ${name} is pinging you`,
       body: "Open Slack to reply",
-      url: `/app/${encodeURIComponent(dmChannelId(caller.userId, toUserId))}`,
-      tag: `nudge-${caller.userId}`,
+      url: `/app/${encodeURIComponent(dm)}`,
+      // Tagged like the DM's messages: one notification per conversation.
+      tag: dm,
     });
   }
   log.info("nudge", { from: caller.userId, to: toUserId, live: reached > 0 });

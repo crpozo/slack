@@ -1,4 +1,4 @@
-import { replyPreview, type ReplySnapshot } from "@mindfultech/shared";
+import { isDmChannel, readBy, replyPreview, type ReplySnapshot } from "@mindfultech/shared";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { chat } from "../lib/chat";
@@ -9,7 +9,7 @@ import { renderMarkdown } from "../lib/markdown";
 import { useChat, useNameOf, type ChatMessage } from "../store";
 import { Attachment } from "./Attachment";
 import { Avatar } from "./Avatar";
-import { CopyIcon, ReplyIcon, SmilePlusIcon } from "./icons";
+import { CheckCheckIcon, CopyIcon, PencilIcon, ReplyIcon, SmilePlusIcon } from "./icons";
 import { ReactionPicker, Reactions } from "./Reactions";
 
 /** The message whose toolbar a long press opened (touch screens; one at a time). */
@@ -49,10 +49,12 @@ const actionButton =
 function MessageActions({
   message,
   pressed,
-}: Readonly<{ message: ChatMessage; pressed: boolean }>) {
+  mine,
+}: Readonly<{ message: ChatMessage; pressed: boolean; mine: boolean }>) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const close = usePressed((s) => s.set);
   const setReplyTo = useChat((s) => s.setReplyTo);
+  const setEditing = useChat((s) => s.setEditing);
   const ref = useRef<HTMLDivElement>(null);
 
   // A long-press toolbar closes on the next touch anywhere else.
@@ -111,6 +113,24 @@ function MessageActions({
       >
         <ReplyIcon />
       </button>
+      {mine && message.text && (
+        <button
+          type="button"
+          onClick={() => {
+            setEditing(message.channelId, {
+              sk: message.sk,
+              messageId: message.messageId,
+              text: message.text,
+            });
+            done();
+          }}
+          className={actionButton}
+          aria-label="Edit message"
+          title="Edit message"
+        >
+          <PencilIcon />
+        </button>
+      )}
       {pressed && message.text && (
         <button
           type="button"
@@ -167,12 +187,43 @@ interface MessageItemProps {
   message: ChatMessage;
   grouped: boolean;
   mine: boolean;
+  /** The newest message of the conversation (where a DM shows its read receipt). */
+  last?: boolean;
+}
+
+/** "(edited)" after the time, with the edit's time on hover. */
+function EditedMark({ editedAt }: Readonly<{ editedAt?: number }>) {
+  return (
+    <span
+      className="text-xs text-ink-secondary"
+      title={editedAt ? `Edited at ${formatTime(editedAt)}` : "Edited"}
+    >
+      (edited)
+    </span>
+  );
+}
+
+/**
+ * Read receipt of your newest message in a DM: shown once the other person's
+ * watermark covers it (derived from the channel's reads, never per message).
+ */
+function ReadReceipt({ message }: Readonly<{ message: ChatMessage }>) {
+  // A primitive from the selector: a fresh array each render would loop useSyncExternalStore.
+  const read = useChat((s) => readBy(message, s.reads[message.channelId]).length > 0);
+  if (!read) return null;
+  return (
+    <span className="mt-0.5 flex items-center gap-1 text-[11px] text-ink-secondary">
+      <CheckCheckIcon className="text-primary" />
+      Read
+    </span>
+  );
 }
 
 export const MessageItem = memo(function MessageItem({
   message,
   grouped,
   mine,
+  last = false,
 }: Readonly<MessageItemProps>) {
   const html = useMemo(() => renderMarkdown(message.text), [message.text]);
   const time = formatTime(message.createdAt);
@@ -211,7 +262,10 @@ export const MessageItem = memo(function MessageItem({
       >
         <div className="w-9 shrink-0">
           {grouped ? (
-            <time className="invisible block pt-1.5 text-right text-[10px] text-ink-secondary group-hover:visible">
+            <time
+              className="invisible block pt-1.5 text-right text-[10px] text-ink-secondary group-hover:visible"
+              title={message.isEdited ? "Edited" : undefined}
+            >
               {time}
             </time>
           ) : (
@@ -231,6 +285,7 @@ export const MessageItem = memo(function MessageItem({
               >
                 {time}
               </time>
+              {message.isEdited && <EditedMark editedAt={message.editedAt} />}
             </div>
           )}
 
@@ -254,7 +309,13 @@ export const MessageItem = memo(function MessageItem({
             </div>
           )}
 
+          {grouped && message.isEdited && <EditedMark editedAt={message.editedAt} />}
+
           {!message.status && <Reactions message={message} />}
+
+          {mine && last && sent && isDmChannel(message.channelId) && (
+            <ReadReceipt message={message} />
+          )}
 
           {message.status === "failed" && (
             <p className="mt-1 flex items-center gap-2 text-xs text-ink-secondary">
@@ -272,7 +333,7 @@ export const MessageItem = memo(function MessageItem({
         </div>
       </div>
 
-      {sent && <MessageActions message={message} pressed={pressed} />}
+      {sent && <MessageActions message={message} pressed={pressed} mine={mine} />}
     </div>
   );
 });

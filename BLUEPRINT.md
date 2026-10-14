@@ -574,6 +574,22 @@ It is carried out in three sub-phases, each on its own branch with its own PR to
 
 ---
 
+### Phase 10 — Polish and Tauri prep: swipe fix, push diagnostics, faster load, read receipts, typing, edits
+
+**Branch:** `feature/f10-polish-and-tauri-prep`
+
+1. **Edge swipe no longer taps `#general`** (`lib/gestures.ts`): after a horizontal touch drag the browser still synthesizes a `click` at the lift point (nothing scrolled, rows are `pan-y`), and the drawer had just slid under the finger. Fix: `swallowNextClick()` — a one-shot capture-phase `click` guard for 500 ms after the drag, shared by the edge swipe and the message swipe — plus `pointer-events-none` on the drawer while it is being dragged. Node-only unit tests with a bare `EventTarget` as `document`.
+2. **iOS push diagnostics:** the service worker logs every step as `[sw]` (push received, notification shown, click, errors) and handles `pushsubscriptionchange` (re-subscribes with the same key and tells open tabs, which re-send it to the server); the app logs `[push]` breadcrumbs and shows the last failure under the Settings switch; the server logs each rejected push with the push service's status code, host and reply (a 403 from Apple is a VAPID mismatch, 410 an uninstalled app). The `tag` stays the channel/DM id (one notification per conversation, different chats stack); Pings use the DM id too.
+3. **Initial load:** `index.html` starts the `/config.json` fetch before the bundle arrives (`window.__configRequest`); Task Manager, Settings and the quick switcher are `React.lazy`; vendor code (`react`, `aws-amplify`) in chunks of its own so app-only deploys don't invalidate them. The critical chunk went from 571 KB to 231 KB (+ cached vendor chunks). History for the open channel was already requested in parallel with the lists (frames queue until the socket opens).
+4. **Calls:** two Google STUN servers; `[call]` console trace of ICE gathering/connection state, each local candidate's type, ICE errors and — once connected — the selected candidate pair (host/srflx/relay, RTT). Still no TURN: two peers both behind symmetric NAT (cellular) cannot connect, and the trace will show it.
+5. **Read receipts as watermarks:** no per-message `readBy` in the table. The channel row carries `reads: { [userId]: { sk, at } }`; `read` (new WebSocket action + Lambda) moves the caller's mark forward with one conditional `UpdateItem` (creating the map on first use) and broadcasts `channel.read`. A message is read by someone iff their mark is ≥ its `sk` (sort keys order by time) — the shared `readBy()` derives the wire-level `Message.readBy` on the client. The client sends `read` only while focused, scrolled to the bottom, for the newest message when someone else wrote it and it is past the current mark; at most once per message. UI: "✓✓ Read" under your newest message in a DM.
+6. **Typing:** the `typing` Lambda (a no-op since the MVP) now fans `user.typing` out to everyone else in the channel; the composer sends it at most every 3 s while there is text; the indicator above the composer expires 5 s after the last one and clears when that person's message arrives. Nothing stored.
+7. **Edit messages:** `edit` WebSocket action + Lambda: conditional `UpdateItem` on the caller's own message (`userId = :me`, `ReturnValuesOnConditionCheckFailure` tells `FORBIDDEN` from `MESSAGE_NOT_FOUND`) sets `text`, `isEdited`, `editedAt` and broadcasts `message.updated`. Client: **Edit message** in the toolbar of your own messages, the composer switches to an "Editing message" banner with the old text (Enter saves, Esc cancels, ↑ in an empty composer edits your last message), "(edited)" next to the time.
+
+**Phase 10 acceptance criteria:** an edge swipe on a phone opens the drawer and never changes the conversation; a push failure on a device is explained in Settings and in CloudWatch with the push service's answer; the first paint of a conversation ships ~230 KB of app code; the console traces ICE for every call; "Read" appears under your last DM message once the other person has it on screen; "Name is typing…" shows while they type; an edited message updates everywhere with "(edited)".
+
+---
+
 ### PHASE 7 (optional) — Desktop app with Tauri
 
 **Branch:** `feature/f7-tauri` (starts from `main` after v0.2.0).
