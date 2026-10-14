@@ -1,5 +1,7 @@
 import { GENERAL_CHANNEL_ID, isDmChannel } from "@mindfultech/shared";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -26,9 +28,15 @@ import { CreateChannelModal, NewDmModal } from "./ChannelModals";
 import { CallLayer } from "./CallLayer";
 import { PushPrompt } from "./PushPrompt";
 import { ChannelView } from "./ChannelView";
-import { QuickSwitcher } from "./QuickSwitcher";
-import { SettingsModal } from "./SettingsModal";
-import { TaskManager } from "./TaskManager";
+
+// Not needed to show a conversation: loaded on first use, off the initial bundle.
+const TaskManager = lazy(() => import("./TaskManager").then((m) => ({ default: m.TaskManager })));
+const SettingsModal = lazy(() =>
+  import("./SettingsModal").then((m) => ({ default: m.SettingsModal })),
+);
+const QuickSwitcher = lazy(() =>
+  import("./QuickSwitcher").then((m) => ({ default: m.QuickSwitcher })),
+);
 import { Sidebar } from "./Sidebar";
 import { Toast } from "./Toast";
 
@@ -152,6 +160,10 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
       const path = e.data?.path;
       if (e.data?.type === "navigate" && typeof path === "string" && path.startsWith("/app/")) {
         navigate(path);
+      } else if (e.data?.type === "push.resubscribed") {
+        // The push service rotated this device's subscription: the server needs the new one.
+        const meId = useChat.getState().me?.userId;
+        if (meId) void syncPush(meId);
       }
     };
     sw.addEventListener("message", onMessage);
@@ -165,7 +177,8 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     setSidebarOpen(false);
     if (!channelId) return;
     if (!(channelId in s.cursors)) chat.loadHistory(channelId, "initial");
-    s.markRead(channelId);
+    s.setListAtBottom(true);
+    chat.viewed(channelId);
   }, [channelId]);
 
   // The channel or DM on screen was deleted (by anyone): back to #general. This runs
@@ -200,7 +213,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     const onFocus = () => {
       if (document.visibilityState !== "visible") return;
       const s = useChat.getState();
-      if (channelId) s.markRead(channelId);
+      if (channelId) chat.viewed(channelId);
       // A push sync that failed at sign-in (push service hiccup) gets another go.
       if (s.me) retryPushSyncIfFailed(s.me.userId);
     };
@@ -256,7 +269,10 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         style={drawerStyle}
         className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] md:relative md:p-0 md:z-20 md:max-w-none md:shrink-0 md:translate-x-0 ${
           resizing ? "" : "transition-[transform,width] duration-200"
-        } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
+        } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} ${
+          // Nothing in the drawer is a hit target while it slides under the finger.
+          drag === null ? "" : "pointer-events-none"
+        }`}
       >
         <Sidebar
           activeChannelId={channelId ?? "tasks"}
@@ -291,16 +307,22 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         {channelId ? (
           <ChannelView channelId={channelId} onOpenSidebar={() => setSidebarOpen(true)} />
         ) : (
-          <TaskManager
-            boardId={tasksMatch?.params.boardId}
-            onOpenSidebar={() => setSidebarOpen(true)}
-          />
+          <Suspense
+            fallback={<div className="flex-1" aria-busy="true" aria-label="Loading tasks" />}
+          >
+            <TaskManager
+              boardId={tasksMatch?.params.boardId}
+              onOpenSidebar={() => setSidebarOpen(true)}
+            />
+          </Suspense>
         )}
       </main>
 
       <CallLayer />
-      {switcherOpen && <QuickSwitcher onClose={() => setSwitcherOpen(false)} />}
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      <Suspense fallback={null}>
+        {switcherOpen && <QuickSwitcher onClose={() => setSwitcherOpen(false)} />}
+        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      </Suspense>
       {createOpen && (
         <CreateChannelModal
           onClose={() => setCreateOpen(false)}

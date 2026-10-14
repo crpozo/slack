@@ -1,4 +1,4 @@
-import type { Channel, Message, ReplySnapshot, UserProfile } from "@mindfultech/shared";
+import type { Channel, Message, ReadMark, ReplySnapshot, UserProfile } from "@mindfultech/shared";
 import { useCallback } from "react";
 import { create } from "zustand";
 import type { SessionUser } from "../lib/auth";
@@ -10,6 +10,13 @@ import { countUnread, mergeMessages, pendingMessageId, type ChatMessage } from "
 export type { ChatMessage } from "./messages";
 
 type HistoryRequest = "initial" | "older";
+
+/** A message of yours being edited: its key and the text the composer starts from. */
+export interface EditTarget {
+  sk: string;
+  messageId: string;
+  text: string;
+}
 
 export interface ChatState {
   me: SessionUser | null;
@@ -34,6 +41,14 @@ export interface ChatState {
   online: Record<string, true>;
   /** Per-channel pending reply (the composer's "Replying to…" banner). */
   replyTo: Record<string, ReplySnapshot>;
+  /** Per-channel message being edited in the composer. */
+  editing: Record<string, EditTarget | undefined>;
+  /** Read watermarks per channel, per user (from `channel.list`, kept current by `channel.read`). */
+  reads: Record<string, Record<string, ReadMark>>;
+  /** Who is typing per channel: userId → epoch ms when the indicator expires. */
+  typing: Record<string, Record<string, number>>;
+  /** The active channel's message list is scrolled to the bottom (new messages count as seen). */
+  listAtBottom: boolean;
   toast: string | null;
 
   setSession: (me: SessionUser | null, team?: DirectoryUser[]) => void;
@@ -54,6 +69,14 @@ export interface ChatState {
   removeChannel: (channelId: string) => void;
   upsertUser: (user: UserProfile) => void;
   setReactions: (channelId: string, sk: string, reactions: Record<string, string[]>) => void;
+  /** `message.updated`: the author changed the text. */
+  applyEdit: (channelId: string, sk: string, text: string, editedAt: number) => void;
+  /** Starts (or, with `null`, ends) editing a message in `channelId`'s composer. */
+  setEditing: (channelId: string, target: EditTarget | null) => void;
+  setReadMark: (channelId: string, userId: string, mark: ReadMark) => void;
+  /** `until`: when the indicator expires; `null` clears it. */
+  setTyping: (channelId: string, userId: string, until: number | null) => void;
+  setListAtBottom: (atBottom: boolean) => void;
   markRead: (channelId: string) => void;
   /** After a reconnect: forget cached history of inactive channels so it reloads on open. */
   invalidateInactive: () => void;
@@ -102,8 +125,22 @@ const initialState = {
   users: {},
   online: {},
   replyTo: {},
+  editing: {},
+  reads: {},
+  typing: {},
+  listAtBottom: true,
   toast: null,
 };
+
+/** The watermarks carried by the channel rows, replacing what we had for those channels. */
+function readsOf(
+  channels: Channel[],
+  previous: Record<string, Record<string, ReadMark>>,
+): Record<string, Record<string, ReadMark>> {
+  const next = { ...previous };
+  for (const c of channels) if (c.reads) next[c.channelId] = c.reads;
+  return next;
+}
 
 export const useChat = create<ChatState>()((set, get) => ({
   ...initialState,
@@ -117,7 +154,8 @@ export const useChat = create<ChatState>()((set, get) => ({
 
   setStatus: (status) => set({ status }),
 
-  setChannels: (channels) => set({ channels, channelsLoaded: true }),
+  setChannels: (channels) =>
+    set((s) => ({ channels, channelsLoaded: true, reads: readsOf(channels, s.reads) })),
 
   setActiveChannel: (activeChannelId) => set({ activeChannelId }),
 
@@ -215,6 +253,9 @@ export const useChat = create<ChatState>()((set, get) => ({
         cursors: omit(s.cursors),
         historyRequests: omit(s.historyRequests),
         replyTo: omit(s.replyTo),
+        editing: omit(s.editing),
+        reads: omit(s.reads),
+        typing: omit(s.typing),
       };
     }),
 
@@ -235,6 +276,42 @@ export const useChat = create<ChatState>()((set, get) => ({
         },
       };
     }),
+
+  applyEdit: (channelId, sk, text, editedAt) =>
+    set((s) => {
+      const messages = s.messagesByChannel[channelId];
+      if (!messages?.some((m) => m.sk === sk)) return {};
+      return {
+        messagesByChannel: {
+          ...s.messagesByChannel,
+          [channelId]: messages.map((m) =>
+            m.sk === sk ? { ...m, text, isEdited: true, editedAt } : m,
+          ),
+        },
+      };
+    }),
+
+  setEditing: (channelId, target) =>
+    set((s) => ({ editing: { ...s.editing, [channelId]: target ?? undefined } })),
+
+  setReadMark: (channelId, userId, mark) =>
+    set((s) => {
+      const current = s.reads[channelId]?.[userId];
+      if (current && current.sk >= mark.sk) return {};
+      return { reads: { ...s.reads, [channelId]: { ...s.reads[channelId], [userId]: mark } } };
+    }),
+
+  setTyping: (channelId, userId, until) =>
+    set((s) => {
+      const next = { ...s.typing[channelId] };
+      if (until === null) delete next[userId];
+      else next[userId] = until;
+      return { typing: { ...s.typing, [channelId]: next } };
+    }),
+
+  setListAtBottom: (listAtBottom) => {
+    if (get().listAtBottom !== listAtBottom) set({ listAtBottom });
+  },
 
   markRead: (channelId) => {
     const { me, messagesByChannel, lastReadTs } = get();

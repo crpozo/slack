@@ -360,6 +360,21 @@ describe("phase 5.1 resources", () => {
     ]);
     expect(actionsOn("nudge", "DataMessages")).toEqual([]);
     expect(actionsOn("nudge", "DataChannels")).toEqual([]);
+    // Phase 10: read watermarks live on the channel row, edits rewrite the caller's message,
+    // typing only fans out (channel access check + connections).
+    expect(actionsOn("read", "DataChannels")).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);
+    expect(actionsOn("read", "DataMessages")).toEqual([]);
+    expect(actionsOn("edit", "DataMessages")).toEqual(["dynamodb:UpdateItem"]);
+    expect(actionsOn("edit", "DataChannels")).toEqual(["dynamodb:GetItem"]);
+    expect(actionsOn("typing", "DataChannels")).toEqual(["dynamodb:GetItem"]);
+    expect(actionsOn("typing", "DataMessages")).toEqual([]);
+    for (const name of ["read", "edit", "typing"]) {
+      expect(actionsOn(name, "DataConnections")).toEqual([
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+      ]);
+    }
   });
 
   it("routes ping to a no-op Lambda with no DynamoDB or @connections permissions", () => {

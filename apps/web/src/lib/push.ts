@@ -12,12 +12,28 @@ import { pushApi, tasksApiConfigured, TasksApiError } from "./tasksApi";
  */
 export type PushStatus = "unsupported" | "needs-install" | "unconfigured" | "denied" | "off" | "on";
 
-export const usePush = create<{ status: PushStatus; busy: boolean }>(() => ({
-  status: "off",
-  busy: false,
-}));
+interface PushState {
+  status: PushStatus;
+  busy: boolean;
+  /** Why the last subscribe failed (shown under the switch), cleared on success. */
+  lastError: string | null;
+}
 
-const set = (patch: Partial<{ status: PushStatus; busy: boolean }>) => usePush.setState(patch);
+export const usePush = create<PushState>(() => ({ status: "off", busy: false, lastError: null }));
+
+const set = (patch: Partial<PushState>) => usePush.setState(patch);
+
+/** Breadcrumbs for the browser console (`[push]`): the first thing to read when a device gets nothing. */
+const trace = (step: string, detail?: Record<string, unknown>) =>
+  console.info("[push]", step, detail ?? "");
+
+export function pushErrorMessage(err: unknown): string {
+  if (err instanceof DOMException && err.name === "NotAllowedError") {
+    return "Notifications are blocked for this app. Allow them in the system settings, then try again.";
+  }
+  if (err instanceof TasksApiError) return `The server rejected the subscription (${err.status}).`;
+  return err instanceof Error ? err.message : String(err);
+}
 
 const isIos = () =>
   /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -77,7 +93,8 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
   if (!("serviceWorker" in navigator)) return null;
   try {
     return await navigator.serviceWorker.register("/sw.js");
-  } catch {
+  } catch (err) {
+    console.error("[push] service worker registration failed", err);
     return null;
   }
 }
@@ -116,6 +133,7 @@ export async function subscribeWithRetry(
     try {
       return await manager.subscribe({ userVisibleOnly: true, applicationServerKey });
     } catch (err) {
+      console.warn("[push] subscribe attempt failed", { attempt, error: String(err) });
       if (err instanceof DOMException && err.name === "NotAllowedError") throw err;
       // Whatever half-made subscription is left would make the next try fail too.
       const stale = await manager.getSubscription().catch(() => null);
@@ -153,11 +171,18 @@ async function doSubscribe(): Promise<void> {
   const registration = await activeRegistration();
   let subscription = await registration.pushManager.getSubscription();
   if (subscription && !sameKey(subscription.options.applicationServerKey, publicKey)) {
+    trace("key rotated: dropping the old subscription");
     await subscription.unsubscribe();
     subscription = null;
   }
+  trace(subscription ? "reusing the browser's subscription" : "subscribing with the push service");
   subscription ??= await subscribeWithRetry(registration.pushManager, base64UrlToBytes(publicKey));
   await pushApi.subscribe(subscription.toJSON() as Parameters<typeof pushApi.subscribe>[0]);
+  trace("subscription saved", {
+    host: new URL(subscription.endpoint).host,
+    expires: subscription.expirationTime,
+    standalone: isStandalone(),
+  });
 }
 
 // One attempt at a time: the sign-in sync and the "Enable" button used to race.
@@ -188,11 +213,12 @@ export async function syncPush(userId: string): Promise<void> {
   try {
     await subscribe();
     syncFailed = false;
-    set({ status: "on" });
+    set({ status: "on", lastError: null });
   } catch (err) {
     // Silent on purpose: retried on the next visit or when the tab comes back.
+    console.error("[push] sign-in sync failed", err);
     syncFailed = true;
-    set({ status: failureStatus(err) });
+    set({ status: failureStatus(err), lastError: pushErrorMessage(err) });
   }
 }
 
@@ -206,15 +232,17 @@ export async function enablePush(userId: string): Promise<PushStatus> {
   set({ busy: true });
   try {
     const permission = await Notification.requestPermission();
+    trace("permission", { permission });
     if (permission !== "granted") {
       set({ status: permission === "denied" ? "denied" : "off" });
       return usePush.getState().status;
     }
     await subscribe();
     setOptedOut(userId, false);
-    set({ status: "on" });
+    set({ status: "on", lastError: null });
   } catch (err) {
-    set({ status: failureStatus(err) });
+    console.error("[push] enabling failed", err);
+    set({ status: failureStatus(err), lastError: pushErrorMessage(err) });
     throw err;
   } finally {
     set({ busy: false });

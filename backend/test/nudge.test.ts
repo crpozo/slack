@@ -1,5 +1,6 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { GetCommand, QueryCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { dmChannelId } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { handler } from "../src/handlers/nudge";
 import * as push from "../src/lib/push";
@@ -46,8 +47,9 @@ describe("nudge", () => {
     expect(sendPush).toHaveBeenCalledWith([BOB.userId], {
       title: "👋 Alicia is pinging you",
       body: "Open Slack to reply",
-      url: expect.stringContaining("/app/dm_"),
-      tag: `nudge-${ALICE.userId}`,
+      url: `/app/${encodeURIComponent(dmChannelId(ALICE.userId, BOB.userId))}`,
+      // Grouped with the DM's own notifications.
+      tag: dmChannelId(ALICE.userId, BOB.userId),
     });
   });
 

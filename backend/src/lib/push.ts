@@ -91,6 +91,16 @@ export async function sendPush(userIds: string[], payload: PushPayload): Promise
             timeout: 5000,
           });
         } catch (err) {
+          // Which device and what the push service answered: a 403 from Apple is a
+          // VAPID mismatch, a 410 an uninstalled app, a 413/400 a payload problem.
+          log.warn("push rejected", {
+            userId: row.userId,
+            host: new URL(row.subscription.endpoint).host,
+            userAgent: row.userAgent,
+            ...(err instanceof WebPushError
+              ? { statusCode: err.statusCode, response: err.body?.slice(0, 200) }
+              : errorFields(err)),
+          });
           if (err instanceof WebPushError && (err.statusCode === 404 || err.statusCode === 410)) {
             await deleteSubscription(row.userId, row.subscription.endpoint);
             log.info("removed expired push subscription", { userId: row.userId });

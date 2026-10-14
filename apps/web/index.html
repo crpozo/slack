@@ -20,6 +20,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>MindfulTech Slack</title>
     <script>
+      // Start fetching the runtime config while the app bundle is still downloading
+      // (main.tsx awaits this promise instead of starting its own request).
+      window.__configRequest = fetch("/config.json", { cache: "no-store" });
       // Apply the saved theme before first paint (no light flash in dark mode). Default: light.
       try {
         var pref = localStorage.getItem("slack.theme") || "light";

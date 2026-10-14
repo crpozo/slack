@@ -16,6 +16,7 @@ import { Composer, type ComposerHandle } from "./Composer";
 import { InviteModal } from "./ChannelModals";
 import { HashIcon, LockIcon, MenuIcon, PhoneIcon, UserPlusIcon, VideoIcon } from "./icons";
 import { MessageList } from "./MessageList";
+import { TypingIndicator } from "./TypingIndicator";
 
 const ICON_BUTTON =
   "rounded-md p-2 text-lg text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40";
@@ -216,6 +217,7 @@ export function ChannelView({
           <CallPanel channelId={channelId} />
           <div className={callExpanded ? "hidden" : "contents"}>
             <MessageList channelId={channelId} title={title} />
+            <TypingIndicator channelId={channelId} />
             <Composer
               key={channelId}
               ref={composer}

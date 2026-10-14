@@ -83,3 +83,57 @@ describe("replyTo", () => {
     expect(useChat.getState().replyTo).toEqual({});
   });
 });
+
+describe("read marks, typing and edits", () => {
+  const m = (sk: string, userId: string) => ({
+    messageId: sk,
+    channelId: "dm_a_b",
+    sk,
+    userId,
+    userEmail: `${userId}@mt.ec`,
+    text: "hi",
+    attachments: [],
+    createdAt: 1,
+  });
+  beforeEach(() =>
+    useChat.setState({
+      reads: {},
+      typing: {},
+      editing: {},
+      messagesByChannel: { dm_a_b: [m("1#a", "u-a"), m("2#b", "u-b")] },
+    }),
+  );
+
+  it("seeds watermarks from channel.list and only ever moves them forward", () => {
+    const { setChannels, setReadMark } = useChat.getState();
+    setChannels([{ ...channel("dm_a_b"), reads: { "u-b": { sk: "1#a", at: 1 } } }]);
+    expect(useChat.getState().reads).toEqual({ dm_a_b: { "u-b": { sk: "1#a", at: 1 } } });
+
+    setReadMark("dm_a_b", "u-b", { sk: "2#b", at: 2 });
+    setReadMark("dm_a_b", "u-b", { sk: "1#a", at: 3 }); // stale echo: ignored
+    expect(useChat.getState().reads.dm_a_b).toEqual({ "u-b": { sk: "2#b", at: 2 } });
+  });
+
+  it("keeps typing indicators per channel with their expiry", () => {
+    const { setTyping } = useChat.getState();
+    setTyping("dm_a_b", "u-b", 1000);
+    setTyping("dm_a_b", "u-c", 2000);
+    setTyping("dm_a_b", "u-b", null);
+    expect(useChat.getState().typing).toEqual({ dm_a_b: { "u-c": 2000 } });
+  });
+
+  it("applies message.updated to the cached message and tracks the composer's edit", () => {
+    const { applyEdit, setEditing } = useChat.getState();
+    applyEdit("dm_a_b", "1#a", "hello", 5);
+    applyEdit("dm_a_b", "9#z", "nope", 5); // not loaded: no-op
+    expect(useChat.getState().messagesByChannel.dm_a_b?.[0]).toMatchObject({
+      text: "hello",
+      isEdited: true,
+      editedAt: 5,
+    });
+    setEditing("dm_a_b", { sk: "1#a", messageId: "1#a", text: "hello" });
+    expect(useChat.getState().editing.dm_a_b?.sk).toBe("1#a");
+    setEditing("dm_a_b", null);
+    expect(useChat.getState().editing.dm_a_b).toBeUndefined();
+  });
+});

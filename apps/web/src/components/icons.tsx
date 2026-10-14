@@ -257,3 +257,9 @@ export const CopyIcon = (p: IconProps) => (
     <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
   </Icon>
 );
+/** Double check mark: "read". */
+export const CheckCheckIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M18 6 7 17l-5-5M22 10l-7.5 7.5L13 16" />
+  </Icon>
+);

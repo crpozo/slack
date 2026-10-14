@@ -31,6 +31,7 @@ import {
   FileIcon,
   MicIcon,
   PaperclipIcon,
+  PencilIcon,
   ReplyIcon,
   SendIcon,
   SmileIcon,
@@ -135,12 +136,46 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const voiceSupported = useMemo(supportsVoiceMessages, []);
   const [sendingVoice, setSendingVoice] = useState(false);
   const setReplyTo = useChat((s) => s.setReplyTo);
+  const editing = useChat((s) => s.editing[channelId]);
+  const setEditing = useChat((s) => s.setEditing);
   const nameOf = useNameOf();
 
   // Starting a reply (swipe, or Reply in the toolbar) puts the cursor here.
   useEffect(() => {
     if (replyTo) textareaRef.current?.focus();
   }, [replyTo]);
+
+  // Editing: the old text replaces whatever was typed, caret at the end; a pending reply is dropped.
+  useEffect(() => {
+    if (!editing) return;
+    setText(editing.text);
+    setReplyTo(channelId, null);
+    const el = textareaRef.current;
+    if (el) {
+      el.focus();
+      requestAnimationFrame(() => el.setSelectionRange(el.value.length, el.value.length));
+    }
+  }, [editing, channelId, setReplyTo]);
+
+  function cancelEdit() {
+    setEditing(channelId, null);
+    setText("");
+  }
+
+  /** ↑ in an empty composer: edit your newest message (with text) in this channel. */
+  function editLastOwnMessage() {
+    const { me, messagesByChannel } = useChat.getState();
+    const own = [...(messagesByChannel[channelId] ?? [])]
+      .reverse()
+      .find((m) => m.userId === me?.userId && !m.status && m.text);
+    if (own) setEditing(channelId, { sk: own.sk, messageId: own.messageId, text: own.text });
+  }
+
+  function handleChange(value: string) {
+    setText(value);
+    // Keystrokes with content (not deletions to empty) tell the channel you're typing.
+    if (value.trim() && !editing) chat.typing(channelId);
+  }
 
   /** Inserts at the caret (replacing any selection) and keeps focus in the textarea. */
   function insertAtCursor(snippet: string) {
@@ -228,6 +263,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }
 
   function submit() {
+    if (editing) {
+      const next = text.trim();
+      if (!next || disabled) return;
+      if (next !== editing.text) chat.editMessage(channelId, editing.sk, next);
+      cancelEdit();
+      textareaRef.current?.focus();
+      return;
+    }
     if (!canSend) return;
     chat.sendMessage(channelId, text.trim(), ready, replyTo);
     if (replyTo) setReplyTo(channelId, null);
@@ -240,9 +283,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
+    } else if (e.key === "Escape" && editing) {
+      e.preventDefault();
+      cancelEdit();
     } else if (e.key === "Escape" && replyTo) {
       e.preventDefault();
       setReplyTo(channelId, null);
+    } else if (e.key === "ArrowUp" && !text && !editing && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      editLastOwnMessage();
     }
   }
 
@@ -256,7 +305,27 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   return (
     <div className="border-t border-line bg-surface px-3 pb-3 pt-2 sm:px-4">
       <div className="rounded-xl border border-line bg-surface focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30">
-        {replyTo && (
+        {editing && (
+          <div
+            className="flex items-center gap-2 border-b border-line px-3 py-2 text-sm"
+            aria-label="Editing a message"
+          >
+            <PencilIcon className="shrink-0 text-primary" />
+            <p className="min-w-0 flex-1 truncate text-ink-secondary">
+              Editing message · <b>Enter</b> to save
+            </p>
+            <button
+              type="button"
+              onClick={cancelEdit}
+              aria-label="Cancel editing"
+              title="Cancel editing (Esc)"
+              className="shrink-0 rounded-md p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+        )}
+        {replyTo && !editing && (
           <div
             className="flex items-center gap-2 border-b border-line px-3 py-2 text-sm"
             aria-label="Replying to a message"
@@ -332,7 +401,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={disabled}
+                disabled={disabled || !!editing}
                 className="rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
                 aria-label="Attach file"
                 title={`Attach (max. ${MAX_SIZE_LABEL})`}
@@ -374,7 +443,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 rows={1}
                 value={text}
                 maxLength={MAX_TEXT_LENGTH}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => handleChange(e.target.value)}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
                 placeholder={placeholder}
@@ -386,7 +455,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 <button
                   type="button"
                   onClick={startRecording}
-                  disabled={disabled || inCall}
+                  disabled={disabled || inCall || !!editing}
                   className="rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
                   aria-label="Record a voice message"
                   title={inCall ? "Not available during a call" : "Voice message"}
@@ -397,10 +466,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               <button
                 type="button"
                 onClick={submit}
-                disabled={!canSend}
+                disabled={editing ? !text.trim() : !canSend}
                 className="btn-primary h-9 w-9 p-0"
-                aria-label="Send"
-                title={uploading ? "Waiting for uploads to finish" : "Send (Enter)"}
+                aria-label={editing ? "Save changes" : "Send"}
+                title={
+                  editing
+                    ? "Save (Enter)"
+                    : uploading
+                      ? "Waiting for uploads to finish"
+                      : "Send (Enter)"
+                }
               >
                 <SendIcon />
               </button>

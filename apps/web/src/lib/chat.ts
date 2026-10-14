@@ -44,6 +44,10 @@ interface Deferred<T> {
 type PresignRequest = DistributiveOmit<PresignAction, "action" | "requestId">;
 
 const isFocused = () => document.visibilityState === "visible" && document.hasFocus();
+/** Keystrokes send `typing` at most this often… */
+export const TYPING_INTERVAL_MS = 3000;
+/** …and the indicator stays this long after the last one (slightly more than the interval). */
+export const TYPING_SHOW_MS = 5000;
 
 /** Glue between the WebSocket and the store; one instance per signed-in session. */
 class ChatController {
@@ -98,7 +102,9 @@ class ChatController {
           client.send("channel", { op: "list" }); // e.g. someone just opened a DM with us
         }
         const viewing = message.channelId === s.activeChannelId && isFocused();
-        if (viewing) s.markRead(message.channelId);
+        if (viewing) this.viewed(message.channelId);
+        // Their message arrived: whatever they were typing is sent.
+        s.setTyping(message.channelId, message.userId, null);
         // A pop for messages from others that you are not already looking at.
         if (!viewing && message.userId !== s.me?.userId) playMessageSound();
       }),
@@ -106,7 +112,7 @@ class ChatController {
       client.on("history.page", ({ channelId, items, nextCursor }) => {
         const s = store();
         s.receiveHistory(channelId, items, nextCursor);
-        if (channelId === s.activeChannelId && isFocused()) s.markRead(channelId);
+        if (channelId === s.activeChannelId && isFocused()) this.viewed(channelId);
       }),
 
       client.on("user.list", ({ users, online }) => store().setUsers(users, online)),
@@ -141,6 +147,17 @@ class ChatController {
       client.on("message.reaction", ({ channelId, sk, reactions }) =>
         store().setReactions(channelId, sk, reactions),
       ),
+      client.on("message.updated", ({ channelId, sk, text, editedAt }) =>
+        store().applyEdit(channelId, sk, text, editedAt),
+      ),
+      client.on("channel.read", ({ channelId, userId, sk, at }) =>
+        store().setReadMark(channelId, userId, { sk, at }),
+      ),
+      client.on("user.typing", ({ channelId, userId }) => {
+        const s = store();
+        if (userId === s.me?.userId) return;
+        s.setTyping(channelId, userId, Date.now() + TYPING_SHOW_MS);
+      }),
 
       client.on("channel.list", ({ channels }) => {
         store().setChannels(channels);
@@ -341,6 +358,53 @@ class ChatController {
   /** "Ping": a toast for them if they're online, a push if not (1 per minute per person). */
   nudge(userId: string): void {
     this.client?.send("nudge", { toUserId: userId });
+  }
+
+  /**
+   * The user is looking at `channelId`: marks it read locally and, when the
+   * list is scrolled to the bottom, tells the channel how far they've read.
+   */
+  viewed(channelId: string): void {
+    const s = useChat.getState();
+    s.markRead(channelId);
+    this.sendReadMark(channelId);
+  }
+
+  /** The newest `sk` sent as a read mark per channel (don't repeat it while the echo is in flight). */
+  private readSent = new Map<string, string>();
+
+  /**
+   * Sends `read` for the newest message on screen, at most once per message:
+   * only while focused and scrolled to the bottom, only when someone else
+   * wrote it (your own messages don't need your read mark) and only if it is
+   * past your current watermark. One write per "caught up", not per message.
+   */
+  sendReadMark(channelId: string): void {
+    const s = useChat.getState();
+    if (!this.client || !s.me || !isFocused() || !s.listAtBottom) return;
+    if (channelId !== s.activeChannelId) return;
+    const latest = [...(s.messagesByChannel[channelId] ?? [])].reverse().find((m) => !m.status);
+    if (!latest || latest.userId === s.me.userId) return;
+    const mine = s.reads[channelId]?.[s.me.userId];
+    if (mine && mine.sk >= latest.sk) return;
+    if (this.readSent.get(channelId) === latest.sk) return;
+    this.readSent.set(channelId, latest.sk);
+    this.client.send("read", { channelId, sk: latest.sk });
+  }
+
+  private typingSentAt = new Map<string, number>();
+
+  /** Called on every keystroke; actually sends `typing` at most every `TYPING_INTERVAL_MS`. */
+  typing(channelId: string): void {
+    const now = Date.now();
+    if (now - (this.typingSentAt.get(channelId) ?? 0) < TYPING_INTERVAL_MS) return;
+    this.typingSentAt.set(channelId, now);
+    this.client?.send("typing", { channelId });
+  }
+
+  /** Replaces the text of one of your messages; the server answers with `message.updated`. */
+  editMessage(channelId: string, sk: string, text: string): void {
+    this.client?.send("edit", { channelId, sk, text });
   }
 
   /** Adds people to a private channel you created; errors arrive as toasts. */
