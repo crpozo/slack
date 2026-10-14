@@ -361,11 +361,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   <p className="truncate text-xs font-medium text-ink" title={u.file.name}>
                     {u.file.name}
                   </p>
-                  <p className="text-[11px] text-ink-secondary">
+                  <p className="text-[11px] text-ink-secondary" aria-live="polite">
                     {u.error ??
                       (u.attachment
                         ? formatBytes(u.file.size)
-                        : `${Math.round(u.progress * 100)} %`)}
+                        : `Uploading… ${Math.round(u.progress * 100)} % of ${formatBytes(u.file.size)}`)}
                   </p>
                 </div>
                 <button
@@ -378,7 +378,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 </button>
                 {!u.attachment && !u.error && (
                   <span
-                    className="absolute bottom-0 left-0 h-0.5 bg-primary transition-all"
+                    role="progressbar"
+                    aria-label={`Uploading ${u.file.name}`}
+                    aria-valuenow={Math.round(u.progress * 100)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    className="absolute bottom-0 left-0 h-1 bg-primary transition-all"
                     style={{ width: `${Math.round(u.progress * 100)}%` }}
                   />
                 )}

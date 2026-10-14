@@ -5,12 +5,17 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { PRESIGN_EXPIRES_SECONDS } from "@mindfultech/shared";
+import { PRESIGN_EXPIRES_SECONDS, PRESIGN_PUT_EXPIRES_SECONDS } from "@mindfultech/shared";
 import { requireEnv } from "./env";
 
 const s3 = new S3Client({});
 
-/** Upload URL; the signature pins Content-Type and Content-Length. */
+/**
+ * Upload URL; the signature pins Content-Type and Content-Length, so the
+ * object can only be exactly the size the server accepted (≤ MAX_ATTACHMENT_SIZE,
+ * checked by the presign schema): the PUT equivalent of a POST policy's
+ * content-length-range. Valid for 30 minutes: 500 MB takes a while.
+ */
 export function presignPut(key: string, contentType: string, size: number): Promise<string> {
   return getSignedUrl(
     s3,
@@ -21,7 +26,7 @@ export function presignPut(key: string, contentType: string, size: number): Prom
       ContentLength: size,
     }),
     {
-      expiresIn: PRESIGN_EXPIRES_SECONDS,
+      expiresIn: PRESIGN_PUT_EXPIRES_SECONDS,
       signableHeaders: new Set(["content-type", "content-length"]),
     },
   );

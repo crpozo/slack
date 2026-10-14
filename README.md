@@ -112,7 +112,7 @@ The UI:
   opens the DM right away.
 - **Channels:** `+` opens "Create channel", with Public/Private (private by default) and
   invitations from the directory. Whoever creates a private channel sees "Invite" in its header.
-- **Messages:** Enter sends and Shift + Enter adds a new line. Files up to 25 MB can be
+- **Messages:** Enter sends and Shift + Enter adds a new line. Files up to 500 MB can be
   attached, pasted or dropped, and emoji inserted with the composer's 🙂 button.
 - **Reactions:** hovering over a message shows quick reactions and the full picker (with
   search). The chips under the message show the count; a click adds or removes yours.

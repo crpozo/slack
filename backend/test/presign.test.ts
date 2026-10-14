@@ -53,12 +53,12 @@ describe("presign", () => {
     expect(event.key).toMatch(/^attachments\/ch_general\/[0-9A-Z]{26}-mi_foto\.png$/);
     const url = new URL(event.url);
     expect(url.hostname).toBe("slack-test-attachments.s3.us-east-1.amazonaws.com");
-    expect(url.searchParams.get("X-Amz-Expires")).toBe("300");
+    expect(url.searchParams.get("X-Amz-Expires")).toBe("1800"); // 30 min for large uploads
     expect(url.searchParams.get("X-Amz-SignedHeaders")).toContain("content-length");
     expect(url.searchParams.get("X-Amz-SignedHeaders")).toContain("content-type");
   });
 
-  it("put rejects files over 25 MB", async () => {
+  it("put rejects files over 500 MB", async () => {
     const result = await put({ size: MAX_ATTACHMENT_SIZE + 1 });
     expect(result.statusCode).toBe(400);
     expect(sentEvents()[0]?.[1]).toMatchObject({ type: "error", code: "BAD_REQUEST" });

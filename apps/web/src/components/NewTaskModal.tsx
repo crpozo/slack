@@ -69,7 +69,7 @@ export function NewTaskModal({ board, onClose }: Readonly<{ board: Board; onClos
             disabled={!canCreate}
             title={uploads.length > 0 ? "Waiting for uploads to finish" : "Create (Enter)"}
           >
-            Create
+            {uploads.length > 0 ? "Uploading…" : "Create"}
           </button>
         </>
       }

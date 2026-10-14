@@ -1,7 +1,7 @@
 import { MAX_ATTACHMENT_SIZE, type Attachment } from "@mindfultech/shared";
 import { chat } from "./chat";
 
-export const MAX_SIZE_LABEL = "25 MB";
+export const MAX_SIZE_LABEL = "500 MB";
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -12,7 +12,7 @@ export function formatBytes(bytes: number): string {
 /** Client-side check before asking for a URL; `null` when the file is acceptable. */
 export function validateFile(file: Pick<File, "size">): string | null {
   if (file.size === 0) return "The file is empty.";
-  if (file.size > MAX_ATTACHMENT_SIZE) return `The file exceeds the ${MAX_SIZE_LABEL} limit.`;
+  if (file.size > MAX_ATTACHMENT_SIZE) return `File must be under ${MAX_SIZE_LABEL}.`;
   return null;
 }
 

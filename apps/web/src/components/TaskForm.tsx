@@ -13,7 +13,7 @@ import {
   type InputHTMLAttributes,
   type ReactNode,
 } from "react";
-import { formatBytes, getDownloadUrl, uploadFile } from "../lib/upload";
+import { formatBytes, getDownloadUrl, MAX_SIZE_LABEL, uploadFile } from "../lib/upload";
 import { useChat, useNameOf } from "../store";
 import { useTasks } from "../store/tasks";
 import { DownloadIcon, FileIcon, PaperclipIcon, TrashIcon } from "./icons";
@@ -302,12 +302,22 @@ export function AttachmentsSection({
         {uploads.map((u) => (
           <li
             key={u.name}
-            className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm text-ink-secondary"
+            className="relative flex items-center gap-2 overflow-hidden rounded-lg border border-line px-3 py-2 text-sm text-ink-secondary"
             aria-label={`Uploading ${u.name}`}
           >
             <FileIcon className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">{u.name}</span>
-            <span className="text-xs">{Math.round(u.progress * 100)}%</span>
+            <span className="text-xs" aria-live="polite">
+              Uploading… {Math.round(u.progress * 100)}%
+            </span>
+            <span
+              role="progressbar"
+              aria-valuenow={Math.round(u.progress * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              className="absolute bottom-0 left-0 h-1 bg-primary transition-all"
+              style={{ width: `${Math.round(u.progress * 100)}%` }}
+            />
           </li>
         ))}
       </ul>
@@ -316,7 +326,7 @@ export function AttachmentsSection({
           dragging ? "border-primary bg-primary/10 text-ink" : "border-line text-ink-secondary"
         }`}
       >
-        Drop files here to attach them (up to {MAX_TASK_ATTACHMENTS}, 25 MB each)
+        Drop files here to attach them (up to {MAX_TASK_ATTACHMENTS}, {MAX_SIZE_LABEL} each)
       </div>
     </div>
   );
