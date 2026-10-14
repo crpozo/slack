@@ -590,6 +590,18 @@ It is carried out in three sub-phases, each on its own branch with its own PR to
 
 ---
 
+### Phase 11 — Task creation modal and louder notifications
+
+**Branch:** `feature/f11-task-ui-and-sounds`
+
+1. **"Add task" opens the full form** (`NewTaskModal`): the inline Title/Details box is gone; the button opens a modal with Title, Details, Project (with the board's suggestions), Assignee (board members), Notes and Attachments, and **Create** saves the fully formed task in one `POST /boards/{id}/tasks` (the API already accepted every field). Attachments are uploaded as they are added so they are ready on Create. The form pieces (`TaskForm.tsx`: status picker, project/assignee fields, uploads with drag-and-drop, attachment rows) are shared with the Task details modal, which keeps its save-as-you-go behavior. The store's `createTask(boardId, input)` takes the whole `CreateTaskInput`.
+2. **Louder message sound:** `public/sounds/notify.wav` (two knocks and a bell, 0.75 s, peak-normalized to −0.2 dBFS; generated with numpy) played through one `<audio>` element at `volume = 1.0`; the synthesized pop stays as the fallback where the file can't play, itself much louder. Settings → "Play test" previews it even while sounds are off. Call rings are unchanged.
+3. **Native tone for pushes:** the push payload carries `sound: "default"`, and the service worker shows every notification with `silent: false` plus a vibration pattern, so iOS plays its native alert tone instead of a silent banner. (Web Push has no sound field; the key is also there for a native wrapper that forwards the payload.)
+
+**Phase 11 acceptance criteria:** "Add task" opens the New task modal with all fields and Create puts a task with assignee, project, notes and attachments on the board; a new message in another conversation is clearly audible on a laptop; an iPhone plays its default tone for a push.
+
+---
+
 ### PHASE 7 (optional) — Desktop app with Tauri
 
 **Branch:** `feature/f7-tauri` (starts from `main` after v0.2.0).

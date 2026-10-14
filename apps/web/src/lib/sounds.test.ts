@@ -146,20 +146,61 @@ describe("rings", () => {
   });
 });
 
-describe("message pop", () => {
-  it("plays two short notes once", async () => {
+describe("message sound", () => {
+  class FakeAudio {
+    static instances: FakeAudio[] = [];
+    static playFails = false;
+    volume = 0.5;
+    preload = "";
+    currentTime = 1;
+    plays = 0;
+    constructor(public src: string) {
+      FakeAudio.instances.push(this);
+    }
+    play() {
+      this.plays++;
+      return FakeAudio.playFails ? Promise.reject(new Error("blocked")) : Promise.resolve();
+    }
+  }
+  beforeEach(() => {
+    FakeAudio.instances = [];
+    FakeAudio.playFails = false;
+    vi.stubGlobal("Audio", FakeAudio);
+  });
+
+  it("plays the notification file through one <audio> element at full volume", async () => {
+    sounds.playMessageSound();
+    sounds.playMessageSound();
+    await flush();
+    expect(FakeAudio.instances).toHaveLength(1);
+    const el = FakeAudio.instances[0]!;
+    expect(el.src).toBe(sounds.MESSAGE_SOUND_URL);
+    expect(el.volume).toBe(1);
+    expect(el.currentTime).toBe(0); // restarted for the second play
+    expect(el.plays).toBe(2);
+    expect(started()).toBe(0); // no synthesized fallback
+  });
+
+  it("falls back to the synthesized pop when the file can't play, or without <audio>", async () => {
+    FakeAudio.playFails = true;
     sounds.playMessageSound();
     await flush();
     expect(started()).toBe(2);
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(started()).toBe(2);
+
+    vi.stubGlobal("Audio", undefined);
+    sounds.playMessageSound();
+    await flush();
+    expect(started()).toBe(4);
   });
 
-  it("is muted by the preference", async () => {
+  it("is muted by the preference, except for the Settings preview", async () => {
     sounds.setSoundsEnabled(false);
     sounds.playMessageSound();
     await flush();
-    expect(started()).toBe(0);
+    expect(FakeAudio.instances).toHaveLength(0);
+    sounds.previewMessageSound();
+    expect(FakeAudio.instances[0]?.plays).toBe(1);
+    expect(sounds.soundsEnabled()).toBe(false); // still off afterwards
   });
 });
 

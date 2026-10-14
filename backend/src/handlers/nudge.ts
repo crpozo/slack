@@ -82,6 +82,7 @@ export const handler = wsHandler(async (event, caller) => {
       url: `/app/${encodeURIComponent(dm)}`,
       // Tagged like the DM's messages: one notification per conversation.
       tag: dm,
+      sound: "default",
     });
   }
   log.info("nudge", { from: caller.userId, to: toUserId, live: reached > 0 });

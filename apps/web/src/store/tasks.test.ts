@@ -109,11 +109,12 @@ describe("tasks store", () => {
 
   it("shows a new task at once, then swaps in the saved one", async () => {
     const { api, settle, store } = await loaded([]);
-    const create = store.getState().createTask("b_1", "Write docs", "");
+    const input = { title: "Write docs", project: "Docs", assigneeId: "u-a", notes: "soon" };
+    const create = store.getState().createTask("b_1", input);
     const optimistic = store.getState().tasksByBoard.b_1?.[0];
-    expect(optimistic?.title).toBe("Write docs");
+    expect(optimistic).toMatchObject({ ...input, status: "TODO", attachments: [] });
     expect(optimistic?.taskId).toMatch(/^pending_/);
-    expect(api.createTask).toHaveBeenCalledWith("b_1", { title: "Write docs", description: "" });
+    expect(api.createTask).toHaveBeenCalledWith("b_1", input);
 
     await settle({ ...task("t_real"), title: "Write docs" });
     await create;
@@ -122,7 +123,7 @@ describe("tasks store", () => {
 
   it("removes a new task again if the server refuses it", async () => {
     const { settle, store } = await loaded([task("t1")]);
-    const create = store.getState().createTask("b_1", "Nope", "");
+    const create = store.getState().createTask("b_1", { title: "Nope" });
     expect(store.getState().tasksByBoard.b_1).toHaveLength(2);
     await settle(new Error("title: too long"), true);
     await create;
@@ -249,7 +250,7 @@ describe("tasks store", () => {
 
     it("the actor's own echo arriving before the HTTP response leaves exactly one card", async () => {
       const { settle, store } = await loaded([]);
-      const create = store.getState().createTask("b_1", "Echoed", "");
+      const create = store.getState().createTask("b_1", { title: "Echoed" });
       const real = { ...task("t_real"), title: "Echoed" };
       store.getState().applyEvent({ type: "board.task_created", boardId: "b_1", task: real }, "me");
       expect(store.getState().tasksByBoard.b_1).toHaveLength(2); // placeholder + echo, briefly
