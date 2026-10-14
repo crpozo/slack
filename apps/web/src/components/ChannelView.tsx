@@ -1,6 +1,5 @@
 import {
   canAccessChannel,
-  canDeleteChannel,
   GENERAL_CHANNEL_ID,
   isDmChannel,
   type Channel,
@@ -14,16 +13,8 @@ import { useChat, useIsOnline, useNameOf } from "../store";
 import { PresenceDot } from "./Avatar";
 import { CallPanel, useCallExpanded } from "./CallLayer";
 import { Composer, type ComposerHandle } from "./Composer";
-import { DeleteChannelModal, InviteModal } from "./ChannelModals";
-import {
-  HashIcon,
-  LockIcon,
-  MenuIcon,
-  PhoneIcon,
-  TrashIcon,
-  UserPlusIcon,
-  VideoIcon,
-} from "./icons";
+import { InviteModal } from "./ChannelModals";
+import { HashIcon, LockIcon, MenuIcon, PhoneIcon, UserPlusIcon, VideoIcon } from "./icons";
 import { MessageList } from "./MessageList";
 
 const ICON_BUTTON =
@@ -35,7 +26,6 @@ function channelAccess(
   channel: Channel | undefined,
   myUserId: string,
   channelsLoaded: boolean,
-  creatorKnown: boolean,
 ) {
   const dm = isDmChannel(channelId);
   const allowed = canAccessChannel(channelId, myUserId);
@@ -48,9 +38,6 @@ function channelAccess(
     notFound: !allowed || (channelsLoaded && !channel && !dm),
     canCall: !!peer && peer !== myUserId && allowed && supportsCalls(),
     canInvite: isPrivate && channel?.createdBy === myUserId,
-    // DMs belong to both people; channels to their creator (any member for legacy
-    // channels or a vanished creator); #general to nobody. The server re-checks.
-    canDelete: !!channel && allowed && canDeleteChannel(channel, myUserId, creatorKnown),
   };
 }
 
@@ -115,7 +102,6 @@ function ChannelHeader({
   myUserId,
   onOpenSidebar,
   onInvite,
-  onDelete,
 }: Readonly<{
   channelId: string;
   channel: Channel | undefined;
@@ -124,7 +110,6 @@ function ChannelHeader({
   myUserId: string;
   onOpenSidebar: () => void;
   onInvite: () => void;
-  onDelete: () => void;
 }>) {
   const { dm, isPrivate, peer } = access;
   const KindIcon = isPrivate ? LockIcon : HashIcon;
@@ -154,17 +139,6 @@ function ChannelHeader({
             <span className="hidden sm:inline">Invite</span>
           </button>
         )}
-        {access.canDelete && (
-          <button
-            type="button"
-            onClick={onDelete}
-            aria-label={dm ? "Delete conversation" : `Delete #${label}`}
-            title={dm ? "Delete conversation" : "Delete channel"}
-            className="rounded-md p-2 text-lg text-ink-secondary hover:bg-error/15 hover:text-error"
-          >
-            <TrashIcon />
-          </button>
-        )}
       </div>
     </header>
   );
@@ -191,20 +165,15 @@ export function ChannelView({
   const me = useChat((s) => s.me);
   const channel = useChat((s) => s.channels.find((c) => c.channelId === channelId));
   const channelsLoaded = useChat((s) => s.channelsLoaded);
-  // Until the directory arrives, assume the creator exists (hides the button, never shows it wrongly).
-  const creatorKnown = useChat(
-    (s) => Object.keys(s.users).length === 0 || !!(channel && s.users[channel.createdBy]),
-  );
   const nameOf = useNameOf();
   const [inviting, setInviting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const composer = useRef<ComposerHandle>(null);
   const [dragging, setDragging] = useState(false);
   // The call fills the column: messages and composer stay mounted but hidden.
   const callExpanded = useCallExpanded(channelId);
 
   if (!me) return null;
-  const access = channelAccess(channelId, channel, me.userId, channelsLoaded, creatorKnown);
+  const access = channelAccess(channelId, channel, me.userId, channelsLoaded);
   const label = channelLabel(channelId, channel, me.userId, (id) => nameOf(id));
   const title = access.dm ? label : `#${label}`;
 
@@ -237,12 +206,8 @@ export function ChannelView({
         myUserId={me.userId}
         onOpenSidebar={onOpenSidebar}
         onInvite={() => setInviting(true)}
-        onDelete={() => setDeleting(true)}
       />
       {inviting && channel && <InviteModal channel={channel} onClose={() => setInviting(false)} />}
-      {deleting && channel && (
-        <DeleteChannelModal channel={channel} label={title} onClose={() => setDeleting(false)} />
-      )}
 
       {access.notFound ? (
         <NotFound />

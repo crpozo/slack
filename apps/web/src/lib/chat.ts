@@ -27,6 +27,7 @@ const ERROR_TEXT: Record<ErrorCode, string> = {
   FORBIDDEN: "You don't have permission to do that.",
   USER_NOT_FOUND: "That person doesn't exist or has never signed in.",
   MESSAGE_NOT_FOUND: "That message no longer exists.",
+  RATE_LIMITED: "Slow down a little and try again in a moment.",
   INTERNAL_ERROR: "Something went wrong on the server. Please try again.",
 };
 
@@ -108,6 +109,13 @@ class ChatController {
       }),
 
       client.on("user.list", ({ users, online }) => store().setUsers(users, online)),
+
+      // Someone pinged you: a toast, the message pop and a short buzz (Android).
+      client.on("user.nudge", ({ from }) => {
+        store().showToast(`👋 ${selectName(store(), from)} is pinging you`);
+        playMessageSound();
+        navigator.vibrate?.([80, 60, 80]);
+      }),
 
       // Presence (Phase 7).
       client.on("user.connected", ({ userId }) => store().setPresence(userId, true)),
@@ -320,6 +328,11 @@ class ChatController {
    */
   deleteChannel(channelId: string): void {
     this.client?.send("channel", { op: "delete", channelId });
+  }
+
+  /** "Ping": a toast for them if they're online, a push if not (1 per minute per person). */
+  nudge(userId: string): void {
+    this.client?.send("nudge", { toUserId: userId });
   }
 
   /** Adds people to a private channel you created; errors arrive as toasts. */

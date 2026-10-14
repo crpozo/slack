@@ -8,7 +8,7 @@ import {
 } from "react";
 import { useMatch, useNavigate, useParams } from "react-router-dom";
 import { signOut } from "../lib/auth";
-import { signOutPush, syncPush } from "../lib/push";
+import { retryPushSyncIfFailed, signOutPush, syncPush } from "../lib/push";
 import { chat } from "../lib/chat";
 import { dmPeer } from "../lib/channels";
 import {
@@ -179,7 +179,13 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
 
   // Back to the window: what's on screen counts as read.
   useEffect(() => {
-    const onFocus = () => channelId && useChat.getState().markRead(channelId);
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      const s = useChat.getState();
+      if (channelId) s.markRead(channelId);
+      // A push sync that failed at sign-in (push service hiccup) gets another go.
+      if (s.me) retryPushSyncIfFailed(s.me.userId);
+    };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
     return () => {
