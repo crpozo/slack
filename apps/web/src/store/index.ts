@@ -1,4 +1,4 @@
-import type { Channel, Message, UserProfile } from "@mindfultech/shared";
+import type { Channel, Message, ReplySnapshot, UserProfile } from "@mindfultech/shared";
 import { useCallback } from "react";
 import { create } from "zustand";
 import type { SessionUser } from "../lib/auth";
@@ -32,6 +32,8 @@ export interface ChatState {
   users: Record<string, UserProfile>;
   /** Presence: users with at least one live connection (`user.connected` / `user.disconnected`). */
   online: Record<string, true>;
+  /** Per-channel pending reply (the composer's "Replying to…" banner). */
+  replyTo: Record<string, ReplySnapshot>;
   toast: string | null;
 
   setSession: (me: SessionUser | null, team?: DirectoryUser[]) => void;
@@ -46,6 +48,8 @@ export interface ChatState {
   /** `online` replaces the presence snapshot when given. */
   setUsers: (users: UserProfile[], online?: string[]) => void;
   setPresence: (userId: string, online: boolean) => void;
+  /** Starts (or, with `null`, cancels) a reply in `channelId`. */
+  setReplyTo: (channelId: string, reply: ReplySnapshot | null) => void;
   /** A channel or DM was deleted: forget it and everything cached for it. */
   removeChannel: (channelId: string) => void;
   upsertUser: (user: UserProfile) => void;
@@ -97,6 +101,7 @@ const initialState = {
   team: [],
   users: {},
   online: {},
+  replyTo: {},
   toast: null,
 };
 
@@ -188,6 +193,14 @@ export const useChat = create<ChatState>()((set, get) => ({
       return { online };
     }),
 
+  setReplyTo: (channelId, reply) =>
+    set((s) => {
+      const replyTo = { ...s.replyTo };
+      if (reply) replyTo[channelId] = reply;
+      else delete replyTo[channelId];
+      return { replyTo };
+    }),
+
   removeChannel: (channelId) =>
     set((s) => {
       const omit = <T>(record: Record<string, T>) => {
@@ -201,6 +214,7 @@ export const useChat = create<ChatState>()((set, get) => ({
         messagesByChannel: omit(s.messagesByChannel),
         cursors: omit(s.cursors),
         historyRequests: omit(s.historyRequests),
+        replyTo: omit(s.replyTo),
       };
     }),
 

@@ -82,22 +82,95 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
   }
 }
 
+/** A VAPID public key: a P-256 point in uncompressed form, 65 bytes starting with 0x04. */
+export function isValidVapidKey(key: string): boolean {
+  try {
+    const bytes = base64UrlToBytes(key);
+    return bytes.length === 65 && bytes[0] === 0x04;
+  } catch {
+    return false;
+  }
+}
+
+/** The browser's push service (FCM, Mozilla, Apple) kept refusing the subscription. */
+export class PushServiceError extends Error {
+  override name = "PushServiceError";
+}
+
+const RETRY_DELAYS_MS = [1000, 3000, 8000];
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * `pushManager.subscribe`, retried with backoff when the push service fails
+ * ("Registration failed - push service error" is an AbortError from FCM). A
+ * leftover subscription made with another key (InvalidStateError) is removed
+ * first. A permission refusal is never retried.
+ */
+export async function subscribeWithRetry(
+  manager: Pick<PushManager, "subscribe" | "getSubscription">,
+  applicationServerKey: Uint8Array<ArrayBuffer>,
+  delays: readonly number[] = RETRY_DELAYS_MS,
+  sleep: (ms: number) => Promise<void> = wait,
+): Promise<PushSubscription> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await manager.subscribe({ userVisibleOnly: true, applicationServerKey });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "NotAllowedError") throw err;
+      // Whatever half-made subscription is left would make the next try fail too.
+      const stale = await manager.getSubscription().catch(() => null);
+      await stale?.unsubscribe().catch(() => false);
+      const delay = delays[attempt];
+      if (delay === undefined) {
+        throw new PushServiceError(
+          "Your browser's push service didn't respond. Try again in a minute. " +
+            "(In Brave, enable “Use Google services for push messaging” in Settings → Privacy.)",
+          { cause: err },
+        );
+      }
+      await sleep(delay);
+    }
+  }
+}
+
+/** An active service worker registration (subscribing before activation fails). */
+async function activeRegistration(): Promise<ServiceWorkerRegistration> {
+  if (!(await registerServiceWorker())) throw new Error("Service worker unavailable");
+  const ready = navigator.serviceWorker.ready;
+  const timeout = wait(10_000).then(() => {
+    throw new Error("The service worker didn't start. Reload the page and try again.");
+  });
+  return Promise.race([ready, timeout]);
+}
+
 /** Subscribes this browser with the server's key (re-subscribing after a rotation) and saves it. */
-async function subscribe(): Promise<void> {
-  const publicKey = await pushApi.publicKey();
-  const registration = (await registerServiceWorker()) && (await navigator.serviceWorker.ready);
-  if (!registration) throw new Error("Service worker unavailable");
+async function doSubscribe(): Promise<void> {
+  // The key first: never call the push service with a missing or malformed one.
+  const publicKey = (await pushApi.publicKey()).trim();
+  if (!isValidVapidKey(publicKey)) {
+    throw new Error("The server's push key is invalid. Ask an admin to re-run the vapid setup.");
+  }
+  const registration = await activeRegistration();
   let subscription = await registration.pushManager.getSubscription();
   if (subscription && !sameKey(subscription.options.applicationServerKey, publicKey)) {
     await subscription.unsubscribe();
     subscription = null;
   }
-  subscription ??= await registration.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: base64UrlToBytes(publicKey),
-  });
+  subscription ??= await subscribeWithRetry(registration.pushManager, base64UrlToBytes(publicKey));
   await pushApi.subscribe(subscription.toJSON() as Parameters<typeof pushApi.subscribe>[0]);
 }
+
+// One attempt at a time: the sign-in sync and the "Enable" button used to race.
+let inFlight: Promise<void> | null = null;
+function subscribe(): Promise<void> {
+  inFlight ??= doSubscribe().finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+}
+
+/** Set when the silent sign-in sync failed, so it's retried when the app comes back. */
+let syncFailed = false;
 
 function failureStatus(err: unknown): PushStatus {
   return err instanceof TasksApiError && err.status === 503 ? "unconfigured" : "off";
@@ -114,10 +187,18 @@ export async function syncPush(userId: string): Promise<void> {
   if (Notification.permission !== "granted" || optedOut(userId)) return set({ status: "off" });
   try {
     await subscribe();
+    syncFailed = false;
     set({ status: "on" });
   } catch (err) {
+    // Silent on purpose: retried on the next visit or when the tab comes back.
+    syncFailed = true;
     set({ status: failureStatus(err) });
   }
+}
+
+/** The app is visible again: retry a sign-in sync that failed (e.g. push service hiccup). */
+export function retryPushSyncIfFailed(userId: string): void {
+  if (syncFailed && !inFlight) void syncPush(userId);
 }
 
 /** The "Enable notifications" button: asks permission (needs a click), then subscribes. */

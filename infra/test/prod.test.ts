@@ -351,6 +351,15 @@ describe("phase 5.1 resources", () => {
       "dynamodb:Query",
     ]);
     expect(actionsOn("channel", "DataChannels")).toContain("dynamodb:DeleteItem");
+    // Replies read the quoted message; nudges keep their rate limit on the users row.
+    expect(actionsOn("message", "DataMessages")).toEqual(["dynamodb:GetItem", "dynamodb:PutItem"]);
+    expect(actionsOn("nudge", "DataUsers")).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);
+    expect(actionsOn("nudge", "DataPushSubscriptions")).toEqual([
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+    ]);
+    expect(actionsOn("nudge", "DataMessages")).toEqual([]);
+    expect(actionsOn("nudge", "DataChannels")).toEqual([]);
   });
 
   it("routes ping to a no-op Lambda with no DynamoDB or @connections permissions", () => {

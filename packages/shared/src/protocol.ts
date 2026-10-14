@@ -33,6 +33,7 @@ export const CLIENT_ACTIONS = [
   "react",
   "call",
   "ping",
+  "nudge",
 ] as const;
 export type ClientActionName = (typeof CLIENT_ACTIONS)[number];
 
@@ -48,8 +49,37 @@ export const AttachmentSchema = z.object({
   name: z.string().min(1).max(255),
   size: z.number().int().positive().max(MAX_ATTACHMENT_SIZE),
   contentType: z.string().min(1).max(255),
+  /** Voice messages: length in milliseconds, shown before the audio loads. */
+  durationMs: z
+    .number()
+    .int()
+    .positive()
+    .max(60 * 60 * 1000)
+    .optional(),
 });
 export type Attachment = z.infer<typeof AttachmentSchema>;
+
+/** Longest quoted text kept with a reply. */
+export const REPLY_PREVIEW_LENGTH = 140;
+
+/** The quoted text of a reply: whitespace collapsed, cut at `REPLY_PREVIEW_LENGTH` with "…". */
+export function replyPreview(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > REPLY_PREVIEW_LENGTH ? `${flat.slice(0, REPLY_PREVIEW_LENGTH - 1)}…` : flat;
+}
+
+/**
+ * What a reply carries about the message it answers, copied by the server
+ * when the reply is sent: renders without loading the original.
+ */
+export interface ReplySnapshot {
+  messageId: string;
+  sk: string;
+  userId: string;
+  /** Up to `REPLY_PREVIEW_LENGTH` chars of the original text, whitespace collapsed. */
+  preview: string;
+  hasAttachments: boolean;
+}
 
 /** `private` channels and `dm`s are visible only to their `members`. */
 export type ChannelType = "public" | "private" | "dm";
@@ -86,6 +116,8 @@ export interface Message {
   createdAt: number;
   /** emoji → user ids who reacted with it (absent or empty when none). */
   reactions?: Record<string, string[]>;
+  /** Set when this message answers another one in the same channel. */
+  replyTo?: ReplySnapshot;
 }
 
 export interface UserProfile {
@@ -168,6 +200,10 @@ export const MessageActionSchema = z.object({
   text: z.string().max(MAX_TEXT_LENGTH),
   attachments: z.array(AttachmentSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
   clientId: z.string().min(1).max(64),
+  /** Answers this message of the same channel (the server copies a snapshot of it). */
+  replyTo: z
+    .object({ messageId: z.string().min(1).max(64), sk: z.string().min(1).max(128) })
+    .optional(),
 });
 
 export const HistoryActionSchema = z.object({
@@ -389,6 +425,19 @@ export type CallSignal = CallAction["signal"];
  */
 export const PingActionSchema = z.object({ action: z.literal("ping") });
 
+/** A quick "look at me" to someone: a toast if they're online, a push if not. Nothing is stored. */
+export const NudgeActionSchema = z.object({
+  action: z.literal("nudge"),
+  toUserId: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[^_\s]+$/),
+});
+export type NudgeAction = z.infer<typeof NudgeActionSchema>;
+/** One nudge per sender → recipient pair per minute. */
+export const NUDGE_INTERVAL_MS = 60_000;
+
 export const ClientActionSchema = z.union([
   MessageActionSchema,
   HistoryActionSchema,
@@ -399,6 +448,7 @@ export const ClientActionSchema = z.union([
   ReactActionSchema,
   CallActionSchema,
   PingActionSchema,
+  NudgeActionSchema,
 ]);
 
 export type MessageAction = z.infer<typeof MessageActionSchema>;
@@ -443,6 +493,7 @@ export type ErrorCode =
   | "CHANNEL_NAME_TAKEN"
   | "FORBIDDEN"
   | "USER_NOT_FOUND"
+  | "RATE_LIMITED"
   | "MESSAGE_NOT_FOUND"
   | "FILE_NOT_FOUND"
   | "INTERNAL_ERROR";
@@ -591,7 +642,14 @@ export type BoardEvent =
   | BoardUpdatedEvent
   | BoardDeletedEvent;
 
+/** Someone nudged you (`nudge` action). */
+export interface UserNudgeEvent {
+  type: "user.nudge";
+  from: string;
+}
+
 export type ServerEvent =
+  | UserNudgeEvent
   | MessageNewEvent
   | MessageReactionEvent
   | HistoryPageEvent

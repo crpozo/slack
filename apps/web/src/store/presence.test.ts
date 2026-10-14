@@ -58,3 +58,28 @@ describe("removeChannel", () => {
     expect(s.historyRequests).toEqual({});
   });
 });
+
+describe("replyTo", () => {
+  const reply = {
+    messageId: "m1",
+    sk: "1#m1",
+    userId: "u-b",
+    preview: "hi",
+    hasAttachments: false,
+  };
+
+  it("is kept per channel and cleared on cancel, send, or channel removal", () => {
+    const { setReplyTo } = useChat.getState();
+    setReplyTo("ch_a", reply);
+    setReplyTo("ch_b", { ...reply, messageId: "m2" });
+    expect(useChat.getState().replyTo.ch_a).toEqual(reply);
+
+    setReplyTo("ch_a", null);
+    expect(useChat.getState().replyTo.ch_a).toBeUndefined();
+    expect(useChat.getState().replyTo.ch_b?.messageId).toBe("m2");
+
+    useChat.setState({ channels: [channel("ch_b")] });
+    useChat.getState().removeChannel("ch_b");
+    expect(useChat.getState().replyTo).toEqual({});
+  });
+});

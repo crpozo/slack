@@ -244,3 +244,60 @@ describe("message", () => {
     ]);
   });
 });
+
+describe("message replies", () => {
+  const original = {
+    channelId: GENERAL_CHANNEL_ID,
+    sk: "1700000000000#01JORIGINAL0000000000000000",
+    messageId: "01JORIGINAL0000000000000000",
+    userId: BOB.userId,
+    text: `  long\n${"x".repeat(200)}  `,
+    attachments: [{ key: "attachments/ch_general/a.png" }],
+  };
+  beforeEach(() => {
+    resetMocks();
+    mockChannels(GENERAL);
+    ddbMock.on(PutCommand).resolves({});
+    ddbMock
+      .on(ScanCommand)
+      .resolves({ Items: [{ connectionId: "conn-alice", userId: ALICE.userId }] });
+    ddbMock.on(GetCommand, { TableName: "slack-test-messages" }).resolves({});
+    ddbMock
+      .on(GetCommand, {
+        TableName: "slack-test-messages",
+        Key: { channelId: GENERAL_CHANNEL_ID, sk: original.sk },
+      })
+      .resolves({ Item: original });
+  });
+  const reply = (replyTo: { messageId: string; sk: string }, channelId = GENERAL_CHANNEL_ID) =>
+    send({ action: "message", channelId, text: "agreed", clientId: "c9", replyTo });
+
+  it("stores a snapshot of the quoted message", async () => {
+    expect((await reply({ messageId: original.messageId, sk: original.sk })).statusCode).toBe(200);
+    const stored = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item;
+    expect(stored?.replyTo).toEqual({
+      messageId: original.messageId,
+      sk: original.sk,
+      userId: BOB.userId,
+      preview: `long ${"x".repeat(134)}…`,
+      hasAttachments: true,
+    });
+    expect((stored?.replyTo as { preview: string }).preview).toHaveLength(140);
+  });
+
+  it("refuses to quote a message that isn't in this channel or doesn't match", async () => {
+    expect((await reply({ messageId: original.messageId, sk: "nope" })).statusCode).toBe(400);
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "MESSAGE_NOT_FOUND" });
+    expect((await reply({ messageId: "OTHER", sk: original.sk })).statusCode).toBe(400);
+    // The lookup is always keyed by the channel being written to.
+    expect(
+      ddbMock
+        .commandCalls(GetCommand)
+        .filter((c) => c.args[0].input.TableName === "slack-test-messages")
+        .every(
+          (c) => (c.args[0].input.Key as { channelId: string }).channelId === GENERAL_CHANNEL_ID,
+        ),
+    ).toBe(true);
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+  });
+});

@@ -1,5 +1,10 @@
-import { dmChannelId, GENERAL_CHANNEL_ID, type Channel } from "@mindfultech/shared";
-import { useMemo, type ReactNode } from "react";
+import {
+  canDeleteChannel,
+  dmChannelId,
+  GENERAL_CHANNEL_ID,
+  type Channel,
+} from "@mindfultech/shared";
+import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
@@ -7,16 +12,21 @@ import { dmEntries, type DmEntry } from "../lib/channels";
 import type { WsStatus } from "../lib/ws";
 import { selectUnread, useChat, useNameOf } from "../store";
 import { Avatar, PresenceDot } from "./Avatar";
+import { DeleteChannelModal } from "./ChannelModals";
+import { Popover } from "./Popover";
 import {
+  HandWaveIcon,
   HashIcon,
   KanbanIcon,
   LockIcon,
   LogOutIcon,
+  MoreHorizontalIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
+  TrashIcon,
 } from "./icons";
 import { Logo } from "./LoginPage";
 
@@ -57,6 +67,68 @@ interface NavItemProps {
   disabled?: boolean;
   title?: string;
   onClick: () => void;
+  /** Items of the row's ⋯ menu (not shown in the icon-only rail). */
+  menu?: RowMenuItem[];
+}
+
+interface RowMenuItem {
+  label: string;
+  icon: ReactNode;
+  danger?: boolean;
+  onSelect: () => void;
+}
+
+/**
+ * ⋯ button of a sidebar row: shown on hover/focus with a mouse, always on
+ * touch screens (no hover there). Destructive actions live here, not in the
+ * conversation header, so they can't be hit by accident.
+ */
+function RowMenu({ label, items }: Readonly<{ label: string; items: RowMenuItem[] }>) {
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={`More options for ${label}`}
+        title="More options"
+        aria-haspopup="menu"
+        aria-expanded={!!anchor}
+        onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}
+        className={`absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100 ${
+          anchor ? "opacity-100" : "opacity-0"
+        }`}
+      >
+        <MoreHorizontalIcon />
+      </button>
+      {anchor && (
+        <Popover anchor={anchor} onClose={() => setAnchor(null)}>
+          <div
+            role="menu"
+            aria-label={`Options for ${label}`}
+            className="w-52 rounded-xl border border-line bg-surface-raised p-1 shadow-xl"
+          >
+            {items.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAnchor(null);
+                  item.onSelect();
+                }}
+                className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${
+                  item.danger ? "text-error hover:bg-error/10" : "text-ink hover:bg-surface-hover"
+                }`}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </Popover>
+      )}
+    </>
+  );
 }
 
 /** `#general` first, then alphabetical. */
@@ -80,12 +152,13 @@ function NavItem({
   disabled,
   title,
   onClick,
+  menu,
 }: Readonly<NavItemProps>) {
   let tone = "text-ink-secondary hover:bg-surface-hover hover:text-ink";
   if (active) tone = "bg-primary/20 font-semibold text-ink";
   else if (unread > 0) tone = "font-semibold text-ink hover:bg-surface-hover";
   return (
-    <li>
+    <li className="group relative">
       <button
         type="button"
         onClick={onClick}
@@ -95,12 +168,13 @@ function NavItem({
         aria-current={active ? "page" : undefined}
         className={`relative flex w-full items-center gap-2 rounded-md text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
           compact ? "h-10 justify-center px-0" : "px-2 py-1.5"
-        } ${tone}`}
+        } ${menu?.length && !compact ? "pr-8" : ""} ${tone}`}
       >
         <span className="flex shrink-0 items-center justify-center">{icon}</span>
         {!compact && <span className="truncate">{label}</span>}
         <UnreadBadge count={unread} compact={compact} />
       </button>
+      {!compact && menu && menu.length > 0 && <RowMenu label={label} items={menu} />}
     </li>
   );
 }
@@ -164,6 +238,7 @@ export function Sidebar({
 }: Readonly<SidebarProps>) {
   const navigate = useNavigate();
   const nameOf = useNameOf();
+  const [deleting, setDeleting] = useState<{ channel: Channel; label: string } | null>(null);
   const { me, status, channels, team, directory, users, online } = useChat(
     useShallow((s) => ({
       me: s.me,
@@ -201,10 +276,42 @@ export function Sidebar({
     if (id) navigate(`/app/${id}`);
   }
 
+  function dmMenu(dm: (typeof dms)[number]): RowMenuItem[] {
+    const items: RowMenuItem[] = [];
+    const peer = dm.userId;
+    if (peer && peer !== me?.userId) {
+      items.push({
+        label: `Ping ${dm.name}`,
+        icon: <HandWaveIcon />,
+        onSelect: () => {
+          chat.nudge(peer);
+          useChat.getState().showToast(`👋 Pinged ${dm.name}`);
+        },
+      });
+    }
+    const channel = dm.channelId && channels.find((c) => c.channelId === dm.channelId);
+    if (channel) {
+      items.push({
+        label: "Delete conversation",
+        icon: <TrashIcon />,
+        danger: true,
+        onSelect: () => setDeleting({ channel, label: dm.name }),
+      });
+    }
+    return items;
+  }
+
   const iconButton = "rounded-md p-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink";
 
   return (
     <div className="flex h-full flex-col border-r border-line bg-surface-sidebar">
+      {deleting && (
+        <DeleteChannelModal
+          channel={deleting.channel}
+          label={deleting.label}
+          onClose={() => setDeleting(null)}
+        />
+      )}
       <header
         className={`flex items-center border-b border-line py-3 ${
           compact ? "flex-col gap-2 px-2" : "gap-3 px-4"
@@ -295,6 +402,23 @@ export function Sidebar({
                 active={c.channelId === activeChannelId}
                 unread={c.channelId === activeChannelId ? 0 : (unread[c.channelId] ?? 0)}
                 onClick={() => navigate(`/app/${c.channelId}`)}
+                menu={
+                  // Until the directory arrives, assume the creator exists (never offer it wrongly).
+                  canDeleteChannel(
+                    c,
+                    me.userId,
+                    Object.keys(users).length === 0 || !!users[c.createdBy],
+                  )
+                    ? [
+                        {
+                          label: "Delete channel",
+                          icon: <TrashIcon />,
+                          danger: true,
+                          onSelect: () => setDeleting({ channel: c, label: `#${c.name}` }),
+                        },
+                      ]
+                    : undefined
+                }
               />
             ))}
           </ul>
@@ -335,6 +459,7 @@ export function Sidebar({
                   unread={dm.channelId && id !== activeChannelId ? (unread[dm.channelId] ?? 0) : 0}
                   disabled={!dm.userId}
                   onClick={() => dm.userId && openDm(dm.userId)}
+                  menu={dmMenu(dm)}
                 />
               );
             })}
