@@ -199,6 +199,7 @@ describe("message sound", () => {
     await flush();
     expect(FakeAudio.instances).toHaveLength(0);
     sounds.previewMessageSound();
+    await flush();
     expect(FakeAudio.instances[0]?.plays).toBe(1);
     expect(sounds.soundsEnabled()).toBe(false); // still off afterwards
   });
