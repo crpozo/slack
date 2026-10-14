@@ -57,6 +57,12 @@ export type Attachment = z.infer<typeof AttachmentSchema>;
 /** Longest quoted text kept with a reply. */
 export const REPLY_PREVIEW_LENGTH = 140;
 
+/** The quoted text of a reply: whitespace collapsed, cut at `REPLY_PREVIEW_LENGTH` with "…". */
+export function replyPreview(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > REPLY_PREVIEW_LENGTH ? `${flat.slice(0, REPLY_PREVIEW_LENGTH - 1)}…` : flat;
+}
+
 /**
  * What a reply carries about the message it answers, copied by the server
  * when the reply is sent: renders without loading the original.

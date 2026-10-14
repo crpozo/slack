@@ -10,6 +10,7 @@ import { useMatch, useNavigate, useParams } from "react-router-dom";
 import { signOut } from "../lib/auth";
 import { retryPushSyncIfFailed, signOutPush, syncPush } from "../lib/push";
 import { chat } from "../lib/chat";
+import { useEdgeSwipe } from "../lib/gestures";
 import { dmPeer } from "../lib/channels";
 import {
   clampSidebarWidth,
@@ -75,6 +76,23 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   );
   const collapsed = isDesktop && sidebar.collapsed;
   const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebar.width;
+
+  // Phones: swipe in from the left edge to open the drawer, swipe it left to close.
+  const drawerWidth = Math.min(288, Math.round(window.innerWidth * 0.85));
+  const openDrawer = useCallback(() => setSidebarOpen(true), []);
+  const closeDrawer = useCallback(() => setSidebarOpen(false), []);
+  const drag = useEdgeSwipe({
+    enabled: !isDesktop,
+    open: sidebarOpen,
+    width: drawerWidth,
+    onOpen: openDrawer,
+    onClose: closeDrawer,
+  });
+  let drawerStyle: React.CSSProperties | undefined;
+  if (isDesktop) drawerStyle = { width: sidebarWidth };
+  else if (drag !== null) {
+    drawerStyle = { transform: `translateX(${(drag - 1) * drawerWidth}px)`, transition: "none" };
+  }
 
   function onResizeStart(e: React.PointerEvent<HTMLButtonElement>) {
     e.preventDefault();
@@ -226,15 +244,16 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     <div
       className={`flex h-full overflow-hidden bg-surface ${resizing ? "cursor-col-resize select-none" : ""}`}
     >
-      {sidebarOpen && (
+      {(sidebarOpen || drag !== null) && (
         <div
           className="fixed inset-0 z-30 bg-scrim/40 md:hidden"
+          style={drag === null ? undefined : { opacity: drag }}
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
       )}
       <aside
-        style={isDesktop ? { width: sidebarWidth } : undefined}
+        style={drawerStyle}
         className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] md:relative md:p-0 md:z-20 md:max-w-none md:shrink-0 md:translate-x-0 ${
           resizing ? "" : "transition-[transform,width] duration-200"
         } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}

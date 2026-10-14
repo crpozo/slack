@@ -7,6 +7,7 @@ import {
   type ErrorCode,
   type PresignAction,
   type PresignResultEvent,
+  type ReplySnapshot,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
 import { selectName, useChat, type ChatMessage } from "../store";
@@ -252,8 +253,13 @@ class ChatController {
     this.client.send("history", cursor ? { channelId, cursor } : { channelId });
   }
 
-  /** Optimistically inserts the message, then sends it. */
-  sendMessage(channelId: string, text: string, attachments: Attachment[]): void {
+  /** Optimistically inserts the message, then sends it (as a reply when `replyTo` is set). */
+  sendMessage(
+    channelId: string,
+    text: string,
+    attachments: Attachment[],
+    replyTo?: ReplySnapshot,
+  ): void {
     const { me, addPending } = useChat.getState();
     if (!me) return;
     const clientId = ulid();
@@ -268,6 +274,7 @@ class ChatController {
       createdAt: Date.now(),
       clientId,
       status: "pending",
+      ...(replyTo && { replyTo }),
     };
     addPending(message);
     this.transmit(message);
@@ -279,13 +286,14 @@ class ChatController {
     this.transmit(message);
   }
 
-  private transmit({ channelId, text, attachments, clientId }: ChatMessage): void {
+  private transmit({ channelId, text, attachments, clientId, replyTo }: ChatMessage): void {
     if (!this.client || !clientId) return;
     this.client.send("message", {
       channelId,
       text,
       attachments: attachments.length ? attachments : undefined,
       clientId,
+      ...(replyTo && { replyTo: { messageId: replyTo.messageId, sk: replyTo.sk } }),
     });
     clearTimeout(this.sendTimers.get(clientId));
     this.sendTimers.set(

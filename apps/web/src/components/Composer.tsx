@@ -2,6 +2,7 @@ import type { Attachment } from "@mindfultech/shared";
 import { MAX_TEXT_LENGTH } from "@mindfultech/shared";
 import {
   forwardRef,
+  useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
@@ -12,9 +13,9 @@ import {
 import { ulid } from "ulid";
 import { chat } from "../lib/chat";
 import { formatBytes, MAX_SIZE_LABEL, uploadFile, validateFile } from "../lib/upload";
-import { useChat } from "../store";
+import { useChat, useNameOf } from "../store";
 import { EmojiPicker } from "./EmojiPicker";
-import { CloseIcon, FileIcon, PaperclipIcon, SendIcon, SmileIcon } from "./icons";
+import { CloseIcon, FileIcon, PaperclipIcon, ReplyIcon, SendIcon, SmileIcon } from "./icons";
 import { Popover } from "./Popover";
 
 interface Upload {
@@ -47,6 +48,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [emojiAnchor, setEmojiAnchor] = useState<HTMLElement | null>(null);
+  const replyTo = useChat((s) => s.replyTo[channelId]);
+  const setReplyTo = useChat((s) => s.setReplyTo);
+  const nameOf = useNameOf();
+
+  // Starting a reply (swipe, or Reply in the toolbar) puts the cursor here.
+  useEffect(() => {
+    if (replyTo) textareaRef.current?.focus();
+  }, [replyTo]);
 
   /** Inserts at the caret (replacing any selection) and keeps focus in the textarea. */
   function insertAtCursor(snippet: string) {
@@ -97,7 +106,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   function submit() {
     if (!canSend) return;
-    chat.sendMessage(channelId, text.trim(), ready);
+    chat.sendMessage(channelId, text.trim(), ready, replyTo);
+    if (replyTo) setReplyTo(channelId, null);
     setText("");
     setUploads((list) => list.filter((u) => !u.attachment));
     textareaRef.current?.focus();
@@ -107,6 +117,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
+    } else if (e.key === "Escape" && replyTo) {
+      e.preventDefault();
+      setReplyTo(channelId, null);
     }
   }
 
@@ -120,6 +133,28 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   return (
     <div className="border-t border-line bg-surface px-3 pb-3 pt-2 sm:px-4">
       <div className="rounded-xl border border-line bg-surface focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30">
+        {replyTo && (
+          <div
+            className="flex items-center gap-2 border-b border-line px-3 py-2 text-sm"
+            aria-label="Replying to a message"
+          >
+            <ReplyIcon className="shrink-0 text-primary" />
+            <p className="min-w-0 flex-1 truncate text-ink-secondary">
+              Replying to <strong className="text-ink">{nameOf(replyTo.userId)}</strong>
+              {": "}
+              {replyTo.preview || (replyTo.hasAttachments ? "📎 Attachment" : "")}
+            </p>
+            <button
+              type="button"
+              onClick={() => setReplyTo(channelId, null)}
+              aria-label="Cancel reply"
+              title="Cancel reply (Esc)"
+              className="shrink-0 rounded-md p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+        )}
         {uploads.length > 0 && (
           <ul className="flex flex-wrap gap-2 border-b border-line p-2">
             {uploads.map((u) => (

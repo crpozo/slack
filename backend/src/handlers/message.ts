@@ -3,7 +3,7 @@ import {
   MessageActionSchema,
   newMessageSk,
   parseAction,
-  REPLY_PREVIEW_LENGTH,
+  replyPreview,
   type Message,
   type MessageAction,
   type MessageNewEvent,
@@ -37,13 +37,11 @@ async function replySnapshot(
   const original = Item as
     Pick<Message, "messageId" | "sk" | "userId" | "text" | "attachments"> | undefined;
   if (!original || original.messageId !== replyTo.messageId) return null;
-  const text = (original.text ?? "").replace(/\s+/g, " ").trim();
   return {
     messageId: original.messageId,
     sk: original.sk,
     userId: original.userId,
-    preview:
-      text.length > REPLY_PREVIEW_LENGTH ? `${text.slice(0, REPLY_PREVIEW_LENGTH - 1)}…` : text,
+    preview: replyPreview(original.text ?? ""),
     hasAttachments: (original.attachments ?? []).length > 0,
   };
 }
