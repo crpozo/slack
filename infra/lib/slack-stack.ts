@@ -118,6 +118,11 @@ export class SlackStack extends Stack {
     if (stage === "prod") {
       const deployRole = new GitHubDeployRole(this, "GitHubDeploy", {
         repository: this.node.tryGetContext("githubRepository") ?? "crpozo/slack",
+        // GitHub now sends `repo:crpozo@28877839/slack@1410657582:ref:…` in the token's sub.
+        repositoryIds: this.node.tryGetContext("githubRepositoryIds") ?? {
+          owner: "28877839",
+          repo: "1410657582",
+        },
         branch: "main",
         existingProviderArn:
           this.node.tryGetContext("githubOidcProviderArn") ?? process.env.GITHUB_OIDC_PROVIDER_ARN,

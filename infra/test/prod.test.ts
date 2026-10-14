@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { describe, expect, it } from "vitest";
+import { githubSubjects } from "../lib/ci";
 import { isEmail } from "../lib/cost";
 import { SlackStack } from "../lib/slack-stack";
 
@@ -222,7 +223,11 @@ describe("GitHub deploy role", () => {
             Condition: {
               StringEquals: {
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-                "token.actions.githubusercontent.com:sub": "repo:crpozo/slack:ref:refs/heads/main",
+                // Both formats GitHub uses: plain names, and names with immutable ids.
+                "token.actions.githubusercontent.com:sub": [
+                  "repo:crpozo/slack:ref:refs/heads/main",
+                  "repo:crpozo@28877839/slack@1410657582:ref:refs/heads/main",
+                ],
               },
             },
           }),
@@ -393,6 +398,25 @@ describe("phase 5.1 resources", () => {
       "dynamodb:GetItem",
       "dynamodb:Scan",
       "execute-api:ManageConnections",
+    ]);
+  });
+});
+
+describe("githubSubjects", () => {
+  it("lists the plain form, plus the immutable-id form when the ids are known", () => {
+    expect(githubSubjects({ repository: "crpozo/slack", branch: "main" })).toEqual([
+      "repo:crpozo/slack:ref:refs/heads/main",
+    ]);
+    expect(
+      githubSubjects({
+        repository: "crpozo/slack",
+        branch: "main",
+        repositoryIds: { owner: "28877839", repo: "1410657582" },
+      }),
+    ).toEqual([
+      "repo:crpozo/slack:ref:refs/heads/main",
+      // Exactly what the Deploy run #16 token carried.
+      "repo:crpozo@28877839/slack@1410657582:ref:refs/heads/main",
     ]);
   });
 });

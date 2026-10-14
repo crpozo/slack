@@ -15,6 +15,12 @@ const GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com";
 interface GitHubDeployRoleProps {
   /** `owner/repo` allowed to assume the role. */
   repository: string;
+  /**
+   * Numeric ids of the owner and the repository. GitHub may put them in the
+   * token's `sub` (`repo:owner@<ownerId>/repo@<repoId>:ref:…`) instead of the
+   * plain names; both forms are trusted. Leave out to trust the plain form only.
+   */
+  repositoryIds?: { owner: string; repo: string };
   /** Only workflows running on this branch may deploy. */
   branch: string;
   /**
@@ -24,6 +30,21 @@ interface GitHubDeployRoleProps {
   existingProviderArn?: string;
   /** Table the post-deploy seed script writes #general into. */
   channelsTable: Table;
+}
+
+/** The exact `sub` claims of workflows on `branch` of the repository (both GitHub formats). */
+export function githubSubjects(
+  props: Pick<GitHubDeployRoleProps, "repository" | "repositoryIds" | "branch">,
+): string[] {
+  const ref = `ref:refs/heads/${props.branch}`;
+  const subjects = [`repo:${props.repository}:${ref}`];
+  if (props.repositoryIds) {
+    const [owner, repo] = props.repository.split("/");
+    subjects.push(
+      `repo:${owner}@${props.repositoryIds.owner}/${repo}@${props.repositoryIds.repo}:${ref}`,
+    );
+  }
+  return subjects;
 }
 
 /**
@@ -55,7 +76,7 @@ export class GitHubDeployRole extends Construct {
       assumedBy: new WebIdentityPrincipal(provider.openIdConnectProviderArn, {
         StringEquals: {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": `repo:${props.repository}:ref:refs/heads/${props.branch}`,
+          "token.actions.githubusercontent.com:sub": githubSubjects(props),
         },
       }),
     });
