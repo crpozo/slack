@@ -237,14 +237,13 @@ export function playMessageSound(): void {
     playFallbackPop();
     return;
   }
-  try {
-    el.volume = 1.0;
-    el.currentTime = 0;
-    const result: unknown = el.play();
-    if (result instanceof Promise) result.catch(() => playFallbackPop());
-  } catch {
-    playFallbackPop();
-  }
+  el.volume = 1.0;
+  el.currentTime = 0;
+  // `play()` rejects when autoplay is blocked or the file can't be decoded (and
+  // a very old browser could throw instead): either way, the pop stands in.
+  Promise.resolve()
+    .then(() => el.play())
+    .catch(() => playFallbackPop());
 }
 
 /** Settings → "Test": plays the message sound even while sounds are off, so people can hear it. */
