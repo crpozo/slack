@@ -233,7 +233,10 @@ function playFallbackPop(): void {
 export function playMessageSound(): void {
   if (muted) return;
   const el = messageElement();
-  if (!el) return playFallbackPop();
+  if (!el) {
+    playFallbackPop();
+    return;
+  }
   try {
     el.volume = 1.0;
     el.currentTime = 0;

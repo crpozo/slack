@@ -178,7 +178,7 @@ export function useFileUploads(
         showToast(err instanceof Error ? err.message : `Couldn't upload ${list[i]?.name}.`);
       }
     });
-    if (added.length > 0) await onUploaded(added);
+    if (added.length > 0) await Promise.resolve(onUploaded(added));
   }
 
   return { uploads, addFiles, full: attached + uploads.length >= MAX_TASK_ATTACHMENTS };
