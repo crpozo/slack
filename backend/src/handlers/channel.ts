@@ -9,6 +9,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import {
   canDeleteChannel,
+  canRenameChannel,
   ChannelActionSchema,
   channelSlug,
   compareIds,
@@ -28,7 +29,7 @@ import { batchDelete, ddb, tables } from "../lib/ddb";
 import { wsHandler, type Caller } from "../lib/handler";
 import { log } from "../lib/logger";
 import { badRequest, ok, reply, replyError } from "../lib/response";
-import { unknownUsers } from "../lib/users";
+import { guestsAmong, unknownUsers } from "../lib/users";
 
 /** All channels (< 50 at this scale, so a Scan is fine), oldest first. */
 async function scanChannels(): Promise<Channel[]> {
@@ -110,6 +111,9 @@ async function openDm(action: ActionOf<"dm">, caller: Caller) {
   if (action.withUserId.includes("_")) {
     return badRequest(caller.connectionId, "Invalid user id");
   }
+  if ((await guestsAmong([action.withUserId])).length > 0) {
+    return replyError(caller.connectionId, "FORBIDDEN", "Guests only have access to their boards");
+  }
   const channelId = dmChannelId(caller.userId, action.withUserId);
   const created = await putIfAbsent({
     channelId,
@@ -149,6 +153,10 @@ async function invite(action: ActionOf<"invite">, caller: Caller) {
       "USER_NOT_FOUND",
       `Unknown users: ${missing.join(", ")}`,
     );
+  }
+
+  if ((await guestsAmong(invitees)).length > 0) {
+    return replyError(caller.connectionId, "FORBIDDEN", "Guests can't join channels");
   }
 
   const members = [...new Set([...(channel.members ?? []), ...invitees])].sort(compareIds);
@@ -242,7 +250,52 @@ async function deleteChannel(action: ActionOf<"delete">, caller: Caller) {
   return ok();
 }
 
-/** `channel`: list, create (private by default), open a DM, invite to a private channel, or delete. */
+/**
+ * Renames a channel: its creator or an admin, never `#general` or a DM. The id
+ * and messages stay; only `name` and `slug` change, and the new slug must be free.
+ */
+async function renameChannel(action: ActionOf<"rename">, caller: Caller) {
+  const channels = await scanChannels();
+  const channel = channels.find((c) => c.channelId === action.channelId);
+  if (!channel || channel.archived || !isChannelMember(channel, caller.userId)) {
+    return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
+  }
+  if (!canRenameChannel(channel, caller.userId, caller.role)) {
+    return replyError(
+      caller.connectionId,
+      "FORBIDDEN",
+      "Only the channel creator or an admin can rename it",
+    );
+  }
+  const slug = slugifyChannelName(action.name);
+  if (
+    channels.some(
+      (c) => c.type !== "dm" && c.channelId !== channel.channelId && channelSlug(c) === slug,
+    )
+  ) {
+    return replyError(caller.connectionId, "CHANNEL_NAME_TAKEN");
+  }
+  const { Attributes } = await ddb.send(
+    new UpdateCommand({
+      TableName: tables.channels,
+      Key: { channelId: channel.channelId },
+      UpdateExpression: "SET #name = :name, slug = :slug",
+      ConditionExpression: "attribute_exists(channelId)",
+      ExpressionAttributeNames: { "#name": "name" },
+      ExpressionAttributeValues: { ":name": action.name, ":slug": slug },
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  const updated = (Attributes ?? { ...channel, name: action.name, slug }) as Channel;
+  log.info("channel renamed", { channelId: channel.channelId, userId: caller.userId });
+  const inAudience = channelAudience(updated);
+  await broadcast((connection) =>
+    inAudience(connection) ? { type: "channel.updated", channel: updated } : null,
+  );
+  return ok();
+}
+
+/** `channel`: list, create (private by default), open a DM, invite to a private channel, rename, or delete. */
 export const handler = wsHandler(async (event, caller) => {
   const parsed = parseAction(ChannelActionSchema, event.body);
   if (!parsed.success) return badRequest(caller.connectionId, parsed.error);
@@ -259,5 +312,7 @@ export const handler = wsHandler(async (event, caller) => {
       return invite(action, caller);
     case "delete":
       return deleteChannel(action, caller);
+    case "rename":
+      return renameChannel(action, caller);
   }
 });

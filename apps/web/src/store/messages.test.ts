@@ -72,7 +72,7 @@ describe("store: users and reactions", async () => {
 
   it("applies server reactions to the matching message only", () => {
     const store = useChat.getState();
-    store.setSession({ userId: "me", email: "me@mt.ec" });
+    store.setSession({ userId: "me", email: "me@mt.ec", role: "member" });
     store.receiveHistory("ch_general", [msg(1), msg(2)], null);
     useChat.getState().setReactions("ch_general", msg(2).sk, { "🎉": ["bob", "me"] });
 
@@ -83,7 +83,7 @@ describe("store: users and reactions", async () => {
 
   it("resolves names from the directory, then the email", () => {
     const store = useChat.getState();
-    store.setSession({ userId: "me", email: "me@mt.ec" });
+    store.setSession({ userId: "me", email: "me@mt.ec", role: "member" });
     store.setUsers([{ userId: "bob", email: "bob@mt.ec", displayName: "Roberto", updatedAt: 1 }]);
     expect(selectName(useChat.getState(), "bob")).toBe("Roberto");
     expect(selectName(useChat.getState(), "me")).toBe("me");

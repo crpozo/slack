@@ -291,7 +291,7 @@ The Lambdas read `/slack/<stage>/vapid` at runtime, so this can run before or af
 until it exists, push is simply off. `--rotate` replaces the keys (browsers re-subscribe on their
 next visit). On iPhone/iPad, push works only after _Share → Add to Home Screen_ (iOS 16.4+).
 
-Who gets a push: the people a DM, `@mention`, ping or board change (new task, task moved to
+Who gets a push: the people a DM, `@mention` or board change (new task, task moved to
 another column) is for, unless they are in front of the app on some device right now. Clients
 report that with every heartbeat (`ping` with `active`, stored as `activeAt` on the connection)
 and as soon as focus changes; "in front" means active within the last 4 minutes. An app that is
@@ -322,7 +322,8 @@ Since every merge to `main` reaches production, test each change on `SlackDev` b
 the PR.
 
 The web app sends a `ping` frame every 3 minutes while connected, because API Gateway closes
-WebSockets that stay idle for 10 minutes; the `ping` route is a no-op Lambda.
+WebSockets that stay idle for 10 minutes; the `ping` Lambda only records whether the app is in
+front of you (`active`), which decides pushes.
 
 ## Desktop app
 

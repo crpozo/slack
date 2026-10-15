@@ -95,6 +95,10 @@ export function dmEntries(
   }
   addTeam(entries, team, me, directory);
   addDmPeers(entries, channels, me.userId, emailsById(team, directory));
+  // Guests (external board collaborators) can't chat: never offer a DM with them.
+  for (const profile of Object.values(profiles)) {
+    if (profile.role === "guest") entries.delete(profile.userId);
+  }
 
   const dmIds = new Set(channels.filter((c) => c.type === "dm").map((c) => c.channelId));
   return [...entries.values()]

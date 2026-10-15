@@ -2,6 +2,7 @@ import { GENERAL_CHANNEL_ID } from "@mindfultech/shared";
 import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ChatLayout } from "./components/ChatLayout";
+import { GuestLayout } from "./components/GuestLayout";
 import { LoginPage, Logo } from "./components/LoginPage";
 import { getCurrentUser } from "./lib/auth";
 import type { AppConfig } from "./lib/config";
@@ -28,6 +29,18 @@ export default function App({ config }: Readonly<{ config: AppConfig }>) {
           <Logo />
         </div>
       </div>
+    );
+  }
+
+  // Guests (external clients) get the boards they're invited to and nothing else.
+  if (me?.role === "guest") {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/app/tasks/:boardId?" element={<GuestLayout wsUrl={config.wsUrl} />} />
+          <Route path="*" element={<Navigate to="/app/tasks" replace />} />
+        </Routes>
+      </BrowserRouter>
     );
   }
 

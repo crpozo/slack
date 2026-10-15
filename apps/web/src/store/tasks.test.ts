@@ -42,6 +42,9 @@ function fakeApi() {
     createTask: vi.fn(() => next<Task>()),
     updateTask: vi.fn(() => next<Task>()),
     deleteTask: vi.fn(() => next<void>()),
+    invite: vi.fn(() =>
+      next<{ board: Board; invited: { userId: string; role: "guest"; created: boolean } }>(),
+    ),
   } satisfies TasksApi;
   const settle = async (value?: unknown, fail = false) => {
     const p = pending.shift();

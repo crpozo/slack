@@ -104,6 +104,16 @@ export const CreateBoardSchema = z.object({
 /** Rename (owner only). */
 export const UpdateBoardSchema = CreateBoardSchema;
 
+/**
+ * Board owner invites someone by email. New addresses become guest accounts
+ * (Cognito emails them a temporary password); existing accounts are just
+ * added to the board.
+ */
+export const InviteToBoardSchema = z.object({
+  email: z.string().trim().toLowerCase().pipe(z.email().max(254)),
+});
+export type InviteToBoardInput = z.infer<typeof InviteToBoardSchema>;
+
 export const AddBoardMembersSchema = z.object({
   userIds: z.array(UserIdSchema).min(1).max(MAX_MEMBERS_PER_REQUEST),
 });

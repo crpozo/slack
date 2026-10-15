@@ -134,3 +134,20 @@ describe("resolveConfig", () => {
     );
   });
 });
+
+describe("guests in the DM list", () => {
+  it("never lists a guest, even one in the directory", () => {
+    const me = { userId: "u-me", email: "me@mt.ec" };
+    const entries = dmEntries([], [], me, {}, (id) => `dm_${id}`, {
+      "u-ana": { userId: "u-ana", email: "ana@mt.ec", displayName: "Ana", updatedAt: 0 },
+      "u-guest": {
+        userId: "u-guest",
+        email: "client@acme.com",
+        displayName: "Client",
+        updatedAt: 0,
+        role: "guest",
+      },
+    });
+    expect(entries.map((e) => e.userId)).toEqual(["u-ana"]);
+  });
+});

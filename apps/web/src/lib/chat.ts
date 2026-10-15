@@ -91,6 +91,11 @@ class ChatController {
       client.onStatus((status) => store().setStatus(status)),
 
       client.onOpen(({ reconnected }) => {
+        // Guests only have boards: the server refuses every chat request of theirs.
+        if (store().me?.role === "guest") {
+          client.send("user", { op: "list" });
+          return;
+        }
         client.send("channel", { op: "list" });
         client.send("user", { op: "list" });
         if (reconnected) {
@@ -144,24 +149,6 @@ class ChatController {
       }),
 
       client.on("user.list", ({ users, online }) => store().setUsers(users, online)),
-
-      // Someone pinged you: a toast, the message pop and a short buzz (Android).
-      client.on("user.nudge", ({ from }) => {
-        const title = `👋 ${selectName(store(), from)} is pinging you`;
-        store().showToast(title);
-        playMessageSound();
-        navigator.vibrate?.([80, 60, 80]);
-        const me = store().me;
-        raiseAlert(
-          {
-            kind: "nudge",
-            title,
-            body: "Open the conversation to reply",
-            url: me ? `/app/${encodeURIComponent(dmChannelId(me.userId, from))}` : "/app",
-          },
-          { sound: false },
-        );
-      }),
 
       // Presence (Phase 7).
       client.on("user.connected", ({ userId }) => store().setPresence(userId, true)),
@@ -403,11 +390,6 @@ class ChatController {
     this.client?.send("channel", { op: "delete", channelId });
   }
 
-  /** "Ping": a toast for them if they're online, a push if not (1 per minute per person). */
-  nudge(userId: string): void {
-    this.client?.send("nudge", { toUserId: userId });
-  }
-
   /**
    * The user is looking at `channelId`: marks it read locally and, when the
    * list is scrolled to the bottom, tells the channel how far they've read.
@@ -441,6 +423,11 @@ class ChatController {
   }
 
   private typingSentAt = new Map<string, number>();
+
+  /** Re-reads the directory (e.g. after inviting someone new to a board). */
+  refreshUsers(): void {
+    this.client?.send("user", { op: "list" });
+  }
 
   /** Called on every keystroke; actually sends `typing` at most every `TYPING_INTERVAL_MS`. */
   typing(channelId: string): void {

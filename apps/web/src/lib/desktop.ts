@@ -10,7 +10,7 @@ import {
  * The Tauri desktop app (`apps/desktop`) loads this same site in a native
  * window and injects `window.__TAURI__` (`withGlobalTauri`). Its WebSocket
  * stays open while the window is in the background, so the app raises native
- * notifications itself (DMs, @mentions, pings and board activity).
+ * notifications itself (DMs, @mentions and board activity).
  *
  * Two things the browser APIs get wrong inside the desktop app, and why this
  * module asks Tauri instead:

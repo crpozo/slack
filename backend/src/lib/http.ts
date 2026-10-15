@@ -1,3 +1,4 @@
+import { roleFromGroups, type Role } from "@mindfultech/shared";
 import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyResultV2 } from "aws-lambda";
 import type { z } from "zod";
 import { errorFields, log } from "./logger";
@@ -29,6 +30,7 @@ export function json(status: number, body?: unknown): HttpResult {
 export interface HttpCaller {
   userId: string;
   email: string;
+  role: Role;
 }
 
 /** The user behind the request, from the Cognito id token the JWT authorizer verified. */
@@ -37,7 +39,11 @@ export function callerOf(event: HttpEvent): HttpCaller {
   const userId = claims.sub;
   const email = claims.email;
   if (typeof userId !== "string" || !userId) throw new HttpError(401, "Unauthorized");
-  return { userId, email: typeof email === "string" ? email : "" };
+  return {
+    userId,
+    email: typeof email === "string" ? email : "",
+    role: roleFromGroups(claims["cognito:groups"]),
+  };
 }
 
 /** Parses the JSON body against `schema`; invalid JSON or shape is a 400. */

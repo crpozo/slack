@@ -16,7 +16,6 @@ import { DeleteChannelModal } from "./ChannelModals";
 import { NotificationBell } from "./NotificationBell";
 import { Popover } from "./Popover";
 import {
-  HandWaveIcon,
   HashIcon,
   KanbanIcon,
   LockIcon,
@@ -279,17 +278,6 @@ export function Sidebar({
 
   function dmMenu(dm: (typeof dms)[number]): RowMenuItem[] {
     const items: RowMenuItem[] = [];
-    const peer = dm.userId;
-    if (peer && peer !== me?.userId) {
-      items.push({
-        label: `Ping ${dm.name}`,
-        icon: <HandWaveIcon />,
-        onSelect: () => {
-          chat.nudge(peer);
-          useChat.getState().showToast(`👋 Pinged ${dm.name}`);
-        },
-      });
-    }
     const channel = dm.channelId && channels.find((c) => c.channelId === dm.channelId);
     if (channel) {
       items.push({

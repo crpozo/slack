@@ -1,5 +1,4 @@
 import {
-  BatchGetCommand,
   DeleteCommand,
   GetCommand,
   PutCommand,
@@ -13,6 +12,7 @@ import {
   canAccessBoard,
   CreateBoardSchema,
   CreateTaskSchema,
+  InviteToBoardSchema,
   MAX_BOARD_MEMBERS,
   UpdateBoardSchema,
   UpdateTaskSchema,
@@ -22,14 +22,7 @@ import {
   type Task,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
-import {
-  BOARD_SK,
-  boardAudience,
-  getAccessibleBoard,
-  memberSk,
-  toBoard,
-  type BoardItem,
-} from "../lib/boards";
+import { BOARD_SK, boardAudience, boardsOf, getAccessibleBoard, memberSk } from "../lib/boards";
 import { activeUserIds, deliver, listConnections, type LiveConnection } from "../lib/broadcast";
 import { batchDelete, ddb, tables } from "../lib/ddb";
 import {
@@ -45,8 +38,9 @@ import {
   type HttpResult,
 } from "../lib/http";
 import { errorFields, log } from "../lib/logger";
+import { findOrInviteGuest } from "../lib/cognito";
 import { notifyTaskActivity } from "../lib/notify";
-import { unknownUsers } from "../lib/users";
+import { defaultDisplayName, unknownUsers } from "../lib/users";
 
 /**
  * Task Manager HTTP API. Rows of the `boards` table:
@@ -116,40 +110,11 @@ function validateTaskFields(
 // --- Boards ----------------------------------------------------------------------
 
 async function listBoards(caller: HttpCaller): Promise<HttpResult> {
-  const { Items } = await ddb.send(
-    new QueryCommand({
-      TableName: tables.boards,
-      IndexName: "byUser",
-      KeyConditionExpression: "userId = :me",
-      ExpressionAttributeValues: { ":me": caller.userId },
-      ProjectionExpression: "boardId",
-    }),
-  );
-  const ids = [...new Set((Items ?? []).map((i) => String(i.boardId)))];
-  const chunks: string[][] = [];
-  for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
-  const pages = await Promise.all(
-    chunks.map((chunk) =>
-      ddb.send(
-        new BatchGetCommand({
-          RequestItems: {
-            [tables.boards]: { Keys: chunk.map((boardId) => ({ boardId, sk: BOARD_SK })) },
-          },
-        }),
-      ),
-    ),
-  );
-  const boards = pages.flatMap((page) =>
-    ((page.Responses?.[tables.boards] ?? []) as BoardItem[]).map(toBoard),
-  );
-  // Membership rows and the board row agree except mid-change: trust the board row.
-  const visible = boards
-    .filter((b) => canAccessBoard(b, caller.userId))
-    .sort((a, b) => a.createdAt - b.createdAt);
-  return json(200, { boards: visible });
+  return json(200, { boards: await boardsOf(caller.userId) });
 }
 
 async function createBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  if (caller.role === "guest") throw forbidden("Guests can't create boards");
   const { name } = parseBody(CreateBoardSchema, event);
   const board: Board = {
     boardId: `b_${ulid()}`,
@@ -186,20 +151,26 @@ async function createBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
   return json(201, { board });
 }
 
-async function addMembers(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
-  const boardId = pathParam(event, "id");
+/** The board for its owner (and never for a guest, who can't own boards); 403/404 otherwise. */
+async function ownedBoard(boardId: string, caller: HttpCaller, what: string): Promise<Board> {
   const board = await accessibleBoard(boardId, caller);
-  if (board.ownerId !== caller.userId) throw forbidden("Only the board owner can add members");
+  if (board.ownerId !== caller.userId || caller.role === "guest") {
+    throw forbidden(`Only the board owner can ${what}`);
+  }
+  return board;
+}
 
-  const { userIds } = parseBody(AddBoardMembersSchema, event);
+/**
+ * Adds `userIds` (who must exist in `users`) to the owner's board: the board
+ * row is the authority (`ADD members`), plus one membership row each. Old and
+ * new members alike hear `board.updated` (the new ones gain the board).
+ */
+async function addToBoard(board: Board, userIds: string[], caller: HttpCaller): Promise<Board> {
   const newIds = [...new Set(userIds)].filter((id) => !board.members.includes(id));
-  if (newIds.length === 0) return json(200, { board });
+  if (newIds.length === 0) return board;
   if (board.members.length + newIds.length > MAX_BOARD_MEMBERS) {
     throw new HttpError(400, `A board can have at most ${MAX_BOARD_MEMBERS} members`);
   }
-  const missing = await unknownUsers(newIds);
-  if (missing.length > 0) throw new HttpError(400, `Unknown users: ${missing.join(", ")}`);
-
   const now = Date.now();
   await ddb.send(
     new TransactWriteCommand({
@@ -207,7 +178,7 @@ async function addMembers(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
         {
           Update: {
             TableName: tables.boards,
-            Key: { boardId, sk: BOARD_SK },
+            Key: { boardId: board.boardId, sk: BOARD_SK },
             UpdateExpression: "ADD members :ids",
             ConditionExpression: "ownerId = :me",
             ExpressionAttributeValues: { ":ids": new Set(newIds), ":me": caller.userId },
@@ -216,20 +187,75 @@ async function addMembers(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
         ...newIds.map((userId) => ({
           Put: {
             TableName: tables.boards,
-            Item: { boardId, sk: memberSk(userId), userId, createdAt: now },
+            Item: { boardId: board.boardId, sk: memberSk(userId), userId, createdAt: now },
           },
         })),
       ],
     }),
   );
-  log.info("members added", { boardId, userId: caller.userId, added: newIds.length });
+  log.info("members added", {
+    boardId: board.boardId,
+    userId: caller.userId,
+    added: newIds.length,
+  });
   const updated: Board = {
     ...board,
     members: [...board.members, ...newIds].sort((a, b) => a.localeCompare(b)),
   };
-  // Old and new members alike: the new ones gain the board in their list right away.
   await notifyBoard(updated, { type: "board.updated", board: updated });
-  return json(200, { board: updated });
+  return updated;
+}
+
+async function addMembers(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const board = await ownedBoard(pathParam(event, "id"), caller, "add members");
+  const { userIds } = parseBody(AddBoardMembersSchema, event);
+  const missing = await unknownUsers(
+    [...new Set(userIds)].filter((id) => !board.members.includes(id)),
+  );
+  if (missing.length > 0) throw new HttpError(400, `Unknown users: ${missing.join(", ")}`);
+  return json(200, { board: await addToBoard(board, userIds, caller) });
+}
+
+/**
+ * Invites someone to the board by email. A new address becomes a guest
+ * account (Cognito emails a temporary password; they see only the boards they
+ * are invited to); an existing account is simply added. Owner only.
+ */
+async function inviteToBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const board = await ownedBoard(pathParam(event, "id"), caller, "invite people");
+  const { email } = parseBody(InviteToBoardSchema, event);
+  if (board.members.length >= MAX_BOARD_MEMBERS) {
+    throw new HttpError(400, `A board can have at most ${MAX_BOARD_MEMBERS} members`);
+  }
+  const account = await findOrInviteGuest(email);
+  // The directory row now, so the board shows their name before they ever sign in.
+  await ddb.send(
+    new UpdateCommand({
+      TableName: tables.users,
+      Key: { userId: account.userId },
+      UpdateExpression:
+        "SET email = :email, #role = :role, displayName = if_not_exists(displayName, :name), " +
+        "createdAt = if_not_exists(createdAt, :now), updatedAt = if_not_exists(updatedAt, :now)",
+      ExpressionAttributeNames: { "#role": "role" },
+      ExpressionAttributeValues: {
+        ":email": account.email,
+        ":role": account.role,
+        ":name": defaultDisplayName(account.email),
+        ":now": Date.now(),
+      },
+    }),
+  );
+  log.info("board invite", {
+    boardId: board.boardId,
+    userId: caller.userId,
+    role: account.role,
+    created: account.created,
+  });
+  const updated = await addToBoard(board, [account.userId], caller);
+  return json(200, {
+    board: updated,
+    invited: { userId: account.userId, role: account.role, created: account.created },
+  });
 }
 
 async function renameBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
@@ -435,6 +461,7 @@ const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<H
   "PUT /boards/{id}": renameBoard,
   "DELETE /boards/{id}": deleteBoard,
   "POST /boards/{id}/members": addMembers,
+  "POST /boards/{id}/invites": inviteToBoard,
   "GET /boards/{id}/tasks": listTasks,
   "POST /boards/{id}/tasks": createTask,
   "PUT /tasks/{taskId}": updateTask,

@@ -2,13 +2,12 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatDay, formatTime } from "../lib/channels";
 import { useNotifications, useUnreadAlerts, type AppAlert } from "../store/notifications";
-import { BellIcon, HandWaveIcon, KanbanIcon, MessageIcon } from "./icons";
+import { BellIcon, KanbanIcon, MessageIcon } from "./icons";
 import { Popover } from "./Popover";
 
 const KIND_ICON: Record<AppAlert["kind"], typeof BellIcon> = {
   message: MessageIcon,
   mention: MessageIcon,
-  nudge: HandWaveIcon,
   task: KanbanIcon,
 };
 
@@ -26,7 +25,7 @@ export function UnreadAlertsDot() {
 
 /**
  * Bell with a red unread count; opens the recent alerts (DMs, @mentions,
- * pings, board activity). Opening it marks them read; a click jumps there.
+ * board activity). Opening it marks them read; a click jumps there.
  */
 export function NotificationBell({ className }: Readonly<{ className: string }>) {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
@@ -82,7 +81,7 @@ export function NotificationBell({ className }: Readonly<{ className: string }>)
             </div>
             {alerts.length === 0 ? (
               <p className="px-3 py-8 text-center text-sm text-ink-secondary">
-                Nothing new. DMs, @mentions, pings and board activity show up here.
+                Nothing new. DMs, @mentions and board activity show up here.
               </p>
             ) : (
               <ul className="overflow-y-auto py-1">

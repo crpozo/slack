@@ -59,8 +59,20 @@ function mockScans(channels: object[]) {
   ddbMock.on(ScanCommand, { TableName: "slack-test-connections" }).resolves({ Items: connections });
 }
 
+/** BatchGets that check invitees exist (not the guest-role lookups). */
+const existenceLookups = () =>
+  ddbMock
+    .commandCalls(BatchGetCommand)
+    .filter(
+      (c) => c.args[0].input.RequestItems?.["slack-test-users"]?.ProjectionExpression === "userId",
+    );
+
 describe("channel", () => {
-  beforeEach(resetMocks);
+  beforeEach(() => {
+    resetMocks();
+    // `users` lookups: nobody is a guest unless a test says so.
+    ddbMock.on(BatchGetCommand).resolves({ Responses: {} });
+  });
 
   it("list returns visible channels only to the sender", async () => {
     mockScans([general, archived, foreignDm]);
@@ -254,6 +266,7 @@ describe("channel invite", () => {
 
   beforeEach(() => {
     resetMocks();
+    ddbMock.on(BatchGetCommand).resolves({ Responses: {} });
     mockChannels(
       general as never,
       privateRow("ch_team", ALICE.userId, [ALICE.userId, "user-carol"]),
@@ -272,7 +285,7 @@ describe("channel invite", () => {
     const result = await invite([BOB.userId, BOB.userId, "user-dave"]);
 
     expect(result.statusCode).toBe(200);
-    expect(ddbMock.commandCalls(BatchGetCommand)[0]?.args[0].input.RequestItems).toEqual({
+    expect(existenceLookups()[0]?.args[0].input.RequestItems).toEqual({
       "slack-test-users": {
         Keys: [{ userId: BOB.userId }, { userId: "user-dave" }],
         ProjectionExpression: "userId",
@@ -294,12 +307,13 @@ describe("channel invite", () => {
         Responses: { "slack-test-users": [{ userId: BOB.userId }] },
         UnprocessedKeys: { "slack-test-users": { Keys: [{ userId: "user-dave" }] } },
       })
-      .resolvesOnce({ Responses: { "slack-test-users": [{ userId: "user-dave" }] } });
+      .resolvesOnce({ Responses: { "slack-test-users": [{ userId: "user-dave" }] } })
+      .resolvesOnce({ Responses: { "slack-test-users": [] } }); // nobody is a guest
 
     const result = await invite([BOB.userId, "user-dave"]);
 
     expect(result.statusCode).toBe(200);
-    const calls = ddbMock.commandCalls(BatchGetCommand);
+    const calls = existenceLookups();
     expect(calls).toHaveLength(2);
     expect(calls[1]?.args[0].input.RequestItems?.["slack-test-users"]?.Keys).toEqual([
       { userId: "user-dave" },
@@ -317,7 +331,7 @@ describe("channel invite", () => {
     const result = await invite(["user-dave"]);
 
     expect(result.statusCode).toBe(400);
-    expect(ddbMock.commandCalls(BatchGetCommand)).toHaveLength(2);
+    expect(existenceLookups()).toHaveLength(2);
     expect(sentEvents()[0]?.[1]).toMatchObject({ code: "USER_NOT_FOUND" });
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
   });
@@ -498,5 +512,104 @@ describe("channel delete", () => {
     expect((await remove("ch_missing")).statusCode).toBe(400);
     expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
     expect(ddbMock.commandCalls(BatchWriteCommand)).toHaveLength(0);
+  });
+});
+
+describe("guests and channels", () => {
+  beforeEach(() => {
+    resetMocks();
+    mockChannels(general as never, privateRow("ch_team", ALICE.userId, [ALICE.userId]));
+    ddbMock.on(ScanCommand, { TableName: "slack-test-channels" }).resolves({ Items: [general] });
+    ddbMock.on(ScanCommand, { TableName: "slack-test-connections" }).resolves({ Items: [] });
+    // Bob is a guest.
+    ddbMock.on(BatchGetCommand).resolves({
+      Responses: { "slack-test-users": [{ userId: BOB.userId, role: "guest" }] },
+    });
+  });
+
+  it("refuses a DM with a guest and inviting a guest to a channel", async () => {
+    await handler(wsEvent("channel", { action: "channel", op: "dm", withUserId: BOB.userId }));
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ type: "error", code: "FORBIDDEN" });
+    await handler(
+      wsEvent("channel", {
+        action: "channel",
+        op: "invite",
+        channelId: "ch_team",
+        userIds: [BOB.userId],
+      }),
+    );
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ type: "error", code: "FORBIDDEN" });
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
+  it("a guest's own chat requests are refused before any handler logic", async () => {
+    const asGuest = { user: { ...BOB, role: "guest" }, connectionId: "conn-bob" };
+    for (const op of ["list", "create"] as const) {
+      const body = op === "list" ? { action: "channel", op } : { action: "channel", op, name: "x" };
+      await handler(wsEvent("channel", body, asGuest));
+      expect(sentEvents().at(-1)).toEqual([
+        "conn-bob",
+        expect.objectContaining({ type: "error", code: "FORBIDDEN" }),
+      ]);
+    }
+    expect(ddbMock.commandCalls(ScanCommand)).toHaveLength(0);
+  });
+});
+
+describe("channel rename", () => {
+  const team = { ...privateRow("ch_team", ALICE.userId, [ALICE.userId, BOB.userId]), slug: "team" };
+  const other = { ...privateRow("ch_web", BOB.userId, [BOB.userId]), name: "Web", slug: "web" };
+  const rename = (channelId: string, name: string, user: object = ALICE) =>
+    handler(
+      wsEvent(
+        "channel",
+        { action: "channel", op: "rename", channelId, name },
+        {
+          user: user as typeof ALICE,
+        },
+      ),
+    );
+
+  beforeEach(() => {
+    resetMocks();
+    ddbMock
+      .on(ScanCommand, { TableName: "slack-test-channels" })
+      .resolves({ Items: [general, team, other] });
+    ddbMock.on(ScanCommand, { TableName: "slack-test-connections" }).resolves({
+      Items: [
+        { connectionId: "conn-alice", userId: ALICE.userId },
+        { connectionId: "conn-carol", userId: "user-carol" },
+      ],
+    });
+    ddbMock
+      .on(UpdateCommand)
+      .resolves({ Attributes: { ...team, name: "Core Team", slug: "core-team" } });
+  });
+
+  it("the creator renames: name and slug change, the id stays, members hear channel.updated", async () => {
+    await rename("ch_team", "Core Team");
+    const input = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(input?.Key).toEqual({ channelId: "ch_team" });
+    expect(input?.ExpressionAttributeValues).toEqual({
+      ":name": "Core Team",
+      ":slug": "core-team",
+    });
+    expect(sentEvents()).toEqual([
+      ["conn-alice", expect.objectContaining({ type: "channel.updated" })],
+    ]);
+  });
+
+  it("refuses a taken name, #general, and non-creators unless they're admins", async () => {
+    await rename("ch_team", "web");
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "CHANNEL_NAME_TAKEN" });
+    await rename("ch_general", "lobby");
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+    await rename("ch_team", "Bobs", BOB);
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+
+    await rename("ch_team", "Core Team", { ...BOB, role: "admin" });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
   });
 });

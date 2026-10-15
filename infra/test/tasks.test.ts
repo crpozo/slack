@@ -95,6 +95,7 @@ describe("task manager API", () => {
       "GET /boards/{id}/tasks",
       "GET /push/key",
       "POST /boards",
+      "POST /boards/{id}/invites",
       "POST /boards/{id}/members",
       "POST /boards/{id}/tasks",
       "POST /push/subscribe",
@@ -154,7 +155,11 @@ describe("task manager API", () => {
       "dynamodb:UpdateItem",
     ]);
     // Invitees must exist; the actor's display name titles board pushes.
-    expect(actionsOn("DataUsers")).toEqual(["dynamodb:BatchGetItem", "dynamodb:GetItem"]);
+    expect(actionsOn("DataUsers")).toEqual([
+      "dynamodb:BatchGetItem",
+      "dynamodb:GetItem",
+      "dynamodb:UpdateItem", // an invited person's directory row
+    ]);
     expect(actionsOn("DataMessages")).toEqual([]);
     // Board pushes: members' devices, dropping expired ones; the VAPID parameter.
     expect(actionsOn("DataPushSubscriptions")).toEqual(["dynamodb:DeleteItem", "dynamodb:Query"]);
@@ -174,6 +179,46 @@ describe("task manager API", () => {
     );
     expect(JSON.stringify(entry?.Properties?.SourceMarkers)).toMatch(/TasksApiHttpApi/);
     expect(template.findOutputs("TasksApiUrl")).not.toEqual({});
+  });
+});
+
+describe("guest access", () => {
+  it("creates the guests and admins groups in the user pool", () => {
+    const groups = Object.values(template.findResources("AWS::Cognito::UserPoolGroup")).map(
+      (g) => g.Properties.GroupName as string,
+    );
+    expect(groups.sort()).toEqual(["admins", "guests"]);
+  });
+
+  it("lets only the tasks Lambda invite people, and only in this pool", () => {
+    const withCognito = Object.entries(template.findResources("AWS::IAM::Policy")).filter(([, p]) =>
+      JSON.stringify(p).includes("cognito-idp:"),
+    );
+    expect(withCognito.map(([id]) => id.replace(/[0-9A-F]{8}$/, ""))).toEqual([
+      "TasksApiFnServiceRoleDefaultPolicy",
+    ]);
+    const statement = (
+      withCognito[0]?.[1].Properties.PolicyDocument.Statement as Array<{
+        Action: string[];
+        Resource: unknown;
+      }>
+    ).find((st) => [st.Action].flat().some((a) => a.startsWith("cognito-idp:")));
+    expect([statement?.Action].flat().sort()).toEqual([
+      "cognito-idp:AdminAddUserToGroup",
+      "cognito-idp:AdminCreateUser",
+      "cognito-idp:AdminDeleteUser",
+      "cognito-idp:AdminGetUser",
+      "cognito-idp:AdminListGroupsForUser",
+    ]);
+    expect(JSON.stringify(statement?.Resource)).toContain("AuthUserPool");
+  });
+
+  it("emails invitations with a link to the app", () => {
+    const [pool] = Object.values(template.findResources("AWS::Cognito::UserPool"));
+    const invite = pool?.Properties.AdminCreateUserConfig.InviteMessageTemplate;
+    expect(invite.EmailSubject).toMatch(/invited/);
+    expect(invite.EmailMessage).toContain("{####}");
+    expect(invite.EmailMessage).toContain("https://slack.mindfultech.ec");
   });
 });
 

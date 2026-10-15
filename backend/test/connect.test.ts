@@ -22,6 +22,7 @@ describe("connect", () => {
         userEmail: ALICE.email,
         connectedAt: 1_700_000_000_000,
         ttl: 1_700_000_000 + 7200,
+        role: "member",
       },
     });
   });
@@ -39,6 +40,7 @@ describe("connect", () => {
     expect(input?.UpdateExpression).toContain("displayName = if_not_exists(displayName, :name)");
     expect(input?.ExpressionAttributeValues).toEqual({
       ":email": ALICE.email,
+      ":role": "member",
       ":name": "alice",
       ":now": 1_700_000_000_000,
     });
@@ -150,5 +152,18 @@ describe("disconnect presence", () => {
     expect(sentEvents()).toEqual([
       ["conn-bob", { type: "user.disconnected", userId: ALICE.userId }],
     ]);
+  });
+});
+
+describe("connect as a guest", () => {
+  it("stores the guest role on the connection and the directory row", async () => {
+    resetMocks();
+    ddbMock.on(PutCommand).resolves({});
+    ddbMock.on(UpdateCommand).resolves({});
+    await connect(wsEvent("$connect", undefined, { user: { ...ALICE, role: "guest" } }));
+    expect(ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item?.role).toBe("guest");
+    expect(
+      ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input.ExpressionAttributeValues?.[":role"],
+    ).toBe("guest");
   });
 });

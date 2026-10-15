@@ -55,6 +55,7 @@ export async function pushRecipients(channel: Channel, message: Message): Promis
     .filter(
       (u) =>
         u.userId !== message.userId &&
+        u.role !== "guest" && // a guest never sees channels, so never their previews
         isChannelMember(channel, u.userId) &&
         (handles.has(mentionHandle(u.displayName)) ||
           handles.has(defaultDisplayName(u.email).toLowerCase())),

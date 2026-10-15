@@ -9,6 +9,7 @@ import {
 } from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpJwtAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import { PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { Architecture, Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
@@ -29,6 +30,7 @@ export const TASKS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.PUT, path: "/boards/{id}" },
   { method: HttpMethod.DELETE, path: "/boards/{id}" },
   { method: HttpMethod.POST, path: "/boards/{id}/members" },
+  { method: HttpMethod.POST, path: "/boards/{id}/invites" },
   { method: HttpMethod.GET, path: "/boards/{id}/tasks" },
   { method: HttpMethod.POST, path: "/boards/{id}/tasks" },
   { method: HttpMethod.PUT, path: "/tasks/{taskId}" },
@@ -99,6 +101,8 @@ export class TasksApi extends Construct {
       USERS_TABLE: data.users.tableName,
       CONNECTIONS_TABLE: data.connections.tableName,
       WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+      // Board invites create guest accounts in the pool.
+      USER_POOL_ID: auth.userPool.userPoolId,
       // Web Push to members away from the app (new tasks, column moves).
       PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
       VAPID_PARAMETER: vapidParameterName(stage),
@@ -161,8 +165,28 @@ export class TasksApi extends Construct {
       "dynamodb:Query",
       "dynamodb:BatchWriteItem", // a deleted board's tasks
     );
-    // Invitees must exist (BatchGetItem); the actor's display name for pushes (GetItem).
-    data.users.grant(this.handler, "dynamodb:BatchGetItem", "dynamodb:GetItem");
+    // Invitees must exist (BatchGetItem); the actor's display name for pushes (GetItem);
+    // an invited person's directory row (UpdateItem).
+    data.users.grant(
+      this.handler,
+      "dynamodb:BatchGetItem",
+      "dynamodb:GetItem",
+      "dynamodb:UpdateItem",
+    );
+    // Invites by email: look the address up, create a guest account (Cognito emails
+    // the temporary password) and put it in `guests` — deleting it if that fails.
+    this.handler.addToRolePolicy(
+      new PolicyStatement({
+        actions: [
+          "cognito-idp:AdminGetUser",
+          "cognito-idp:AdminListGroupsForUser",
+          "cognito-idp:AdminCreateUser",
+          "cognito-idp:AdminAddUserToGroup",
+          "cognito-idp:AdminDeleteUser",
+        ],
+        resources: [auth.userPool.userPoolArn],
+      }),
+    );
     // Push: each member's devices (Query), dropping expired ones (DeleteItem).
     data.pushSubscriptions.grant(this.handler, "dynamodb:Query", "dynamodb:DeleteItem");
     grantReadVapid(this.handler, stage);

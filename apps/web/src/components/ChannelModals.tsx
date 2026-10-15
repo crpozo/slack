@@ -13,12 +13,12 @@ import { GlobeIcon, LockIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 import { UserPicker } from "./UserPicker";
 
-/** Everyone in the directory except me, sorted by display name. */
+/** Everyone in the directory except me and guests (who can't chat), sorted by display name. */
 function useOtherUsers() {
   const myUserId = useChat((s) => s.me?.userId);
   const users = useChat(useShallow((s) => Object.values(s.users)));
   return users
-    .filter((u) => u.userId !== myUserId)
+    .filter((u) => u.userId !== myUserId && u.role !== "guest")
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
