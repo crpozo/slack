@@ -11,6 +11,7 @@ The full plan, the architecture and the MVP scope are in [BLUEPRINT.md](./BLUEPR
 
 ```
 apps/web          React + Vite + Tailwind SPA (MindfulTech design system)
+apps/desktop      Tauri 2 desktop app (Windows, macOS) that loads the production site
 packages/shared   WebSocket protocol contract (zod) + id helpers
 backend           Lambda handlers (Node 22) + Vitest tests
 infra             AWS CDK v2: SlackDev and SlackProd stacks
@@ -313,6 +314,37 @@ the PR.
 The web app sends a `ping` frame every 3 minutes while connected, because API Gateway closes
 WebSockets that stay idle for 10 minutes; the `ping` route is a no-op Lambda.
 
+## Desktop app
+
+`apps/desktop` is a Tauri 2 window around `https://slack.mindfultech.ec` (1280×800): there is no
+second frontend, so every web deploy updates the desktop app too. It adds native notifications
+for DMs and `@mentions` while the window is in the background, camera and microphone for calls
+and voice messages, and opens outside links (downloads, URLs in messages) in your browser.
+
+**Nothing to install locally.** GitHub Actions builds it (`.github/workflows/tauri-build.yml`):
+
+- _Actions → Desktop → Run workflow_ publishes release `desktop-v<version>` (the version in
+  `apps/desktop/package.json`; bump it for a new release, or the run replaces that release's
+  files), or
+- pushing a `v*` tag attaches the installers to that tag's release.
+
+Download from the release (or the run's _Artifacts_):
+
+| OS      | File                                                                  |
+| ------- | --------------------------------------------------------------------- |
+| Windows | `MindfulTech.Slack_<version>_x64_en-US.msi` (or `-setup.exe`)         |
+| macOS   | `MindfulTech.Slack_<version>_universal.dmg` (Apple Silicon and Intel) |
+
+The builds aren't code-signed yet:
+
+- **Windows:** SmartScreen says "Windows protected your PC" → _More info → Run anyway_.
+- **macOS:** drag the app to Applications, then run once
+  `xattr -cr "/Applications/MindfulTech Slack.app"` (otherwise macOS reports it as "damaged").
+  The first call or voice message asks for microphone/camera access, the first DM for
+  notifications.
+
+Rust is only needed to build it yourself: `pnpm --filter desktop tauri dev`.
+
 ## Scripts
 
 | Script             | What it does                                           |
@@ -356,5 +388,5 @@ For the monitor to see the spend, activate the tag once in _Billing → Cost all
 ## Roadmap
 
 Threads · rename and archive channels · edit and delete messages · search ·
-"typing…" · system notifications and `@` mentions · TURN relay for calls · desktop app (Tauri) ·
+"typing…" · system notifications and `@` mentions · TURN relay for calls · code-signed desktop builds ·
 integration and E2E tests · AI agent with Bedrock.

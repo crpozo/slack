@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Merged into the app bundle's Info.plist by the Tauri bundler. Without these
+       macOS refuses getUserMedia (voice messages and calls) without asking. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>MindfulTech Slack uses the microphone for voice messages and calls.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>MindfulTech Slack uses the camera for video calls.</string>
+</dict>
+</plist>

@@ -14,6 +14,12 @@ import { selectName, useChat, type ChatMessage } from "../store";
 import { pendingMessageId } from "../store/messages";
 import { getIdToken, SessionExpiredError } from "./auth";
 import { calls } from "./call";
+import {
+  notificationBody,
+  notifyDesktop,
+  prepareDesktopNotifications,
+  shouldNotify,
+} from "./desktop";
 import { startHeartbeat } from "./heartbeat";
 import { playMessageSound } from "./sounds";
 import { useTasks } from "../store/tasks";
@@ -78,6 +84,7 @@ class ChatController {
     });
     this.client = client;
     const store = useChat.getState;
+    prepareDesktopNotifications();
 
     this.cleanups.push(
       client.onStatus((status) => store().setStatus(status)),
@@ -107,6 +114,14 @@ class ChatController {
         s.setTyping(message.channelId, message.userId, null);
         // A pop for messages from others that you are not already looking at.
         if (!viewing && message.userId !== s.me?.userId) playMessageSound();
+        // Desktop app in the background: a native notification for DMs and @mentions.
+        const channel = s.channels.find((c) => c.channelId === message.channelId);
+        const me = s.me && { ...s.me, displayName: s.users[s.me.userId]?.displayName };
+        if (me && !isFocused() && shouldNotify(channel, message, me)) {
+          const sender = selectName(s, message.userId, message.userEmail);
+          const title = channel?.type === "dm" ? sender : `${sender} in #${channel?.name}`;
+          void notifyDesktop(title, notificationBody(message));
+        }
       }),
 
       client.on("history.page", ({ channelId, items, nextCursor }) => {
