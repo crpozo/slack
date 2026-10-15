@@ -151,3 +151,33 @@ describe("guests in the DM list", () => {
     expect(entries.map((e) => e.userId)).toEqual(["u-ana"]);
   });
 });
+
+describe("seenByLine", () => {
+  it("names up to three readers, then counts the rest", async () => {
+    const { seenByLine } = await import("./channels");
+    expect(seenByLine([])).toBe("");
+    expect(seenByLine(["Ana"])).toBe("Seen by Ana");
+    expect(seenByLine(["Ana", "Luis"])).toBe("Seen by Ana and Luis");
+    expect(seenByLine(["Ana", "Luis", "Eva"])).toBe("Seen by Ana, Luis and Eva");
+    expect(seenByLine(["Ana", "Luis", "Eva", "Max", "Zoe"])).toBe("Seen by Ana, Luis and 3 others");
+  });
+});
+
+describe("pinnedFirst", () => {
+  it("puts pinned conversations on top in pin order and keeps the rest's order", async () => {
+    const { pinnedFirst } = await import("./channels");
+    const entries = [
+      { name: "Ana", channelId: "dm_a" },
+      { name: "Bo", channelId: "dm_b" },
+      { name: "Cy" },
+      { name: "Di", channelId: "dm_d" },
+    ];
+    expect(pinnedFirst(entries, ["dm_d", "dm_b"]).map((e) => e.name)).toEqual([
+      "Di",
+      "Bo",
+      "Ana",
+      "Cy",
+    ]);
+    expect(pinnedFirst(entries, [])).toEqual(entries);
+  });
+});

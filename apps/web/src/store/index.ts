@@ -22,6 +22,8 @@ export interface ChatState {
   me: SessionUser | null;
   status: WsStatus;
   channels: Channel[];
+  /** Your pinned conversations (DMs), most recent pin first; synced across your devices. */
+  pinned: string[];
   /** Channel list received at least once since connecting. */
   channelsLoaded: boolean;
   activeChannelId: string | null;
@@ -54,6 +56,9 @@ export interface ChatState {
   setSession: (me: SessionUser | null, team?: DirectoryUser[]) => void;
   setStatus: (status: WsStatus) => void;
   setChannels: (channels: Channel[]) => void;
+  /** `channel.updated` (renamed): replaces the row, keeping everything else. */
+  updateChannel: (channel: Channel) => void;
+  setPinned: (pinned: string[]) => void;
   setActiveChannel: (channelId: string | null) => void;
   historyRequested: (channelId: string, kind: HistoryRequest) => void;
   receiveHistory: (channelId: string, items: Message[], nextCursor: string | null) => void;
@@ -114,6 +119,7 @@ const initialState = {
   me: null,
   status: "idle" as WsStatus,
   channels: [],
+  pinned: [] as string[],
   channelsLoaded: false,
   activeChannelId: null,
   messagesByChannel: {},
@@ -156,6 +162,13 @@ export const useChat = create<ChatState>()((set, get) => ({
 
   setChannels: (channels) =>
     set((s) => ({ channels, channelsLoaded: true, reads: readsOf(channels, s.reads) })),
+
+  updateChannel: (channel) =>
+    set((s) => ({
+      channels: s.channels.map((c) => (c.channelId === channel.channelId ? channel : c)),
+    })),
+
+  setPinned: (pinned) => set({ pinned }),
 
   setActiveChannel: (activeChannelId) => set({ activeChannelId }),
 

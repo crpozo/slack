@@ -128,3 +128,23 @@ export function formatDay(ts: number, now: number = Date.now()): string {
   const label = dayFormat.format(ts);
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
+
+/** "Seen by Ana", "Seen by Ana and Luis", "Seen by Ana, Luis and 3 others". */
+export function seenByLine(names: string[]): string {
+  if (names.length === 0) return "";
+  if (names.length === 1) return `Seen by ${names[0]}`;
+  if (names.length === 2) return `Seen by ${names[0]} and ${names[1]}`;
+  if (names.length === 3) return `Seen by ${names[0]}, ${names[1]} and ${names[2]}`;
+  const rest = names.length - 2;
+  return `Seen by ${names[0]}, ${names[1]} and ${rest} others`;
+}
+
+/** Pinned conversations first (most recent pin first), then the rest as they were. */
+export function pinnedFirst<T extends { channelId?: string }>(entries: T[], pinned: string[]): T[] {
+  const rank = new Map(pinned.map((id, i) => [id, i]));
+  const isPinned = (e: T) => e.channelId !== undefined && rank.has(e.channelId);
+  const top = entries
+    .filter(isPinned)
+    .sort((a, b) => (rank.get(a.channelId ?? "") ?? 0) - (rank.get(b.channelId ?? "") ?? 0));
+  return [...top, ...entries.filter((e) => !isPinned(e))];
+}

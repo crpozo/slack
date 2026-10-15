@@ -185,6 +185,9 @@ class ChatController {
         s.setTyping(channelId, userId, Date.now() + TYPING_SHOW_MS);
       }),
 
+      client.on("channel.updated", ({ channel }) => store().updateChannel(channel)),
+      client.on("user.prefs", ({ pinned }) => store().setPinned(pinned)),
+
       client.on("channel.list", ({ channels }) => {
         store().setChannels(channels);
         const pending = this.pendingCreate;
@@ -388,6 +391,22 @@ class ChatController {
    */
   deleteChannel(channelId: string): void {
     this.client?.send("channel", { op: "delete", channelId });
+  }
+
+  /** Renames a channel (its creator or an admin); everyone sees `channel.updated`. */
+  renameChannel(channelId: string, name: string): void {
+    this.client?.send("channel", { op: "rename", channelId, name: name.trim() });
+  }
+
+  /**
+   * Pins (or unpins) a conversation to the top of your DM list. Applied at once;
+   * the server's `user.prefs` (also sent to your other devices) confirms it.
+   */
+  setPinned(channelId: string, pinned: boolean): void {
+    const s = useChat.getState();
+    const rest = s.pinned.filter((id) => id !== channelId);
+    s.setPinned(pinned ? [channelId, ...rest] : rest);
+    this.client?.send("user", { op: "pin", channelId, pinned });
   }
 
   /**

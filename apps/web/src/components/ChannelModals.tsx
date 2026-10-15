@@ -264,3 +264,61 @@ export function DeleteChannelModal({
     </Modal>
   );
 }
+
+/**
+ * Renames a channel (its creator or an admin). The link and history stay; a
+ * name already taken by another channel comes back as an error toast.
+ */
+export function RenameChannelModal({
+  channel,
+  onClose,
+}: Readonly<{ channel: Channel; onClose: () => void }>) {
+  const [name, setName] = useState(channel.name);
+  const parsed = ChannelNameSchema.safeParse(name);
+  const changed = name.trim() !== channel.name;
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!parsed.success || !changed) return;
+    chat.renameChannel(channel.channelId, name);
+    onClose();
+  }
+
+  return (
+    <Modal
+      title="Rename channel"
+      width="sm"
+      onClose={onClose}
+      footer={
+        <>
+          <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+          <button
+            type="submit"
+            form="rename-channel"
+            className="btn-primary"
+            disabled={!parsed.success || !changed}
+          >
+            Rename
+          </button>
+        </>
+      }
+    >
+      <form id="rename-channel" onSubmit={submit} className="space-y-1.5">
+        <label htmlFor="channel-name" className="text-sm font-medium text-ink">
+          Name
+        </label>
+        <input
+          id="channel-name"
+          className="input"
+          value={name}
+          maxLength={MAX_CHANNEL_NAME_LENGTH}
+          autoFocus
+          onChange={(e) => setName(e.target.value)}
+        />
+        <p className="text-xs text-ink-secondary">
+          Everyone in the channel sees the new name. Links and messages stay as they are.
+        </p>
+      </form>
+    </Modal>
+  );
+}
