@@ -35,21 +35,26 @@ const buzz = (ms: number) => navigator.vibrate?.(ms);
 export const CLICK_GUARD_MS = 500;
 
 /**
- * Swallows the next `click` on the page (for `CLICK_GUARD_MS`). After a touch
- * drag the browser still synthesizes a click at the lift point when nothing
- * scrolled, and that click would land on whatever just moved under the finger
- * (e.g. the drawer's first row). Capture phase, so no handler ever sees it.
+ * Swallows every `click` on the page for `CLICK_GUARD_MS` after a touch drag.
+ * Some browsers still synthesize a click at the lift point, and it would land
+ * on whatever just moved under the finger (e.g. `#general`, the first row of
+ * the drawer that just slid open). Capture phase on `document`, so no handler
+ * (React's included) ever sees it. A backstop: the gestures below also cancel
+ * the `touchend` itself, which stops the browser from making the click at all.
  */
 export function swallowNextClick(): void {
-  const expires = Date.now() + CLICK_GUARD_MS;
   const guard = (e: Event) => {
-    document.removeEventListener("click", guard, { capture: true });
-    if (Date.now() > expires) return;
     e.preventDefault();
     e.stopPropagation();
   };
   document.addEventListener("click", guard, { capture: true });
+  setTimeout(() => document.removeEventListener("click", guard, { capture: true }), CLICK_GUARD_MS);
 }
+
+/** Interactive elements keep their taps even inside the edge strip (e.g. the ☰ button). */
+const isInteractive = (target: EventTarget | null) =>
+  typeof (target as Element | null)?.closest === "function" &&
+  !!(target as Element).closest("button, a, input, textarea, select, [role=button]");
 
 interface MessageGestureOptions {
   onLongPress: () => void;
@@ -61,33 +66,79 @@ interface MessageGestureOptions {
 /**
  * Touch gestures of a message row (mouse and pen are untouched: desktop keeps
  * hover and clicks). Long press → `onLongPress`; swipe right → `onSwipeRight`.
- * The row needs `touch-action: pan-y` so vertical scrolling stays native.
+ *
+ * The row needs `touch-action: pan-y` (vertical scrolling stays native) and its
+ * list `overflow-x: hidden` (a row sliding right must not give the list a
+ * horizontal scrollbar to scroll instead). `ref` attaches native `touchmove` /
+ * `touchend` listeners — React's are passive and can't cancel anything — so
+ * that once a swipe is horizontal, nothing else moves: no vertical scroll on a
+ * tall message, no browser back/forward swipe, no click at the lift point.
+ * The pointer is captured, so a short row keeps the drag when the finger drifts.
+ * `touchY` is where the finger is in the row: the reply arrow is drawn there,
+ * so it stays in view on messages taller than the screen.
  */
 export function useMessageGestures({ onLongPress, onSwipeRight, enabled }: MessageGestureOptions) {
   const [offset, setOffset] = useState(0);
+  const [touchY, setTouchY] = useState(0);
+  const offsetRef = useRef(0);
   const start = useRef<{ x: number; y: number; id: number } | null>(null);
   const axis = useRef<DragAxis>("pending");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** A long press just fired: swallow the click that follows the release. */
   const suppressClick = useRef(false);
+  /** The current touch became a horizontal swipe (read by the native touch listeners). */
+  const swiping = useRef(false);
 
   const clearTimer = () => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
   };
+  const show = (px: number) => {
+    offsetRef.current = px;
+    setOffset(px);
+  };
   const reset = useCallback(() => {
     clearTimer();
     start.current = null;
     axis.current = "pending";
+    offsetRef.current = 0;
     setOffset(0);
   }, []);
   useEffect(() => clearTimer, []);
+
+  // Native, non-passive: only these can stop the browser mid-gesture.
+  const cleanup = useRef<(() => void) | null>(null);
+  const ref = useCallback((el: HTMLElement | null) => {
+    cleanup.current?.();
+    cleanup.current = null;
+    if (!el) return;
+    const onTouchMove = (e: TouchEvent) => {
+      if (swiping.current && e.cancelable) e.preventDefault();
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!swiping.current) return;
+      swiping.current = false;
+      if (e.cancelable) e.preventDefault(); // no synthesized click at the lift point
+    };
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd, { passive: false });
+    el.addEventListener("touchcancel", onTouchEnd);
+    cleanup.current = () => {
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, []);
 
   const onPointerDown = (e: PointerEvent<HTMLElement>) => {
     if (!enabled || e.pointerType !== "touch" || e.clientX <= EDGE_PX) return;
     start.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
     axis.current = "pending";
+    swiping.current = false;
     suppressClick.current = false;
+    setTouchY(e.clientY - e.currentTarget.getBoundingClientRect().top);
+    // Keep the drag even if the finger leaves a short row.
+    e.currentTarget.setPointerCapture?.(e.pointerId);
     clearTimer();
     timer.current = setTimeout(() => {
       if (axis.current !== "pending") return;
@@ -107,14 +158,16 @@ export function useMessageGestures({ onLongPress, onSwipeRight, enabled }: Messa
       axis.current = classifyDrag(dx, dy);
       if (axis.current !== "pending") clearTimer();
       if (axis.current === "vertical") return reset();
+      if (axis.current === "horizontal") swiping.current = true;
     }
-    if (axis.current === "horizontal") setOffset(swipeOffset(dx));
+    // Only the horizontal distance counts, however tall the row or wobbly the finger.
+    if (axis.current === "horizontal") show(swipeOffset(dx));
   };
 
   const onPointerUp = () => {
     if (axis.current === "horizontal") {
       swallowNextClick();
-      if (offset >= SWIPE_TRIGGER_PX) {
+      if (offsetRef.current >= SWIPE_TRIGGER_PX) {
         buzz(10);
         onSwipeRight();
       }
@@ -124,11 +177,16 @@ export function useMessageGestures({ onLongPress, onSwipeRight, enabled }: Messa
 
   return {
     offset,
+    touchY,
+    ref,
     handlers: {
       onPointerDown,
       onPointerMove,
       onPointerUp,
-      onPointerCancel: reset,
+      onPointerCancel: () => {
+        swiping.current = false;
+        reset();
+      },
       onClickCapture: (e: { preventDefault: () => void; stopPropagation: () => void }) => {
         if (!suppressClick.current) return;
         suppressClick.current = false;
@@ -140,6 +198,111 @@ export function useMessageGestures({ onLongPress, onSwipeRight, enabled }: Messa
         if (suppressClick.current) e.preventDefault();
       },
     },
+  };
+}
+
+interface EdgeSwipeOptions {
+  open: boolean;
+  /** Drawer width in px. */
+  width: number;
+  onOpen: () => void;
+  onClose: () => void;
+  /** 0…1 while dragging, `null` when the finger lifts. */
+  onProgress: (progress: number | null) => void;
+}
+
+/**
+ * Wires the drawer's edge swipe on `target` (the document): pointer events
+ * drive the drawer, native non-passive touch listeners stop the browser from
+ * acting on the same touch. Returns the cleanup.
+ */
+export function attachEdgeSwipe(
+  target: EventTarget,
+  { open, width, onOpen, onClose, onProgress }: EdgeSwipeOptions,
+): () => void {
+  let startX = 0;
+  let startY = 0;
+  let id = -1;
+  let axis: DragAxis = "pending";
+  let current: number | null = null;
+  /** This touch dragged the drawer: its touchend must not become a click. */
+  let dragged = false;
+  const update = (p: number | null) => {
+    current = p;
+    onProgress(p);
+  };
+
+  const down = (e: Event) => {
+    const p = e as globalThis.PointerEvent;
+    if (p.pointerType !== "touch") return;
+    if (!open && p.clientX > EDGE_PX) return;
+    startX = p.clientX;
+    startY = p.clientY;
+    id = p.pointerId;
+    axis = "pending";
+    dragged = false;
+  };
+  const move = (e: Event) => {
+    const p = e as globalThis.PointerEvent;
+    if (p.pointerId !== id) return;
+    const dx = p.clientX - startX;
+    if (axis === "pending") axis = classifyDrag(dx, p.clientY - startY);
+    if (axis !== "horizontal") return;
+    dragged = true;
+    const base = open ? 1 : 0;
+    update(Math.min(1, Math.max(0, base + dx / width)));
+  };
+  const up = (e: Event) => {
+    if ((e as globalThis.PointerEvent).pointerId !== id) return;
+    id = -1;
+    if (axis === "horizontal") {
+      // Backstop for browsers that synthesize the click anyway.
+      swallowNextClick();
+      if (current !== null) {
+        if (open && current < 0.65) onClose();
+        else if (!open && current > 0.35) onOpen();
+      }
+    }
+    axis = "pending";
+    update(null);
+  };
+
+  const touchStart = (e: Event) => {
+    const t = (e as TouchEvent).touches[0];
+    // iOS Safari: a swipe in from the left edge is its *history back* gesture.
+    // Our drawer would open, then the page would go back (often to #general).
+    // Cancelling touchstart in the edge strip keeps the gesture ours; pointer
+    // events still fire, and buttons there keep their taps.
+    if (!open && t && t.clientX <= EDGE_PX && !isInteractive(e.target) && e.cancelable) {
+      e.preventDefault();
+    }
+  };
+  const touchMove = (e: Event) => {
+    // No scrolling or overscroll while the drawer follows the finger.
+    if (axis === "horizontal" && e.cancelable) e.preventDefault();
+  };
+  const touchEnd = (e: Event) => {
+    if (!dragged) return;
+    dragged = false;
+    // Cancelling touchend stops the browser from synthesizing the click that
+    // would land on the drawer row now under the finger (the `#general` ghost click).
+    if (e.cancelable) e.preventDefault();
+  };
+
+  const passive = { passive: true } as const;
+  const active = { passive: false } as const;
+  const listeners: Array<[string, (e: Event) => void, AddEventListenerOptions]> = [
+    ["pointerdown", down, passive],
+    ["pointermove", move, passive],
+    ["pointerup", up, passive],
+    ["pointercancel", up, passive],
+    ["touchstart", touchStart, active],
+    ["touchmove", touchMove, active],
+    ["touchend", touchEnd, active],
+  ];
+  for (const [type, fn, opts] of listeners) target.addEventListener(type, fn, opts);
+  return () => {
+    for (const [type, fn] of listeners) target.removeEventListener(type, fn);
   };
 }
 
@@ -165,57 +328,7 @@ export function useEdgeSwipe({
   const [progress, setProgress] = useState<number | null>(null);
   useEffect(() => {
     if (!enabled) return;
-    let startX = 0;
-    let startY = 0;
-    let id = -1;
-    let axis: DragAxis = "pending";
-    let current: number | null = null;
-    const update = (p: number | null) => {
-      current = p;
-      setProgress(p);
-    };
-
-    const down = (e: globalThis.PointerEvent) => {
-      if (e.pointerType !== "touch") return;
-      if (!open && e.clientX > EDGE_PX) return;
-      startX = e.clientX;
-      startY = e.clientY;
-      id = e.pointerId;
-      axis = "pending";
-    };
-    const move = (e: globalThis.PointerEvent) => {
-      if (e.pointerId !== id) return;
-      const dx = e.clientX - startX;
-      if (axis === "pending") axis = classifyDrag(dx, e.clientY - startY);
-      if (axis !== "horizontal") return;
-      const base = open ? 1 : 0;
-      update(Math.min(1, Math.max(0, base + dx / width)));
-    };
-    const up = (e: globalThis.PointerEvent) => {
-      if (e.pointerId !== id) return;
-      id = -1;
-      if (axis === "horizontal") {
-        // Whatever ends up under the finger must not receive the synthesized click.
-        swallowNextClick();
-        if (current !== null) {
-          if (open && current < 0.65) onClose();
-          else if (!open && current > 0.35) onOpen();
-        }
-      }
-      axis = "pending";
-      update(null);
-    };
-    const opts = { passive: true } as const;
-    document.addEventListener("pointerdown", down, opts);
-    document.addEventListener("pointermove", move, opts);
-    document.addEventListener("pointerup", up, opts);
-    document.addEventListener("pointercancel", up, opts);
-    return () => {
-      document.removeEventListener("pointerdown", down);
-      document.removeEventListener("pointermove", move);
-      document.removeEventListener("pointerup", up);
-      document.removeEventListener("pointercancel", up);
-    };
+    return attachEdgeSwipe(document, { open, width, onOpen, onClose, onProgress: setProgress });
   }, [enabled, open, width, onOpen, onClose]);
   return progress;
 }

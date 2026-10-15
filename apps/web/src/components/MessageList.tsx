@@ -116,7 +116,9 @@ export function MessageList({ channelId, title }: Readonly<{ channelId: string; 
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="h-full overflow-y-auto overscroll-contain"
+        // overflow-x hidden: a row sliding right (swipe to reply) must not give the
+        // list a horizontal scrollbar to scroll instead of the row.
+        className="h-full overflow-y-auto overflow-x-hidden overscroll-contain"
         role="log"
         aria-live="polite"
         aria-label={`Messages in ${title}`}

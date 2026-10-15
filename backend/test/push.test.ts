@@ -210,9 +210,13 @@ describe("push recipients", () => {
     ).toEqual([BOB.userId]);
   });
 
-  it("never notifies people outside a private channel, nor reads users without mentions", async () => {
+  it("is every other member of a private channel, mention or not, and nobody outside it", async () => {
     const secret = privateRow("ch_secret", ALICE.userId, [ALICE.userId, BOB.userId]);
     expect(await pushRecipients(secret, message("ch_secret", "@carol @bob"))).toEqual([BOB.userId]);
+    expect(await pushRecipients(secret, message("ch_secret", "no mentions"))).toEqual([BOB.userId]);
+  });
+
+  it("reads no users for a public message without mentions", async () => {
     ddbMock.resetHistory();
     expect(await pushRecipients(GENERAL, message("ch_general", "no mentions"))).toEqual([]);
     expect(ddbMock.commandCalls(ScanCommand)).toHaveLength(0);

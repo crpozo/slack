@@ -73,11 +73,24 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - Push: the service worker and the app log every step (`[sw]`, `[push]`), Settings shows why the
   last attempt failed, and the server logs the push service's answer for each rejected push.
 
+- **App logo pipeline:** `pnpm --filter web icons` turns `apps/web/public/logo.webp` into every
+  icon (PWA, Apple touch, favicon, in-app logo, notification badge, desktop app) with
+  cache-busting URLs. The in-app logo is now an image.
+
 ### Removed
 
 - **Ping** (the "look at me" nudge from a DM's ⋯ menu), with its `nudge` route and Lambda.
 
 ### Fixed
+
+- **Swiping the drawer open on a phone no longer jumps to `#general`:** the lift no longer becomes
+  a click on the drawer's first row, and iPhone Safari's own "back" swipe from the left edge no
+  longer takes over the gesture.
+- **Swipe to reply** works on short and very tall messages: no more horizontal scrollbar (the
+  "bar") or sideways scrolling of the list, no vertical scroll mid-swipe, and the reply arrow
+  stays under your finger.
+- **Private channels** now notify every member, like DMs (desktop pop-up and phone push), not
+  only on `@mentions`; the sound already played for them.
 
 - **Your display name** shows right away in every client (the desktop app showed the email
   prefix until the directory arrived); names also refresh when the app comes back to the front.

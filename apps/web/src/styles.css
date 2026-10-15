@@ -54,6 +54,13 @@
   body {
     @apply bg-surface font-sans text-ink antialiased;
   }
+
+  /* No browser back/forward swipe or sideways rubber-banding: horizontal
+     swipes belong to the app (drawer, swipe to reply). */
+  html,
+  body {
+    overscroll-behavior-x: none;
+  }
 }
 
 @layer components {

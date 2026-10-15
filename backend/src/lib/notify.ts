@@ -40,13 +40,17 @@ export async function displayNameOf(userId: string, email: string): Promise<stri
 
 /**
  * Who should hear about `message` beyond the open sockets: the other person
- * of a DM, or the channel members it `@mentions` (by display name without
- * spaces, or by email local part). Never the sender.
+ * of a DM; every other member of a private channel (a small group, like a
+ * DM); in a public channel, the members it `@mentions` (by display name
+ * without spaces, or by email local part). Never the sender.
  */
 export async function pushRecipients(channel: Channel, message: Message): Promise<string[]> {
   if (channel.type === "dm") {
     const peer = dmPeerOf(channel, message.userId);
     return peer ? [peer] : [];
+  }
+  if (channel.type === "private") {
+    return [...new Set(channel.members ?? [])].filter((id) => id !== message.userId);
   }
   const handles = new Set(findMentions(message.text));
   if (handles.size === 0) return [];
