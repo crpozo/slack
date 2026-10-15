@@ -2,7 +2,7 @@
  * Notification sounds. The rings are synthesized with Web Audio (no files):
  *   - "outgoing": a soft, slow ring for the caller while the other side is rung
  *   - "incoming": the brighter two-tone ring under the incoming-call card
- * The message sound is an audio file (`/sounds/notify.wav`) played through an
+ * The message sound is an audio file (`src/assets/sounds/notify.wav`) played through an
  * `<audio>` element; a synthesized pop is the fallback where the file can't
  * play. Everything plays at the volume chosen in Settings (0–1, default 1).
  * iOS ignores `<audio>` volume: there the hardware buttons decide.
@@ -12,6 +12,8 @@
  * shows), and `installAudioUnlock` resumes the context on the first click or key
  * so rings that arrive later can be heard.
  */
+
+import notifySoundUrl from "../assets/sounds/notify.wav";
 
 export type RingKind = "outgoing" | "incoming";
 
@@ -192,10 +194,12 @@ const MESSAGE_POP: Tone[] = [
 ];
 
 /**
- * The message sound. To change it, replace `apps/web/public/sounds/notify.wav`
- * (same name) and bump `?v=`, so browsers and the desktop app fetch the new file.
+ * The message sound. Imported, not served from `public/`: Vite names it after
+ * its content (`/assets/notify-<hash>.wav`), so replacing
+ * `src/assets/sounds/notify.wav` changes the URL and no browser or desktop app
+ * can keep playing a cached old copy.
  */
-export const MESSAGE_SOUND_URL = "/sounds/notify.wav?v=2";
+export const MESSAGE_SOUND_URL: string = notifySoundUrl;
 
 let messageAudio: HTMLAudioElement | null = null;
 
@@ -268,37 +272,41 @@ function playFallbackPop(): void {
   });
 }
 
-/**
- * Plays the message sound once at the chosen volume; silent while sounds are
- * off, at volume 0, or while audio is blocked. Falls back to the synthesized pop
- * if the file can't play.
- */
-export function playMessageSound(): void {
-  if (muted || volume === 0) return;
+/** Plays the sound file at the chosen volume; `fallback` stands in if it can't play. */
+function playFile(fallback: (() => void) | null): void {
   const el = messageElement();
   if (!el) {
-    playFallbackPop();
+    fallback?.();
     return;
   }
   el.volume = volume;
   el.currentTime = 0;
   // `play()` rejects when autoplay is blocked or the file can't be decoded (and
-  // a very old browser could throw instead): either way, the pop stands in.
+  // a very old browser could throw instead).
   Promise.resolve()
     .then(() => el.play())
-    .catch(() => playFallbackPop());
+    .catch((err: unknown) => {
+      console.warn("[sounds] couldn't play the notification sound", err);
+      fallback?.();
+    });
 }
 
 /**
- * Settings → "Play test" and the volume slider: plays the message sound even
- * while sounds are off, so people can hear what they're choosing.
+ * Plays the message sound once at the chosen volume; silent while sounds are
+ * off, at volume 0, or while audio is blocked. Falls back to the synthesized pop
+ * if the file can't play, so an incoming message is never silent.
+ */
+export function playMessageSound(): void {
+  if (muted || volume === 0) return;
+  playFile(playFallbackPop);
+}
+
+/**
+ * Settings → "Play test" and the volume slider: always the real file at the
+ * chosen volume (even while sounds are off), never the synthesized pop — the
+ * point is to hear exactly what notifications will sound like.
  */
 export function previewMessageSound(): void {
-  const wasMuted = muted;
-  muted = false;
-  try {
-    playMessageSound();
-  } finally {
-    muted = wasMuted;
-  }
+  if (volume === 0) return;
+  playFile(null);
 }

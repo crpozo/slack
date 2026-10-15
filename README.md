@@ -256,6 +256,33 @@ If the domain were on Route 53, pass `HOSTED_ZONE_ID` and CDK creates the record
 Create the two accounts with the commands in [Create the Cognito users](#create-the-cognito-users)
 using the `UserPoolId` of `SlackProd`.
 
+#### Roles: members, admins and guests
+
+Roles come from Cognito groups in the id token (`cognito:groups`), so the server can trust them:
+
+| Role   | Group    | Can                                                                          |
+| ------ | -------- | ---------------------------------------------------------------------------- |
+| member | _(none)_ | everything: channels, DMs, calls, boards                                     |
+| admin  | `admins` | like a member, and rename any channel they're in                             |
+| guest  | `guests` | only the Task Manager boards they're invited to — no chat, calls or settings |
+
+**Guests** are external clients. A board owner invites them from the board's _Share_ dialog
+(_Invite by email_): a new address becomes a guest account and Cognito emails a temporary
+password (its built-in sender allows about 50 emails a day). On first sign-in they choose their
+own password and land on their boards. Inviting an address that already has an account just adds
+that person to the board.
+
+The server enforces it, not just the UI: every chat WebSocket route answers `FORBIDDEN` to a
+guest, and the single delivery function (`deliver` in `backend/src/lib/broadcast.ts`) never
+sends a guest's connection anything but `board.*` events. Guests see only their boards' members
+in the directory, can't be DMed or invited to channels, and never get chat pushes.
+
+Make someone an admin (takes effect at their next sign-in):
+
+```bash
+aws cognito-idp admin-add-user-to-group --user-pool-id "$POOL_ID" --username "$EMAIL" --group-name admins
+```
+
 ### Moving data from dev to prod
 
 If the team started out on `SlackDev`, `pnpm --filter infra migrate-dev-to-prod` copies accounts,
@@ -297,9 +324,10 @@ report that with every heartbeat (`ping` with `active`, stored as `activeAt` on 
 and as soon as focus changes; "in front" means active within the last 4 minutes. An app that is
 merely open in the background (the desktop app, a sleeping iPhone) still gets the push.
 
-To change the notification sound, replace `apps/web/public/sounds/notify.wav` (keep the name)
-and bump the `?v=` in `MESSAGE_SOUND_URL` (`apps/web/src/lib/sounds.ts`) so browsers fetch it.
-Phones play their own alert tone for pushes, not this file.
+To change the notification sound, replace `apps/web/src/assets/sounds/notify.wav` (keep the
+name). It's bundled by Vite with a content hash in its URL, so every browser and the desktop app
+pick up the new file on the next deploy. Phones play their own alert tone for pushes, not this
+file.
 
 ### 6. Continuous deployment (GitHub Actions)
 

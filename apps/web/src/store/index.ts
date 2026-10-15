@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import { create } from "zustand";
 import type { SessionUser } from "../lib/auth";
 import { displayName } from "../lib/channels";
+import { loadOwnProfile, saveOwnProfile } from "../lib/profile";
 import type { DirectoryUser } from "../lib/config";
 import type { WsStatus } from "../lib/ws";
 import { countUnread, mergeMessages, pendingMessageId, type ChatMessage } from "./messages";
@@ -155,7 +156,16 @@ export const useChat = create<ChatState>()((set, get) => ({
     const directory: Record<string, string> = {};
     for (const u of team) if (u.userId) directory[u.userId] = u.email;
     if (me) directory[me.userId] = me.email;
-    set({ ...initialState, me, team, directory, lastReadTs: me ? loadLastRead(me.userId) : {} });
+    // Your saved profile: your display name shows before the directory arrives.
+    const own = me ? loadOwnProfile(me.userId) : null;
+    set({
+      ...initialState,
+      me,
+      team,
+      directory,
+      users: own ? { [own.userId]: own } : {},
+      lastReadTs: me ? loadLastRead(me.userId) : {},
+    });
   },
 
   setStatus: (status) => set({ status }),
@@ -229,6 +239,10 @@ export const useChat = create<ChatState>()((set, get) => ({
         users[u.userId] = u;
         directory[u.userId] = u.email;
       }
+      const mine = s.me && users[s.me.userId];
+      if (mine) saveOwnProfile(mine);
+      // A guest's directory may not list them yet: keep what we know about ourselves.
+      else if (s.me && s.users[s.me.userId]) users[s.me.userId] = s.users[s.me.userId]!;
       if (!onlineIds) return { users, directory };
       const online: Record<string, true> = {};
       for (const id of onlineIds) online[id] = true;
@@ -273,10 +287,13 @@ export const useChat = create<ChatState>()((set, get) => ({
     }),
 
   upsertUser: (user) =>
-    set((s) => ({
-      users: { ...s.users, [user.userId]: user },
-      directory: { ...s.directory, [user.userId]: user.email },
-    })),
+    set((s) => {
+      if (user.userId === s.me?.userId) saveOwnProfile(user);
+      return {
+        users: { ...s.users, [user.userId]: user },
+        directory: { ...s.directory, [user.userId]: user.email },
+      };
+    }),
 
   setReactions: (channelId, sk, reactions) =>
     set((s) => {

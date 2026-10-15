@@ -222,6 +222,22 @@ describe("message sound", () => {
     expect(heard).toEqual([0]);
   });
 
+  it("previews the real file only: never the synthesized pop, even if the file fails", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    FakeAudio.playFails = true;
+    sounds.setSoundVolume(0.4);
+    sounds.previewMessageSound();
+    await flush();
+    expect(FakeAudio.instances[0]?.plays).toBe(1);
+    expect(FakeAudio.instances[0]?.volume).toBe(0.4);
+    expect(started()).toBe(0); // no fallback tones
+  });
+
+  it("serves the sound from a content-hashed asset, not a cacheable fixed URL", () => {
+    expect(sounds.MESSAGE_SOUND_URL).toMatch(/notify.*\.wav/);
+    expect(sounds.MESSAGE_SOUND_URL).not.toMatch(/^\/sounds\//);
+  });
+
   it("is muted by the preference, except for the Settings preview", async () => {
     sounds.setSoundsEnabled(false);
     sounds.playMessageSound();

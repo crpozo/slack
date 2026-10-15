@@ -25,8 +25,6 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   quote shows above your message.
 - **Phone gestures:** long-press a message for reactions (a tap no longer opens them) and swipe
   in from the left edge to open the sidebar.
-- **Ping** someone from the ⋯ menu next to their name: a toast if they're online, a notification
-  if not.
 
 - **Read receipts:** "✓✓ Read" under your latest message in a direct message once the other
   person has seen it (one read mark per conversation, never stored per message).
@@ -48,6 +46,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   (in the bell, with the sound, as a desktop notification and as a push when they're away).
 - **Notification volume** slider in Settings (0–100 %); moving it plays the sound at that level.
 
+- **Guest access to boards:** invite external clients to a Kanban board by email (_Share →
+  Invite by email_). They get a temporary password by email, choose their own on first sign-in,
+  and see only the boards they're invited to: no channels, DMs, calls or settings, enforced by
+  the server. New `admins` group: admins may rename any channel.
+- **Floating call window:** leave the call's DM and the call keeps going in a small window over
+  the app (video or avatar, your camera, timer, mute, camera, back to call, hang up). Drag it
+  anywhere; it snaps to a corner and remembers it. Pop the video out with picture-in-picture
+  where supported.
+- **Read receipts in channels:** "Seen by Ana, Luis and 3 others" with avatars under the newest
+  message.
+- **Rename channels** from the ⋯ menu (creator or admin; links and history stay).
+- **Pin chats:** _Pin chat_ in a DM's ⋯ menu keeps it at the top of Direct messages, with a pin;
+  pins follow you across devices.
+
 ### Changed
 
 - **Attachments up to 500 MB** (was 25 MB) in messages and tasks, for videos and datasets; the
@@ -61,7 +73,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - Push: the service worker and the app log every step (`[sw]`, `[push]`), Settings shows why the
   last attempt failed, and the server logs the push service's answer for each rejected push.
 
+### Removed
+
+- **Ping** (the "look at me" nudge from a DM's ⋯ menu), with its `nudge` route and Lambda.
+
 ### Fixed
+
+- **Your display name** shows right away in every client (the desktop app showed the email
+  prefix until the directory arrived); names also refresh when the app comes back to the front.
+- **Notification sound:** served from a content-hashed URL, so a replaced sound always reaches
+  browsers and the desktop app; the volume slider's preview always plays that file, never the
+  synthesized fallback.
 
 - **Desktop app notifications on Windows:** none ever appeared, because WebView2 reports the
   window as focused even when it's behind other apps or minimized. The app now asks Tauri for the

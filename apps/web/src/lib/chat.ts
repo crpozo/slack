@@ -50,6 +50,8 @@ type PresignRequest = DistributiveOmit<PresignAction, "action" | "requestId">;
 
 /** In front of the person (in the desktop app, per Tauri: see `activity.ts`). */
 const isFocused = isAppActive;
+/** The directory is re-read when the app comes back to the front after this long. */
+const DIRECTORY_REFRESH_MS = 10 * 60_000;
 /** Keystrokes send `typing` at most this often… */
 export const TYPING_INTERVAL_MS = 3000;
 /** …and the indicator stays this long after the last one (slightly more than the interval). */
@@ -58,6 +60,7 @@ export const TYPING_SHOW_MS = 5000;
 /** Glue between the WebSocket and the store; one instance per signed-in session. */
 class ChatController {
   private client: WsClient | null = null;
+  private usersFetchedAt = 0;
   private readonly cleanups: Array<() => void> = [];
   private readonly presigns = new Map<string, Deferred<PresignResultEvent>>();
   private pendingCreate: (Deferred<string> & { name: string }) | null = null;
@@ -148,7 +151,10 @@ class ChatController {
         if (channelId === s.activeChannelId && isFocused()) this.viewed(channelId);
       }),
 
-      client.on("user.list", ({ users, online }) => store().setUsers(users, online)),
+      client.on("user.list", ({ users, online }) => {
+        this.usersFetchedAt = Date.now();
+        store().setUsers(users, online);
+      }),
 
       // Presence (Phase 7).
       client.on("user.connected", ({ userId }) => store().setPresence(userId, true)),
@@ -264,7 +270,14 @@ class ChatController {
       // their devices only while none of them is active.
       startHeartbeat(client, isAppActive),
       watchActivity((active) => {
-        if (client.status === "open") client.send("ping", { active });
+        if (client.status !== "open") return;
+        client.send("ping", { active });
+        // Back in front after a while (the desktop app runs for days): refresh
+        // names, so a display name changed elsewhere shows here too.
+        if (active && Date.now() - this.usersFetchedAt > DIRECTORY_REFRESH_MS) {
+          this.usersFetchedAt = Date.now();
+          client.send("user", { op: "list" });
+        }
       }),
       () => window.removeEventListener("online", onOnline),
     );
