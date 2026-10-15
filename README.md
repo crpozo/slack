@@ -318,7 +318,8 @@ The Lambdas read `/slack/<stage>/vapid` at runtime, so this can run before or af
 until it exists, push is simply off. `--rotate` replaces the keys (browsers re-subscribe on their
 next visit). On iPhone/iPad, push works only after _Share → Add to Home Screen_ (iOS 16.4+).
 
-Who gets a push: the people a DM, `@mention` or board change (new task, task moved to
+Who gets a push: the people a DM, a private-channel message (all its members), an `@mention`
+or a board change (new task, task moved to
 another column) is for, unless they are in front of the app on some device right now. Clients
 report that with every heartbeat (`ping` with `active`, stored as `activeAt` on the connection)
 and as soon as focus changes; "in front" means active within the last 4 minutes. An app that is
@@ -353,11 +354,28 @@ The web app sends a `ping` frame every 3 minutes while connected, because API Ga
 WebSockets that stay idle for 10 minutes; the `ping` Lambda only records whether the app is in
 front of you (`active`), which decides pushes.
 
+## App logo and icons
+
+The official logo lives at `apps/web/public/logo.webp` (square, ideally 1024×1024). Every icon
+is generated from it with one command (Node only, no Rust needed):
+
+```bash
+pnpm --filter web icons                        # opaque icons on white
+pnpm --filter web icons --background "#0E0D12" # or another fill behind them
+```
+
+It writes the PWA icons (`manifest.webmanifest`), the Android maskable icon, the Apple touch icon,
+the favicons, the in-app logo (`src/assets/brand/logo.png`), the Android notification badge (only
+from a logo with transparency) and the desktop app icons (`apps/desktop/src-tauri/icons`, via
+`tauri icon`). Icons are cached for a year, so it also stamps `?v=<hash of the logo>` on every
+reference (`index.html`, the manifest, the service worker). Commit the result; the desktop app
+shows the new icon from its next installer build.
+
 ## Desktop app
 
 `apps/desktop` is a Tauri 2 window around `https://slack.mindfultech.ec` (1280×800): there is no
 second frontend, so every web deploy updates the desktop app too. It adds native notifications
-for DMs and `@mentions` while the window is in the background, camera and microphone for calls
+for DMs, private channels and `@mentions` while the window is in the background, camera and microphone for calls
 and voice messages, and opens outside links (downloads, URLs in messages) in your browser.
 
 **Nothing to install locally.** GitHub Actions builds it (`.github/workflows/tauri-build.yml`):

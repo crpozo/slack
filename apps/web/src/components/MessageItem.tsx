@@ -270,7 +270,7 @@ export const MessageItem = memo(function MessageItem({
   const pressed = usePressed((s) => s.id === message.messageId);
   const setPressed = usePressed((s) => s.set);
   const setReplyTo = useChat((s) => s.setReplyTo);
-  const { offset, handlers } = useMessageGestures({
+  const { offset, touchY, ref, handlers } = useMessageGestures({
     enabled: sent,
     onLongPress: () => setPressed(message.messageId),
     onSwipeRight: () => setReplyTo(message.channelId, snapshotOf(message)),
@@ -278,6 +278,7 @@ export const MessageItem = memo(function MessageItem({
 
   return (
     <div
+      ref={ref}
       data-message-id={message.messageId}
       {...handlers}
       className={`group relative flex gap-3 px-4 transition-colors [touch-action:pan-y] [@media(hover:hover)]:hover:bg-surface-sidebar/70 [@media(hover:none)]:select-none [@media(hover:none)]:[-webkit-touch-callout:none] ${
@@ -287,8 +288,10 @@ export const MessageItem = memo(function MessageItem({
       {offset > 0 && (
         <span
           aria-hidden="true"
-          className="absolute left-2 top-1/2 -translate-y-1/2 text-primary"
-          style={{ opacity: Math.min(1, offset / 60) }}
+          // At the finger's height: on a message taller than the screen the
+          // middle may be off screen.
+          className="absolute left-2 -translate-y-1/2 text-primary"
+          style={{ top: touchY, opacity: Math.min(1, offset / 60) }}
         >
           <ReplyIcon />
         </span>

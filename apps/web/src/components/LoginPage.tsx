@@ -1,11 +1,17 @@
 import { useState, type FormEvent } from "react";
+import logoUrl from "../assets/brand/logo.png";
 import { setNewPassword, signIn, type SessionUser } from "../lib/auth";
 
+/** The official MindfulTech logo (generated from `public/logo.webp` by `pnpm --filter web icons`). */
 export function Logo() {
   return (
-    <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-lg font-bold text-on-accent">
-      M
-    </span>
+    <img
+      src={logoUrl}
+      alt="MindfulTech"
+      width={40}
+      height={40}
+      className="h-10 w-10 shrink-0 rounded-xl object-contain"
+    />
   );
 }
 

@@ -152,15 +152,15 @@ function DeviceSettings() {
 }
 
 const PUSH_HINT: Record<PushStatus, string> = {
-  on: "This device gets a notification for direct messages and @mentions while you're away.",
-  off: "Get a notification for direct messages and @mentions while you're away.",
+  on: "This device gets a notification for direct messages, private channels and @mentions while you're away.",
+  off: "Get a notification for direct messages, private channels and @mentions while you're away.",
   denied:
     "Notifications are blocked for this site. Allow them in your browser's site settings, then try again.",
   "needs-install":
     "On iPhone and iPad: tap Share → Add to Home Screen, open the app from there, then turn this on.",
   unconfigured: "Push notifications aren't set up on this deployment yet.",
   unsupported: isDesktopApp()
-    ? "The desktop app shows its own notifications for direct messages and @mentions."
+    ? "The desktop app shows its own notifications for direct messages, private channels and @mentions."
     : "This browser doesn't support push notifications.",
 };
 

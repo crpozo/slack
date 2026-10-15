@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "icons": "node scripts/brand-icons.mjs"
   },
   "dependencies": {
     "@mindfultech/shared": "workspace:*",
@@ -27,6 +28,7 @@
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.6.1",
     "postcss": "^8.5.29",
+    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.19",
     "vite": "^7.3.7",
     "vitest": "^3.2.7"

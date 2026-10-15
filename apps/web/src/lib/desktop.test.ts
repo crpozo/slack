@@ -21,10 +21,15 @@ describe("shouldNotify", async () => {
     expect(shouldNotify({ type: "dm" }, msg("hi", "u_me"), me)).toBe(false);
   });
 
-  it("notifies in channels only when you are @mentioned", () => {
+  it("notifies for every private-channel message from someone else, like a DM", () => {
+    expect(shouldNotify({ type: "private" }, msg("standup in 5"), me)).toBe(true);
+    expect(shouldNotify({ type: "private" }, msg("mine", "u_me"), me)).toBe(false);
+  });
+
+  it("notifies in public channels only when you are @mentioned", () => {
     expect(shouldNotify({ type: "public" }, msg("hello all"), me)).toBe(false);
     expect(shouldNotify({ type: "public" }, msg("ping @CarlosPozo"), me)).toBe(true);
-    expect(shouldNotify({ type: "private" }, msg("cc @carlos."), me)).toBe(true);
+    expect(shouldNotify({ type: "public" }, msg("cc @carlos."), me)).toBe(true);
     expect(shouldNotify({ type: "public" }, msg("@carlos", "u_me"), me)).toBe(false);
     expect(shouldNotify(undefined, msg("@carlos"), me)).toBe(false);
   });

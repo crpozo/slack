@@ -48,7 +48,7 @@ export function PushPrompt() {
   return (
     <output className="flex items-center gap-3 border-b border-line bg-primary/15 px-3 py-2 text-sm text-ink sm:px-4">
       <span className="min-w-0 flex-1">
-        Get notified about direct messages and @mentions while you&apos;re away.
+        Get notified about direct messages, private channels and @mentions while you&apos;re away.
       </span>
       <button
         type="button"

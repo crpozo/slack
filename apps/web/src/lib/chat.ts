@@ -123,7 +123,7 @@ class ChatController {
         s.setTyping(message.channelId, message.userId, null);
         // A pop for messages from others that you are not already looking at.
         if (!viewing && message.userId !== s.me?.userId) playMessageSound();
-        // DMs and @mentions also go to the bell (and to the desktop app's
+        // DMs, private channels and @mentions also go to the bell (and to the desktop app's
         // notifications while it's in the background).
         // A brand-new DM isn't in the channel list yet; its id says what it is.
         const channel =
@@ -135,7 +135,7 @@ class ChatController {
           const dm = channel.type === "dm";
           raiseAlert(
             {
-              kind: dm ? "message" : "mention",
+              kind: dm || channel.type === "private" ? "message" : "mention",
               title: dm || !("name" in channel) ? sender : `${sender} in #${channel.name}`,
               body: notificationBody(message),
               url: `/app/${encodeURIComponent(message.channelId)}`,

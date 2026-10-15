@@ -4,7 +4,7 @@ import { pushApi, tasksApiConfigured, TasksApiError } from "./tasksApi";
 
 /**
  * Web Push on this device. The service worker (`/sw.js`) shows notifications;
- * the server only pushes when you have no open connection (DMs and @mentions).
+ * the server only pushes when you have no open connection (DMs, private channels, @mentions).
  *   unsupported   — no Push API (or no HTTP API configured)
  *   needs-install — iOS Safari: works only from a Home Screen app (iOS 16.4+)
  *   unconfigured  — this deployment has no VAPID keys yet

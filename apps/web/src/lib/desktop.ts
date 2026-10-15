@@ -96,7 +96,8 @@ export function shouldNotify(
   me: { userId: string; email: string; displayName?: string },
 ): boolean {
   if (!channel || message.userId === me.userId) return false;
-  if (channel.type === "dm") return true;
+  // DMs and private channels (small groups): every message. Public: @mentions only.
+  if (channel.type === "dm" || channel.type === "private") return true;
   const handles = new Set(findMentions(message.text));
   const local = (me.email.split("@")[0] ?? "").toLowerCase();
   return (
