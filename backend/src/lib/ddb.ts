@@ -40,6 +40,8 @@ export interface ConnectionItem {
   connectedAt: number;
   /** Epoch seconds (DynamoDB TTL). */
   ttl: number;
+  /** Epoch milliseconds of the last `ping` with `active: true` (absent while in the background). */
+  activeAt?: number;
 }
 
 /** DynamoDB caps BatchWriteItem at 25 requests. */

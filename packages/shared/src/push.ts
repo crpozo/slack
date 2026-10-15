@@ -71,6 +71,16 @@ export interface PushPayload {
 export const PUSH_PREVIEW_LENGTH = 120;
 
 /**
+ * A connection counts as "in front of the person" this long after it last
+ * reported `active` (the heartbeat repeats every 3 minutes). While any of a
+ * person's connections is active, nothing is pushed to their devices: they
+ * see it in the app. Otherwise every device gets the push, even with the app
+ * open in the background (a sleeping iPhone PWA keeps its socket for minutes,
+ * a desktop app stays connected all day).
+ */
+export const ACTIVE_WINDOW_MS = 4 * 60_000;
+
+/**
  * `@handles` in a message, lowercased and de-duplicated. A handle is letters,
  * digits, `.`, `_` or `-`, e.g. `@ana`, `@ana.maria`. Matched against display
  * names (spaces removed) and email local parts by the server.

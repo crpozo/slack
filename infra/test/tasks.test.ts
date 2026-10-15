@@ -153,8 +153,12 @@ describe("task manager API", () => {
       "dynamodb:Query",
       "dynamodb:UpdateItem",
     ]);
-    expect(actionsOn("DataUsers")).toEqual(["dynamodb:BatchGetItem"]);
+    // Invitees must exist; the actor's display name titles board pushes.
+    expect(actionsOn("DataUsers")).toEqual(["dynamodb:BatchGetItem", "dynamodb:GetItem"]);
     expect(actionsOn("DataMessages")).toEqual([]);
+    // Board pushes: members' devices, dropping expired ones; the VAPID parameter.
+    expect(actionsOn("DataPushSubscriptions")).toEqual(["dynamodb:DeleteItem", "dynamodb:Query"]);
+    expect(statements.some((st) => [st.Action].flat().includes("ssm:GetParameter"))).toBe(true);
     // Real-time pushes over the chat WebSocket: list members' connections, drop stale ones, post.
     expect(actionsOn("DataConnections")).toEqual(["dynamodb:DeleteItem", "dynamodb:Scan"]);
     expect(

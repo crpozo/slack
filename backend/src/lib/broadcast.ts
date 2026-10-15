@@ -1,10 +1,10 @@
 import { DeleteCommand, paginateScan } from "@aws-sdk/lib-dynamodb";
-import type { ServerEvent } from "@mindfultech/shared";
+import { ACTIVE_WINDOW_MS, type ServerEvent } from "@mindfultech/shared";
 import { ddb, tables, type ConnectionItem } from "./ddb";
 import { log } from "./logger";
 import { reply } from "./response";
 
-export type LiveConnection = Pick<ConnectionItem, "connectionId" | "userId">;
+export type LiveConnection = Pick<ConnectionItem, "connectionId" | "userId" | "activeAt">;
 
 /**
  * All rows of `connections` (≤ a handful at this scale, so a Scan is fine).
@@ -16,7 +16,7 @@ export async function listConnections(consistent = false): Promise<LiveConnectio
     { client: ddb },
     {
       TableName: tables.connections,
-      ProjectionExpression: "connectionId, userId",
+      ProjectionExpression: "connectionId, userId, activeAt",
       ...(consistent && { ConsistentRead: true }),
     },
   );
@@ -76,4 +76,17 @@ export async function broadcast(
   eventFor: (connection: LiveConnection) => ServerEvent | null,
 ): Promise<void> {
   await deliver(await listConnections(), eventFor);
+}
+
+/**
+ * People in front of the app right now: some connection of theirs reported
+ * `active` within `ACTIVE_WINDOW_MS`. They see events in the app; everyone
+ * else (offline, or only connected in the background) gets a Web Push.
+ */
+export function activeUserIds(connections: LiveConnection[], now = Date.now()): Set<string> {
+  return new Set(
+    connections
+      .filter((c) => c.activeAt !== undefined && now - c.activeAt < ACTIVE_WINDOW_MS)
+      .map((c) => c.userId),
+  );
 }

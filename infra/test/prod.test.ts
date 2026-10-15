@@ -377,7 +377,7 @@ describe("phase 5.1 resources", () => {
     }
   });
 
-  it("routes ping to a no-op Lambda with no DynamoDB or @connections permissions", () => {
+  it("routes ping to a Lambda that only stamps activity on connection rows", () => {
     const t = template();
     expect(matching(t, "AWS::ApiGatewayV2::Route", { RouteKey: "ping" })).toHaveLength(1);
     expect(
@@ -386,10 +386,16 @@ describe("phase 5.1 resources", () => {
         Runtime: "nodejs22.x",
       }),
     ).toHaveLength(1);
-    const policies = Object.keys(t.findResources("AWS::IAM::Policy")).filter((id) =>
+    const policies = Object.entries(t.findResources("AWS::IAM::Policy")).filter(([id]) =>
       id.startsWith("ApipingFnServiceRoleDefaultPolicy"),
     );
-    expect(policies).toEqual([]);
+    expect(policies).toHaveLength(1);
+    const statements = policies[0]?.[1].Properties.PolicyDocument.Statement as Array<{
+      Action: string | string[];
+      Resource: unknown;
+    }>;
+    expect(statements.flatMap((st) => st.Action)).toEqual(["dynamodb:UpdateItem"]);
+    expect(JSON.stringify(statements[0]?.Resource)).toContain("DataConnections");
   });
 
   it("routes call signaling to a Lambda that only touches connections", () => {

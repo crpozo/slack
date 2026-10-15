@@ -9,18 +9,33 @@ import {
 /**
  * The Tauri desktop app (`apps/desktop`) loads this same site in a native
  * window and injects `window.__TAURI__` (`withGlobalTauri`). Its WebSocket
- * stays open while the window is hidden, so the server never sends Web Push
- * to it: the app raises native notifications itself, for what a push would
- * have carried (DMs and @mentions).
+ * stays open while the window is in the background, so the app raises native
+ * notifications itself (DMs, @mentions, pings and board activity).
+ *
+ * Two things the browser APIs get wrong inside the desktop app, and why this
+ * module asks Tauri instead:
+ *   - focus: in Windows' WebView2, `document.hasFocus()` and
+ *     `visibilityState` don't change when the window loses focus or is
+ *     minimized, so the app always looked "in front" and never notified.
+ *     Tauri's own window state is the truth.
+ *   - delivery: the plugin's `sendNotification()` fires and forgets (errors
+ *     vanish); calling its `notify` command directly lets failures be logged.
+ * Everything here only uses permissions the 0.1.0 app already grants
+ * (`core:default`, `notification:default`), so no reinstall is needed.
  */
-interface TauriNotificationApi {
-  isPermissionGranted(): Promise<boolean>;
-  requestPermission(): Promise<NotificationPermission>;
-  sendNotification(options: { title: string; body?: string }): void;
+interface TauriWindow {
+  isFocused(): Promise<boolean>;
+  isMinimized(): Promise<boolean>;
+  onFocusChanged(handler: (event: { payload: boolean }) => void): Promise<() => void>;
 }
 
 interface TauriGlobal {
-  notification?: TauriNotificationApi;
+  core?: { invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> };
+  window?: { getCurrentWindow(): TauriWindow };
+  notification?: {
+    isPermissionGranted(): Promise<boolean>;
+    requestPermission(): Promise<NotificationPermission>;
+  };
 }
 
 const tauri = (): TauriGlobal | undefined =>
@@ -28,8 +43,51 @@ const tauri = (): TauriGlobal | undefined =>
     ? undefined
     : (window as Window & { __TAURI__?: TauriGlobal }).__TAURI__;
 
+const trace = (step: string, detail?: unknown) => console.info("[desktop]", step, detail ?? "");
+
 /** Whether this page runs inside the desktop app. */
 export const isDesktopApp = (): boolean => tauri() !== undefined;
+
+function currentWindow(): TauriWindow | null {
+  try {
+    return tauri()?.window?.getCurrentWindow() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The desktop window is focused and not minimized; `null` outside the desktop app. */
+export async function desktopWindowFocused(): Promise<boolean | null> {
+  const win = currentWindow();
+  if (!win) return null;
+  try {
+    const [focused, minimized] = await Promise.all([win.isFocused(), win.isMinimized()]);
+    return focused && !minimized;
+  } catch (err) {
+    trace("focus check failed", err);
+    return null;
+  }
+}
+
+/**
+ * Calls `onChange` with the desktop window's focus whenever it changes (and
+ * once with the current state). A no-op outside the desktop app.
+ */
+export function watchDesktopFocus(onChange: (focused: boolean) => void): () => void {
+  const win = currentWindow();
+  if (!win) return () => {};
+  let stop: (() => void) | null = null;
+  let stopped = false;
+  void desktopWindowFocused().then((focused) => focused !== null && !stopped && onChange(focused));
+  win
+    .onFocusChanged(({ payload }) => onChange(payload))
+    .then((unlisten) => (stopped ? unlisten() : (stop = unlisten)))
+    .catch((err: unknown) => trace("can't watch focus", err));
+  return () => {
+    stopped = true;
+    stop?.();
+  };
+}
 
 /** Whether `message` would have been pushed to `me` (mirrors the backend's `pushRecipients`). */
 export function shouldNotify(
@@ -62,28 +120,53 @@ export function notificationBody(message: Pick<Message, "text" | "attachments">)
 
 let permission: Promise<boolean> | null = null;
 
-/** Asks the OS once per run; later calls reuse the answer. */
-function granted(api: TauriNotificationApi): Promise<boolean> {
+/** Asks the OS once per run (macOS prompts; Windows always allows); later calls reuse the answer. */
+function granted(): Promise<boolean> {
+  const api = tauri()?.notification;
+  if (!api) return Promise.resolve(true); // the notify command decides
   permission ??= api
     .isPermissionGranted()
     .then(async (ok) => ok || (await api.requestPermission()) === "granted")
-    .catch(() => false);
+    .then((ok) => {
+      trace("notification permission", ok ? "granted" : "denied");
+      return ok;
+    })
+    .catch((err: unknown) => {
+      trace("permission check failed", err);
+      permission = null; // ask again next time
+      return true;
+    });
   return permission;
 }
 
-/** Native notification from the desktop app; a no-op in browsers. Never throws. */
-export async function notifyDesktop(title: string, body: string): Promise<void> {
-  const api = tauri()?.notification;
-  if (!api) return;
+/**
+ * Native notification from the desktop app, only while its window is in the
+ * background (re-checked with Tauri right before showing). A no-op in
+ * browsers. Never throws; every outcome is logged as `[desktop]`.
+ * @returns whether a notification was shown.
+ */
+export async function notifyDesktop(title: string, body: string): Promise<boolean> {
+  const core = tauri()?.core;
+  if (!core) return false;
   try {
-    if (await granted(api)) api.sendNotification({ title, body });
+    if ((await desktopWindowFocused()) === true) {
+      trace("skipped: window is focused");
+      return false;
+    }
+    if (!(await granted())) {
+      trace("skipped: notifications are off for the app");
+      return false;
+    }
+    await core.invoke("plugin:notification|notify", { options: { title, body } });
+    trace("notification shown", { title });
+    return true;
   } catch (err) {
     console.warn("[desktop] notification failed", err);
+    return false;
   }
 }
 
 /** Ask for permission early (at sign-in) so the first DM doesn't wait on a prompt. */
 export function prepareDesktopNotifications(): void {
-  const api = tauri()?.notification;
-  if (api) void granted(api);
+  if (isDesktopApp()) void granted();
 }

@@ -2,10 +2,10 @@
  * Notification sounds. The rings are synthesized with Web Audio (no files):
  *   - "outgoing": a soft, slow ring for the caller while the other side is rung
  *   - "incoming": the brighter two-tone ring under the incoming-call card
- * The message sound is an audio file (`/sounds/notify.wav`: two knocks and a
- * bell, normalized to -0.2 dBFS) played through an `<audio>` element at full
- * volume so it cuts through; a synthesized pop is the fallback where the file
- * can't play.
+ * The message sound is an audio file (`/sounds/notify.wav`) played through an
+ * `<audio>` element; a synthesized pop is the fallback where the file can't
+ * play. Everything plays at the volume chosen in Settings (0–1, default 1).
+ * iOS ignores `<audio>` volume: there the hardware buttons decide.
  *
  * Browsers block audio until the page has had a user gesture. Every start is
  * wrapped so a blocked context just stays silent (the visual notification still
@@ -49,6 +49,46 @@ let muted = !soundsEnabled();
 export function onSoundsChange(fn: (enabled: boolean) => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
+}
+
+// --- Volume ------------------------------------------------------------------------
+
+const VOLUME_KEY = "slack.soundVolume";
+const volumeListeners = new Set<(volume: number) => void>();
+
+const clampVolume = (value: number) =>
+  Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1;
+
+function storedVolume(): number {
+  try {
+    const raw = localStorage.getItem(VOLUME_KEY);
+    return raw === null ? 1 : clampVolume(Number(raw));
+  } catch {
+    return 1;
+  }
+}
+
+/** In-memory copy (works without storage too). */
+let volume = storedVolume();
+
+/** Volume of every app sound, 0 (silent) to 1 (default). */
+export function soundVolume(): number {
+  return volume;
+}
+
+export function setSoundVolume(value: number): void {
+  volume = clampVolume(value);
+  try {
+    localStorage.setItem(VOLUME_KEY, String(volume));
+  } catch {
+    // Storage unavailable: the choice lasts for this page only.
+  }
+  volumeListeners.forEach((fn) => fn(volume));
+}
+
+export function onVolumeChange(fn: (volume: number) => void): () => void {
+  volumeListeners.add(fn);
+  return () => volumeListeners.delete(fn);
 }
 
 // --- Audio context --------------------------------------------------------------
@@ -115,7 +155,7 @@ function play(ctx: AudioContext, tones: Tone[]): void {
     osc.frequency.value = tone.frequency;
     const t0 = start + tone.at;
     gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(tone.volume, t0 + 0.02);
+    gain.gain.linearRampToValueAtTime(Math.max(tone.volume * volume, 0.0001), t0 + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + tone.duration);
     osc.connect(gain).connect(ctx.destination);
     osc.start(t0);
@@ -151,8 +191,11 @@ const MESSAGE_POP: Tone[] = [
   { at: 0.1, frequency: 988, duration: 0.18, volume: 0.6, type: "triangle" },
 ];
 
-/** The message sound: knock-knock + bell, peak-normalized (see `scripts/` history in git). */
-export const MESSAGE_SOUND_URL = "/sounds/notify.wav";
+/**
+ * The message sound. To change it, replace `apps/web/public/sounds/notify.wav`
+ * (same name) and bump `?v=`, so browsers and the desktop app fetch the new file.
+ */
+export const MESSAGE_SOUND_URL = "/sounds/notify.wav?v=2";
 
 let messageAudio: HTMLAudioElement | null = null;
 
@@ -164,7 +207,6 @@ function messageElement(): HTMLAudioElement | null {
     if (!Ctor) return null;
     messageAudio = new Ctor(MESSAGE_SOUND_URL);
     messageAudio.preload = "auto";
-    messageAudio.volume = 1.0;
     return messageAudio;
   } catch {
     return null;
@@ -227,17 +269,18 @@ function playFallbackPop(): void {
 }
 
 /**
- * Plays the message sound once at full volume; silent while sounds are off or
- * audio is blocked. Falls back to the synthesized pop if the file can't play.
+ * Plays the message sound once at the chosen volume; silent while sounds are
+ * off, at volume 0, or while audio is blocked. Falls back to the synthesized pop
+ * if the file can't play.
  */
 export function playMessageSound(): void {
-  if (muted) return;
+  if (muted || volume === 0) return;
   const el = messageElement();
   if (!el) {
     playFallbackPop();
     return;
   }
-  el.volume = 1.0;
+  el.volume = volume;
   el.currentTime = 0;
   // `play()` rejects when autoplay is blocked or the file can't be decoded (and
   // a very old browser could throw instead): either way, the pop stands in.
@@ -246,7 +289,10 @@ export function playMessageSound(): void {
     .catch(() => playFallbackPop());
 }
 
-/** Settings → "Test": plays the message sound even while sounds are off, so people can hear it. */
+/**
+ * Settings → "Play test" and the volume slider: plays the message sound even
+ * while sounds are off, so people can hear what they're choosing.
+ */
 export function previewMessageSound(): void {
   const wasMuted = muted;
   muted = false;

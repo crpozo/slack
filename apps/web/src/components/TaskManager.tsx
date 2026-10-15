@@ -35,6 +35,7 @@ import {
 import { Modal, SecondaryButton } from "./Modal";
 import { Popover } from "./Popover";
 import { NewTaskModal } from "./NewTaskModal";
+import { UnreadAlertsDot } from "./NotificationBell";
 import { TaskDetails } from "./TaskDetails";
 import { UserPicker } from "./UserPicker";
 
@@ -767,10 +768,11 @@ export function TaskManager({
         <button
           type="button"
           onClick={onOpenSidebar}
-          className="rounded-md p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink md:hidden"
+          className="relative rounded-md p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink md:hidden"
           aria-label="Open menu"
         >
           <MenuIcon />
+          <UnreadAlertsDot />
         </button>
         <KanbanIcon className="text-ink-secondary" />
         <h1 className="truncate font-semibold text-ink">Task Manager</h1>

@@ -168,7 +168,7 @@ describe("message sound", () => {
     vi.stubGlobal("Audio", FakeAudio);
   });
 
-  it("plays the notification file through one <audio> element at full volume", async () => {
+  it("plays the notification file through one <audio> element, at full volume by default", async () => {
     sounds.playMessageSound();
     sounds.playMessageSound();
     await flush();
@@ -191,6 +191,35 @@ describe("message sound", () => {
     sounds.playMessageSound();
     await flush();
     expect(started()).toBe(4);
+  });
+
+  it("plays at the saved volume, which survives a reload and is clamped to 0–1", async () => {
+    sounds.setSoundVolume(0.3);
+    sounds.playMessageSound();
+    await flush();
+    expect(FakeAudio.instances[0]?.volume).toBe(0.3);
+    expect(store["slack.soundVolume"]).toBe("0.3");
+
+    vi.resetModules();
+    sounds = await import("./sounds");
+    expect(sounds.soundVolume()).toBe(0.3);
+    sounds.setSoundVolume(7);
+    expect(sounds.soundVolume()).toBe(1);
+    sounds.setSoundVolume(-1);
+    expect(sounds.soundVolume()).toBe(0);
+  });
+
+  it("stays silent at volume 0 and tells listeners about changes", async () => {
+    const heard: number[] = [];
+    const off = sounds.onVolumeChange((v) => heard.push(v));
+    sounds.setSoundVolume(0);
+    sounds.playMessageSound();
+    await flush();
+    expect(FakeAudio.instances).toHaveLength(0);
+    expect(started()).toBe(0);
+    off();
+    sounds.setSoundVolume(0.5);
+    expect(heard).toEqual([0]);
   });
 
   it("is muted by the preference, except for the Settings preview", async () => {

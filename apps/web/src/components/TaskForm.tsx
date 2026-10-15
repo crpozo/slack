@@ -1,6 +1,7 @@
 import {
   MAX_TASK_ATTACHMENTS,
   MAX_TASK_PROJECT_LENGTH,
+  TASK_STATUS_LABEL,
   type Attachment,
   type Board,
   type TaskStatus,
@@ -23,11 +24,7 @@ import { DownloadIcon, FileIcon, PaperclipIcon, TrashIcon } from "./icons";
  * you go) and the New task modal (everything is saved at once on Create).
  */
 
-export const STATUS_LABEL: Record<TaskStatus, string> = {
-  TODO: "To Do",
-  IN_PROGRESS: "In Progress",
-  DONE: "Done",
-};
+export const STATUS_LABEL = TASK_STATUS_LABEL;
 
 export function StatusPicker({
   value,

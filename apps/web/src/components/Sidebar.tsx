@@ -13,6 +13,7 @@ import type { WsStatus } from "../lib/ws";
 import { selectUnread, useChat, useNameOf } from "../store";
 import { Avatar, PresenceDot } from "./Avatar";
 import { DeleteChannelModal } from "./ChannelModals";
+import { NotificationBell } from "./NotificationBell";
 import { Popover } from "./Popover";
 import {
   HandWaveIcon,
@@ -337,6 +338,7 @@ export function Sidebar({
             </p>
           </div>
         )}
+        <NotificationBell className={iconButton} />
         {onToggleCollapsed && (
           <button
             type="button"

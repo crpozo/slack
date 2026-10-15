@@ -246,7 +246,7 @@ describe("notifyOffline", () => {
     expect(payload.body.endsWith("…")).toBe(true);
   });
 
-  it("doesn't push to someone with a live connection", async () => {
+  it("doesn't push to someone who is active in the app", async () => {
     await notifyOffline(dm, message(dm.channelId, "hi"), new Set([ALICE.userId, BOB.userId]));
     expect(sendNotification).not.toHaveBeenCalled();
   });
@@ -273,5 +273,23 @@ describe("notifyOffline", () => {
     expect(JSON.parse(String(sendNotification.mock.calls[0]?.[1])).title).toBe(
       "Alicia in #general",
     );
+  });
+});
+
+describe("activeUserIds", () => {
+  it("counts only connections that reported activity within the window", async () => {
+    const { activeUserIds } = await import("../src/lib/broadcast");
+    const { ACTIVE_WINDOW_MS } = await import("@mindfultech/shared");
+    const now = 1_700_000_000_000;
+    const active = activeUserIds(
+      [
+        { connectionId: "a", userId: "alice", activeAt: now - 1000 },
+        // Open in the background (desktop app, sleeping iPhone): still gets pushes.
+        { connectionId: "b", userId: "bob" },
+        { connectionId: "c", userId: "carol", activeAt: now - ACTIVE_WINDOW_MS },
+      ],
+      now,
+    );
+    expect([...active]).toEqual(["alice"]);
   });
 });

@@ -99,6 +99,9 @@ export class TasksApi extends Construct {
       USERS_TABLE: data.users.tableName,
       CONNECTIONS_TABLE: data.connections.tableName,
       WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+      // Web Push to members away from the app (new tasks, column moves).
+      PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
+      VAPID_PARAMETER: vapidParameterName(stage),
     });
     this.pushHandler = lambda("PushFn", "push", {
       PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
@@ -158,7 +161,11 @@ export class TasksApi extends Construct {
       "dynamodb:Query",
       "dynamodb:BatchWriteItem", // a deleted board's tasks
     );
-    data.users.grant(this.handler, "dynamodb:BatchGetItem"); // invitees must exist
+    // Invitees must exist (BatchGetItem); the actor's display name for pushes (GetItem).
+    data.users.grant(this.handler, "dynamodb:BatchGetItem", "dynamodb:GetItem");
+    // Push: each member's devices (Query), dropping expired ones (DeleteItem).
+    data.pushSubscriptions.grant(this.handler, "dynamodb:Query", "dynamodb:DeleteItem");
+    grantReadVapid(this.handler, stage);
     // Real-time pushes: list live connections, post to members', drop stale ones (410).
     data.connections.grant(this.handler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.handler);

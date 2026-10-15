@@ -291,6 +291,16 @@ The Lambdas read `/slack/<stage>/vapid` at runtime, so this can run before or af
 until it exists, push is simply off. `--rotate` replaces the keys (browsers re-subscribe on their
 next visit). On iPhone/iPad, push works only after _Share → Add to Home Screen_ (iOS 16.4+).
 
+Who gets a push: the people a DM, `@mention`, ping or board change (new task, task moved to
+another column) is for, unless they are in front of the app on some device right now. Clients
+report that with every heartbeat (`ping` with `active`, stored as `activeAt` on the connection)
+and as soon as focus changes; "in front" means active within the last 4 minutes. An app that is
+merely open in the background (the desktop app, a sleeping iPhone) still gets the push.
+
+To change the notification sound, replace `apps/web/public/sounds/notify.wav` (keep the name)
+and bump the `?v=` in `MESSAGE_SOUND_URL` (`apps/web/src/lib/sounds.ts`) so browsers fetch it.
+Phones play their own alert tone for pushes, not this file.
+
 ### 6. Continuous deployment (GitHub Actions)
 
 `.github/workflows/deploy.yml` deploys `SlackProd` on every push to `main` (lint + tests →
