@@ -37,6 +37,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **New task modal:** _Add task_ opens the full form — title, details, project, assignee, notes and
   attachments — and _Create_ saves it all at once.
 - **Settings → "Play test"** to hear the notification sound.
+- **Desktop app** for Windows and macOS (Tauri, `apps/desktop`): the production site in a native
+  window with native notifications for DMs and `@mentions`, camera and microphone for calls and
+  voice messages. Installers are built by GitHub Actions (_Actions → Desktop_) and attached to a
+  GitHub Release.
 
 ### Changed
 

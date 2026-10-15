@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the production site may call in the desktop app: native notifications only.",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["https://slack.mindfultech.ec/*"]
+  },
+  "permissions": ["core:default", "notification:default"]
+}

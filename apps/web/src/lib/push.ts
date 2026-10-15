@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { isDesktopApp } from "./desktop";
 import { pushApi, tasksApiConfigured, TasksApiError } from "./tasksApi";
 
 /**
@@ -44,7 +45,9 @@ const isStandalone = () =>
 
 /** What this browser can do, before asking the server anything. */
 export function detectPushSupport(): PushStatus {
-  if (typeof window === "undefined" || !tasksApiConfigured()) return "unsupported";
+  // The desktop app keeps its socket open and notifies natively (lib/desktop.ts).
+  if (typeof window === "undefined" || !tasksApiConfigured() || isDesktopApp())
+    return "unsupported";
   const apis = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
   if (!apis) return isIos() && !isStandalone() ? "needs-install" : "unsupported";
   if (Notification.permission === "denied") return "denied";

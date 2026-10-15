@@ -10,6 +10,7 @@ import {
   type InputDevices,
   type MediaPrefs,
 } from "../lib/media";
+import { isDesktopApp } from "../lib/desktop";
 import { disablePush, enablePush, usePush, type PushStatus } from "../lib/push";
 import {
   onSoundsChange,
@@ -155,7 +156,9 @@ const PUSH_HINT: Record<PushStatus, string> = {
   "needs-install":
     "On iPhone and iPad: tap Share → Add to Home Screen, open the app from there, then turn this on.",
   unconfigured: "Push notifications aren't set up on this deployment yet.",
-  unsupported: "This browser doesn't support push notifications.",
+  unsupported: isDesktopApp()
+    ? "The desktop app shows its own notifications for direct messages and @mentions."
+    : "This browser doesn't support push notifications.",
 };
 
 /** "Push notifications" switch for this device. */
