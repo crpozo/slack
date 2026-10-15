@@ -14,6 +14,15 @@ interface UserPickerProps {
   mode?: "multi" | "single";
 }
 
+/** "Guest": an external person who only sees the boards they're invited to. */
+export function GuestBadge() {
+  return (
+    <span className="shrink-0 rounded bg-sky/25 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-ink">
+      Guest
+    </span>
+  );
+}
+
 /** Searchable multi-select over the user directory. */
 export function UserPicker({
   users,
@@ -65,8 +74,9 @@ export function UserPicker({
               >
                 <Avatar name={u.displayName} size="sm" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-ink">
-                    {u.displayName}
+                  <span className="flex items-center gap-1.5 truncate text-sm font-medium text-ink">
+                    <span className="truncate">{u.displayName}</span>
+                    {u.role === "guest" && <GuestBadge />}
                   </span>
                   <span className="block truncate text-xs text-ink-secondary">
                     {isLocked ? "Already a member" : u.email}

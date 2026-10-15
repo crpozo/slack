@@ -239,12 +239,6 @@ export const MoreHorizontalIcon = (p: IconProps) => (
     <circle cx="19" cy="12" r="1" />
   </Icon>
 );
-export const HandWaveIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <path d="M18 11V6a2 2 0 0 0-4 0v1M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8" />
-    <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
-  </Icon>
-);
 export const ReplyIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M9 17 4 12l5-5" />
@@ -272,5 +266,25 @@ export const BellIcon = (p: IconProps) => (
 export const MessageIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+  </Icon>
+);
+export const PictureInPictureIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="2" y="4" width="20" height="16" rx="2" />
+    <rect x="12" y="12" width="8" height="6" rx="1" />
+  </Icon>
+);
+export const PinIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 17v5" />
+    <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+  </Icon>
+);
+export const PinOffIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 17v5" />
+    <path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89" />
+    <path d="m2 2 20 20" />
+    <path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11" />
   </Icon>
 );

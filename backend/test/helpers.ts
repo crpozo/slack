@@ -26,16 +26,22 @@ export function resetMocks(): void {
 export function wsEvent(
   routeKey: string,
   body?: unknown,
-  opts: { connectionId?: string; user?: { userId: string; email: string } | null } = {},
+  opts: {
+    connectionId?: string;
+    user?: { userId: string; email: string; role?: string } | null;
+  } = {},
 ): WsEvent {
-  const user = opts.user === undefined ? ALICE : opts.user;
+  const user: { userId: string; email: string; role?: string } | null =
+    opts.user === undefined ? ALICE : opts.user;
   return {
     body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body),
     isBase64Encoded: false,
     requestContext: {
       routeKey,
       connectionId: opts.connectionId ?? "conn-alice",
-      authorizer: user ? { userId: user.userId, email: user.email } : undefined,
+      authorizer: user
+        ? { userId: user.userId, email: user.email, ...(user.role && { role: user.role }) }
+        : undefined,
     },
   } as unknown as WsEvent;
 }

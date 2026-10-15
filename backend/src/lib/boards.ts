@@ -1,4 +1,4 @@
-import { GetCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchGetCommand, GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { canAccessBoard, isBoardId, type Board } from "@mindfultech/shared";
 import { ddb, tables } from "./ddb";
 
@@ -36,4 +36,36 @@ export async function getAccessibleBoard(boardId: string, userId: string): Promi
 /** Broadcast filter: who may receive events of `board`. */
 export function boardAudience(board: Pick<Board, "ownerId" | "members">) {
   return (connection: { userId: string }) => canAccessBoard(board, connection.userId);
+}
+
+/** Every board `userId` can see (membership rows, then the board rows, which are the authority). */
+export async function boardsOf(userId: string): Promise<Board[]> {
+  const { Items } = await ddb.send(
+    new QueryCommand({
+      TableName: tables.boards,
+      IndexName: "byUser",
+      KeyConditionExpression: "userId = :me",
+      ExpressionAttributeValues: { ":me": userId },
+      ProjectionExpression: "boardId",
+    }),
+  );
+  const ids = [...new Set((Items ?? []).map((i) => String(i.boardId)))];
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+  const pages = await Promise.all(
+    chunks.map((chunk) =>
+      ddb.send(
+        new BatchGetCommand({
+          RequestItems: {
+            [tables.boards]: { Keys: chunk.map((boardId) => ({ boardId, sk: BOARD_SK })) },
+          },
+        }),
+      ),
+    ),
+  );
+  const boards = pages.flatMap((page) =>
+    ((page.Responses?.[tables.boards] ?? []) as BoardItem[]).map(toBoard),
+  );
+  // Membership rows and the board row agree except mid-change: trust the board row.
+  return boards.filter((b) => canAccessBoard(b, userId)).sort((a, b) => a.createdAt - b.createdAt);
 }

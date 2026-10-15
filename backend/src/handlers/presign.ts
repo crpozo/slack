@@ -26,8 +26,9 @@ function channelOfKey(key: string): string | null {
  * Manager, a board (`attachments/<boardId>/…`): either way only its members may
  * upload to or download from that prefix.
  */
-async function canUseFolder(id: string, userId: string): Promise<boolean> {
+async function canUseFolder(id: string, userId: string, guest: boolean): Promise<boolean> {
   if (isBoardId(id)) return (await getAccessibleBoard(id, userId)) !== null;
+  if (guest) return false; // guests have no channels
   return (await getAccessibleChannel(id, userId)) !== null;
 }
 
@@ -38,7 +39,7 @@ export const handler = wsHandler(async (event, caller) => {
   const action = parsed.data;
 
   if (action.op === "put") {
-    if (!(await canUseFolder(action.channelId, caller.userId))) {
+    if (!(await canUseFolder(action.channelId, caller.userId, caller.role === "guest"))) {
       return replyError(caller.connectionId, "CHANNEL_NOT_FOUND", undefined, action.requestId);
     }
     const key = `${KEY_PREFIX}${action.channelId}/${ulid()}-${sanitizeFileName(action.name)}`;
@@ -54,7 +55,7 @@ export const handler = wsHandler(async (event, caller) => {
 
   const channelId = channelOfKey(action.key);
   if (!channelId) return badRequest(caller.connectionId, "Invalid key", action.requestId);
-  if (!(await canUseFolder(channelId, caller.userId))) {
+  if (!(await canUseFolder(channelId, caller.userId, caller.role === "guest"))) {
     return replyError(caller.connectionId, "CHANNEL_NOT_FOUND", undefined, action.requestId);
   }
   if (!(await objectExists(action.key))) {

@@ -2,7 +2,7 @@ import { isDmChannel, readBy, replyPreview, type ReplySnapshot } from "@mindfult
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { chat } from "../lib/chat";
-import { formatTime } from "../lib/channels";
+import { formatTime, seenByLine } from "../lib/channels";
 import { QUICK_REACTIONS } from "../lib/emoji";
 import { useMessageGestures } from "../lib/gestures";
 import { renderMarkdown } from "../lib/markdown";
@@ -219,6 +219,43 @@ function ReadReceipt({ message }: Readonly<{ message: ChatMessage }>) {
   );
 }
 
+/** Avatars shown before "+N" in a channel's "Seen by". */
+const SEEN_AVATARS = 3;
+
+/**
+ * Channels: who has caught up, under the newest message — "Seen by Ana, Luis
+ * and 3 others" with their avatars (everyone's names in the tooltip). Derived
+ * from each member's read watermark on the channel, like DMs' "Read".
+ */
+function ChannelSeenBy({ message }: Readonly<{ message: ChatMessage }>) {
+  const nameOf = useNameOf();
+  // A string from the selector (stable across renders), split back into ids.
+  const readers = useChat((s) =>
+    readBy(message, s.reads[message.channelId])
+      .filter((id) => id !== s.me?.userId)
+      .join(","),
+  );
+  if (!readers) return null;
+  const names = readers.split(",").map((id) => nameOf(id));
+  const line = seenByLine(names);
+  return (
+    <span
+      className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-secondary"
+      title={`Seen by ${names.join(", ")}`}
+    >
+      <span className="flex -space-x-1" aria-hidden="true">
+        {names.slice(0, SEEN_AVATARS).map((name, i) => (
+          <span key={`${name}-${i}`} className="rounded-lg ring-2 ring-surface">
+            <Avatar name={name} size="xs" />
+          </span>
+        ))}
+      </span>
+      <CheckCheckIcon className="text-primary" />
+      {line}
+    </span>
+  );
+}
+
 export const MessageItem = memo(function MessageItem({
   message,
   grouped,
@@ -316,6 +353,7 @@ export const MessageItem = memo(function MessageItem({
           {mine && last && sent && isDmChannel(message.channelId) && (
             <ReadReceipt message={message} />
           )}
+          {last && sent && !isDmChannel(message.channelId) && <ChannelSeenBy message={message} />}
 
           {message.status === "failed" && (
             <p className="mt-1 flex items-center gap-2 text-xs text-ink-secondary">

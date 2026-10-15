@@ -323,7 +323,13 @@ describe("phase 5.1 resources", () => {
     };
 
     expect(actionsOn("connect", "DataUsers")).toEqual(["dynamodb:UpdateItem"]);
-    expect(actionsOn("user", "DataUsers")).toEqual(["dynamodb:Scan", "dynamodb:UpdateItem"]);
+    expect(actionsOn("user", "DataUsers")).toEqual([
+      "dynamodb:GetItem", // pinned chats
+      "dynamodb:Scan",
+      "dynamodb:UpdateItem",
+    ]);
+    // A guest's directory is limited to their boards' members.
+    expect(actionsOn("user", "DataBoards")).toEqual(["dynamodb:BatchGetItem", "dynamodb:Query"]);
     expect(actionsOn("channel", "DataUsers")).toEqual(["dynamodb:BatchGetItem"]);
     expect(actionsOn("react", "DataMessages")).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);
     expect(actionsOn("react", "DataChannels")).toEqual(["dynamodb:GetItem"]);
@@ -351,15 +357,8 @@ describe("phase 5.1 resources", () => {
       "dynamodb:Query",
     ]);
     expect(actionsOn("channel", "DataChannels")).toContain("dynamodb:DeleteItem");
-    // Replies read the quoted message; nudges keep their rate limit on the users row.
+    // Replies read the quoted message.
     expect(actionsOn("message", "DataMessages")).toEqual(["dynamodb:GetItem", "dynamodb:PutItem"]);
-    expect(actionsOn("nudge", "DataUsers")).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);
-    expect(actionsOn("nudge", "DataPushSubscriptions")).toEqual([
-      "dynamodb:DeleteItem",
-      "dynamodb:Query",
-    ]);
-    expect(actionsOn("nudge", "DataMessages")).toEqual([]);
-    expect(actionsOn("nudge", "DataChannels")).toEqual([]);
     // Phase 10: read watermarks live on the channel row, edits rewrite the caller's message,
     // typing only fans out (channel access check + connections).
     expect(actionsOn("read", "DataChannels")).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);

@@ -1,7 +1,16 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { create } from "zustand";
 import { calls, useCall, type CallView } from "../lib/call";
+import {
+  clampToViewport,
+  cornerAfterKey,
+  cornerPosition,
+  loadCorner,
+  nearestCorner,
+  saveCorner,
+  type Corner,
+} from "../lib/floating";
 import { listInputDevices, loadMediaPrefs, supportsScreenShare } from "../lib/media";
 import { useNameOf } from "../store";
 import { Avatar } from "./Avatar";
@@ -14,6 +23,7 @@ import {
   MinimizeIcon,
   PhoneIcon,
   PhoneOffIcon,
+  PictureInPictureIcon,
   ScreenShareIcon,
   VideoIcon,
   VideoOffIcon,
@@ -458,56 +468,235 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
   );
 }
 
-/** Slim bar shown in other channels while a call is going on elsewhere. */
-function OngoingCallBar({ call }: Readonly<{ call: CallView }>) {
+/** Native picture-in-picture (Chrome, Edge, Safari, the Windows desktop app). */
+const pipSupported = () =>
+  typeof document !== "undefined" &&
+  "pictureInPictureEnabled" in document &&
+  document.pictureInPictureEnabled;
+
+/**
+ * The call while you're elsewhere in the app (another channel, a board):
+ * a small window floating over everything, like Google Meet's. Drag it
+ * anywhere; it snaps to the nearest corner (remembered), arrow keys move it
+ * too. Shows the peer's camera or shared screen (or their avatar), your own
+ * camera, the timer and the essential controls; the audio keeps playing from
+ * `CallLayer`. "Back to call" returns to the full view in the DM.
+ */
+function FloatingCall({ call }: Readonly<{ call: CallView }>) {
   const nameOf = useNameOf();
   const navigate = useNavigate();
   const name = nameOf(call.peerId);
   const elapsed = useElapsed(call.connectedAt);
+  const connected = call.phase === "connected";
+  const peerSharing = connected && call.peer.sharing && !!call.remoteScreen;
+  const peerCamOn = connected && call.peer.camOn && !!call.remoteStream;
+
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [corner, setCorner] = useState<Corner>(loadCorner);
+  const [size, setSize] = useState({ w: 288, h: 220 });
+  const [viewport, setViewport] = useState(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }));
+  const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
+  const grab = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
+  const [video, setVideo] = useState<HTMLVideoElement | null>(null);
+  const [inPip, setInPip] = useState(false);
+
+  useEffect(() => {
+    const onResize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  useLayoutEffect(() => {
+    const el = cardRef.current;
+    if (!el) return;
+    const measure = () => setSize({ w: el.offsetWidth, h: el.offsetHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!video) return;
+    const on = () => setInPip(true);
+    const off = () => setInPip(false);
+    video.addEventListener("enterpictureinpicture", on);
+    video.addEventListener("leavepictureinpicture", off);
+    return () => {
+      video.removeEventListener("enterpictureinpicture", on);
+      video.removeEventListener("leavepictureinpicture", off);
+    };
+  }, [video]);
+
+  const moveTo = (next: Corner) => {
+    setCorner(next);
+    saveCorner(next);
+  };
+  const parked = cornerPosition(corner, size.w, size.h, viewport);
+  const position = drag ?? parked;
+
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if ((e.target as HTMLElement).closest("button")) return; // the controls stay clickable
+    e.currentTarget.setPointerCapture(e.pointerId);
+    grab.current = { dx: e.clientX - position.x, dy: e.clientY - position.y, moved: false };
+  }
+  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const g = grab.current;
+    if (!g) return;
+    g.moved = true;
+    setDrag(clampToViewport(e.clientX - g.dx, e.clientY - g.dy, size.w, size.h, viewport));
+  }
+  function onPointerUp() {
+    const g = grab.current;
+    grab.current = null;
+    if (!g?.moved || !drag) return setDrag(null);
+    moveTo(
+      nearestCorner(drag.x + size.w / 2, drag.y + size.h / 2, viewport.width, viewport.height),
+    );
+    setDrag(null);
+  }
+  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.target !== e.currentTarget) return;
+    const next = cornerAfterKey(corner, e.key);
+    if (!next) return;
+    e.preventDefault();
+    moveTo(next);
+  }
+
+  async function togglePip() {
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+      else await video?.requestPictureInPicture();
+    } catch {
+      // Refused (no user gesture, or no video frames yet): the floating window stays.
+    }
+  }
+
+  const back = () => navigate(`/app/${call.channelId}`);
+  let stage: ReactNode;
+  if (peerSharing || peerCamOn) {
+    stage = (
+      <StreamMedia
+        kind="video"
+        stream={peerSharing ? call.remoteScreen : call.remoteStream}
+        muted
+        label={peerSharing ? `Screen from ${name}` : `Video from ${name}`}
+        className={`h-full w-full ${peerSharing ? "object-contain" : "object-cover"}`}
+        onVideo={setVideo}
+      />
+    );
+  } else {
+    stage = (
+      <div className="flex h-full flex-col items-center justify-center gap-2">
+        <Avatar name={name} size="md" />
+        <p className="text-xs text-white/70">
+          {connected && call.media === "video" ? "Camera is off" : "Voice call"}
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <output
-      aria-label="Ongoing call"
-      className="flex items-center gap-3 border-b border-line bg-[#0E0D12] px-4 py-2 text-sm text-white"
+    <div
+      ref={cardRef}
+      role="dialog"
+      aria-label={`Call with ${name}. Drag to move, or use the arrow keys.`}
+      tabIndex={0}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onKeyDown={onKeyDown}
+      style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
+      className={`fixed left-0 top-0 z-50 w-64 touch-none select-none overflow-hidden rounded-2xl border border-white/15 bg-[#0E0D12] text-white shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:w-72 ${
+        drag ? "cursor-grabbing" : "cursor-grab transition-transform duration-200 ease-out"
+      }`}
     >
-      <PhoneIcon className="shrink-0 text-success" />
-      <p className="min-w-0 flex-1 truncate">
-        {call.phase === "connected" ? "In a call with" : "Calling"} <strong>{name}</strong>
-        {elapsed && <span className="text-white/70"> · {elapsed}</span>}
-      </p>
-      <button
-        type="button"
-        onClick={() => navigate(`/app/${call.channelId}`)}
-        className="rounded-md bg-white/15 px-3 py-1 font-medium hover:bg-white/25"
-      >
-        Return to call
-      </button>
-      <button
-        type="button"
-        onClick={() => calls.hangUp()}
-        aria-label="Hang up"
-        title="Hang up"
-        className="rounded-md bg-error p-1.5 text-white hover:bg-error/85"
-      >
-        <PhoneOffIcon />
-      </button>
-    </output>
+      <div className="relative aspect-video bg-black">
+        {stage}
+        {inPip && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-xs text-white/80">
+            Playing in picture-in-picture
+          </div>
+        )}
+        {call.localCamera && (
+          <div className="absolute bottom-1.5 right-1.5 w-20 overflow-hidden rounded-lg border border-white/20 shadow-lg">
+            <StreamMedia
+              kind="video"
+              stream={call.localCamera}
+              muted
+              label="Your camera"
+              className="aspect-video w-full -scale-x-100 object-cover"
+            />
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-2 px-3 pt-2 text-sm">
+        <span className="h-2 w-2 shrink-0 rounded-full bg-success" aria-hidden="true" />
+        <p className="min-w-0 flex-1 truncate font-semibold">{name}</p>
+        <p className="shrink-0 text-xs tabular-nums text-white/70" aria-live="polite">
+          {statusText(call, elapsed)}
+          {connected && !call.peer.micOn && " · Muted"}
+        </p>
+      </div>
+      <div className="flex items-center justify-center gap-2 px-3 py-2.5">
+        <ControlButton
+          label={call.micOn ? "Mute microphone" : "Unmute microphone"}
+          highlight={!call.micOn}
+          onClick={() => calls.toggleMic()}
+        >
+          {call.micOn ? <MicIcon /> : <MicOffIcon />}
+        </ControlButton>
+        <ControlButton
+          label={call.camOn ? "Turn camera off" : "Turn camera on"}
+          highlight={!call.camOn}
+          onClick={() => void calls.toggleCamera()}
+        >
+          {call.camOn ? <VideoIcon /> : <VideoOffIcon />}
+        </ControlButton>
+        {pipSupported() && video && (
+          <ControlButton
+            label={inPip ? "Close picture-in-picture" : "Pop out (picture-in-picture)"}
+            highlight={inPip}
+            onClick={() => void togglePip()}
+          >
+            <PictureInPictureIcon />
+          </ControlButton>
+        )}
+        <ControlButton label="Back to the call" onClick={back}>
+          <MaximizeIcon />
+        </ControlButton>
+        <ControlButton label="Hang up" danger onClick={() => calls.hangUp()}>
+          <PhoneOffIcon />
+        </ControlButton>
+      </div>
+    </div>
   );
 }
 
-/** Lives in the chat column above the messages: the call in this DM, or a bar for one elsewhere. */
+/** Lives in the chat column above the messages of the call's own DM (elsewhere: `FloatingCall`). */
 export function CallPanel({ channelId }: Readonly<{ channelId: string }>) {
   const call = useCall((s) => s.call);
-  if (!call || call.phase === "incoming") return null;
-  return call.channelId === channelId ? <ActiveCall call={call} /> : <OngoingCallBar call={call} />;
+  if (!call || call.phase === "incoming" || call.channelId !== channelId) return null;
+  return <ActiveCall call={call} />;
 }
 
 /**
- * Mounted once in the layout: the ringing card (which may appear anywhere) and
- * the peer's audio, which keeps playing while you browse other channels.
+ * Mounted once in the layout, above every route: the ringing card (which may
+ * appear anywhere), the peer's audio (which keeps playing wherever you go),
+ * and the floating window whenever you're not in the call's own DM.
  */
 export function CallLayer() {
   const call = useCall((s) => s.call);
+  const { pathname } = useLocation();
   if (!call) return null;
   if (call.phase === "incoming") return <IncomingCall call={call} />;
-  return <StreamMedia kind="audio" stream={call.remoteStream} />;
+  const inCallChannel = pathname === `/app/${call.channelId}`;
+  return (
+    <>
+      <StreamMedia kind="audio" stream={call.remoteStream} />
+      {!inCallChannel && <FloatingCall call={call} />}
+    </>
+  );
 }

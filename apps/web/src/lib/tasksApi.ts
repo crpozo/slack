@@ -2,6 +2,7 @@ import type {
   Board,
   CreateTaskInput,
   PushSubscriptionJSON,
+  Role,
   Task,
   UpdateTaskInput,
 } from "@mindfultech/shared";
@@ -73,6 +74,13 @@ export const tasksApi = {
     ),
   deleteBoard: (boardId: string) =>
     request<void>("DELETE", `/boards/${encodeURIComponent(boardId)}`),
+  /** By email: a new address becomes a guest account (Cognito emails a temporary password). */
+  invite: (boardId: string, email: string) =>
+    request<{ board: Board; invited: { userId: string; role: Role; created: boolean } }>(
+      "POST",
+      `/boards/${encodeURIComponent(boardId)}/invites`,
+      { email },
+    ),
   addMembers: (boardId: string, userIds: string[]) =>
     request<{ board: Board }>("POST", `/boards/${encodeURIComponent(boardId)}/members`, {
       userIds,

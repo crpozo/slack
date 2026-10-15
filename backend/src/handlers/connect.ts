@@ -1,4 +1,5 @@
 import { PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { isRole, type Role } from "@mindfultech/shared";
 import { deliver, listConnections } from "../lib/broadcast";
 import { ddb, tables, type ConnectionItem } from "../lib/ddb";
 import type { WsEvent } from "../lib/handler";
@@ -12,16 +13,20 @@ const CONNECTION_TTL_SECONDS = 2 * 60 * 60;
  * Keeps the `users` directory current: creates the row on first login and
  * refreshes the email, never overwriting a display name the user chose.
  */
-async function upsertUser(userId: string, email: string, now: number): Promise<void> {
+async function upsertUser(userId: string, email: string, role: Role, now: number): Promise<void> {
   await ddb.send(
     new UpdateCommand({
       TableName: tables.users,
       Key: { userId },
+      // The role follows the Cognito groups on every sign-in (moving someone in or
+      // out of `guests` takes effect at their next connection).
       UpdateExpression:
-        "SET email = :email, displayName = if_not_exists(displayName, :name), " +
+        "SET email = :email, #role = :role, displayName = if_not_exists(displayName, :name), " +
         "createdAt = if_not_exists(createdAt, :now), updatedAt = if_not_exists(updatedAt, :now)",
+      ExpressionAttributeNames: { "#role": "role" },
       ExpressionAttributeValues: {
         ":email": email,
+        ":role": role,
         ":name": defaultDisplayName(email),
         ":now": now,
       },
@@ -52,17 +57,19 @@ export const handler = async (event: WsEvent): Promise<HandlerResult> => {
   }
 
   const now = Date.now();
+  const role = isRole(authorizer.role) ? authorizer.role : "member";
   const item: ConnectionItem = {
     connectionId,
     userId: authorizer.userId,
     userEmail: authorizer.email,
     connectedAt: now,
     ttl: Math.floor(now / 1000) + CONNECTION_TTL_SECONDS,
+    role,
   };
 
   const [connection, user] = await Promise.allSettled([
     ddb.send(new PutCommand({ TableName: tables.connections, Item: item })),
-    upsertUser(item.userId, item.userEmail, now),
+    upsertUser(item.userId, item.userEmail, role, now),
   ]);
   if (connection.status === "rejected") {
     log.error("connect failed", { connectionId, ...errorFields(connection.reason) });

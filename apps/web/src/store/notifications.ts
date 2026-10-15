@@ -1,12 +1,12 @@
 import { create } from "zustand";
 
 /**
- * In-app alerts behind the bell: DMs and @mentions, pings, and board activity
+ * In-app alerts behind the bell: DMs and @mentions, and board activity
  * (new tasks, tasks moved to another column), newest first. Kept per user in
  * localStorage so a reload doesn't empty the list; what happened while the app
  * was closed arrives as Web Push instead.
  */
-export type AlertKind = "message" | "mention" | "nudge" | "task";
+export type AlertKind = "message" | "mention" | "task";
 
 export interface AppAlert {
   id: string;

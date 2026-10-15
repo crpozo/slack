@@ -16,11 +16,11 @@ import {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
+import { chat } from "../lib/chat";
 import { tasksApiConfigured } from "../lib/tasksApi";
 import { useChat, useNameOf } from "../store";
 import { splitBoards, useTasks } from "../store/tasks";
 import { Avatar } from "./Avatar";
-import { CallPanel } from "./CallLayer";
 import {
   ChevronDownIcon,
   KanbanIcon,
@@ -119,9 +119,15 @@ function CreateBoardModal({
   );
 }
 
-/** The owner adds people from the directory (same picker as DMs and private channels). */
+/**
+ * The owner shares the board: with team members from the directory, or with
+ * anyone by email. A new address becomes a guest account (Cognito emails them
+ * a temporary password) that sees only the boards it's invited to.
+ */
 function ShareBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: () => void }>) {
   const addMembers = useTasks((s) => s.addMembers);
+  const invite = useTasks((s) => s.invite);
+  const showToast = useChat((s) => s.showToast);
   const myUserId = useChat((s) => s.me?.userId);
   const users = useChat(useShallow((s) => Object.values(s.users)));
   const others = useMemo(
@@ -132,9 +138,11 @@ function ShareBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: (
     [users, myUserId],
   );
   const [selected, setSelected] = useState<string[]>([]);
+  const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const shareLabel = selected.length > 0 ? `Share (${selected.length})` : "Share";
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
   async function share() {
     setBusy(true);
@@ -148,34 +156,79 @@ function ShareBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: (
     }
   }
 
+  async function sendInvite(e: FormEvent) {
+    e.preventDefault();
+    if (!emailValid) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await invite(board.boardId, email.trim());
+      chat.refreshUsers(); // their name in the board right away
+      showToast(
+        result.created
+          ? `Invitation sent to ${email.trim()}. They'll get an email with a temporary password.`
+          : `${email.trim()} now has access to "${board.name}".`,
+      );
+      setEmail("");
+      setBusy(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't send the invitation.");
+      setBusy(false);
+    }
+  }
+
   return (
     <Modal
       title={`Share "${board.name}"`}
       onClose={onClose}
       footer={
         <>
-          <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+          <SecondaryButton onClick={onClose}>Close</SecondaryButton>
           <button
             type="button"
             className="btn-primary"
             disabled={busy || selected.length === 0}
             onClick={() => void share()}
           >
-            {busy ? "Sharing…" : shareLabel}
+            {busy && selected.length > 0 ? "Sharing…" : shareLabel}
           </button>
         </>
       }
     >
-      <div className="space-y-3">
-        <p className="text-sm text-ink-secondary">
-          Members can see every task on this board and add, move or delete tasks.
-        </p>
-        <UserPicker
-          users={others}
-          selected={selected}
-          onChange={setSelected}
-          locked={board.members}
-        />
+      <div className="space-y-4">
+        <form onSubmit={(e) => void sendInvite(e)} className="space-y-1.5">
+          <label htmlFor="invite-email" className="text-sm font-medium text-ink">
+            Invite by email
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="invite-email"
+              type="email"
+              inputMode="email"
+              autoComplete="off"
+              placeholder="client@company.com"
+              className="input flex-1"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <button type="submit" className="btn-primary" disabled={busy || !emailValid}>
+              {busy && selected.length === 0 ? "Inviting…" : "Invite"}
+            </button>
+          </div>
+          <p className="text-xs text-ink-secondary">
+            People outside the team join as <strong>guests</strong>: they see only the boards
+            they're invited to, never your channels or messages.
+          </p>
+        </form>
+        <div className="space-y-1.5">
+          <p className="text-sm font-medium text-ink">Or add teammates</p>
+          <UserPicker
+            users={others}
+            selected={selected}
+            onChange={setSelected}
+            locked={board.members}
+          />
+        </div>
         {error && (
           <p
             role="alert"
@@ -696,9 +749,14 @@ function BoardList({
 export function TaskManager({
   boardId,
   onOpenSidebar,
-}: Readonly<{ boardId: string | undefined; onOpenSidebar: () => void }>) {
+}: Readonly<{
+  boardId: string | undefined;
+  /** Phones: opens the app sidebar. Absent for guests, who have no sidebar. */
+  onOpenSidebar?: () => void;
+}>) {
   const navigate = useNavigate();
   const me = useChat((s) => s.me);
+  const guest = me?.role === "guest";
   const showToast = useChat((s) => s.showToast);
   const { boards, boardsLoaded, error, loadBoards, clearError } = useTasks(
     useShallow((s) => ({
@@ -748,7 +806,12 @@ export function TaskManager({
   } else if (!boardsLoaded) {
     content = <Empty title="Loading boards…" />;
   } else if (boards.length === 0) {
-    content = (
+    content = guest ? (
+      <Empty
+        title="No boards yet"
+        text="You'll see a board here as soon as someone invites you to it."
+      />
+    ) : (
       <Empty title="No boards yet" text="Create a board to start organizing tasks with your team.">
         <button type="button" className="btn-primary" onClick={() => setCreating(true)}>
           <PlusIcon /> New board
@@ -763,17 +826,18 @@ export function TaskManager({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col">
-      <CallPanel channelId="tasks" />
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
-        <button
-          type="button"
-          onClick={onOpenSidebar}
-          className="relative rounded-md p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink md:hidden"
-          aria-label="Open menu"
-        >
-          <MenuIcon />
-          <UnreadAlertsDot />
-        </button>
+        {onOpenSidebar && (
+          <button
+            type="button"
+            onClick={onOpenSidebar}
+            className="relative rounded-md p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink md:hidden"
+            aria-label="Open menu"
+          >
+            <MenuIcon />
+            <UnreadAlertsDot />
+          </button>
+        )}
         <KanbanIcon className="text-ink-secondary" />
         <h1 className="truncate font-semibold text-ink">Task Manager</h1>
         {boards.length > 0 && (
@@ -806,7 +870,7 @@ export function TaskManager({
             </select>
           </label>
         )}
-        {configured && (
+        {configured && !guest && (
           <button
             type="button"
             onClick={() => setCreating(true)}

@@ -7,6 +7,7 @@ Object.assign(process.env, {
   CONNECTIONS_TABLE: "slack-test-connections",
   CHANNELS_TABLE: "slack-test-channels",
   USERS_TABLE: "slack-test-users",
+  BOARDS_TABLE: "slack-test-boards",
   PUSH_SUBSCRIPTIONS_TABLE: "slack-test-push",
   VAPID_PARAMETER: "/slack/test/vapid",
   ATTACHMENTS_BUCKET: "slack-test-attachments",

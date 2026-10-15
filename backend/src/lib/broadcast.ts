@@ -1,10 +1,10 @@
 import { DeleteCommand, paginateScan } from "@aws-sdk/lib-dynamodb";
-import { ACTIVE_WINDOW_MS, type ServerEvent } from "@mindfultech/shared";
+import { ACTIVE_WINDOW_MS, guestMayReceive, type ServerEvent } from "@mindfultech/shared";
 import { ddb, tables, type ConnectionItem } from "./ddb";
 import { log } from "./logger";
 import { reply } from "./response";
 
-export type LiveConnection = Pick<ConnectionItem, "connectionId" | "userId" | "activeAt">;
+export type LiveConnection = Pick<ConnectionItem, "connectionId" | "userId" | "activeAt" | "role">;
 
 /**
  * All rows of `connections` (≤ a handful at this scale, so a Scan is fine).
@@ -16,7 +16,8 @@ export async function listConnections(consistent = false): Promise<LiveConnectio
     { client: ddb },
     {
       TableName: tables.connections,
-      ProjectionExpression: "connectionId, userId, activeAt",
+      ProjectionExpression: "connectionId, userId, activeAt, #role",
+      ExpressionAttributeNames: { "#role": "role" },
       ...(consistent && { ConsistentRead: true }),
     },
   );
@@ -40,6 +41,9 @@ export async function deliver(
     connections.map(async (connection) => {
       const event = eventFor(connection);
       if (!event) return false;
+      // The one choke point for guests: whatever a handler meant to send, a
+      // guest's connection only ever gets their boards' events.
+      if (connection.role === "guest" && !guestMayReceive(event.type)) return false;
       const delivered = await reply(connection.connectionId, event);
       if (!delivered) {
         await ddb.send(

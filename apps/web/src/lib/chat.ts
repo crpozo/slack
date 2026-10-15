@@ -50,6 +50,8 @@ type PresignRequest = DistributiveOmit<PresignAction, "action" | "requestId">;
 
 /** In front of the person (in the desktop app, per Tauri: see `activity.ts`). */
 const isFocused = isAppActive;
+/** The directory is re-read when the app comes back to the front after this long. */
+const DIRECTORY_REFRESH_MS = 10 * 60_000;
 /** Keystrokes send `typing` at most this often… */
 export const TYPING_INTERVAL_MS = 3000;
 /** …and the indicator stays this long after the last one (slightly more than the interval). */
@@ -58,6 +60,7 @@ export const TYPING_SHOW_MS = 5000;
 /** Glue between the WebSocket and the store; one instance per signed-in session. */
 class ChatController {
   private client: WsClient | null = null;
+  private usersFetchedAt = 0;
   private readonly cleanups: Array<() => void> = [];
   private readonly presigns = new Map<string, Deferred<PresignResultEvent>>();
   private pendingCreate: (Deferred<string> & { name: string }) | null = null;
@@ -91,6 +94,11 @@ class ChatController {
       client.onStatus((status) => store().setStatus(status)),
 
       client.onOpen(({ reconnected }) => {
+        // Guests only have boards: the server refuses every chat request of theirs.
+        if (store().me?.role === "guest") {
+          client.send("user", { op: "list" });
+          return;
+        }
         client.send("channel", { op: "list" });
         client.send("user", { op: "list" });
         if (reconnected) {
@@ -143,24 +151,9 @@ class ChatController {
         if (channelId === s.activeChannelId && isFocused()) this.viewed(channelId);
       }),
 
-      client.on("user.list", ({ users, online }) => store().setUsers(users, online)),
-
-      // Someone pinged you: a toast, the message pop and a short buzz (Android).
-      client.on("user.nudge", ({ from }) => {
-        const title = `👋 ${selectName(store(), from)} is pinging you`;
-        store().showToast(title);
-        playMessageSound();
-        navigator.vibrate?.([80, 60, 80]);
-        const me = store().me;
-        raiseAlert(
-          {
-            kind: "nudge",
-            title,
-            body: "Open the conversation to reply",
-            url: me ? `/app/${encodeURIComponent(dmChannelId(me.userId, from))}` : "/app",
-          },
-          { sound: false },
-        );
+      client.on("user.list", ({ users, online }) => {
+        this.usersFetchedAt = Date.now();
+        store().setUsers(users, online);
       }),
 
       // Presence (Phase 7).
@@ -197,6 +190,9 @@ class ChatController {
         if (userId === s.me?.userId) return;
         s.setTyping(channelId, userId, Date.now() + TYPING_SHOW_MS);
       }),
+
+      client.on("channel.updated", ({ channel }) => store().updateChannel(channel)),
+      client.on("user.prefs", ({ pinned }) => store().setPinned(pinned)),
 
       client.on("channel.list", ({ channels }) => {
         store().setChannels(channels);
@@ -274,7 +270,14 @@ class ChatController {
       // their devices only while none of them is active.
       startHeartbeat(client, isAppActive),
       watchActivity((active) => {
-        if (client.status === "open") client.send("ping", { active });
+        if (client.status !== "open") return;
+        client.send("ping", { active });
+        // Back in front after a while (the desktop app runs for days): refresh
+        // names, so a display name changed elsewhere shows here too.
+        if (active && Date.now() - this.usersFetchedAt > DIRECTORY_REFRESH_MS) {
+          this.usersFetchedAt = Date.now();
+          client.send("user", { op: "list" });
+        }
       }),
       () => window.removeEventListener("online", onOnline),
     );
@@ -403,9 +406,20 @@ class ChatController {
     this.client?.send("channel", { op: "delete", channelId });
   }
 
-  /** "Ping": a toast for them if they're online, a push if not (1 per minute per person). */
-  nudge(userId: string): void {
-    this.client?.send("nudge", { toUserId: userId });
+  /** Renames a channel (its creator or an admin); everyone sees `channel.updated`. */
+  renameChannel(channelId: string, name: string): void {
+    this.client?.send("channel", { op: "rename", channelId, name: name.trim() });
+  }
+
+  /**
+   * Pins (or unpins) a conversation to the top of your DM list. Applied at once;
+   * the server's `user.prefs` (also sent to your other devices) confirms it.
+   */
+  setPinned(channelId: string, pinned: boolean): void {
+    const s = useChat.getState();
+    const rest = s.pinned.filter((id) => id !== channelId);
+    s.setPinned(pinned ? [channelId, ...rest] : rest);
+    this.client?.send("user", { op: "pin", channelId, pinned });
   }
 
   /**
@@ -441,6 +455,11 @@ class ChatController {
   }
 
   private typingSentAt = new Map<string, number>();
+
+  /** Re-reads the directory (e.g. after inviting someone new to a board). */
+  refreshUsers(): void {
+    this.client?.send("user", { op: "list" });
+  }
 
   /** Called on every keystroke; actually sends `typing` at most every `TYPING_INTERVAL_MS`. */
   typing(channelId: string): void {

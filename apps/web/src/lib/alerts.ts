@@ -11,8 +11,8 @@ export type AlertInput = Omit<AppAlert, "id" | "at" | "read">;
 const currentPath = () => (typeof location === "undefined" ? "" : location.pathname);
 
 /**
- * Something happened that the person should hear about (a DM, an @mention, a
- * ping, board activity). It always lands in the bell; unless they're looking
+ * Something happened that the person should hear about (a DM, an @mention,
+ * board activity). It always lands in the bell; unless they're looking
  * at that very screen, it also plays the message sound (`sound: false` when
  * the caller already played it) and, with the desktop app in the background,
  * shows a native notification.

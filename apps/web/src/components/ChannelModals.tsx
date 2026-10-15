@@ -13,12 +13,12 @@ import { GlobeIcon, LockIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 import { UserPicker } from "./UserPicker";
 
-/** Everyone in the directory except me, sorted by display name. */
+/** Everyone in the directory except me and guests (who can't chat), sorted by display name. */
 function useOtherUsers() {
   const myUserId = useChat((s) => s.me?.userId);
   const users = useChat(useShallow((s) => Object.values(s.users)));
   return users
-    .filter((u) => u.userId !== myUserId)
+    .filter((u) => u.userId !== myUserId && u.role !== "guest")
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
@@ -261,6 +261,64 @@ export function DeleteChannelModal({
         )}
       </p>
       <p className="mt-2 text-xs text-ink-secondary">This can't be undone.</p>
+    </Modal>
+  );
+}
+
+/**
+ * Renames a channel (its creator or an admin). The link and history stay; a
+ * name already taken by another channel comes back as an error toast.
+ */
+export function RenameChannelModal({
+  channel,
+  onClose,
+}: Readonly<{ channel: Channel; onClose: () => void }>) {
+  const [name, setName] = useState(channel.name);
+  const parsed = ChannelNameSchema.safeParse(name);
+  const changed = name.trim() !== channel.name;
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!parsed.success || !changed) return;
+    chat.renameChannel(channel.channelId, name);
+    onClose();
+  }
+
+  return (
+    <Modal
+      title="Rename channel"
+      width="sm"
+      onClose={onClose}
+      footer={
+        <>
+          <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+          <button
+            type="submit"
+            form="rename-channel"
+            className="btn-primary"
+            disabled={!parsed.success || !changed}
+          >
+            Rename
+          </button>
+        </>
+      }
+    >
+      <form id="rename-channel" onSubmit={submit} className="space-y-1.5">
+        <label htmlFor="channel-name" className="text-sm font-medium text-ink">
+          Name
+        </label>
+        <input
+          id="channel-name"
+          className="input"
+          value={name}
+          maxLength={MAX_CHANNEL_NAME_LENGTH}
+          autoFocus
+          onChange={(e) => setName(e.target.value)}
+        />
+        <p className="text-xs text-ink-secondary">
+          Everyone in the channel sees the new name. Links and messages stay as they are.
+        </p>
+      </form>
     </Modal>
   );
 }

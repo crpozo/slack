@@ -1,5 +1,5 @@
 import { BatchGetCommand, type BatchGetCommandOutput } from "@aws-sdk/lib-dynamodb";
-import { MAX_DISPLAY_NAME_LENGTH, type UserProfile } from "@mindfultech/shared";
+import { isRole, MAX_DISPLAY_NAME_LENGTH, type UserProfile } from "@mindfultech/shared";
 import { ddb, tables } from "./ddb";
 
 /** Default display name: the local part of the email. */
@@ -16,6 +16,7 @@ export function toUserProfile(item: Record<string, unknown>): UserProfile {
     displayName:
       typeof item.displayName === "string" ? item.displayName : defaultDisplayName(email),
     updatedAt: typeof item.updatedAt === "number" ? item.updatedAt : 0,
+    ...(isRole(item.role) && item.role !== "member" && { role: item.role }),
   };
 }
 
@@ -40,4 +41,23 @@ export async function unknownUsers(userIds: string[]): Promise<string[]> {
   if (userIds.length === 0) return [];
   const found = new Set(await existingUserIds(userIds.map((userId) => ({ userId }))));
   return userIds.filter((id) => !found.has(id));
+}
+
+/** Which of `userIds` are guests (per their `users` row); they never join chats. */
+export async function guestsAmong(userIds: string[]): Promise<string[]> {
+  if (userIds.length === 0) return [];
+  const result = await ddb.send(
+    new BatchGetCommand({
+      RequestItems: {
+        [tables.users]: {
+          Keys: [...new Set(userIds)].map((userId) => ({ userId })),
+          ProjectionExpression: "userId, #role",
+          ExpressionAttributeNames: { "#role": "role" },
+        },
+      },
+    }),
+  );
+  return (result.Responses?.[tables.users] ?? [])
+    .filter((item) => item.role === "guest")
+    .map((item) => String(item.userId));
 }

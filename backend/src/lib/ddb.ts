@@ -1,3 +1,4 @@
+import type { Role } from "@mindfultech/shared";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { BatchWriteCommand, DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { requireEnv } from "./env";
@@ -42,6 +43,8 @@ export interface ConnectionItem {
   ttl: number;
   /** Epoch milliseconds of the last `ping` with `active: true` (absent while in the background). */
   activeAt?: number;
+  /** From the token's Cognito groups; absent on rows from before roles (members). */
+  role?: Role;
 }
 
 /** DynamoDB caps BatchWriteItem at 25 requests. */

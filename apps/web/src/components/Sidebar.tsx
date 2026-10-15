@@ -1,5 +1,6 @@
 import {
   canDeleteChannel,
+  canRenameChannel,
   dmChannelId,
   GENERAL_CHANNEL_ID,
   type Channel,
@@ -8,15 +9,14 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
-import { dmEntries, type DmEntry } from "../lib/channels";
+import { dmEntries, pinnedFirst, type DmEntry } from "../lib/channels";
 import type { WsStatus } from "../lib/ws";
 import { selectUnread, useChat, useNameOf } from "../store";
 import { Avatar, PresenceDot } from "./Avatar";
-import { DeleteChannelModal } from "./ChannelModals";
+import { DeleteChannelModal, RenameChannelModal } from "./ChannelModals";
 import { NotificationBell } from "./NotificationBell";
 import { Popover } from "./Popover";
 import {
-  HandWaveIcon,
   HashIcon,
   KanbanIcon,
   LockIcon,
@@ -24,6 +24,9 @@ import {
   MoreHorizontalIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
+  PencilIcon,
+  PinIcon,
+  PinOffIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
@@ -70,6 +73,8 @@ interface NavItemProps {
   onClick: () => void;
   /** Items of the row's ⋯ menu (not shown in the icon-only rail). */
   menu?: RowMenuItem[];
+  /** Pinned to the top of its list (a pin next to the name). */
+  pinned?: boolean;
 }
 
 interface RowMenuItem {
@@ -154,6 +159,7 @@ function NavItem({
   title,
   onClick,
   menu,
+  pinned = false,
 }: Readonly<NavItemProps>) {
   let tone = "text-ink-secondary hover:bg-surface-hover hover:text-ink";
   if (active) tone = "bg-primary/20 font-semibold text-ink";
@@ -173,6 +179,9 @@ function NavItem({
       >
         <span className="flex shrink-0 items-center justify-center">{icon}</span>
         {!compact && <span className="truncate">{label}</span>}
+        {pinned && !compact && (
+          <PinIcon className="shrink-0 text-xs text-ink-secondary" aria-label="Pinned" />
+        )}
         <UnreadBadge count={unread} compact={compact} />
       </button>
       {!compact && menu && menu.length > 0 && <RowMenu label={label} items={menu} />}
@@ -240,11 +249,13 @@ export function Sidebar({
   const navigate = useNavigate();
   const nameOf = useNameOf();
   const [deleting, setDeleting] = useState<{ channel: Channel; label: string } | null>(null);
-  const { me, status, channels, team, directory, users, online } = useChat(
+  const [renaming, setRenaming] = useState<Channel | null>(null);
+  const { me, status, channels, pinned, team, directory, users, online } = useChat(
     useShallow((s) => ({
       me: s.me,
       status: s.status,
       channels: s.channels,
+      pinned: s.pinned,
       team: s.team,
       directory: s.directory,
       users: s.users,
@@ -263,8 +274,13 @@ export function Sidebar({
   );
   const dms = useMemo(
     () =>
-      me ? dmEntries(team, channels, me, directory, (id) => dmChannelId(me.userId, id), users) : [],
-    [team, channels, me, directory, users],
+      me
+        ? pinnedFirst(
+            dmEntries(team, channels, me, directory, (id) => dmChannelId(me.userId, id), users),
+            pinned,
+          )
+        : [],
+    [team, channels, me, directory, users, pinned],
   );
 
   if (!me) return null;
@@ -279,19 +295,14 @@ export function Sidebar({
 
   function dmMenu(dm: (typeof dms)[number]): RowMenuItem[] {
     const items: RowMenuItem[] = [];
-    const peer = dm.userId;
-    if (peer && peer !== me?.userId) {
-      items.push({
-        label: `Ping ${dm.name}`,
-        icon: <HandWaveIcon />,
-        onSelect: () => {
-          chat.nudge(peer);
-          useChat.getState().showToast(`👋 Pinged ${dm.name}`);
-        },
-      });
-    }
     const channel = dm.channelId && channels.find((c) => c.channelId === dm.channelId);
     if (channel) {
+      const isPinned = pinned.includes(channel.channelId);
+      items.push({
+        label: isPinned ? "Unpin chat" : "Pin chat",
+        icon: isPinned ? <PinOffIcon /> : <PinIcon />,
+        onSelect: () => chat.setPinned(channel.channelId, !isPinned),
+      });
       items.push({
         label: "Delete conversation",
         icon: <TrashIcon />,
@@ -302,10 +313,29 @@ export function Sidebar({
     return items;
   }
 
+  function channelMenu(c: Channel): RowMenuItem[] {
+    const items: RowMenuItem[] = [];
+    if (me && canRenameChannel(c, me.userId, me.role)) {
+      items.push({ label: "Rename channel", icon: <PencilIcon />, onSelect: () => setRenaming(c) });
+    }
+    // Until the directory arrives, assume the creator exists (never offer it wrongly).
+    const creatorKnown = Object.keys(users).length === 0 || !!users[c.createdBy];
+    if (me && canDeleteChannel(c, me.userId, creatorKnown)) {
+      items.push({
+        label: "Delete channel",
+        icon: <TrashIcon />,
+        danger: true,
+        onSelect: () => setDeleting({ channel: c, label: `#${c.name}` }),
+      });
+    }
+    return items;
+  }
+
   const iconButton = "rounded-md p-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink";
 
   return (
     <div className="flex h-full flex-col border-r border-line bg-surface-sidebar">
+      {renaming && <RenameChannelModal channel={renaming} onClose={() => setRenaming(null)} />}
       {deleting && (
         <DeleteChannelModal
           channel={deleting.channel}
@@ -404,23 +434,7 @@ export function Sidebar({
                 active={c.channelId === activeChannelId}
                 unread={c.channelId === activeChannelId ? 0 : (unread[c.channelId] ?? 0)}
                 onClick={() => navigate(`/app/${c.channelId}`)}
-                menu={
-                  // Until the directory arrives, assume the creator exists (never offer it wrongly).
-                  canDeleteChannel(
-                    c,
-                    me.userId,
-                    Object.keys(users).length === 0 || !!users[c.createdBy],
-                  )
-                    ? [
-                        {
-                          label: "Delete channel",
-                          icon: <TrashIcon />,
-                          danger: true,
-                          onSelect: () => setDeleting({ channel: c, label: `#${c.name}` }),
-                        },
-                      ]
-                    : undefined
-                }
+                menu={channelMenu(c)}
               />
             ))}
           </ul>
@@ -462,6 +476,7 @@ export function Sidebar({
                   disabled={!dm.userId}
                   onClick={() => dm.userId && openDm(dm.userId)}
                   menu={dmMenu(dm)}
+                  pinned={!!dm.channelId && pinned.includes(dm.channelId)}
                 />
               );
             })}

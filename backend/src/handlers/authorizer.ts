@@ -1,4 +1,5 @@
 import type { APIGatewayAuthorizerResult, APIGatewayRequestAuthorizerEvent } from "aws-lambda";
+import { roleFromGroups } from "@mindfultech/shared";
 import { CognitoJwtVerifier } from "aws-jwt-verify";
 import { requireEnv } from "../lib/env";
 import { errorFields, log } from "../lib/logger";
@@ -45,8 +46,10 @@ export const handler = async (
     const email = payload.email;
     if (typeof email !== "string") throw new Error("id token has no email claim");
 
-    log.info("connection authorized", { sub: payload.sub });
-    return policy(payload.sub, "Allow", event.methodArn, { userId: payload.sub, email });
+    // The role rides along to every route (and onto the connection row).
+    const role = roleFromGroups(payload["cognito:groups"]);
+    log.info("connection authorized", { sub: payload.sub, role });
+    return policy(payload.sub, "Allow", event.methodArn, { userId: payload.sub, email, role });
   } catch (err) {
     log.info("connection denied", errorFields(err));
     return policy("anonymous", "Deny", event.methodArn);

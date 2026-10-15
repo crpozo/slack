@@ -2,6 +2,7 @@ import type {
   Board,
   BoardEvent,
   CreateTaskInput,
+  Role,
   Task,
   TaskStatus,
   UpdateTaskInput,
@@ -27,6 +28,8 @@ export interface TasksState {
   loadTasks: (boardId: string) => Promise<void>;
   createBoard: (name: string) => Promise<Board>;
   addMembers: (boardId: string, userIds: string[]) => Promise<void>;
+  /** Owner invites by email; resolves with what happened (a new guest account, or not). */
+  invite: (boardId: string, email: string) => Promise<{ role: Role; created: boolean }>;
   /** Optimistic rename; put back with the server's message if refused. */
   renameBoard: (boardId: string, name: string) => Promise<void>;
   /** Owner only; optimistic, restored with an error toast if the server refuses. */
@@ -171,6 +174,12 @@ export function createTasksStore(api: TasksApi = tasksApi) {
       async addMembers(boardId, userIds) {
         const board = await api.addMembers(boardId, userIds);
         set((s) => ({ boards: s.boards.map((b) => (b.boardId === boardId ? board : b)) }));
+      },
+
+      async invite(boardId, email) {
+        const { board, invited } = await api.invite(boardId, email);
+        set((s) => ({ boards: s.boards.map((b) => (b.boardId === boardId ? board : b)) }));
+        return invited;
       },
 
       async createTask(boardId, input) {

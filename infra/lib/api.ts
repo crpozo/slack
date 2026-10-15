@@ -132,11 +132,6 @@ export class Api extends Construct {
       react: fn("react"),
       call: fn("call"),
       ping: fn("ping"),
-      // Nudges reach live tabs, else a Web Push: same push config as `message`.
-      nudge: fn("nudge", {
-        PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
-        VAPID_PARAMETER: vapidParameterName(stage),
-      }),
       read: fn("read"),
       edit: fn("edit"),
     } satisfies Record<Exclude<Handler, "authorizer">, NodejsFunction>;
@@ -172,7 +167,6 @@ export class Api extends Construct {
       handlers.user,
       handlers.react,
       handlers.call,
-      handlers.nudge,
       handlers.typing,
       handlers.read,
       handlers.edit,
@@ -188,7 +182,6 @@ export class Api extends Construct {
       handlers.user,
       handlers.react,
       handlers.call,
-      handlers.nudge,
       handlers.typing,
       handlers.read,
       handlers.edit,
@@ -233,12 +226,12 @@ export class Api extends Construct {
     // Deleting a channel or DM removes its messages too.
     messages.grant(handlers.channel, "dynamodb:Query", "dynamodb:BatchWriteItem");
     users.grant(handlers.channel, "dynamodb:BatchGetItem"); // invitees must exist
-    users.grant(handlers.user, "dynamodb:Scan", "dynamodb:UpdateItem");
-    // nudge: the rate limit lives on the recipient's row (conditional UpdateItem),
-    // the sender's display name for the push title (GetItem); push like `message`.
-    users.grant(handlers.nudge, "dynamodb:UpdateItem", "dynamodb:GetItem");
-    data.pushSubscriptions.grant(handlers.nudge, "dynamodb:Query", "dynamodb:DeleteItem");
-    grantReadVapid(handlers.nudge, stage);
+    // user: the directory (Scan), your display name and pinned chats (GetItem/UpdateItem);
+    // for a guest, the boards they're on decide whose names they get (Query + BatchGetItem).
+    users.grant(handlers.user, "dynamodb:Scan", "dynamodb:GetItem", "dynamodb:UpdateItem");
+    data.boards.grant(handlers.user, "dynamodb:Query", "dynamodb:BatchGetItem");
+    // Pinning checks you can see the conversation.
+    channels.grant(handlers.user, "dynamodb:GetItem");
     // react: ADD/DELETE on the reaction set; GetItem for no-op removals.
     messages.grant(handlers.react, "dynamodb:UpdateItem", "dynamodb:GetItem");
 

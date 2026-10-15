@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { compareIds, GENERAL_CHANNEL_ID } from "./ids";
+import type { Role } from "./roles";
 import type { Board, Task, TaskStatus } from "./tasks";
 
 // ---------------------------------------------------------------------------
@@ -36,7 +37,6 @@ export const CLIENT_ACTIONS = [
   "react",
   "call",
   "ping",
-  "nudge",
   "read",
   "edit",
 ] as const;
@@ -161,6 +161,8 @@ export interface UserProfile {
   displayName: string;
   /** Epoch milliseconds. */
   updatedAt: number;
+  /** Absent for rows written before roles existed: a member. */
+  role?: Role;
 }
 
 /** Whether `userId` may see `channel`: public channels are open, others need membership. */
@@ -222,6 +224,17 @@ export function canDeleteChannel(
   if (channel.channelId === GENERAL_CHANNEL_ID || !isChannelMember(channel, userId)) return false;
   if (channel.type === "dm" || channel.createdBy === userId) return true;
   return isLegacyChannel(channel) || !creatorKnown;
+}
+
+/** Who may rename `channel`: its creator or an admin (a member of it); never `#general` or a DM. */
+export function canRenameChannel(
+  channel: Pick<Channel, "channelId" | "type" | "createdBy" | "members">,
+  userId: string,
+  role: Role | undefined,
+): boolean {
+  if (channel.channelId === GENERAL_CHANNEL_ID || channel.type === "dm") return false;
+  if (!isChannelMember(channel, userId)) return false;
+  return channel.createdBy === userId || role === "admin";
 }
 
 // ---------------------------------------------------------------------------
@@ -303,8 +316,20 @@ export const ChannelDeleteActionSchema = z.object({
   channelId,
 });
 
+/**
+ * Renames a channel (its creator or an admin; never `#general`). The slug, and
+ * so the channel id, stays: links and history keep working.
+ */
+export const ChannelRenameActionSchema = z.object({
+  action: z.literal("channel"),
+  op: z.literal("rename"),
+  channelId,
+  name: ChannelNameSchema,
+});
+
 export const ChannelActionSchema = z.discriminatedUnion("op", [
   ChannelListActionSchema,
+  ChannelRenameActionSchema,
   ChannelCreateActionSchema,
   ChannelDmActionSchema,
   ChannelInviteActionSchema,
@@ -372,9 +397,21 @@ export const UserUpdateActionSchema = z.object({
   displayName: DisplayNameSchema,
 });
 
+/** Most conversations one person can pin to the top of their DM list. */
+export const MAX_PINNED_CHATS = 20;
+
+/** Pins (or unpins) a conversation for the caller only; synced to their other devices. */
+export const UserPinActionSchema = z.object({
+  action: z.literal("user"),
+  op: z.literal("pin"),
+  channelId,
+  pinned: z.boolean(),
+});
+
 export const UserActionSchema = z.discriminatedUnion("op", [
   UserListActionSchema,
   UserUpdateActionSchema,
+  UserPinActionSchema,
 ]);
 
 /** A single emoji (possibly a multi-code-point sequence): no whitespace or control chars. */
@@ -480,20 +517,8 @@ export const PingActionSchema = z.object({
   active: z.boolean().optional(),
 });
 
-/** A quick "look at me" to someone: a toast if they're online, a push if not. Nothing is stored. */
-export const NudgeActionSchema = z.object({
-  action: z.literal("nudge"),
-  toUserId: z
-    .string()
-    .min(1)
-    .max(128)
-    .regex(/^[^_\s]+$/),
-});
-export type NudgeAction = z.infer<typeof NudgeActionSchema>;
 export type ReadAction = z.infer<typeof ReadActionSchema>;
 export type EditAction = z.infer<typeof EditActionSchema>;
-/** One nudge per sender → recipient pair per minute. */
-export const NUDGE_INTERVAL_MS = 60_000;
 
 export const ClientActionSchema = z.union([
   MessageActionSchema,
@@ -505,7 +530,6 @@ export const ClientActionSchema = z.union([
   ReactActionSchema,
   CallActionSchema,
   PingActionSchema,
-  NudgeActionSchema,
   ReadActionSchema,
   EditActionSchema,
 ]);
@@ -659,6 +683,19 @@ export interface UserUpdatedEvent {
   user: UserProfile;
 }
 
+/** The caller's own preferences (only ever sent to their own connections). */
+export interface UserPrefsEvent {
+  type: "user.prefs";
+  /** Conversations pinned to the top of the DM list, most recent pin first. */
+  pinned: string[];
+}
+
+/** A channel changed (renamed): its new row, for everyone who can see it. */
+export interface ChannelUpdatedEvent {
+  type: "channel.updated";
+  channel: Channel;
+}
+
 /** Fields every relayed call signal carries; `from` is set by the server. */
 interface CallEventBase {
   callId: string;
@@ -737,14 +774,7 @@ export type BoardEvent =
   | BoardUpdatedEvent
   | BoardDeletedEvent;
 
-/** Someone nudged you (`nudge` action). */
-export interface UserNudgeEvent {
-  type: "user.nudge";
-  from: string;
-}
-
 export type ServerEvent =
-  | UserNudgeEvent
   | MessageNewEvent
   | MessageReactionEvent
   | MessageUpdatedEvent
@@ -756,6 +786,8 @@ export type ServerEvent =
   | PresignResultEvent
   | UserListEvent
   | UserUpdatedEvent
+  | UserPrefsEvent
+  | ChannelUpdatedEvent
   | UserConnectedEvent
   | UserDisconnectedEvent
   | CallEvent

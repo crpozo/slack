@@ -34,7 +34,20 @@ describe("authorizer", () => {
     expect(result.policyDocument.Statement).toEqual([
       { Action: "execute-api:Invoke", Effect: "Allow", Resource: methodArn },
     ]);
-    expect(result.context).toEqual({ userId: "user-alice", email: "alice@example.com" });
+    expect(result.context).toEqual({
+      userId: "user-alice",
+      email: "alice@example.com",
+      role: "member",
+    });
+  });
+
+  it("forwards the role from the Cognito groups (guest wins over admin)", async () => {
+    verify.mockResolvedValue({ sub: "u", email: "g@x.ec", "cognito:groups": ["guests"] });
+    expect((await handler(event("valid"))).context?.role).toBe("guest");
+    verify.mockResolvedValue({ sub: "u", email: "a@x.ec", "cognito:groups": ["admins"] });
+    expect((await handler(event("valid"))).context?.role).toBe("admin");
+    verify.mockResolvedValue({ sub: "u", email: "b@x.ec", "cognito:groups": ["admins", "guests"] });
+    expect((await handler(event("valid"))).context?.role).toBe("guest");
   });
 
   it("denies an invalid token", async () => {

@@ -7,14 +7,22 @@ export function StreamMedia({
   muted = false,
   className,
   label,
+  onVideo,
 }: Readonly<{
   stream: MediaStream | null;
   kind: "video" | "audio";
   muted?: boolean;
   className?: string;
   label?: string;
+  /** The `<video>` element, e.g. for native picture-in-picture. */
+  onVideo?: (el: HTMLVideoElement | null) => void;
 }>) {
   const ref = useRef<HTMLVideoElement & HTMLAudioElement>(null);
+  useEffect(() => {
+    if (kind !== "video" || !onVideo) return;
+    onVideo(ref.current);
+    return () => onVideo(null);
+  }, [kind, onVideo]);
   useEffect(() => {
     const el = ref.current;
     if (!el || el.srcObject === stream) return;
