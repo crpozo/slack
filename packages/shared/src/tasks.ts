@@ -14,6 +14,33 @@ import {
 export const TASK_STATUSES = ["TODO", "IN_PROGRESS", "DONE"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+/** Column titles, as the board shows them. */
+export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
+  TODO: "To Do",
+  IN_PROGRESS: "In Progress",
+  DONE: "Done",
+};
+
+/**
+ * What a board change says in notifications (in-app bell, desktop, Web Push):
+ * a new task, or a task moved to another column. Anything else is not announced.
+ */
+export function describeTaskActivity(change: {
+  actorName: string;
+  boardName: string;
+  task: Pick<Task, "title" | "status">;
+  /** Present for a move; absent for a new task. */
+  previousStatus?: TaskStatus;
+}): { title: string; body: string } {
+  const title = change.boardName;
+  const what = `“${change.task.title}”`;
+  const body =
+    change.previousStatus === undefined
+      ? `${change.actorName} added ${what} to ${TASK_STATUS_LABEL[change.task.status]}`
+      : `${change.actorName} moved ${what} from ${TASK_STATUS_LABEL[change.previousStatus]} to ${TASK_STATUS_LABEL[change.task.status]}`;
+  return { title, body };
+}
+
 export const MAX_BOARD_NAME_LENGTH = 60;
 export const MAX_TASK_TITLE_LENGTH = 200;
 export const MAX_TASK_DESCRIPTION_LENGTH = 2000;

@@ -42,6 +42,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   voice messages. Installers are built by GitHub Actions (_Actions → Desktop_) and attached to a
   GitHub Release.
 
+- **Notification bell** at the top of the sidebar with a red unread count: recent DMs,
+  `@mentions`, pings and board activity; a click opens the conversation or board.
+- **Board notifications:** members hear about a new task and about a task moving to another column
+  (in the bell, with the sound, as a desktop notification and as a push when they're away).
+- **Notification volume** slider in Settings (0–100 %); moving it plays the sound at that level.
+
 ### Changed
 
 - **Attachments up to 500 MB** (was 25 MB) in messages and tasks, for videos and datasets; the
@@ -56,6 +62,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   last attempt failed, and the server logs the push service's answer for each rejected push.
 
 ### Fixed
+
+- **Desktop app notifications on Windows:** none ever appeared, because WebView2 reports the
+  window as focused even when it's behind other apps or minimized. The app now asks Tauri for the
+  window's focus and reports notification errors in the console (`[desktop]`).
+- **Pushes to iPhone (and every device) while another device was merely connected:** the server
+  skipped push for anyone with an open connection, so a desktop app left open, or an iPhone that
+  had just gone to sleep, silenced every push. It now skips push only while you're actually in
+  front of the app on some device (focused within the last 4 minutes).
 
 - Notification sound is much louder: a knock-and-bell at full volume instead of the quiet pop, and
   pushes ask the phone for its native alert tone (`sound: "default"`) instead of a silent banner.

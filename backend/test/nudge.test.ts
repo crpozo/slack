@@ -26,6 +26,13 @@ describe("nudge", () => {
   });
 
   it("reaches the recipient's open tabs only, and rate-limits per pair", async () => {
+    // Bob is looking at the app: the toast is enough.
+    ddbMock.on(ScanCommand).resolves({
+      Items: [
+        { connectionId: "conn-alice", userId: ALICE.userId },
+        { connectionId: "conn-bob", userId: BOB.userId, activeAt: 1_700_000_000_000 - 60_000 },
+      ],
+    });
     expect((await nudge(BOB.userId)).statusCode).toBe(200);
 
     expect(sentEvents()).toEqual([["conn-bob", { type: "user.nudge", from: ALICE.userId }]]);
@@ -52,6 +59,12 @@ describe("nudge", () => {
       tag: dmChannelId(ALICE.userId, BOB.userId),
       sound: "default",
     });
+  });
+
+  it("also pushes when their tab is open but in the background", async () => {
+    await nudge(BOB.userId); // conn-bob has no activeAt
+    expect(sentEvents()).toEqual([["conn-bob", { type: "user.nudge", from: ALICE.userId }]]);
+    expect(sendPush).toHaveBeenCalledTimes(1);
   });
 
   it("answers RATE_LIMITED within a minute, USER_NOT_FOUND for unknown people", async () => {

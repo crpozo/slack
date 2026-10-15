@@ -30,7 +30,7 @@ import {
   toBoard,
   type BoardItem,
 } from "../lib/boards";
-import { deliver, listConnections } from "../lib/broadcast";
+import { activeUserIds, deliver, listConnections, type LiveConnection } from "../lib/broadcast";
 import { batchDelete, ddb, tables } from "../lib/ddb";
 import {
   forbidden,
@@ -45,6 +45,7 @@ import {
   type HttpResult,
 } from "../lib/http";
 import { errorFields, log } from "../lib/logger";
+import { notifyTaskActivity } from "../lib/notify";
 import { unknownUsers } from "../lib/users";
 
 /**
@@ -85,12 +86,14 @@ async function accessibleBoard(boardId: string, caller: HttpCaller): Promise<Boa
  * already succeeded, so a failed push is logged and never fails the request:
  * a client that reloads sees the right data anyway.
  */
-async function notifyBoard(board: Board, event: ServerEvent): Promise<void> {
+async function notifyBoard(board: Board, event: ServerEvent): Promise<LiveConnection[]> {
   try {
-    const connections = (await listConnections()).filter(boardAudience(board));
-    await deliver(connections, () => event);
+    const connections = await listConnections();
+    await deliver(connections.filter(boardAudience(board)), () => event);
+    return connections;
   } catch (err) {
     log.error("board broadcast failed", { boardId: board.boardId, ...errorFields(err) });
+    return [];
   }
 }
 
@@ -347,7 +350,14 @@ async function createTask(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
     }),
   );
   log.info("task created", { boardId, taskId: task.taskId, userId: caller.userId });
-  await notifyBoard(board, { type: "board.task_created", boardId, task });
+  const connections = await notifyBoard(board, {
+    type: "board.task_created",
+    boardId,
+    task,
+    by: caller.userId,
+    boardName: board.name,
+  });
+  await notifyTaskActivity(board, caller, task, undefined, activeUserIds(connections));
   return json(201, { task });
 }
 
@@ -366,7 +376,7 @@ async function accessibleTask(
 
 async function updateTask(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const taskId = pathParam(event, "taskId");
-  const { board } = await accessibleTask(taskId, caller);
+  const { task: before, board } = await accessibleTask(taskId, caller);
   const patch = parseBody(UpdateTaskSchema, event);
   validateTaskFields(board, patch);
 
@@ -392,7 +402,19 @@ async function updateTask(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
   );
   const task = toTask(Attributes ?? {});
   log.info("task updated", { taskId, userId: caller.userId, fields: Object.keys(patch) });
-  await notifyBoard(board, { type: "board.task_updated", boardId: board.boardId, task });
+  // A move to another column is announced; other edits only refresh open boards.
+  const previousStatus = task.status !== before.status ? before.status : undefined;
+  const connections = await notifyBoard(board, {
+    type: "board.task_updated",
+    boardId: board.boardId,
+    task,
+    by: caller.userId,
+    boardName: board.name,
+    ...(previousStatus && { previousStatus }),
+  });
+  if (previousStatus) {
+    await notifyTaskActivity(board, caller, task, previousStatus, activeUserIds(connections));
+  }
   return json(200, { task });
 }
 

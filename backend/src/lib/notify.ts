@@ -1,12 +1,16 @@
 import { GetCommand, paginateScan } from "@aws-sdk/lib-dynamodb";
 import {
+  describeTaskActivity,
   findMentions,
   isChannelMember,
   mentionHandle,
   PUSH_PREVIEW_LENGTH,
+  type Board,
   type Channel,
   type Message,
   type PushPayload,
+  type Task,
+  type TaskStatus,
 } from "@mindfultech/shared";
 import { dmPeerOf } from "./channels";
 import { ddb, tables } from "./ddb";
@@ -23,7 +27,7 @@ async function scanUsers() {
   return users;
 }
 
-async function displayNameOf(userId: string, email: string): Promise<string> {
+export async function displayNameOf(userId: string, email: string): Promise<string> {
   const { Item } = await ddb.send(
     new GetCommand({
       TableName: tables.users,
@@ -71,17 +75,17 @@ function preview(message: Message): string {
 }
 
 /**
- * Pushes `message` to its recipients who have no live WebSocket connection
- * (`liveUserIds`). Best effort: never throws, never delays a failure into the
- * sender's reply.
+ * Pushes `message` to its recipients who aren't in front of the app right now
+ * (not in `activeUserIds`, see `ACTIVE_WINDOW_MS`). Best effort: never throws,
+ * never delays a failure into the sender's reply.
  */
 export async function notifyOffline(
   channel: Channel,
   message: Message,
-  liveUserIds: Set<string>,
+  activeUserIds: Set<string>,
 ): Promise<void> {
   try {
-    const offline = (await pushRecipients(channel, message)).filter((id) => !liveUserIds.has(id));
+    const offline = (await pushRecipients(channel, message)).filter((id) => !activeUserIds.has(id));
     if (offline.length === 0) return;
     const sender = await displayNameOf(message.userId, message.userEmail);
     const payload: PushPayload = {
@@ -99,5 +103,48 @@ export async function notifyOffline(
     });
   } catch (err) {
     log.error("offline notification failed", { channelId: channel.channelId, ...errorFields(err) });
+  }
+}
+
+/**
+ * Pushes a board change (a new task, or a task moved to another column) to the
+ * board's members other than `actor` who aren't in front of the app right now.
+ * Best effort, like `notifyOffline`.
+ */
+export async function notifyTaskActivity(
+  board: Board,
+  actor: { userId: string; email: string },
+  task: Task,
+  previousStatus: TaskStatus | undefined,
+  activeUserIds: Set<string>,
+): Promise<void> {
+  try {
+    const recipients = [...new Set([board.ownerId, ...board.members])].filter(
+      (id) => id !== actor.userId && !activeUserIds.has(id),
+    );
+    if (recipients.length === 0) return;
+    const actorName = await displayNameOf(actor.userId, actor.email);
+    const { title, body } = describeTaskActivity({
+      actorName,
+      boardName: board.name,
+      task,
+      previousStatus,
+    });
+    const sent = await sendPush(recipients, {
+      title,
+      body,
+      url: `/app/tasks/${encodeURIComponent(board.boardId)}`,
+      // One notification per task: its later moves replace the earlier ones.
+      tag: task.taskId,
+      sound: "default",
+    });
+    log.info("board members notified", {
+      boardId: board.boardId,
+      taskId: task.taskId,
+      recipients: recipients.length,
+      sent,
+    });
+  } catch (err) {
+    log.error("board notification failed", { boardId: board.boardId, ...errorFields(err) });
   }
 }

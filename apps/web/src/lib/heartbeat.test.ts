@@ -40,7 +40,7 @@ describe("startHeartbeat", () => {
 
   it("sends nothing while connecting or reconnecting, and restarts on reconnect", () => {
     const client = fakeClient("connecting");
-    startHeartbeat(client, 1000);
+    startHeartbeat(client, undefined, 1000);
 
     vi.advanceTimersByTime(5000);
     expect(client.send).not.toHaveBeenCalled();
@@ -62,7 +62,7 @@ describe("startHeartbeat", () => {
 
   it("stops and unsubscribes when told to", () => {
     const client = fakeClient("open");
-    const stop = startHeartbeat(client, 1000);
+    const stop = startHeartbeat(client, undefined, 1000);
     vi.advanceTimersByTime(1000);
     expect(client.send).toHaveBeenCalledTimes(1);
 
@@ -72,5 +72,18 @@ describe("startHeartbeat", () => {
     vi.advanceTimersByTime(10_000);
     expect(client.send).toHaveBeenCalledTimes(1);
     expect(client.listeners).toBe(0);
+  });
+
+  it("reports whether the app is active: right away on open, then with every ping", () => {
+    const client = fakeClient("open");
+    let active = true;
+    startHeartbeat(client, () => active, 1000);
+    expect(client.send).toHaveBeenLastCalledWith("ping", { active: true });
+    active = false;
+    vi.advanceTimersByTime(1000);
+    expect(client.send).toHaveBeenLastCalledWith("ping", { active: false });
+    client.setStatus("reconnecting");
+    client.setStatus("open");
+    expect(client.send).toHaveBeenCalledTimes(3);
   });
 });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { compareIds, GENERAL_CHANNEL_ID } from "./ids";
-import type { Board, Task } from "./tasks";
+import type { Board, Task, TaskStatus } from "./tasks";
 
 // ---------------------------------------------------------------------------
 // Limits & constants
@@ -470,9 +470,15 @@ export type CallSignal = CallAction["signal"];
 
 /**
  * Heartbeat: API Gateway drops WebSocket connections idle for 10 minutes, so
- * clients send this every few minutes. The server does nothing with it.
+ * clients send this every few minutes. `active` says whether the app is in
+ * front of the person (focused and visible); clients also send it right away
+ * when that changes. The server pushes to phones only while no device of the
+ * person is active (see `ACTIVE_WINDOW_MS`).
  */
-export const PingActionSchema = z.object({ action: z.literal("ping") });
+export const PingActionSchema = z.object({
+  action: z.literal("ping"),
+  active: z.boolean().optional(),
+});
 
 /** A quick "look at me" to someone: a toast if they're online, a push if not. Nothing is stored. */
 export const NudgeActionSchema = z.object({
@@ -694,11 +700,20 @@ export interface BoardTaskCreatedEvent {
   type: "board.task_created";
   boardId: string;
   task: Task;
+  /** Who created it (absent from older servers). */
+  by?: string;
+  /** For the notification text. */
+  boardName?: string;
 }
 export interface BoardTaskUpdatedEvent {
   type: "board.task_updated";
   boardId: string;
   task: Task;
+  /** Who changed it (absent from older servers). */
+  by?: string;
+  boardName?: string;
+  /** Set when this change moved the task to another column (`task.status` is the new one). */
+  previousStatus?: TaskStatus;
 }
 export interface BoardTaskDeletedEvent {
   type: "board.task_deleted";

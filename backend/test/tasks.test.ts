@@ -9,9 +9,10 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ScanCommand } from "@aws-sdk/lib-dynamodb";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { handler } from "../src/handlers/tasks";
 import type { HttpEvent } from "../src/lib/http";
+import * as push from "../src/lib/push";
 import { ALICE, BOB, ddbMock, resetMocks, sentEvents } from "./helpers";
 
 const CAROL = { userId: "user-carol", email: "carol@example.com" };
@@ -84,8 +85,11 @@ const task = {
   updatedAt: 20,
 };
 
+let sendPush: MockInstance<typeof push.sendPush>;
+
 beforeEach(() => {
   resetMocks();
+  sendPush = vi.spyOn(push, "sendPush").mockResolvedValue(1);
   process.env.BOARDS_TABLE = BOARDS;
   process.env.TASKS_TABLE = TASKS;
   ddbMock.on(GetCommand, { TableName: BOARDS }).resolves({});
@@ -94,6 +98,7 @@ beforeEach(() => {
   });
   ddbMock.on(GetCommand, { TableName: TASKS }).resolves({});
   ddbMock.on(GetCommand, { TableName: TASKS, Key: { taskId: "t_1" } }).resolves({ Item: task });
+  ddbMock.on(GetCommand, { TableName: "slack-test-users" }).resolves({}); // default display names
   ddbMock.on(TransactWriteCommand).resolves({});
   ddbMock.on(PutCommand).resolves({});
   ddbMock.on(DeleteCommand).resolves({});
@@ -492,6 +497,73 @@ describe("tasks", () => {
     ddbMock.on(ScanCommand, { TableName: "slack-test-connections" }).rejects(new Error("ddb down"));
     const { status } = await call("DELETE /tasks/{taskId}", { params: { taskId: "t_1" } });
     expect(status).toBe(204);
+  });
+});
+
+describe("board activity notifications", () => {
+  it("a new task pushes to the other members, titled by board and actor", async () => {
+    await call("POST /boards/{id}/tasks", {
+      user: BOB,
+      params: { id: BOARD_ID },
+      body: { title: "Ship v0.2" },
+    });
+    expect(sentEvents()[0]?.[1]).toMatchObject({ by: BOB.userId, boardName: "Launch" });
+    expect(sendPush).toHaveBeenCalledTimes(1);
+    const [recipients, payload] = sendPush.mock.calls[0] ?? [];
+    expect(recipients).toEqual([ALICE.userId]); // never the actor (Bob), never Carol
+    expect(payload).toMatchObject({
+      title: "Launch",
+      body: "bob added “Ship v0.2” to To Do",
+      url: `/app/tasks/${BOARD_ID}`,
+      sound: "default",
+    });
+  });
+
+  it("moving a task to another column pushes the move; other edits don't", async () => {
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { ...task, status: "IN_PROGRESS" } });
+    await call("PUT /tasks/{taskId}", {
+      params: { taskId: "t_1" },
+      body: { status: "IN_PROGRESS" },
+    });
+    expect(sentEvents()[0]?.[1]).toMatchObject({
+      type: "board.task_updated",
+      by: ALICE.userId,
+      previousStatus: "TODO",
+    });
+    expect(sendPush).toHaveBeenCalledWith([BOB.userId], {
+      title: "Launch",
+      body: "alice moved “Write docs” from To Do to In Progress",
+      url: `/app/tasks/${BOARD_ID}`,
+      tag: "t_1",
+      sound: "default",
+    });
+
+    sendPush.mockClear();
+    resetMocks();
+    ddbMock
+      .on(GetCommand, { TableName: BOARDS, Key: { boardId: BOARD_ID, sk: "BOARD" } })
+      .resolves({
+        Item: boardRow,
+      });
+    ddbMock.on(GetCommand, { TableName: TASKS, Key: { taskId: "t_1" } }).resolves({ Item: task });
+    ddbMock.on(GetCommand, { TableName: "slack-test-users" }).resolves({});
+    ddbMock.on(ScanCommand).resolves({ Items: connections });
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { ...task, title: "Renamed" } });
+    await call("PUT /tasks/{taskId}", { params: { taskId: "t_1" }, body: { title: "Renamed" } });
+    expect(sentEvents()[0]?.[1]).not.toHaveProperty("previousStatus");
+    expect(sendPush).not.toHaveBeenCalled();
+  });
+
+  it("skips members who are in front of the app right now", async () => {
+    ddbMock.on(ScanCommand, { TableName: "slack-test-connections" }).resolves({
+      Items: [{ connectionId: "conn-alice", userId: ALICE.userId, activeAt: Date.now() }],
+    });
+    await call("POST /boards/{id}/tasks", {
+      user: BOB,
+      params: { id: BOARD_ID },
+      body: { title: "Ship v0.2" },
+    });
+    expect(sendPush).not.toHaveBeenCalled();
   });
 });
 

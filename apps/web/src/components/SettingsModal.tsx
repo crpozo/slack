@@ -1,5 +1,5 @@
 import { MAX_DISPLAY_NAME_LENGTH } from "@mindfultech/shared";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { chat } from "../lib/chat";
 import {
   listInputDevices,
@@ -14,9 +14,12 @@ import { isDesktopApp } from "../lib/desktop";
 import { disablePush, enablePush, usePush, type PushStatus } from "../lib/push";
 import {
   onSoundsChange,
+  onVolumeChange,
   previewMessageSound,
   setSoundsEnabled,
+  setSoundVolume,
   soundsEnabled,
+  soundVolume,
 } from "../lib/sounds";
 import { getThemePreference, setThemePreference, type ThemePreference } from "../lib/theme";
 import { useChat, useNameOf } from "../store";
@@ -252,6 +255,59 @@ function NotificationSettings() {
   );
 }
 
+/** How often the slider may replay the preview while it's being dragged. */
+const PREVIEW_EVERY_MS = 250;
+
+/**
+ * Volume of the notification sounds (0–1), saved on this device. Moving the
+ * slider plays the message sound at the new level so you hear what you pick.
+ */
+function VolumeSettings() {
+  const [volume, setVolume] = useState(soundVolume);
+  const [enabled, setEnabled] = useState(soundsEnabled);
+  const lastPreview = useRef(0);
+  useEffect(() => onVolumeChange(setVolume), []);
+  useEffect(() => onSoundsChange(setEnabled), []);
+
+  const change = (value: number) => {
+    setSoundVolume(value);
+    const now = Date.now();
+    if (now - lastPreview.current < PREVIEW_EVERY_MS) return;
+    lastPreview.current = now;
+    previewMessageSound();
+  };
+
+  return (
+    <div className="rounded-lg border border-line px-3 py-2.5">
+      <label htmlFor="sound-volume" className="flex items-center justify-between gap-3">
+        <span className="text-sm font-medium text-ink">Notification volume</span>
+        <span className="text-xs tabular-nums text-ink-secondary">
+          {Math.round(volume * 100)} %
+        </span>
+      </label>
+      <input
+        id="sound-volume"
+        type="range"
+        min={0}
+        max={1}
+        step={0.05}
+        value={volume}
+        disabled={!enabled}
+        onChange={(e) => change(Number(e.target.value))}
+        // Releasing the slider always plays the final level, even mid-throttle.
+        onPointerUp={() => previewMessageSound()}
+        className="mt-2 w-full accent-primary disabled:opacity-50"
+        aria-valuetext={`${Math.round(volume * 100)} percent`}
+      />
+      <p className="text-xs text-ink-secondary">
+        {enabled
+          ? "On iPhone and iPad the device's volume buttons decide instead."
+          : "Turn on notification sounds to change the volume."}
+      </p>
+    </div>
+  );
+}
+
 /** Profile (display name), appearance (theme) and call devices. */
 export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
   const me = useChat((s) => s.me);
@@ -365,6 +421,7 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
           <h3 className="text-sm font-semibold text-ink">Notifications</h3>
           <PushSettings />
           <NotificationSettings />
+          <VolumeSettings />
         </section>
 
         <section className="space-y-2">

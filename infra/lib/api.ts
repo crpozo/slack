@@ -257,8 +257,12 @@ export class Api extends Construct {
       }),
     );
 
+    // ping: stamps or clears `activeAt` on the caller's own connection row
+    // (conditional UpdateItem); it never replies.
+    connections.grant(handlers.ping, "dynamodb:UpdateItem");
+
     // Every handler that replies to the sender or broadcasts uses @connections.
-    // (`ping` is a no-op: no permissions at all.)
+    // (`ping` never replies, so it has none.)
     for (const h of [handlers.default, handlers.connect, handlers.disconnect, ...routeHandlers]) {
       this.webSocketApi.grantManageConnections(h);
     }

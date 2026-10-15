@@ -1,6 +1,7 @@
 import {
   compareIds,
   dmChannelId,
+  isDmChannel,
   type BoardEvent,
   type ChannelVisibility,
   type Attachment,
@@ -12,14 +13,12 @@ import {
 import { ulid } from "ulid";
 import { selectName, useChat, type ChatMessage } from "../store";
 import { pendingMessageId } from "../store/messages";
+import { useNotifications } from "../store/notifications";
 import { getIdToken, SessionExpiredError } from "./auth";
 import { calls } from "./call";
-import {
-  notificationBody,
-  notifyDesktop,
-  prepareDesktopNotifications,
-  shouldNotify,
-} from "./desktop";
+import { isAppActive, watchActivity } from "./activity";
+import { boardActivity, raiseAlert } from "./alerts";
+import { notificationBody, prepareDesktopNotifications, shouldNotify } from "./desktop";
 import { startHeartbeat } from "./heartbeat";
 import { playMessageSound } from "./sounds";
 import { useTasks } from "../store/tasks";
@@ -49,7 +48,8 @@ interface Deferred<T> {
 
 type PresignRequest = DistributiveOmit<PresignAction, "action" | "requestId">;
 
-const isFocused = () => document.visibilityState === "visible" && document.hasFocus();
+/** In front of the person (in the desktop app, per Tauri: see `activity.ts`). */
+const isFocused = isAppActive;
 /** Keystrokes send `typing` at most this often… */
 export const TYPING_INTERVAL_MS = 3000;
 /** …and the indicator stays this long after the last one (slightly more than the interval). */
@@ -85,6 +85,7 @@ class ChatController {
     this.client = client;
     const store = useChat.getState;
     prepareDesktopNotifications();
+    useNotifications.getState().load(store().me?.userId ?? null);
 
     this.cleanups.push(
       client.onStatus((status) => store().setStatus(status)),
@@ -114,13 +115,25 @@ class ChatController {
         s.setTyping(message.channelId, message.userId, null);
         // A pop for messages from others that you are not already looking at.
         if (!viewing && message.userId !== s.me?.userId) playMessageSound();
-        // Desktop app in the background: a native notification for DMs and @mentions.
-        const channel = s.channels.find((c) => c.channelId === message.channelId);
+        // DMs and @mentions also go to the bell (and to the desktop app's
+        // notifications while it's in the background).
+        // A brand-new DM isn't in the channel list yet; its id says what it is.
+        const channel =
+          s.channels.find((c) => c.channelId === message.channelId) ??
+          (isDmChannel(message.channelId) ? ({ type: "dm" } as const) : undefined);
         const me = s.me && { ...s.me, displayName: s.users[s.me.userId]?.displayName };
-        if (me && !isFocused() && shouldNotify(channel, message, me)) {
+        if (channel && me && !viewing && shouldNotify(channel, message, me)) {
           const sender = selectName(s, message.userId, message.userEmail);
-          const title = channel?.type === "dm" ? sender : `${sender} in #${channel?.name}`;
-          void notifyDesktop(title, notificationBody(message));
+          const dm = channel.type === "dm";
+          raiseAlert(
+            {
+              kind: dm ? "message" : "mention",
+              title: dm || !("name" in channel) ? sender : `${sender} in #${channel.name}`,
+              body: notificationBody(message),
+              url: `/app/${encodeURIComponent(message.channelId)}`,
+            },
+            { sound: false }, // the pop above already played
+          );
         }
       }),
 
@@ -134,9 +147,20 @@ class ChatController {
 
       // Someone pinged you: a toast, the message pop and a short buzz (Android).
       client.on("user.nudge", ({ from }) => {
-        store().showToast(`👋 ${selectName(store(), from)} is pinging you`);
+        const title = `👋 ${selectName(store(), from)} is pinging you`;
+        store().showToast(title);
         playMessageSound();
         navigator.vibrate?.([80, 60, 80]);
+        const me = store().me;
+        raiseAlert(
+          {
+            kind: "nudge",
+            title,
+            body: "Open the conversation to reply",
+            url: me ? `/app/${encodeURIComponent(dmChannelId(me.userId, from))}` : "/app",
+          },
+          { sound: false },
+        );
       }),
 
       // Presence (Phase 7).
@@ -234,7 +258,10 @@ class ChatController {
     // Task Manager pushes (sent by the HTTP API's Lambda through this socket).
     const applyBoardEvent = (event: BoardEvent) => {
       const me = store().me;
-      if (me) useTasks.getState().applyEvent(event, me.userId);
+      if (!me) return;
+      useTasks.getState().applyEvent(event, me.userId);
+      const activity = boardActivity(event, me.userId);
+      if (activity) raiseAlert(activity);
     };
     this.cleanups.push(
       client.on("board.task_created", applyBoardEvent),
@@ -242,8 +269,13 @@ class ChatController {
       client.on("board.task_deleted", applyBoardEvent),
       client.on("board.updated", applyBoardEvent),
       client.on("board.deleted", applyBoardEvent),
-      // Keep the connection alive: API Gateway drops idle sockets after 10 minutes.
-      startHeartbeat(client),
+      // Keep the connection alive (API Gateway drops idle sockets after 10 minutes)
+      // and tell the server whether we're in front of the person: it pushes to
+      // their devices only while none of them is active.
+      startHeartbeat(client, isAppActive),
+      watchActivity((active) => {
+        if (client.status === "open") client.send("ping", { active });
+      }),
       () => window.removeEventListener("online", onOnline),
     );
 
@@ -257,6 +289,7 @@ class ChatController {
     this.client = null;
     // Requests in flight died with the socket; let the next session re-issue them.
     useChat.setState({ historyRequests: {} });
+    useNotifications.getState().load(null); // saved alerts stay for the next sign-in
     this.cleanups.forEach((fn) => fn());
     this.cleanups.length = 0;
     this.sendTimers.forEach((t) => clearTimeout(t));

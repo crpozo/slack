@@ -10,7 +10,7 @@ import {
   type ReplySnapshot,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
-import { deliver, listConnections } from "../lib/broadcast";
+import { activeUserIds, deliver, listConnections } from "../lib/broadcast";
 import { channelAudience, getAccessibleChannel } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import { wsHandler } from "../lib/handler";
@@ -89,6 +89,6 @@ export const handler = wsHandler(async (event, caller) => {
   const inAudience = channelAudience(channel);
   const connections = await listConnections();
   await deliver(connections, (connection) => (inAudience(connection) ? newMessage : null));
-  await notifyOffline(channel, message, new Set(connections.map((c) => c.userId)));
+  await notifyOffline(channel, message, activeUserIds(connections));
   return ok();
 });

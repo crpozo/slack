@@ -6,7 +6,7 @@ import {
   NudgeActionSchema,
   parseAction,
 } from "@mindfultech/shared";
-import { deliver, listConnections } from "../lib/broadcast";
+import { activeUserIds, deliver, listConnections } from "../lib/broadcast";
 import { ddb, tables } from "../lib/ddb";
 import { wsHandler } from "../lib/handler";
 import { log } from "../lib/logger";
@@ -73,7 +73,8 @@ export const handler = wsHandler(async (event, caller) => {
 
   const theirs = (await listConnections()).filter((c) => c.userId === toUserId);
   const reached = await deliver(theirs, () => ({ type: "user.nudge", from: caller.userId }));
-  if (reached === 0) {
+  // A toast only helps if they're looking at the app; otherwise their devices buzz too.
+  if (reached === 0 || !activeUserIds(theirs).has(toUserId)) {
     const name = await displayNameOf(caller.userId, caller.userEmail);
     const dm = dmChannelId(caller.userId, toUserId);
     await sendPush([toUserId], {

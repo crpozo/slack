@@ -16,6 +16,7 @@ import { Composer, type ComposerHandle } from "./Composer";
 import { InviteModal } from "./ChannelModals";
 import { HashIcon, LockIcon, MenuIcon, PhoneIcon, UserPlusIcon, VideoIcon } from "./icons";
 import { MessageList } from "./MessageList";
+import { UnreadAlertsDot } from "./NotificationBell";
 import { TypingIndicator } from "./TypingIndicator";
 
 const ICON_BUTTON =
@@ -119,10 +120,11 @@ function ChannelHeader({
       <button
         type="button"
         onClick={onOpenSidebar}
-        className="rounded-md p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink md:hidden"
+        className="relative rounded-md p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink md:hidden"
         aria-label="Open menu"
       >
         <MenuIcon />
+        <UnreadAlertsDot />
       </button>
       {!dm && <KindIcon className="text-ink-secondary" />}
       <h1 className="truncate font-semibold text-ink">{label}</h1>
