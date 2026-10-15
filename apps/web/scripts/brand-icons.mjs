@@ -18,19 +18,10 @@
 // reference (index.html, manifest, service worker) gets `?v=<hash of the logo>`:
 // a new logo means new URLs, and every browser and installed app fetches it.
 // Nothing here needs Rust: the Tauri CLI is a prebuilt binary.
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
@@ -119,17 +110,16 @@ for (const file of [
 }
 
 // Desktop icons: `tauri icon` wants a PNG; only the files tauri.conf.json lists are kept.
-const tmp = mkdtempSync(join(tmpdir(), "brand-"));
+// The Tauri CLI is called through its JS API (no shell, no PATH lookup), and the
+// scratch files stay in this package's own cache folder, not a shared temp dir.
+const { run: tauri } = createRequire(join(DESKTOP, "package.json"))("@tauri-apps/cli");
+const scratch = join(WEB, "node_modules", ".cache", "brand-icons");
+rmSync(scratch, { recursive: true, force: true });
+mkdirSync(scratch, { recursive: true });
 try {
-  const png = join(tmp, "logo-1024.png");
+  const png = join(scratch, "logo-1024.png");
   writeFileSync(png, await render(1024));
-  execFileSync(
-    "pnpm",
-    ["--filter", "desktop", "exec", "tauri", "icon", png, "-o", join(tmp, "out")],
-    {
-      stdio: "inherit",
-    },
-  );
+  await tauri(["icon", png, "-o", join(scratch, "out")], "tauri");
   for (const name of [
     "32x32.png",
     "128x128.png",
@@ -138,11 +128,11 @@ try {
     "icon.ico",
     "icon.png",
   ]) {
-    copyFileSync(join(tmp, "out", name), join(DESKTOP, "src-tauri", "icons", name));
+    copyFileSync(join(scratch, "out", name), join(DESKTOP, "src-tauri", "icons", name));
     console.log(`  ../desktop/src-tauri/icons/${name}`);
   }
 } finally {
-  rmSync(tmp, { recursive: true, force: true });
+  rmSync(scratch, { recursive: true, force: true });
 }
 console.log(
   "Done. Commit the changed files; desktop users get the new icon with the next installer build.",
