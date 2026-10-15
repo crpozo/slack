@@ -1,0 +1,265 @@
+diff --git a/apps/web/src/components/TaskManager.tsx b/apps/web/src/components/TaskManager.tsx
+index e971339..47775a0 100644
+--- a/apps/web/src/components/TaskManager.tsx
++++ b/apps/web/src/components/TaskManager.tsx
+@@ -453,6 +453,67 @@ function Column({
+   );
+ }
+ 
++/**
++ * The board title; for the owner, a click turns it into an input. Enter or
++ * leaving the field saves, Escape cancels, an empty name is ignored.
++ */
++function BoardName({ board, editable }: Readonly<{ board: Board; editable: boolean }>) {
++  const renameBoard = useTasks((s) => s.renameBoard);
++  const [editing, setEditing] = useState(false);
++  const [draft, setDraft] = useState(board.name);
++
++  useEffect(() => {
++    if (!editing) setDraft(board.name);
++  }, [board.name, editing]);
++
++  const commit = useCallback(() => {
++    setEditing(false);
++    const name = draft.trim();
++    if (!name || name === board.name) return;
++    renameBoard(board.boardId, name).catch(() => {
++      /* the store reverted the name and recorded the error */
++    });
++  }, [board.boardId, board.name, draft, renameBoard]);
++
++  if (editing) {
++    return (
++      <input
++        autoFocus
++        aria-label="Board name"
++        value={draft}
++        maxLength={MAX_BOARD_NAME_LENGTH}
++        onChange={(e) => setDraft(e.target.value)}
++        onBlur={commit}
++        onKeyDown={(e) => {
++          if (e.key === "Enter") {
++            e.preventDefault();
++            commit();
++          } else if (e.key === "Escape") {
++            e.preventDefault();
++            setDraft(board.name);
++            setEditing(false);
++          }
++        }}
++        className="min-w-0 max-w-xs rounded-md border border-line bg-surface px-2 py-0.5 text-lg font-semibold text-ink outline-none focus:ring-2 focus:ring-accent"
++      />
++    );
++  }
++
++  if (!editable) {
++    return <h2 className="truncate text-lg font-semibold text-ink">{board.name}</h2>;
++  }
++  return (
++    <button
++      type="button"
++      title="Rename board"
++      onClick={() => setEditing(true)}
++      className="truncate rounded-md px-1 text-left text-lg font-semibold text-ink hover:bg-surface-hover"
++    >
++      <h2 className="truncate">{board.name}</h2>
++    </button>
++  );
++}
++
+ function BoardView({ board }: Readonly<{ board: Board }>) {
+   const myUserId = useChat((s) => s.me?.userId);
+   const nameOf = useNameOf();
+@@ -478,7 +539,7 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
+   return (
+     <div className="flex min-h-0 flex-1 flex-col">
+       <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 sm:px-6">
+-        <h2 className="truncate text-lg font-semibold text-ink">{board.name}</h2>
++        <BoardName board={board} editable={isOwner} />
+         <div className="flex items-center -space-x-1" aria-label="Members">
+           {board.members.map((id) => (
+             <span key={id} title={nameOf(id)} className="rounded-lg ring-2 ring-surface">
+diff --git a/apps/web/src/lib/tasksApi.ts b/apps/web/src/lib/tasksApi.ts
+index 85d827c..823ea7e 100644
+--- a/apps/web/src/lib/tasksApi.ts
++++ b/apps/web/src/lib/tasksApi.ts
+@@ -61,6 +61,10 @@ export const tasksApi = {
+   listBoards: () => request<{ boards: Board[] }>("GET", "/boards").then((r) => r.boards),
+   createBoard: (name: string) =>
+     request<{ board: Board }>("POST", "/boards", { name }).then((r) => r.board),
++  renameBoard: (boardId: string, name: string) =>
++    request<{ board: Board }>("PUT", `/boards/${encodeURIComponent(boardId)}`, { name }).then(
++      (r) => r.board,
++    ),
+   addMembers: (boardId: string, userIds: string[]) =>
+     request<{ board: Board }>("POST", `/boards/${encodeURIComponent(boardId)}/members`, {
+       userIds,
+diff --git a/apps/web/src/store/tasks.ts b/apps/web/src/store/tasks.ts
+index 3271ef4..3842776 100644
+--- a/apps/web/src/store/tasks.ts
++++ b/apps/web/src/store/tasks.ts
+@@ -19,6 +19,7 @@ export interface TasksState {
+   loadBoards: () => Promise<void>;
+   loadTasks: (boardId: string) => Promise<void>;
+   createBoard: (name: string) => Promise<Board>;
++  renameBoard: (boardId: string, name: string) => Promise<void>;
+   addMembers: (boardId: string, userIds: string[]) => Promise<void>;
+   createTask: (boardId: string, title: string, description: string) => Promise<void>;
+   moveTask: (taskId: string, status: TaskStatus) => Promise<void>;
+@@ -107,6 +108,23 @@ export function createTasksStore(api: TasksApi = tasksApi) {
+         return board;
+       },
+ 
++      async renameBoard(boardId, name) {
++        const previous = get().boards.find((b) => b.boardId === boardId);
++        if (!previous || previous.name === name) return;
++        // Optimistic: the header and the sidebar change at once.
++        set((s) => ({ boards: s.boards.map((b) => (b.boardId === boardId ? { ...b, name } : b)) }));
++        try {
++          const board = await api.renameBoard(boardId, name);
++          set((s) => ({ boards: s.boards.map((b) => (b.boardId === boardId ? board : b)) }));
++        } catch (err) {
++          set((s) => ({
++            boards: s.boards.map((b) => (b.boardId === boardId ? previous : b)),
++            error: err instanceof Error ? err.message : "Could not rename the board",
++          }));
++          throw err;
++        }
++      },
++
+       async addMembers(boardId, userIds) {
+         const board = await api.addMembers(boardId, userIds);
+         set((s) => ({ boards: s.boards.map((b) => (b.boardId === boardId ? board : b)) }));
+diff --git a/backend/src/handlers/tasks.ts b/backend/src/handlers/tasks.ts
+index 5f42a99..e386051 100644
+--- a/backend/src/handlers/tasks.ts
++++ b/backend/src/handlers/tasks.ts
+@@ -14,6 +14,7 @@ import {
+   CreateBoardSchema,
+   CreateTaskSchema,
+   MAX_BOARD_MEMBERS,
++  UpdateBoardSchema,
+   UpdateTaskSchema,
+   type Attachment,
+   type Board,
+@@ -182,6 +183,29 @@ async function createBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
+   return json(201, { board });
+ }
+ 
++async function updateBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
++  const boardId = pathParam(event, "id");
++  const board = await accessibleBoard(boardId, caller);
++  if (board.ownerId !== caller.userId) throw forbidden("Only the board owner can rename it");
++
++  const { name } = parseBody(UpdateBoardSchema, event);
++  if (name === board.name) return json(200, { board });
++  await ddb.send(
++    new UpdateCommand({
++      TableName: tables.boards,
++      Key: { boardId, sk: BOARD_SK },
++      UpdateExpression: "SET #name = :name",
++      ConditionExpression: "ownerId = :me",
++      ExpressionAttributeNames: { "#name": "name" },
++      ExpressionAttributeValues: { ":name": name, ":me": caller.userId },
++    }),
++  );
++  log.info("board renamed", { boardId, userId: caller.userId });
++  const updated: Board = { ...board, name };
++  await notifyBoard(updated, { type: "board.updated", board: updated });
++  return json(200, { board: updated });
++}
++
+ async function addMembers(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+   const boardId = pathParam(event, "id");
+   const board = await accessibleBoard(boardId, caller);
+@@ -347,6 +371,7 @@ async function deleteTask(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
+ const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<HttpResult>> = {
+   "GET /boards": (_e, c) => listBoards(c),
+   "POST /boards": createBoard,
++  "PUT /boards/{id}": updateBoard,
+   "POST /boards/{id}/members": addMembers,
+   "GET /boards/{id}/tasks": listTasks,
+   "POST /boards/{id}/tasks": createTask,
+diff --git a/backend/test/tasks.test.ts b/backend/test/tasks.test.ts
+index e0d2208..ec519c2 100644
+--- a/backend/test/tasks.test.ts
++++ b/backend/test/tasks.test.ts
+@@ -190,6 +190,42 @@ describe("boards", () => {
+     });
+   });
+ 
++  it("the owner can rename the board; members are told", async () => {
++    ddbMock.on(UpdateCommand).resolves({});
++    const { status, body } = await call("PUT /boards/{id}", {
++      params: { id: BOARD_ID },
++      body: { name: "  Launch v2  " },
++    });
++    expect(status).toBe(200);
++    expect(body.board).toMatchObject({ boardId: BOARD_ID, name: "Launch v2" });
++    expect(ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input).toMatchObject({
++      Key: { boardId: BOARD_ID, sk: "BOARD" },
++      UpdateExpression: "SET #name = :name",
++      ConditionExpression: "ownerId = :me",
++      ExpressionAttributeValues: { ":name": "Launch v2", ":me": ALICE.userId },
++    });
++    expect(pushed()).toEqual(["conn-alice", "conn-bob"]);
++    expect(sentEvents()[0]?.[1]).toMatchObject({
++      type: "board.updated",
++      board: { boardId: BOARD_ID, name: "Launch v2" },
++    });
++  });
++
++  it("renaming rejects an empty name and non-owners", async () => {
++    ddbMock.on(UpdateCommand).resolves({});
++    expect(
++      (await call("PUT /boards/{id}", { params: { id: BOARD_ID }, body: { name: "   " } })).status,
++    ).toBe(400);
++    const { status, body } = await call("PUT /boards/{id}", {
++      user: BOB,
++      params: { id: BOARD_ID },
++      body: { name: "Mine now" },
++    });
++    expect(status).toBe(403);
++    expect(body.message).toMatch(/owner/);
++    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
++  });
++
+   it("a member who is not the owner gets 403 when adding people", async () => {
+     const { status, body } = await call("POST /boards/{id}/members", {
+       user: BOB,
+diff --git a/infra/lib/tasks-api.ts b/infra/lib/tasks-api.ts
+index de373c3..3a2adc4 100644
+--- a/infra/lib/tasks-api.ts
++++ b/infra/lib/tasks-api.ts
+@@ -25,6 +25,7 @@ const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+ export const TASKS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+   { method: HttpMethod.GET, path: "/boards" },
+   { method: HttpMethod.POST, path: "/boards" },
++  { method: HttpMethod.PUT, path: "/boards/{id}" },
+   { method: HttpMethod.POST, path: "/boards/{id}/members" },
+   { method: HttpMethod.GET, path: "/boards/{id}/tasks" },
+   { method: HttpMethod.POST, path: "/boards/{id}/tasks" },
+diff --git a/packages/shared/src/tasks.ts b/packages/shared/src/tasks.ts
+index 58dfbe3..c64341f 100644
+--- a/packages/shared/src/tasks.ts
++++ b/packages/shared/src/tasks.ts
+@@ -74,6 +74,11 @@ export const CreateBoardSchema = z.object({
+   name: text(MAX_BOARD_NAME_LENGTH).pipe(z.string().min(1)),
+ });
+ 
++/** Rename a board; the owner only. */
++export const UpdateBoardSchema = z.object({
++  name: text(MAX_BOARD_NAME_LENGTH).pipe(z.string().min(1)),
++});
++
+ export const AddBoardMembersSchema = z.object({
+   userIds: z.array(UserIdSchema).min(1).max(MAX_MEMBERS_PER_REQUEST),
+ });
+@@ -103,6 +108,7 @@ export const UpdateTaskSchema = z
+   .refine((v) => Object.values(v).some((x) => x !== undefined), "nothing to update");
+ 
+ export type CreateBoardInput = z.infer<typeof CreateBoardSchema>;
++export type UpdateBoardInput = z.infer<typeof UpdateBoardSchema>;
+ export type AddBoardMembersInput = z.infer<typeof AddBoardMembersSchema>;
+ export type CreateTaskInput = z.input<typeof CreateTaskSchema>;
+ export type UpdateTaskInput = z.infer<typeof UpdateTaskSchema>;
