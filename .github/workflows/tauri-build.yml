@@ -29,7 +29,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
+          # Pinned: macos-latest queues for a long time on public runners. macos-14
+          # is Apple Silicon and builds the universal (Apple Silicon + Intel) .dmg.
+          - platform: macos-14
             args: --target universal-apple-darwin
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
           - platform: windows-latest
