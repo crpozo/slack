@@ -198,6 +198,8 @@ export function createTasksStore(api: TasksApi = tasksApi) {
           createdBy: "",
           createdAt: now,
           updatedAt: now,
+          doneAt: null,
+          isArchived: false,
         };
         set((s) => ({
           tasksByBoard: {
@@ -233,12 +235,20 @@ export function createTasksStore(api: TasksApi = tasksApi) {
       async moveTask(taskId, status) {
         const before = findTask(taskId);
         if (!before || before.status === status || before.taskId.startsWith("pending_")) return;
-        patchTask(taskId, { status, updatedAt: Date.now() });
+        const now = Date.now();
+        // Like the server: into Done starts the archive clock, out of it unarchives.
+        patchTask(taskId, {
+          status,
+          updatedAt: now,
+          doneAt: status === "DONE" ? now : null,
+          isArchived: false,
+        });
         try {
           const task = await api.updateTask(taskId, { status });
           patchTask(taskId, task);
         } catch (err) {
-          patchTask(taskId, { status: before.status, updatedAt: before.updatedAt });
+          const { updatedAt, doneAt, isArchived } = before;
+          patchTask(taskId, { status: before.status, updatedAt, doneAt, isArchived });
           set({ error: message(err, "Couldn't move the task.") });
         }
       },

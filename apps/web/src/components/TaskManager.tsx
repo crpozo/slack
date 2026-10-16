@@ -1,5 +1,6 @@
 import {
   canAccessBoard,
+  isTaskArchived,
   MAX_BOARD_NAME_LENGTH,
   type Board,
   type Task,
@@ -405,6 +406,9 @@ function TaskCard({
 function Column({
   column,
   tasks,
+  archived = [],
+  showArchived = false,
+  onToggleArchived,
   draggingId,
   onDragStart,
   onOpen,
@@ -412,6 +416,10 @@ function Column({
 }: Readonly<{
   column: (typeof COLUMNS)[number];
   tasks: Task[];
+  /** Done column: tasks done for over a week, hidden unless `showArchived`. */
+  archived?: Task[];
+  showArchived?: boolean;
+  onToggleArchived?: () => void;
   draggingId: string | null;
   onDragStart: (id: string) => void;
   onOpen: (id: string) => void;
@@ -451,6 +459,17 @@ function Column({
         <span className="rounded-full bg-surface px-2 py-0.5 text-xs text-ink-secondary">
           {tasks.length}
         </span>
+        {onToggleArchived && archived.length > 0 && (
+          <button
+            type="button"
+            onClick={onToggleArchived}
+            aria-pressed={showArchived}
+            title="Tasks done for over a week are archived"
+            className="ml-auto rounded-md px-2 py-0.5 text-xs font-medium text-ink-secondary hover:bg-surface-hover hover:text-ink"
+          >
+            {showArchived ? "Hide archived" : `Show archived (${archived.length})`}
+          </button>
+        )}
       </header>
       <div className="flex flex-1 flex-col gap-2">
         {column.status === "TODO" && <AddTaskButton onClick={onAdd} />}
@@ -461,6 +480,18 @@ function Column({
           <p className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-ink-secondary">
             Drop tasks here
           </p>
+        )}
+        {showArchived && archived.length > 0 && (
+          <div className="mt-2 flex flex-col gap-2 border-t border-line pt-3" aria-label="Archived">
+            <p className="px-1 text-xs font-medium uppercase tracking-wide text-ink-secondary">
+              Archived
+            </p>
+            {archived.map((task) => (
+              <div key={task.taskId} className="opacity-70">
+                <TaskCard task={task} onDragStart={onDragStart} onOpen={onOpen} />
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </section>
@@ -635,6 +666,7 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const isOwner = board.ownerId === myUserId;
   const closeTask = useCallback(() => setOpenTaskId(null), []);
 
@@ -642,10 +674,17 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
     void loadTasks(board.boardId);
   }, [board.boardId, loadTasks]);
 
-  const byStatus = useMemo(() => {
+  const { byStatus, archived } = useMemo(() => {
     const groups: Record<TaskStatus, Task[]> = { TODO: [], IN_PROGRESS: [], DONE: [] };
-    for (const t of tasks ?? []) (groups[t.status] ?? groups.TODO).push(t);
-    return groups;
+    const old: Task[] = [];
+    const now = Date.now();
+    for (const t of tasks ?? []) {
+      if (isTaskArchived(t, now)) old.push(t);
+      else (groups[t.status] ?? groups.TODO).push(t);
+    }
+    // Most recently done first.
+    old.sort((a, b) => (b.doneAt ?? b.updatedAt) - (a.doneAt ?? a.updatedAt));
+    return { byStatus: groups, archived: old };
   }, [tasks]);
 
   return (
@@ -692,6 +731,11 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
               key={column.status}
               column={column}
               tasks={byStatus[column.status]}
+              {...(column.status === "DONE" && {
+                archived,
+                showArchived,
+                onToggleArchived: () => setShowArchived((v) => !v),
+              })}
               draggingId={draggingId}
               onDragStart={setDraggingId}
               onOpen={setOpenTaskId}

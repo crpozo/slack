@@ -14,6 +14,8 @@ const task: Task = {
   createdBy: "u_ana",
   createdAt: 1,
   updatedAt: 2,
+  doneAt: 2,
+  isArchived: false,
 };
 
 const sounds = { playMessageSound: vi.fn() };
