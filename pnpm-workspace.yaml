@@ -7,6 +7,7 @@ packages:
 
 onlyBuiltDependencies:
   - esbuild
+  - sharp
 
 # aws-sdk-client-mock imports @smithy/types without declaring it, so it would pick
 # up whatever version gets hoisted (Amplify brings old ones). Pin it to the

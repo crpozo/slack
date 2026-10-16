@@ -47,8 +47,8 @@ self.addEventListener("push", (event) => {
         // alert tone (`sound: "default"`), which iOS plays unless `silent` is set.
         silent: false,
         vibrate: [120, 60, 120],
-        icon: "/icons/icon-192.png?v=873e94e52c",
-        badge: "/icons/badge-96.png?v=873e94e52c",
+        icon: "/icons/icon-192.png?v=b0ae91fbc6",
+        badge: "/icons/badge-96.png?v=b0ae91fbc6",
         data: { url: typeof data.url === "string" ? data.url : "/" },
       })
       .then(
