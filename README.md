@@ -106,7 +106,8 @@ pnpm dev     # http://localhost:5173
 The UI:
 
 - **Session:** login with email and password; the session persists across reloads.
-- **Sidebar:** channels (🔒 for private ones) and DMs with an unread badge. Widen it by dragging
+- **Sidebar:** channels (🔒 for private ones) and DMs with the number of unread messages (red for
+  DMs and `@mentions`), counted from your read mark on the server so every device agrees. Widen it by dragging
   its edge and collapse it to icons only with the header button or `Ctrl/⌘ + B`; both are
   remembered. On mobile it is a slide-out menu.
 - **Direct messages:** the `+` next to "Direct messages" opens a people picker; choosing someone
@@ -114,7 +115,10 @@ The UI:
 - **Channels:** `+` opens "Create channel", with Public/Private (private by default) and
   invitations from the directory. Whoever creates a private channel sees "Invite" in its header.
 - **Messages:** Enter sends and Shift + Enter adds a new line. Files up to 500 MB can be
-  attached, pasted or dropped, and emoji inserted with the composer's 🙂 button.
+  attached, pasted or dropped, and emoji inserted with the composer's 🙂 button. Images open in
+  a full-screen viewer (wheel / pinch / double-tap to zoom, drag to pan, Esc to close).
+- **Channel details:** the header shows the channel's topic under its name; click it for the
+  description. The creator or an admin edits name, topic and description from _Edit channel_.
 - **Reactions:** hovering over a message shows quick reactions and the full picker (with
   search). The chips under the message show the count; a click adds or removes yours.
 - **Settings** (click your name, bottom left): display name, which everyone else sees live, and
@@ -152,6 +156,9 @@ The UI:
   members over the chat WebSocket, so open boards update without a reload. The data lives in
   two DynamoDB tables behind an HTTP API (API Gateway v2) that validates the Cognito id token
   itself; the Lambda only serves boards whose owner or member list includes the caller.
+  Tasks done for over a week are archived by a daily job (EventBridge → `archive-tasks` Lambda,
+  which can only scan and flag tasks) and hidden from the board; _Show archived (N)_ in the Done
+  column lists them, and moving one out of Done unarchives it.
 
 ### Test the WebSocket with `wscat`
 

@@ -60,6 +60,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **Pin chats:** _Pin chat_ in a DM's ⋯ menu keeps it at the top of Direct messages, with a pin;
   pins follow you across devices.
 
+- **Image viewer:** clicking an image opens it full screen inside the app (no more jumping to the
+  raw S3 link): zoom with the wheel, a pinch or double-click / double-tap, drag to pan, Esc or a
+  tap beside the picture to close, and a Download button.
+- **Edit channel:** the ⋯ menu's _Edit channel_ (creator or admin) sets the name, a **topic**
+  shown under the name in the header and a **description**. Click the channel name in the header
+  to read them. `#general`'s topic and description are admin-only; its name stays.
+- **Task archiving:** tasks done for more than a week are archived (never deleted) by a daily
+  job and drop off the board; _Show archived (N)_ in the Done column's header brings them back
+  into view. Moving a task out of Done unarchives it.
+
 ### Changed
 
 - **Attachments up to 500 MB** (was 25 MB) in messages and tasks, for videos and datasets; the
@@ -77,11 +87,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   icon (PWA, Apple touch, favicon, in-app logo, notification badge, desktop app) with
   cache-busting URLs. The in-app logo is now an image.
 
+- **Unread badges** show the number of unread messages (99+ at most): red for DMs and channels
+  where you were `@mentioned`, blue for other channels. The count comes from your read mark on the
+  server, so it is the same on every device, survives reloads, and counts messages that weren't
+  loaded yet. Replying in a conversation also marks the messages before yours as read.
+
 ### Removed
 
 - **Ping** (the "look at me" nudge from a DM's ⋯ menu), with its `nudge` route and Lambda.
 
 ### Fixed
+
+- **Retrying a failed message sent it twice.** The offline queue kept both the original and
+  the retry, and a message that had reached the server (but whose confirmation was lost) was
+  stored again. Retries now replace the queued copy, only run from the failed state, and the
+  server recognizes a resent message by its client id and confirms the stored one instead.
 
 - **Swiping the drawer open on a phone no longer jumps to `#general`:** the lift no longer becomes
   a click on the drawer's first row, and iPhone Safari's own "back" swipe from the left edge no
