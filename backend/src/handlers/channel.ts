@@ -5,6 +5,7 @@ import {
   paginateQuery,
   paginateScan,
   PutCommand,
+  QueryCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import {
@@ -16,6 +17,7 @@ import {
   dmChannelId,
   GENERAL_CHANNEL_ID,
   isChannelMember,
+  MAX_UNREAD_COUNT,
   isLegacyChannel,
   newChannelId,
   parseAction,
@@ -27,7 +29,7 @@ import { broadcast } from "../lib/broadcast";
 import { channelAudience } from "../lib/channels";
 import { batchDelete, ddb, tables } from "../lib/ddb";
 import { wsHandler, type Caller } from "../lib/handler";
-import { log } from "../lib/logger";
+import { errorFields, log } from "../lib/logger";
 import { badRequest, ok, reply, replyError } from "../lib/response";
 import { guestsAmong, unknownUsers } from "../lib/users";
 
@@ -73,9 +75,45 @@ async function putIfAbsent(item: Channel): Promise<boolean> {
 
 type ActionOf<Op extends ChannelAction["op"]> = Extract<ChannelAction, { op: Op }>;
 
+/** Without a read mark, only the last week counts as unread (not a channel's whole history). */
+export const UNREAD_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Messages from others after `userId`'s read mark in `channel`, newest first,
+ * stopping at their own latest message (writing in a conversation means you
+ * read it) and at `MAX_UNREAD_COUNT + 1`. One small Query per channel.
+ */
+export async function unreadCount(channel: Channel, userId: string): Promise<number> {
+  const after = channel.reads?.[userId]?.sk ?? `${Date.now() - UNREAD_LOOKBACK_MS}`;
+  const { Items = [] } = await ddb.send(
+    new QueryCommand({
+      TableName: tables.messages,
+      KeyConditionExpression: "channelId = :c AND sk > :after",
+      ExpressionAttributeValues: { ":c": channel.channelId, ":after": after },
+      ProjectionExpression: "userId",
+      ScanIndexForward: false,
+      Limit: MAX_UNREAD_COUNT + 1,
+    }),
+  );
+  const mine = Items.findIndex((m) => m.userId === userId);
+  return mine === -1 ? Items.length : mine;
+}
+
 async function listChannels(caller: Caller) {
   const channels = visibleTo(await scanChannels(), caller.userId);
-  await reply(caller.connectionId, { type: "channel.list", channels });
+  const counts = await Promise.all(
+    channels.map((c) =>
+      unreadCount(c, caller.userId).catch((err: unknown) => {
+        log.warn("unread count failed", { channelId: c.channelId, ...errorFields(err) });
+        return 0;
+      }),
+    ),
+  );
+  const unread: Record<string, number> = {};
+  channels.forEach((c, i) => {
+    if (counts[i]) unread[c.channelId] = counts[i]!;
+  });
+  await reply(caller.connectionId, { type: "channel.list", channels, unread });
   return ok();
 }
 

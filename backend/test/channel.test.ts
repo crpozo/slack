@@ -72,6 +72,7 @@ describe("channel", () => {
     resetMocks();
     // `users` lookups: nobody is a guest unless a test says so.
     ddbMock.on(BatchGetCommand).resolves({ Responses: {} });
+    ddbMock.on(QueryCommand).resolves({ Items: [] }); // no unread messages
   });
 
   it("list returns visible channels only to the sender", async () => {
@@ -80,7 +81,43 @@ describe("channel", () => {
     const result = await handler(wsEvent("channel", { action: "channel", op: "list" }));
 
     expect(result.statusCode).toBe(200);
-    expect(sentEvents()).toEqual([["conn-alice", { type: "channel.list", channels: [general] }]]);
+    expect(sentEvents()).toEqual([
+      ["conn-alice", { type: "channel.list", channels: [general], unread: {} }],
+    ]);
+  });
+
+  it("list counts unread messages from others after the caller's read mark", async () => {
+    const read = { ...general, reads: { [ALICE.userId]: { sk: "100#a", at: 100 } } };
+    const team = privateRow("ch_team", ALICE.userId, [ALICE.userId, BOB.userId]);
+    mockScans([read, team]);
+    // Newest first: two from Bob after Alice's mark.
+    ddbMock
+      .on(QueryCommand, { ExpressionAttributeValues: { ":c": "ch_general", ":after": "100#a" } })
+      .resolves({ Items: [{ userId: BOB.userId }, { userId: BOB.userId }] });
+    // No mark in ch_team: the last week counts, up to Alice's own latest message.
+    ddbMock.on(QueryCommand, { ExpressionAttributeValues: { ":c": "ch_team" } }).resolves({
+      Items: [{ userId: BOB.userId }, { userId: ALICE.userId }, { userId: BOB.userId }],
+    });
+
+    await handler(wsEvent("channel", { action: "channel", op: "list" }));
+
+    const [[, event]] = sentEvents() as [[string, ChannelListEvent]];
+    expect(event.unread).toEqual({ ch_general: 2, ch_team: 1 });
+    const queries = ddbMock.commandCalls(QueryCommand).map((c) => c.args[0].input);
+    expect(queries[0]).toMatchObject({ ScanIndexForward: false, Limit: 100 });
+    const teamAfter = Number(String(queries[1]?.ExpressionAttributeValues?.[":after"]));
+    expect(Date.now() - teamAfter).toBeGreaterThan(6 * 24 * 3600 * 1000);
+  });
+
+  it("list still answers when an unread count fails", async () => {
+    mockScans([general]);
+    ddbMock.on(QueryCommand).rejects(new Error("throttled"));
+
+    await handler(wsEvent("channel", { action: "channel", op: "list" }));
+
+    expect(sentEvents()).toEqual([
+      ["conn-alice", { type: "channel.list", channels: [general], unread: {} }],
+    ]);
   });
 
   it("create makes channels private by default, with the creator as only member", async () => {

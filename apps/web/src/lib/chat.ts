@@ -113,6 +113,9 @@ class ChatController {
         clearTimeout(this.sendTimers.get(clientId));
         this.sendTimers.delete(clientId);
         const s = store();
+        const known = s.messagesByChannel[message.channelId]?.some(
+          (m) => m.messageId === message.messageId,
+        );
         s.receiveMessage(message, clientId);
         if (!s.channels.some((c) => c.channelId === message.channelId)) {
           client.send("channel", { op: "list" }); // e.g. someone just opened a DM with us
@@ -130,7 +133,13 @@ class ChatController {
           s.channels.find((c) => c.channelId === message.channelId) ??
           (isDmChannel(message.channelId) ? ({ type: "dm" } as const) : undefined);
         const me = s.me && { ...s.me, displayName: s.users[s.me.userId]?.displayName };
-        if (channel && me && !viewing && shouldNotify(channel, message, me)) {
+        const notify = !!channel && !!me && !viewing && shouldNotify(channel, message, me);
+        if (message.userId === s.me?.userId)
+          s.markRead(message.channelId); // you wrote: you read
+        else if (!viewing && !known) {
+          s.bumpUnread(message.channelId, notify && channel?.type === "public");
+        }
+        if (channel && me && notify) {
           const sender = selectName(s, message.userId, message.userEmail);
           const dm = channel.type === "dm";
           raiseAlert(
@@ -182,9 +191,12 @@ class ChatController {
       client.on("message.updated", ({ channelId, sk, text, editedAt }) =>
         store().applyEdit(channelId, sk, text, editedAt),
       ),
-      client.on("channel.read", ({ channelId, userId, sk, at }) =>
-        store().setReadMark(channelId, userId, { sk, at }),
-      ),
+      client.on("channel.read", ({ channelId, userId, sk, at }) => {
+        const s = store();
+        s.setReadMark(channelId, userId, { sk, at });
+        // You read it on another device: this one's badge follows.
+        if (userId === s.me?.userId) s.recountUnread(channelId, sk);
+      }),
       client.on("user.typing", ({ channelId, userId }) => {
         const s = store();
         if (userId === s.me?.userId) return;
@@ -194,8 +206,11 @@ class ChatController {
       client.on("channel.updated", ({ channel }) => store().updateChannel(channel)),
       client.on("user.prefs", ({ pinned }) => store().setPinned(pinned)),
 
-      client.on("channel.list", ({ channels }) => {
-        store().setChannels(channels);
+      client.on("channel.list", ({ channels, unread }) => {
+        const s = store();
+        s.setChannels(channels, unread);
+        // The server counted from your read mark; what's on screen is read.
+        if (s.activeChannelId && isFocused()) s.markRead(s.activeChannelId);
         const pending = this.pendingCreate;
         const created = pending && channels.find((c) => c.type !== "dm" && c.name === pending.name);
         if (pending && created) {
@@ -451,18 +466,21 @@ class ChatController {
   private readSent = new Map<string, string>();
 
   /**
-   * Sends `read` for the newest message on screen, at most once per message:
-   * only while focused and scrolled to the bottom, only when someone else
-   * wrote it (your own messages don't need your read mark) and only if it is
+   * Sends `read` for the newest message someone else wrote, at most once per
+   * message: only while focused and scrolled to the bottom, and only if it is
    * past your current watermark. One write per "caught up", not per message.
+   * (Your own messages need no mark, but replying must not leave theirs unread.)
    */
   sendReadMark(channelId: string): void {
     const s = useChat.getState();
     if (!this.client || !s.me || !isFocused() || !s.listAtBottom) return;
     if (channelId !== s.activeChannelId) return;
-    const latest = [...(s.messagesByChannel[channelId] ?? [])].reverse().find((m) => !m.status);
-    if (!latest || latest.userId === s.me.userId) return;
-    const mine = s.reads[channelId]?.[s.me.userId];
+    const me = s.me.userId;
+    const latest = [...(s.messagesByChannel[channelId] ?? [])]
+      .reverse()
+      .find((m) => !m.status && m.userId !== me);
+    if (!latest) return;
+    const mine = s.reads[channelId]?.[me];
     if (mine && mine.sk >= latest.sk) return;
     if (this.readSent.get(channelId) === latest.sk) return;
     this.readSent.set(channelId, latest.sk);

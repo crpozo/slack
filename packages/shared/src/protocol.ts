@@ -601,9 +601,18 @@ export interface HistoryPageEvent {
   nextCursor: string | null;
 }
 
+/** Unread badges stop counting here (shown as "99+"). */
+export const MAX_UNREAD_COUNT = 99;
+
 export interface ChannelListEvent {
   type: "channel.list";
   channels: Channel[];
+  /**
+   * Your unread count per channel (messages from others after your read mark,
+   * up to `MAX_UNREAD_COUNT + 1`). Only in the reply to your own `list`; the
+   * lists broadcast after a change leave it out, and clients keep their counts.
+   */
+  unread?: Record<string, number>;
 }
 
 export interface PresignResultEvent {

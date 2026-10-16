@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  countUnread,
+  countUnreadAfter,
   isGroupedWith,
   mergeMessages,
   pendingMessageId,
@@ -45,16 +45,61 @@ describe("mergeMessages", () => {
   });
 });
 
-describe("countUnread", () => {
-  it("counts other people's confirmed messages after lastRead", () => {
+describe("countUnreadAfter", () => {
+  it("counts other people's confirmed messages after the mark, back to your own latest", () => {
     const messages = [
       msg(1, { userId: "bob" }),
-      msg(2, { userId: "bob" }),
-      msg(3, { userId: "me" }),
-      msg(4, { userId: "bob", status: "pending" }),
+      msg(2, { userId: "me" }),
+      msg(3, { userId: "bob" }),
+      msg(4, { userId: "bob" }),
+      msg(5, { userId: "bob", status: "pending" }),
     ];
-    expect(countUnread(messages, 1_700_000_000_001, "me")).toBe(1);
-    expect(countUnread(messages, 0, "me")).toBe(2);
+    expect(countUnreadAfter(messages, msg(3).sk, "me")).toBe(1);
+    expect(countUnreadAfter(messages, "0", "me")).toBe(2); // stops at "me"
+    expect(countUnreadAfter(messages, msg(4).sk, "me")).toBe(0);
+  });
+});
+
+describe("store: unread counts", async () => {
+  const { useChat, selectUnread } = await import("./index");
+  const general = {
+    channelId: "ch_general",
+    name: "general",
+    type: "public" as const,
+    createdBy: "system",
+    createdAt: 1,
+    archived: false,
+  };
+
+  it("starts from the server's counts, bumps, and clears when viewed", () => {
+    useChat.getState().setSession({ userId: "me", email: "me@mt.ec", role: "member" });
+    useChat.getState().setChannels([general], { ch_general: 3 });
+    expect(selectUnread(useChat.getState(), "ch_general")).toBe(3);
+
+    useChat.getState().bumpUnread("ch_general", true);
+    expect(selectUnread(useChat.getState(), "ch_general")).toBe(4);
+    expect(useChat.getState().mentioned.ch_general).toBe(true);
+
+    // A broadcast list (no counts) keeps ours.
+    useChat.getState().setChannels([general]);
+    expect(selectUnread(useChat.getState(), "ch_general")).toBe(4);
+
+    useChat.getState().markRead("ch_general");
+    expect(selectUnread(useChat.getState(), "ch_general")).toBe(0);
+    expect(useChat.getState().mentioned.ch_general).toBeUndefined();
+  });
+
+  it("recounts from a read mark set on another device, never upwards", () => {
+    useChat.getState().setSession({ userId: "me", email: "me@mt.ec", role: "member" });
+    useChat.getState().setChannels([general], { ch_general: 5 });
+    useChat
+      .getState()
+      .receiveHistory("ch_general", [msg(1, { userId: "bob" }), msg(2, { userId: "bob" })], null);
+
+    useChat.getState().recountUnread("ch_general", msg(1).sk);
+    expect(selectUnread(useChat.getState(), "ch_general")).toBe(1);
+    useChat.getState().recountUnread("ch_general", msg(2).sk);
+    expect(selectUnread(useChat.getState(), "ch_general")).toBe(0);
   });
 });
 
