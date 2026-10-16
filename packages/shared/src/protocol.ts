@@ -14,6 +14,10 @@ export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 export const CHANNEL_NAME_PATTERN = /^[a-z0-9-]{1,32}$/;
 /** Human-readable channel name ("Web Design"), shown in the sidebar and header. */
 export const MAX_CHANNEL_NAME_LENGTH = 40;
+/** The one-liner under the channel's name in its header. */
+export const MAX_CHANNEL_TOPIC_LENGTH = 120;
+/** What the channel is for; may span lines. */
+export const MAX_CHANNEL_DESCRIPTION_LENGTH = 500;
 export const HISTORY_PAGE_SIZE = 50;
 /** Download URLs: short-lived (the client caches them for a bit less). */
 export const PRESIGN_EXPIRES_SECONDS = 300;
@@ -106,6 +110,10 @@ export interface Channel {
   archived: boolean;
   /** `private` and `dm` channels: user ids allowed to see the channel. */
   members?: string[];
+  /** Short line shown in the channel header ("" or absent: none). */
+  topic?: string;
+  /** What the channel is for ("" or absent: none). */
+  description?: string;
   /**
    * Read watermarks: per user, the newest message `sk` they have seen (and
    * when). One row per channel, however many messages: a message is read by
@@ -152,6 +160,11 @@ export interface Message {
    * watermarks (`readBy()`): never stored per message.
    */
   readBy?: string[];
+  /**
+   * The sender's id for this send (stored, so a retry of the same message is
+   * recognized, and a reloaded history settles a "failed" optimistic copy).
+   */
+  clientId?: string;
 }
 
 export interface UserProfile {
@@ -224,6 +237,19 @@ export function canDeleteChannel(
   if (channel.channelId === GENERAL_CHANNEL_ID || !isChannelMember(channel, userId)) return false;
   if (channel.type === "dm" || channel.createdBy === userId) return true;
   return isLegacyChannel(channel) || !creatorKnown;
+}
+
+/**
+ * Who may edit `channel`'s topic and description: its creator or an admin (a
+ * member of it); `#general` (created by the system) only by admins; never a DM.
+ */
+export function canEditChannel(
+  channel: Pick<Channel, "channelId" | "type" | "createdBy" | "members">,
+  userId: string,
+  role: Role | undefined,
+): boolean {
+  if (channel.type === "dm" || !isChannelMember(channel, userId)) return false;
+  return channel.createdBy === userId || role === "admin";
 }
 
 /** Who may rename `channel`: its creator or an admin (a member of it); never `#general` or a DM. */
@@ -320,6 +346,7 @@ export const ChannelDeleteActionSchema = z.object({
  * Renames a channel (its creator or an admin; never `#general`). The slug, and
  * so the channel id, stays: links and history keep working.
  */
+/** Older clients' rename; same as `update` with only a name. */
 export const ChannelRenameActionSchema = z.object({
   action: z.literal("channel"),
   op: z.literal("rename"),
@@ -327,9 +354,36 @@ export const ChannelRenameActionSchema = z.object({
   name: ChannelNameSchema,
 });
 
+/** Edits the given fields (at least one); `""` clears the topic or description. */
+export const ChannelUpdateActionSchema = z
+  .object({
+    action: z.literal("channel"),
+    op: z.literal("update"),
+    channelId,
+    name: ChannelNameSchema.optional(),
+    topic: z
+      .string()
+      .trim()
+      .max(MAX_CHANNEL_TOPIC_LENGTH)
+      .refine((v) => !/\p{Cc}/u.test(v), "topic cannot contain control characters")
+      .optional(),
+    description: z
+      .string()
+      .trim()
+      .max(MAX_CHANNEL_DESCRIPTION_LENGTH)
+      // Line breaks are fine; other control characters are not.
+      .refine((v) => !/[^\P{Cc}\n]/u.test(v), "description cannot contain control characters")
+      .optional(),
+  })
+  .refine(
+    (a) => a.name !== undefined || a.topic !== undefined || a.description !== undefined,
+    "nothing to update",
+  );
+
 export const ChannelActionSchema = z.discriminatedUnion("op", [
   ChannelListActionSchema,
   ChannelRenameActionSchema,
+  ChannelUpdateActionSchema,
   ChannelCreateActionSchema,
   ChannelDmActionSchema,
   ChannelInviteActionSchema,
@@ -596,9 +650,18 @@ export interface HistoryPageEvent {
   nextCursor: string | null;
 }
 
+/** Unread badges stop counting here (shown as "99+"). */
+export const MAX_UNREAD_COUNT = 99;
+
 export interface ChannelListEvent {
   type: "channel.list";
   channels: Channel[];
+  /**
+   * Your unread count per channel (messages from others after your read mark,
+   * up to `MAX_UNREAD_COUNT + 1`). Only in the reply to your own `list`; the
+   * lists broadcast after a change leave it out, and clients keep their counts.
+   */
+  unread?: Record<string, number>;
 }
 
 export interface PresignResultEvent {

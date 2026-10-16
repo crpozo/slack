@@ -6,7 +6,7 @@ import { displayName } from "../lib/channels";
 import { loadOwnProfile, saveOwnProfile } from "../lib/profile";
 import type { DirectoryUser } from "../lib/config";
 import type { WsStatus } from "../lib/ws";
-import { countUnread, mergeMessages, pendingMessageId, type ChatMessage } from "./messages";
+import { countUnreadAfter, mergeMessages, pendingMessageId, type ChatMessage } from "./messages";
 
 export type { ChatMessage } from "./messages";
 
@@ -32,8 +32,15 @@ export interface ChatState {
   /** Cursor for the next older page: absent = never loaded, `null` = no more pages. */
   cursors: Record<string, string | null>;
   historyRequests: Record<string, HistoryRequest | undefined>;
-  /** Epoch ms of the last message read per channel (persisted per user). */
-  lastReadTs: Record<string, number>;
+  /**
+   * Unread messages per channel: seeded by the server's counts (`channel.list`
+   * on connect), +1 for each new message from someone else you aren't looking
+   * at, 0 once you look. The same on every device: they all count from your
+   * read mark.
+   */
+  unread: Record<string, number>;
+  /** Public channels with an unread @mention of you (their badge turns red). */
+  mentioned: Record<string, true>;
   /** userId → email for everyone we know about. */
   directory: Record<string, string>;
   /** Users from VITE_USERS (optional fallback for the DM list). */
@@ -56,7 +63,8 @@ export interface ChatState {
 
   setSession: (me: SessionUser | null, team?: DirectoryUser[]) => void;
   setStatus: (status: WsStatus) => void;
-  setChannels: (channels: Channel[]) => void;
+  /** `unread`: the server's counts, when the list carries them (replaces ours). */
+  setChannels: (channels: Channel[], unread?: Record<string, number>) => void;
   /** `channel.updated` (renamed): replaces the row, keeping everything else. */
   updateChannel: (channel: Channel) => void;
   setPinned: (pinned: string[]) => void;
@@ -83,29 +91,15 @@ export interface ChatState {
   /** `until`: when the indicator expires; `null` clears it. */
   setTyping: (channelId: string, userId: string, until: number | null) => void;
   setListAtBottom: (atBottom: boolean) => void;
+  /** A new message from someone else arrived where you aren't looking. */
+  bumpUnread: (channelId: string, mention?: boolean) => void;
+  /** You are looking at `channelId`: nothing in it is unread. */
   markRead: (channelId: string) => void;
+  /** Your read mark moved (e.g. you read it on another device): recount from it. */
+  recountUnread: (channelId: string, sk: string) => void;
   /** After a reconnect: forget cached history of inactive channels so it reloads on open. */
   invalidateInactive: () => void;
   showToast: (message: string | null) => void;
-}
-
-const lastReadKey = (userId: string) => `slack.lastReadTs.${userId}`;
-
-function loadLastRead(userId: string): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(lastReadKey(userId));
-    return raw ? (JSON.parse(raw) as Record<string, number>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function saveLastRead(userId: string, value: Record<string, number>): void {
-  try {
-    localStorage.setItem(lastReadKey(userId), JSON.stringify(value));
-  } catch {
-    // Storage full or blocked: unread badges just won't survive a reload.
-  }
 }
 
 function learnAuthors(directory: Record<string, string>, messages: Message[]) {
@@ -126,7 +120,8 @@ const initialState = {
   messagesByChannel: {},
   cursors: {},
   historyRequests: {},
-  lastReadTs: {},
+  unread: {} as Record<string, number>,
+  mentioned: {} as Record<string, true>,
   directory: {},
   team: [],
   users: {},
@@ -164,14 +159,25 @@ export const useChat = create<ChatState>()((set, get) => ({
       team,
       directory,
       users: own ? { [own.userId]: own } : {},
-      lastReadTs: me ? loadLastRead(me.userId) : {},
     });
   },
 
   setStatus: (status) => set({ status }),
 
-  setChannels: (channels) =>
-    set((s) => ({ channels, channelsLoaded: true, reads: readsOf(channels, s.reads) })),
+  setChannels: (channels, unread) =>
+    set((s) => ({
+      channels,
+      channelsLoaded: true,
+      reads: readsOf(channels, s.reads),
+      ...(unread && {
+        unread: { ...unread },
+        mentioned: Object.fromEntries(
+          Object.keys(s.mentioned)
+            .filter((id) => unread[id])
+            .map((id) => [id, true as const]),
+        ),
+      }),
+    })),
 
   updateChannel: (channel) =>
     set((s) => ({
@@ -343,18 +349,28 @@ export const useChat = create<ChatState>()((set, get) => ({
     if (get().listAtBottom !== listAtBottom) set({ listAtBottom });
   },
 
+  bumpUnread: (channelId, mention) =>
+    set((s) => ({
+      unread: { ...s.unread, [channelId]: (s.unread[channelId] ?? 0) + 1 },
+      ...(mention && { mentioned: { ...s.mentioned, [channelId]: true as const } }),
+    })),
+
   markRead: (channelId) => {
-    const { me, messagesByChannel, lastReadTs } = get();
-    if (!me) return;
-    // Server timestamps only, so a skewed client clock can't hide new messages.
-    let latest = 0;
-    for (const m of messagesByChannel[channelId] ?? []) {
-      if (!m.status && m.createdAt > latest) latest = m.createdAt;
-    }
-    if ((lastReadTs[channelId] ?? 0) >= latest) return;
-    const next = { ...lastReadTs, [channelId]: latest };
-    saveLastRead(me.userId, next);
-    set({ lastReadTs: next });
+    const { unread, mentioned } = get();
+    if (!unread[channelId] && !mentioned[channelId]) return;
+    const nextMentioned = { ...mentioned };
+    delete nextMentioned[channelId];
+    set({ unread: { ...unread, [channelId]: 0 }, mentioned: nextMentioned });
+  },
+
+  recountUnread: (channelId, sk) => {
+    const { me, unread, messagesByChannel } = get();
+    const current = unread[channelId] ?? 0;
+    if (!me || !current) return;
+    // A read mark only ever lowers the count; what isn't loaded here stays counted.
+    const after = countUnreadAfter(messagesByChannel[channelId] ?? [], sk, me.userId);
+    if (after === 0) get().markRead(channelId);
+    else if (after < current) set((s) => ({ unread: { ...s.unread, [channelId]: after } }));
   },
 
   invalidateInactive: () =>
@@ -372,14 +388,9 @@ export const useChat = create<ChatState>()((set, get) => ({
   showToast: (toast) => set({ toast }),
 }));
 
-/** Unread count for a channel (messages from others after the last read mark). */
+/** Unread count for a channel (messages from others after your read mark). */
 export function selectUnread(state: ChatState, channelId: string): number {
-  if (!state.me) return 0;
-  return countUnread(
-    state.messagesByChannel[channelId] ?? [],
-    state.lastReadTs[channelId] ?? 0,
-    state.me.userId,
-  );
+  return state.unread[channelId] ?? 0;
 }
 
 /**

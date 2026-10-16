@@ -1,13 +1,18 @@
 import {
+  canEditChannel,
+  canRenameChannel,
   ChannelNameSchema,
+  ChannelUpdateActionSchema,
+  MAX_CHANNEL_DESCRIPTION_LENGTH,
   MAX_CHANNEL_NAME_LENGTH,
+  MAX_CHANNEL_TOPIC_LENGTH,
   slugifyChannelName,
   type ChannelVisibility,
   type Channel,
 } from "@mindfultech/shared";
 import { useState, type FormEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { chat } from "../lib/chat";
+import { chat, type ChannelEdit } from "../lib/chat";
 import { useChat } from "../store";
 import { GlobeIcon, LockIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
@@ -266,58 +271,131 @@ export function DeleteChannelModal({
 }
 
 /**
- * Renames a channel (its creator or an admin). The link and history stay; a
- * name already taken by another channel comes back as an error toast.
+ * A channel's name, topic and description. Its creator or an admin edits them
+ * (`#general`'s name is fixed); everyone else sees them read-only.
  */
-export function RenameChannelModal({
+export function EditChannelModal({
   channel,
   onClose,
 }: Readonly<{ channel: Channel; onClose: () => void }>) {
+  const me = useChat((s) => s.me);
+  const canEdit = !!me && canEditChannel(channel, me.userId, me.role);
+  const canRename = !!me && canRenameChannel(channel, me.userId, me.role);
   const [name, setName] = useState(channel.name);
-  const parsed = ChannelNameSchema.safeParse(name);
-  const changed = name.trim() !== channel.name;
+  const [topic, setTopic] = useState(channel.topic ?? "");
+  const [description, setDescription] = useState(channel.description ?? "");
+
+  const fields: ChannelEdit = {};
+  if (canRename && name.trim() !== channel.name) fields.name = name;
+  if (topic.trim() !== (channel.topic ?? "")) fields.topic = topic;
+  if (description.trim() !== (channel.description ?? "")) fields.description = description;
+  const parsed = ChannelUpdateActionSchema.safeParse({
+    action: "channel",
+    op: "update",
+    channelId: channel.channelId,
+    ...fields,
+  });
+  const changed = Object.keys(fields).length > 0;
+  const nameError = canRename && !ChannelNameSchema.safeParse(name).success;
 
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!parsed.success || !changed) return;
-    chat.renameChannel(channel.channelId, name);
+    chat.updateChannel(channel.channelId, fields);
     onClose();
+  }
+
+  if (!canEdit) {
+    return (
+      <Modal title={`#${channel.name}`} width="sm" onClose={onClose}>
+        <dl className="space-y-3 text-sm">
+          <div>
+            <dt className="font-medium text-ink">Topic</dt>
+            <dd className="text-ink-secondary">{channel.topic || "No topic yet."}</dd>
+          </div>
+          <div>
+            <dt className="font-medium text-ink">Description</dt>
+            <dd className="whitespace-pre-wrap break-words text-ink-secondary">
+              {channel.description || "No description yet."}
+            </dd>
+          </div>
+        </dl>
+        <p className="mt-4 text-xs text-ink-secondary">
+          Only the channel's creator or an admin can edit these.
+        </p>
+      </Modal>
+    );
   }
 
   return (
     <Modal
-      title="Rename channel"
-      width="sm"
+      title="Edit channel"
+      width="md"
       onClose={onClose}
       footer={
         <>
           <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
           <button
             type="submit"
-            form="rename-channel"
+            form="edit-channel"
             className="btn-primary"
             disabled={!parsed.success || !changed}
           >
-            Rename
+            Save
           </button>
         </>
       }
     >
-      <form id="rename-channel" onSubmit={submit} className="space-y-1.5">
-        <label htmlFor="channel-name" className="text-sm font-medium text-ink">
-          Name
-        </label>
-        <input
-          id="channel-name"
-          className="input"
-          value={name}
-          maxLength={MAX_CHANNEL_NAME_LENGTH}
-          autoFocus
-          onChange={(e) => setName(e.target.value)}
-        />
-        <p className="text-xs text-ink-secondary">
-          Everyone in the channel sees the new name. Links and messages stay as they are.
-        </p>
+      <form id="edit-channel" onSubmit={submit} className="space-y-4">
+        <div className="space-y-1.5">
+          <label htmlFor="channel-name" className="text-sm font-medium text-ink">
+            Name
+          </label>
+          <input
+            id="channel-name"
+            className="input"
+            value={name}
+            maxLength={MAX_CHANNEL_NAME_LENGTH}
+            disabled={!canRename}
+            aria-invalid={nameError}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <p className="text-xs text-ink-secondary">
+            {canRename
+              ? "Links and messages stay as they are when you rename it."
+              : "#general keeps its name."}
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="channel-topic" className="text-sm font-medium text-ink">
+            Topic
+          </label>
+          <input
+            id="channel-topic"
+            className="input"
+            value={topic}
+            maxLength={MAX_CHANNEL_TOPIC_LENGTH}
+            placeholder="What's happening here right now"
+            onChange={(e) => setTopic(e.target.value)}
+          />
+          <p className="text-xs text-ink-secondary">Shown next to the name in the header.</p>
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="channel-description" className="text-sm font-medium text-ink">
+            Description
+          </label>
+          <textarea
+            id="channel-description"
+            className="input min-h-[6rem] resize-y"
+            value={description}
+            maxLength={MAX_CHANNEL_DESCRIPTION_LENGTH}
+            placeholder="What this channel is for"
+            onChange={(e) => setDescription(e.target.value)}
+          />
+          <p className="text-right text-xs tabular-nums text-ink-secondary">
+            {description.length}/{MAX_CHANNEL_DESCRIPTION_LENGTH}
+          </p>
+        </div>
       </form>
     </Modal>
   );

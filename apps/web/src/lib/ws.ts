@@ -65,7 +65,8 @@ export class WsClient {
   status: WsStatus = "idle";
 
   private socket: WebSocket | undefined;
-  private queue: string[] = [];
+  /** Frames waiting for the socket; a `key` (a message's clientId) keeps one frame per key. */
+  private queue: Array<{ frame: string; key?: string }> = [];
   private readonly handlers = new Map<string, Set<(event: ServerEvent) => void>>();
   private readonly statusHandlers = new Set<(status: WsStatus) => void>();
   private readonly openHandlers = new Set<(info: { reconnected: boolean }) => void>();
@@ -103,10 +104,23 @@ export class WsClient {
     void this.open();
   }
 
-  send<A extends ClientActionInput["action"]>(action: A, payload: PayloadOf<A>): void {
+  /**
+   * Sends now, or queues until the socket opens. With `key`, a queued frame of
+   * the same key is replaced instead of joined: retrying a message while
+   * offline must not send it twice on reconnect.
+   */
+  send<A extends ClientActionInput["action"]>(
+    action: A,
+    payload: PayloadOf<A>,
+    key?: string,
+  ): void {
     const frame = JSON.stringify({ action, ...payload });
-    if (this.socket?.readyState === 1) this.socket.send(frame);
-    else this.queue.push(frame);
+    if (this.socket?.readyState === 1) {
+      this.socket.send(frame);
+      return;
+    }
+    if (key) this.queue = this.queue.filter((q) => q.key !== key);
+    this.queue.push({ frame, key });
   }
 
   on<T extends ServerEventType>(type: T, handler: Handler<T>): () => void {
@@ -168,7 +182,7 @@ export class WsClient {
       this.setStatus("open");
       const pending = this.queue;
       this.queue = [];
-      pending.forEach((frame) => socket.send(frame));
+      pending.forEach(({ frame }) => socket.send(frame));
       this.openHandlers.forEach((h) => h({ reconnected }));
     };
 

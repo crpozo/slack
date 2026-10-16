@@ -65,6 +65,9 @@ function toTask(item: Record<string, unknown>): Task {
     project: t.project ?? "",
     notes: t.notes ?? "",
     attachments: t.attachments ?? [],
+    // Done before `doneAt` existed: it's been done since its last change at the latest.
+    doneAt: t.doneAt ?? (t.status === "DONE" ? t.updatedAt : null),
+    isArchived: t.isArchived ?? false,
   };
 }
 
@@ -367,6 +370,8 @@ async function createTask(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
     createdBy: caller.userId,
     createdAt: now,
     updatedAt: now,
+    doneAt: null,
+    isArchived: false,
   };
   await ddb.send(
     new PutCommand({
@@ -406,14 +411,22 @@ async function updateTask(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
   const patch = parseBody(UpdateTaskSchema, event);
   validateTaskFields(board, patch);
 
+  const now = Date.now();
   const names: Record<string, string> = { "#updatedAt": "updatedAt" };
-  const values: Record<string, unknown> = { ":updatedAt": Date.now() };
+  const values: Record<string, unknown> = { ":updatedAt": now };
   const sets = ["#updatedAt = :updatedAt"];
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined) continue;
+  const assign = (key: string, value: unknown) => {
     names[`#${key}`] = key;
     values[`:${key}`] = value;
     sets.push(`#${key} = :${key}`);
+  };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value !== undefined) assign(key, value);
+  }
+  // Moving into Done starts the archive clock; moving out stops it and unarchives.
+  if (patch.status && patch.status !== before.status) {
+    assign("doneAt", patch.status === "DONE" ? now : null);
+    assign("isArchived", false);
   }
   const { Attributes } = await ddb.send(
     new UpdateCommand({

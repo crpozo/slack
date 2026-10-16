@@ -1,8 +1,9 @@
 import {
   canDeleteChannel,
-  canRenameChannel,
+  canEditChannel,
   dmChannelId,
   GENERAL_CHANNEL_ID,
+  MAX_UNREAD_COUNT,
   type Channel,
 } from "@mindfultech/shared";
 import { useMemo, useState, type ReactNode } from "react";
@@ -13,7 +14,7 @@ import { dmEntries, pinnedFirst, type DmEntry } from "../lib/channels";
 import type { WsStatus } from "../lib/ws";
 import { selectUnread, useChat, useNameOf } from "../store";
 import { Avatar, PresenceDot } from "./Avatar";
-import { DeleteChannelModal, RenameChannelModal } from "./ChannelModals";
+import { DeleteChannelModal, EditChannelModal } from "./ChannelModals";
 import { NotificationBell } from "./NotificationBell";
 import { Popover } from "./Popover";
 import {
@@ -44,19 +45,32 @@ const STATUS: Record<WsStatus, { dot: string; label: string }> = {
   closed: { dot: "bg-error", label: "Disconnected" },
 };
 
-function UnreadBadge({ count, compact }: Readonly<{ count: number; compact: boolean }>) {
+/** Unread messages as a number: red for DMs and @mentions, the brand color for channels. */
+function UnreadBadge({
+  count,
+  compact,
+  urgent,
+}: Readonly<{ count: number; compact: boolean; urgent: boolean }>) {
   if (count === 0) return null;
+  const color = urgent ? "bg-error" : "bg-sky";
+  const text = count > MAX_UNREAD_COUNT ? `${MAX_UNREAD_COUNT}+` : String(count);
+  const label = `${text} unread${urgent ? " (for you)" : ""}`;
   if (compact) {
     return (
       <span
-        className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border-2 border-surface-sidebar bg-sky"
-        aria-label={`${count} unread`}
-      />
+        className={`absolute -right-0.5 -top-0.5 min-w-[1.125rem] rounded-full border-2 border-surface-sidebar px-1 text-center text-[10px] font-bold leading-[0.875rem] text-on-accent ${color}`}
+        aria-label={label}
+      >
+        {text}
+      </span>
     );
   }
   return (
-    <span className="ml-auto rounded-full bg-sky px-2 py-0.5 text-xs font-semibold text-on-accent">
-      {count > 99 ? "99+" : count}
+    <span
+      className={`ml-auto min-w-[1.5rem] rounded-full px-1.5 py-0.5 text-center text-xs font-semibold tabular-nums text-on-accent ${color}`}
+      aria-label={label}
+    >
+      {text}
     </span>
   );
 }
@@ -64,6 +78,8 @@ function UnreadBadge({ count, compact }: Readonly<{ count: number; compact: bool
 interface NavItemProps {
   active: boolean;
   unread: number;
+  /** The unread badge is red (a DM, or a channel where you were @mentioned). */
+  urgent?: boolean;
   compact: boolean;
   /** Visible text, and the tooltip in compact mode. */
   label: string;
@@ -152,6 +168,7 @@ function dmTitle(dm: DmEntry, compact: boolean): string {
 function NavItem({
   active,
   unread,
+  urgent = false,
   compact,
   label,
   icon,
@@ -182,7 +199,7 @@ function NavItem({
         {pinned && !compact && (
           <PinIcon className="shrink-0 text-xs text-ink-secondary" aria-label="Pinned" />
         )}
-        <UnreadBadge count={unread} compact={compact} />
+        <UnreadBadge count={unread} compact={compact} urgent={urgent} />
       </button>
       {!compact && menu && menu.length > 0 && <RowMenu label={label} items={menu} />}
     </li>
@@ -249,7 +266,7 @@ export function Sidebar({
   const navigate = useNavigate();
   const nameOf = useNameOf();
   const [deleting, setDeleting] = useState<{ channel: Channel; label: string } | null>(null);
-  const [renaming, setRenaming] = useState<Channel | null>(null);
+  const [editing, setEditing] = useState<Channel | null>(null);
   const { me, status, channels, pinned, team, directory, users, online } = useChat(
     useShallow((s) => ({
       me: s.me,
@@ -267,6 +284,7 @@ export function Sidebar({
       Object.fromEntries(s.channels.map((c) => [c.channelId, selectUnread(s, c.channelId)])),
     ),
   );
+  const mentioned = useChat((s) => s.mentioned);
 
   const namedChannels = useMemo(
     () => channels.filter((c) => c.type !== "dm").sort(generalFirst),
@@ -315,8 +333,8 @@ export function Sidebar({
 
   function channelMenu(c: Channel): RowMenuItem[] {
     const items: RowMenuItem[] = [];
-    if (me && canRenameChannel(c, me.userId, me.role)) {
-      items.push({ label: "Rename channel", icon: <PencilIcon />, onSelect: () => setRenaming(c) });
+    if (me && canEditChannel(c, me.userId, me.role)) {
+      items.push({ label: "Edit channel", icon: <PencilIcon />, onSelect: () => setEditing(c) });
     }
     // Until the directory arrives, assume the creator exists (never offer it wrongly).
     const creatorKnown = Object.keys(users).length === 0 || !!users[c.createdBy];
@@ -335,7 +353,7 @@ export function Sidebar({
 
   return (
     <div className="flex h-full flex-col border-r border-line bg-surface-sidebar">
-      {renaming && <RenameChannelModal channel={renaming} onClose={() => setRenaming(null)} />}
+      {editing && <EditChannelModal channel={editing} onClose={() => setEditing(null)} />}
       {deleting && (
         <DeleteChannelModal
           channel={deleting.channel}
@@ -433,6 +451,7 @@ export function Sidebar({
                 title={c.type === "private" ? `#${c.name} (private)` : undefined}
                 active={c.channelId === activeChannelId}
                 unread={c.channelId === activeChannelId ? 0 : (unread[c.channelId] ?? 0)}
+                urgent={!!mentioned[c.channelId]}
                 onClick={() => navigate(`/app/${c.channelId}`)}
                 menu={channelMenu(c)}
               />
@@ -473,6 +492,7 @@ export function Sidebar({
                   title={`${dmTitle(dm, compact)} · ${isOnline ? "Online" : "Offline"}`}
                   active={id === activeChannelId}
                   unread={dm.channelId && id !== activeChannelId ? (unread[dm.channelId] ?? 0) : 0}
+                  urgent
                   disabled={!dm.userId}
                   onClick={() => dm.userId && openDm(dm.userId)}
                   menu={dmMenu(dm)}

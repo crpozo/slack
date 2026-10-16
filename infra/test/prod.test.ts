@@ -358,7 +358,11 @@ describe("phase 5.1 resources", () => {
     ]);
     expect(actionsOn("channel", "DataChannels")).toContain("dynamodb:DeleteItem");
     // Replies read the quoted message.
-    expect(actionsOn("message", "DataMessages")).toEqual(["dynamodb:GetItem", "dynamodb:PutItem"]);
+    expect(actionsOn("message", "DataMessages")).toEqual([
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:Query", // retry dedupe
+    ]);
     // Phase 10: read watermarks live on the channel row, edits rewrite the caller's message,
     // typing only fans out (channel access check + connections).
     expect(actionsOn("read", "DataChannels")).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);

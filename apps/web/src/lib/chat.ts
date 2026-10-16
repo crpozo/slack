@@ -6,6 +6,7 @@ import {
   type ChannelVisibility,
   type Attachment,
   type ErrorCode,
+  type Message,
   type PresignAction,
   type PresignResultEvent,
   type ReplySnapshot,
@@ -56,6 +57,13 @@ const DIRECTORY_REFRESH_MS = 10 * 60_000;
 export const TYPING_INTERVAL_MS = 3000;
 /** …and the indicator stays this long after the last one (slightly more than the interval). */
 export const TYPING_SHOW_MS = 5000;
+
+/** Fields of a channel its creator or an admin can edit. */
+export interface ChannelEdit {
+  name?: string;
+  topic?: string;
+  description?: string;
+}
 
 /** Glue between the WebSocket and the store; one instance per signed-in session. */
 class ChatController {
@@ -113,6 +121,9 @@ class ChatController {
         clearTimeout(this.sendTimers.get(clientId));
         this.sendTimers.delete(clientId);
         const s = store();
+        const known = s.messagesByChannel[message.channelId]?.some(
+          (m) => m.messageId === message.messageId,
+        );
         s.receiveMessage(message, clientId);
         if (!s.channels.some((c) => c.channelId === message.channelId)) {
           client.send("channel", { op: "list" }); // e.g. someone just opened a DM with us
@@ -121,28 +132,7 @@ class ChatController {
         if (viewing) this.viewed(message.channelId);
         // Their message arrived: whatever they were typing is sent.
         s.setTyping(message.channelId, message.userId, null);
-        // A pop for messages from others that you are not already looking at.
-        if (!viewing && message.userId !== s.me?.userId) playMessageSound();
-        // DMs, private channels and @mentions also go to the bell (and to the desktop app's
-        // notifications while it's in the background).
-        // A brand-new DM isn't in the channel list yet; its id says what it is.
-        const channel =
-          s.channels.find((c) => c.channelId === message.channelId) ??
-          (isDmChannel(message.channelId) ? ({ type: "dm" } as const) : undefined);
-        const me = s.me && { ...s.me, displayName: s.users[s.me.userId]?.displayName };
-        if (channel && me && !viewing && shouldNotify(channel, message, me)) {
-          const sender = selectName(s, message.userId, message.userEmail);
-          const dm = channel.type === "dm";
-          raiseAlert(
-            {
-              kind: dm || channel.type === "private" ? "message" : "mention",
-              title: dm || !("name" in channel) ? sender : `${sender} in #${channel.name}`,
-              body: notificationBody(message),
-              url: `/app/${encodeURIComponent(message.channelId)}`,
-            },
-            { sound: false }, // the pop above already played
-          );
-        }
+        this.incoming(message, viewing, known);
       }),
 
       client.on("history.page", ({ channelId, items, nextCursor }) => {
@@ -182,9 +172,12 @@ class ChatController {
       client.on("message.updated", ({ channelId, sk, text, editedAt }) =>
         store().applyEdit(channelId, sk, text, editedAt),
       ),
-      client.on("channel.read", ({ channelId, userId, sk, at }) =>
-        store().setReadMark(channelId, userId, { sk, at }),
-      ),
+      client.on("channel.read", ({ channelId, userId, sk, at }) => {
+        const s = store();
+        s.setReadMark(channelId, userId, { sk, at });
+        // You read it on another device: this one's badge follows.
+        if (userId === s.me?.userId) s.recountUnread(channelId, sk);
+      }),
       client.on("user.typing", ({ channelId, userId }) => {
         const s = store();
         if (userId === s.me?.userId) return;
@@ -194,8 +187,11 @@ class ChatController {
       client.on("channel.updated", ({ channel }) => store().updateChannel(channel)),
       client.on("user.prefs", ({ pinned }) => store().setPinned(pinned)),
 
-      client.on("channel.list", ({ channels }) => {
-        store().setChannels(channels);
+      client.on("channel.list", ({ channels, unread }) => {
+        const s = store();
+        s.setChannels(channels, unread);
+        // The server counted from your read mark; what's on screen is read.
+        if (s.activeChannelId && isFocused()) s.markRead(s.activeChannelId);
         const pending = this.pendingCreate;
         const created = pending && channels.find((c) => c.type !== "dm" && c.name === pending.name);
         if (pending && created) {
@@ -348,21 +344,36 @@ class ChatController {
     this.transmit(message);
   }
 
+  /**
+   * Sends a failed message again, under the same `clientId`: only from the
+   * `failed` state (a double tap, or a retry racing a late confirmation, does
+   * nothing), it replaces any copy still queued while offline, and the server
+   * ignores a clientId it already stored — so one message, however it raced.
+   */
   retry(message: ChatMessage): void {
-    if (!message.clientId) return;
-    useChat.getState().setPendingStatus(message.channelId, message.clientId, "pending");
-    this.transmit(message);
+    const { clientId, channelId } = message;
+    if (!clientId) return;
+    const current = useChat
+      .getState()
+      .messagesByChannel[channelId]?.find((m) => m.messageId === pendingMessageId(clientId));
+    if (current?.status !== "failed") return;
+    useChat.getState().setPendingStatus(channelId, clientId, "pending");
+    this.transmit(current);
   }
 
   private transmit({ channelId, text, attachments, clientId, replyTo }: ChatMessage): void {
     if (!this.client || !clientId) return;
-    this.client.send("message", {
-      channelId,
-      text,
-      attachments: attachments.length ? attachments : undefined,
+    this.client.send(
+      "message",
+      {
+        channelId,
+        text,
+        attachments: attachments.length ? attachments : undefined,
+        clientId,
+        ...(replyTo && { replyTo: { messageId: replyTo.messageId, sk: replyTo.sk } }),
+      },
       clientId,
-      ...(replyTo && { replyTo: { messageId: replyTo.messageId, sk: replyTo.sk } }),
-    });
+    );
     clearTimeout(this.sendTimers.get(clientId));
     this.sendTimers.set(
       clientId,
@@ -407,8 +418,12 @@ class ChatController {
   }
 
   /** Renames a channel (its creator or an admin); everyone sees `channel.updated`. */
-  renameChannel(channelId: string, name: string): void {
-    this.client?.send("channel", { op: "rename", channelId, name: name.trim() });
+  /** Name, topic and/or description; everyone in the channel gets `channel.updated`. */
+  updateChannel(channelId: string, fields: ChannelEdit): void {
+    const trimmed = Object.fromEntries(
+      Object.entries(fields).map(([k, v]) => [k, (v as string).trim()]),
+    ) as ChannelEdit;
+    this.client?.send("channel", { op: "update", channelId, ...trimmed });
   }
 
   /**
@@ -420,6 +435,42 @@ class ChatController {
     const rest = s.pinned.filter((id) => id !== channelId);
     s.setPinned(pinned ? [channelId, ...rest] : rest);
     this.client?.send("user", { op: "pin", channelId, pinned });
+  }
+
+  /**
+   * A message arrived where you aren't looking: the pop, the unread count
+   * (unless `known`: already in the list), and for DMs, private channels and
+   * @mentions the bell (and the desktop app's notification while it's in the
+   * background). Your own messages mark the conversation read instead.
+   */
+  private incoming(message: Message, viewing: boolean, known: boolean | undefined): void {
+    const s = useChat.getState();
+    const mine = message.userId === s.me?.userId;
+    if (mine) {
+      s.markRead(message.channelId); // you wrote: you read
+      return;
+    }
+    if (viewing) return;
+    playMessageSound();
+    // A brand-new DM isn't in the channel list yet; its id says what it is.
+    const channel =
+      s.channels.find((c) => c.channelId === message.channelId) ??
+      (isDmChannel(message.channelId) ? ({ type: "dm" } as const) : undefined);
+    const me = s.me && { ...s.me, displayName: s.users[s.me.userId]?.displayName };
+    const notify = !!channel && !!me && shouldNotify(channel, message, me);
+    if (!known) s.bumpUnread(message.channelId, notify && channel?.type === "public");
+    if (!channel || !notify) return;
+    const sender = selectName(s, message.userId, message.userEmail);
+    const dm = channel.type === "dm";
+    raiseAlert(
+      {
+        kind: dm || channel.type === "private" ? "message" : "mention",
+        title: dm || !("name" in channel) ? sender : `${sender} in #${channel.name}`,
+        body: notificationBody(message),
+        url: `/app/${encodeURIComponent(message.channelId)}`,
+      },
+      { sound: false }, // the pop above already played
+    );
   }
 
   /**
@@ -436,18 +487,21 @@ class ChatController {
   private readSent = new Map<string, string>();
 
   /**
-   * Sends `read` for the newest message on screen, at most once per message:
-   * only while focused and scrolled to the bottom, only when someone else
-   * wrote it (your own messages don't need your read mark) and only if it is
+   * Sends `read` for the newest message someone else wrote, at most once per
+   * message: only while focused and scrolled to the bottom, and only if it is
    * past your current watermark. One write per "caught up", not per message.
+   * (Your own messages need no mark, but replying must not leave theirs unread.)
    */
   sendReadMark(channelId: string): void {
     const s = useChat.getState();
     if (!this.client || !s.me || !isFocused() || !s.listAtBottom) return;
     if (channelId !== s.activeChannelId) return;
-    const latest = [...(s.messagesByChannel[channelId] ?? [])].reverse().find((m) => !m.status);
-    if (!latest || latest.userId === s.me.userId) return;
-    const mine = s.reads[channelId]?.[s.me.userId];
+    const me = s.me.userId;
+    const latest = [...(s.messagesByChannel[channelId] ?? [])]
+      .reverse()
+      .find((m) => !m.status && m.userId !== me);
+    if (!latest) return;
+    const mine = s.reads[channelId]?.[me];
     if (mine && mine.sk >= latest.sk) return;
     if (this.readSent.get(channelId) === latest.sk) return;
     this.readSent.set(channelId, latest.sk);

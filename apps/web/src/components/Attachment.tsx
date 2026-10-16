@@ -4,10 +4,12 @@ import { formatBytes, getDownloadUrl } from "../lib/upload";
 import { formatDuration } from "../lib/voice";
 import { useChat } from "../store";
 import { DownloadIcon, FileIcon, MicIcon } from "./icons";
+import { Lightbox } from "./Lightbox";
 
 function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [viewing, setViewing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,16 +31,25 @@ function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
       />
     );
   }
+  // Opens in the app's own viewer; the original is one click away (its Download button).
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" className="inline-block max-w-full">
-      <img
-        src={url}
-        alt={attachment.name}
-        loading="lazy"
-        className="max-h-attachment max-w-full rounded-lg border border-line object-contain"
-        onError={() => setFailed(true)}
-      />
-    </a>
+    <>
+      <button
+        type="button"
+        onClick={() => setViewing(true)}
+        className="inline-block max-w-full cursor-zoom-in rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+        aria-label={`View ${attachment.name}`}
+      >
+        <img
+          src={url}
+          alt={attachment.name}
+          loading="lazy"
+          className="max-h-attachment max-w-full rounded-lg border border-line object-contain"
+          onError={() => setFailed(true)}
+        />
+      </button>
+      {viewing && <Lightbox src={url} name={attachment.name} onClose={() => setViewing(false)} />}
+    </>
   );
 }
 

@@ -286,3 +286,40 @@ describe("web push", () => {
     ]);
   });
 });
+
+describe("task archiving", () => {
+  it("runs the archive Lambda once a day", () => {
+    const rules = template.findResources("AWS::Events::Rule", {
+      Properties: { Name: "slack-dev-archive-done-tasks" },
+    });
+    const [rule] = Object.values(rules) as Array<{
+      Properties: { ScheduleExpression: string; Targets: Array<{ Arn: unknown }> };
+    }>;
+    expect(rule?.Properties.ScheduleExpression).toBe("cron(17 6 * * ? *)");
+    expect(JSON.stringify(rule?.Properties.Targets[0]?.Arn)).toContain("TasksApiArchiveFn");
+    expect(
+      matching("AWS::Lambda::Function", {
+        FunctionName: "slack-dev-archive-tasks",
+        Timeout: 300,
+        Environment: { Variables: Match.objectLike({ TASKS_TABLE: Match.anyValue() }) },
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("lets it only scan and flag tasks, never delete them", () => {
+    const policies = template.findResources("AWS::IAM::Policy");
+    const policy = Object.entries(policies).find(([id]) =>
+      id.startsWith("TasksApiArchiveFnServiceRoleDefaultPolicy"),
+    )?.[1] as {
+      Properties: {
+        PolicyDocument: { Statement: Array<{ Action: string | string[]; Resource: unknown }> };
+      };
+    };
+    const statements = policy.Properties.PolicyDocument.Statement;
+    expect(statements.flatMap((st) => [st.Action].flat()).sort()).toEqual([
+      "dynamodb:Scan",
+      "dynamodb:UpdateItem",
+    ]);
+    expect(statements.every((st) => JSON.stringify(st.Resource).includes("DataTasks"))).toBe(true);
+  });
+});

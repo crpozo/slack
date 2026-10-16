@@ -1,4 +1,4 @@
-import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import {
   MessageActionSchema,
   newMessageSk,
@@ -16,7 +16,34 @@ import { ddb, tables } from "../lib/ddb";
 import { wsHandler } from "../lib/handler";
 import { log } from "../lib/logger";
 import { notifyOffline } from "../lib/notify";
-import { badRequest, ok, replyError } from "../lib/response";
+import { badRequest, ok, reply, replyError } from "../lib/response";
+
+/** How far back a resent message is recognized (its own retry window is seconds). */
+const DEDUPE_WINDOW = 25;
+
+/**
+ * The message `userId` already stored under `clientId`, among the channel's
+ * newest messages. A client retries with the same clientId when its first
+ * send looked lost (a slow confirmation, a dropped connection, a queued frame
+ * flushed on reconnect): storing it again would post the message twice.
+ */
+async function alreadyStored(
+  channelId: string,
+  userId: string,
+  clientId: string,
+): Promise<Message | null> {
+  const { Items } = await ddb.send(
+    new QueryCommand({
+      TableName: tables.messages,
+      KeyConditionExpression: "channelId = :c",
+      ExpressionAttributeValues: { ":c": channelId },
+      ScanIndexForward: false,
+      Limit: DEDUPE_WINDOW,
+    }),
+  );
+  const found = (Items ?? []).find((m) => m.clientId === clientId && m.userId === userId);
+  return (found as Message | undefined) ?? null;
+}
 
 /**
  * Snapshot of the message `replyTo` points at, which must exist in the same
@@ -68,6 +95,14 @@ export const handler = wsHandler(async (event, caller) => {
   const quoted = replyTo ? await replySnapshot(channelId, replyTo) : null;
   if (replyTo && !quoted) return replyError(caller.connectionId, "MESSAGE_NOT_FOUND");
 
+  // A retry of a message that did arrive: confirm it to the sender, store nothing.
+  const existing = await alreadyStored(channelId, caller.userId, clientId);
+  if (existing) {
+    log.info("duplicate send ignored", { channelId, messageId: existing.messageId });
+    await reply(caller.connectionId, { type: "message.new", message: existing, clientId });
+    return ok();
+  }
+
   const now = Date.now();
   const message: Message = {
     messageId: ulid(now),
@@ -81,6 +116,7 @@ export const handler = wsHandler(async (event, caller) => {
     // An empty map up front lets `react` ADD to `reactions.<emoji>` directly.
     reactions: {},
     ...(quoted && { replyTo: quoted }),
+    clientId,
   };
   await ddb.send(new PutCommand({ TableName: tables.messages, Item: message }));
   log.info("message stored", { channelId, messageId: message.messageId, userId: caller.userId });

@@ -9,6 +9,8 @@ import {
 } from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpJwtAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import { Rule, Schedule } from "aws-cdk-lib/aws-events";
+import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
 import { PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { Architecture, Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
@@ -64,6 +66,8 @@ export class TasksApi extends Construct {
   readonly handler: NodejsFunction;
   /** `push`: stores browsers' Web Push subscriptions; only touches that table and the VAPID parameter. */
   readonly pushHandler: NodejsFunction;
+  /** `archive-tasks`: daily, archives tasks done for over a week (only touches the tasks table). */
+  readonly archiveHandler: NodejsFunction;
   /** Base URL clients call, without a trailing slash. */
   readonly url: string;
   private readonly origins: string[];
@@ -73,7 +77,12 @@ export class TasksApi extends Construct {
     const { stage, auth, data, wsApi } = props;
     this.origins = [...props.allowOrigins];
 
-    const lambda = (id: string, name: string, environment: Record<string, string>) => {
+    const lambda = (
+      id: string,
+      name: string,
+      environment: Record<string, string>,
+      timeout = Duration.seconds(10),
+    ) => {
       const functionName = `slack-${stage}-${name}`;
       return new NodejsFunction(this, id, {
         functionName,
@@ -82,7 +91,7 @@ export class TasksApi extends Construct {
         runtime: Runtime.NODEJS_22_X,
         architecture: Architecture.ARM_64,
         memorySize: 256,
-        timeout: Duration.seconds(10),
+        timeout,
         environment: { STAGE: stage, LOG_LEVEL: "info", ...environment },
         projectRoot: REPO_ROOT,
         depsLockFilePath: `${REPO_ROOT}pnpm-lock.yaml`,
@@ -110,6 +119,19 @@ export class TasksApi extends Construct {
     this.pushHandler = lambda("PushFn", "push", {
       PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
       VAPID_PARAMETER: vapidParameterName(stage),
+    });
+
+    this.archiveHandler = lambda(
+      "ArchiveFn",
+      "archive-tasks",
+      { TASKS_TABLE: data.tasks.tableName },
+      Duration.minutes(5), // scans the whole tasks table
+    );
+    new Rule(this, "ArchiveSchedule", {
+      ruleName: `slack-${stage}-archive-done-tasks`,
+      description: "Archives Kanban tasks that have been Done for over a week",
+      schedule: Schedule.cron({ hour: "6", minute: "17" }), // daily, 01:17 in Ecuador
+      targets: [new LambdaFunction(this.archiveHandler, { retryAttempts: 2 })],
     });
 
     const region = Stack.of(this).region;
@@ -193,6 +215,9 @@ export class TasksApi extends Construct {
     // Real-time pushes: list live connections, post to members', drop stale ones (410).
     data.connections.grant(this.handler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.handler);
+
+    // archive-tasks: find done tasks (Scan) and flag them (UpdateItem). Nothing else.
+    data.tasks.grant(this.archiveHandler, "dynamodb:Scan", "dynamodb:UpdateItem");
 
     // push: the caller's own subscription rows, and the public half of the VAPID keys.
     data.pushSubscriptions.grant(this.pushHandler, "dynamodb:PutItem", "dynamodb:DeleteItem");

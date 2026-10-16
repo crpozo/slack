@@ -23,6 +23,8 @@ const task = (id: string, status: Task["status"] = "TODO"): Task => ({
   createdBy: "me",
   createdAt: 1,
   updatedAt: 1,
+  doneAt: status === "DONE" ? 1 : null,
+  isArchived: false,
 });
 
 /** A controllable fake API: each call returns a promise the test settles. */
@@ -102,6 +104,16 @@ describe("tasks store", () => {
     await move;
     expect(statusOf(store, "t1")).toBe("IN_PROGRESS");
     expect(store.getState().error).toBe("Board not found");
+  });
+
+  it("moving out of Done unarchives the task at once", async () => {
+    const { store } = await loaded([{ ...task("t1", "DONE"), isArchived: true }]);
+    void store.getState().moveTask("t1", "TODO");
+    expect(store.getState().tasksByBoard.b_1?.[0]).toMatchObject({
+      status: "TODO",
+      doneAt: null,
+      isArchived: false,
+    });
   });
 
   it("does nothing for a move to the same column", async () => {

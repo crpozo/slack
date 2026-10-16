@@ -432,6 +432,8 @@ describe("tasks", () => {
       project: "",
       notes: "",
       attachments: [],
+      doneAt: 1, // done since its last change at the latest
+      isArchived: false,
     });
   });
 
@@ -447,8 +449,14 @@ describe("tasks", () => {
     expect(status).toBe(200);
     expect(body.task.status).toBe("DONE");
     const input = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
-    expect(input?.UpdateExpression).toBe("SET #updatedAt = :updatedAt, #status = :status");
+    expect(input?.UpdateExpression).toBe(
+      "SET #updatedAt = :updatedAt, #status = :status, #doneAt = :doneAt, #isArchived = :isArchived",
+    );
     expect(input?.ExpressionAttributeValues?.[":status"]).toBe("DONE");
+    // Moving into Done starts the archive clock.
+    expect(input?.ExpressionAttributeValues?.[":doneAt"]).toBe(
+      input?.ExpressionAttributeValues?.[":updatedAt"],
+    );
     expect(input?.ConditionExpression).toBe("attribute_exists(taskId)");
     expect(pushed()).toEqual(["conn-alice", "conn-bob"]);
     expect(sentEvents()[0]?.[1]).toMatchObject({
@@ -456,6 +464,29 @@ describe("tasks", () => {
       boardId: BOARD_ID,
       task: { taskId: "t_1", status: "DONE" },
     });
+  });
+
+  it("moving a task out of Done stops the archive clock and unarchives it", async () => {
+    ddbMock.on(GetCommand, { TableName: TASKS, Key: { taskId: "t_1" } }).resolves({
+      Item: { ...task, status: "DONE", doneAt: 5, isArchived: true },
+    });
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { ...task, status: "TODO" } });
+    await call("PUT /tasks/{taskId}", { params: { taskId: "t_1" }, body: { status: "TODO" } });
+    const values = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input.ExpressionAttributeValues;
+    expect(values).toMatchObject({ ":doneAt": null, ":isArchived": false });
+  });
+
+  it("other edits leave a done task's archive clock alone", async () => {
+    ddbMock.on(GetCommand, { TableName: TASKS, Key: { taskId: "t_1" } }).resolves({
+      Item: { ...task, status: "DONE", doneAt: 5 },
+    });
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { ...task, status: "DONE", title: "x" } });
+    await call("PUT /tasks/{taskId}", {
+      params: { taskId: "t_1" },
+      body: { title: "x", status: "DONE" },
+    });
+    const input = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(input?.UpdateExpression).not.toContain("doneAt");
   });
 
   it("assigneeId: null unassigns", async () => {

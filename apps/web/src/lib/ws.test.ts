@@ -106,6 +106,22 @@ describe("WsClient", () => {
     expect(received).toEqual([[1]]);
   });
 
+  it("keeps one queued frame per key: a retried message is sent once on reconnect", async () => {
+    const ws = client();
+    ws.connect();
+    const msg = (text: string) => ({ channelId: "ch_general", text, clientId: "c1" });
+    ws.send("message", msg("first try"), "c1");
+    ws.send("channel", { op: "list" });
+    ws.send("message", msg("retry"), "c1");
+    await flush();
+    const socket = FakeSocket.instances[0]!;
+    socket.open();
+    expect(socket.sent.map((f) => JSON.parse(f) as { action: string; text?: string })).toEqual([
+      { action: "channel", op: "list" },
+      { action: "message", channelId: "ch_general", text: "retry", clientId: "c1" },
+    ]);
+  });
+
   it("reconnects with backoff and reports reconnected", async () => {
     vi.useFakeTimers();
     const ws = client();

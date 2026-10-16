@@ -35,11 +35,18 @@ export function pendingMessageId(clientId: string): string {
   return `pending:${clientId}`;
 }
 
-/** Messages from other people newer than `lastRead`. */
-export function countUnread(messages: ChatMessage[], lastRead: number, myUserId: string): number {
+/**
+ * Messages from other people after the read mark `sk`, like the server counts
+ * them: newest first, stopping at your own latest message (you wrote after
+ * reading them).
+ */
+export function countUnreadAfter(messages: ChatMessage[], sk: string, myUserId: string): number {
   let count = 0;
-  for (const m of messages) {
-    if (!m.status && m.userId !== myUserId && m.createdAt > lastRead) count++;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (m.status) continue;
+    if (m.sk <= sk || m.userId === myUserId) break;
+    count++;
   }
   return count;
 }

@@ -83,6 +83,29 @@ export interface Task {
   /** Epoch milliseconds. */
   createdAt: number;
   updatedAt: number;
+  /** When the task last moved to Done (epoch ms); `null` while it isn't done. */
+  doneAt: number | null;
+  /**
+   * Done for over `ARCHIVE_DONE_AFTER_MS`: hidden from the board unless you
+   * ask to see archived tasks. Set by a daily job; moving the task out of
+   * Done clears it.
+   */
+  isArchived: boolean;
+}
+
+/** Done tasks are archived after a week. */
+export const ARCHIVE_DONE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Whether `task` is archived at `now`: flagged by the daily job, or past the
+ * week already (so the board doesn't wait for the next run).
+ */
+export function isTaskArchived(
+  task: Pick<Task, "status" | "doneAt" | "isArchived">,
+  now = Date.now(),
+): boolean {
+  if (task.status !== "DONE") return false;
+  return task.isArchived || (task.doneAt !== null && now - task.doneAt > ARCHIVE_DONE_AFTER_MS);
 }
 
 /** Board-level permission: the owner and the members, nobody else. */

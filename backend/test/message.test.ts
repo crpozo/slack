@@ -1,5 +1,11 @@
 import { GoneException, PostToConnectionCommand } from "@aws-sdk/client-apigatewaymanagementapi";
-import { DeleteCommand, GetCommand, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  DeleteCommand,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  ScanCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { dmChannelId, GENERAL_CHANNEL_ID, compareIds } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handler } from "../src/handlers/message";
@@ -24,6 +30,7 @@ describe("message", () => {
   beforeEach(() => {
     resetMocks();
     mockChannels(GENERAL);
+    ddbMock.on(QueryCommand).resolves({ Items: [] }); // no earlier send of this clientId
     ddbMock.on(PutCommand).resolves({});
     ddbMock.on(ScanCommand).resolves({
       Items: [
@@ -50,6 +57,7 @@ describe("message", () => {
       userEmail: ALICE.email,
       text: "hola",
       attachments: [],
+      clientId: "c1", // stored, so a retry is recognized
     });
     expect(stored?.Item?.sk).toMatch(/^\d{13}#[0-9A-Z]{26}$/);
 
@@ -257,6 +265,7 @@ describe("message replies", () => {
   beforeEach(() => {
     resetMocks();
     mockChannels(GENERAL);
+    ddbMock.on(QueryCommand).resolves({ Items: [] });
     ddbMock.on(PutCommand).resolves({});
     ddbMock
       .on(ScanCommand)
@@ -299,5 +308,54 @@ describe("message replies", () => {
         ),
     ).toBe(true);
     expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+  });
+});
+
+describe("message retries", () => {
+  beforeEach(() => {
+    resetMocks();
+    mockChannels(GENERAL);
+    ddbMock.on(PutCommand).resolves({});
+    ddbMock.on(ScanCommand).resolves({
+      Items: [
+        { connectionId: "conn-alice", userId: ALICE.userId },
+        { connectionId: "conn-bob", userId: BOB.userId },
+      ],
+    });
+  });
+
+  it("stores a retried clientId only once and confirms the stored copy to the sender", async () => {
+    const stored = {
+      messageId: "m1",
+      channelId: GENERAL_CHANNEL_ID,
+      sk: "1#m1",
+      userId: ALICE.userId,
+      text: "hola",
+      clientId: "c1",
+    };
+    ddbMock.on(QueryCommand).resolves({ Items: [stored] });
+
+    const result = await send({
+      action: "message",
+      channelId: GENERAL_CHANNEL_ID,
+      text: "hola",
+      clientId: "c1",
+    });
+
+    expect(result.statusCode).toBe(200);
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    expect(sentEvents()).toEqual([
+      ["conn-alice", { type: "message.new", message: stored, clientId: "c1" }],
+    ]);
+    const query = ddbMock.commandCalls(QueryCommand)[0]?.args[0].input;
+    expect(query).toMatchObject({ ScanIndexForward: false, Limit: 25 });
+  });
+
+  it("another person's message with the same clientId is not a duplicate", async () => {
+    ddbMock.on(QueryCommand).resolves({
+      Items: [{ messageId: "m1", userId: BOB.userId, clientId: "c1" }],
+    });
+    await send({ action: "message", channelId: GENERAL_CHANNEL_ID, text: "hola", clientId: "c1" });
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(1);
   });
 });

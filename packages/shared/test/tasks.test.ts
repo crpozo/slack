@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   AddBoardMembersSchema,
+  ARCHIVE_DONE_AFTER_MS,
   canAccessBoard,
+  isTaskArchived,
   CreateBoardSchema,
   CreateTaskSchema,
   MAX_TASK_TITLE_LENGTH,
@@ -87,5 +89,19 @@ describe("tasks contract", () => {
     expect(UpdateTaskSchema.parse({ assigneeId: null })).toEqual({ assigneeId: null });
     expect(UpdateTaskSchema.parse({ attachments: [] })).toEqual({ attachments: [] });
     expect(UpdateTaskSchema.safeParse({ notes: "x".repeat(5001) }).success).toBe(false);
+  });
+});
+
+describe("isTaskArchived", () => {
+  const now = 10 * ARCHIVE_DONE_AFTER_MS;
+  it("archives done tasks after a week, or when flagged", () => {
+    const done = { status: "DONE" as const, isArchived: false };
+    expect(isTaskArchived({ ...done, doneAt: now - ARCHIVE_DONE_AFTER_MS - 1 }, now)).toBe(true);
+    expect(isTaskArchived({ ...done, doneAt: now - 1000 }, now)).toBe(false);
+    expect(isTaskArchived({ ...done, doneAt: null, isArchived: true }, now)).toBe(true);
+  });
+
+  it("never archives a task that isn't done", () => {
+    expect(isTaskArchived({ status: "TODO", doneAt: 0, isArchived: true }, now)).toBe(false);
   });
 });
