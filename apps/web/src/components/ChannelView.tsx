@@ -13,7 +13,7 @@ import { useChat, useIsOnline, useNameOf } from "../store";
 import { PresenceDot } from "./Avatar";
 import { CallPanel, useCallExpanded } from "./CallLayer";
 import { Composer, type ComposerHandle } from "./Composer";
-import { InviteModal } from "./ChannelModals";
+import { EditChannelModal, InviteModal } from "./ChannelModals";
 import { HashIcon, LockIcon, MenuIcon, PhoneIcon, UserPlusIcon, VideoIcon } from "./icons";
 import { MessageList } from "./MessageList";
 import { UnreadAlertsDot } from "./NotificationBell";
@@ -104,6 +104,7 @@ function ChannelHeader({
   myUserId,
   onOpenSidebar,
   onInvite,
+  onDetails,
 }: Readonly<{
   channelId: string;
   channel: Channel | undefined;
@@ -112,6 +113,8 @@ function ChannelHeader({
   myUserId: string;
   onOpenSidebar: () => void;
   onInvite: () => void;
+  /** Opens the channel's details (editable by its creator or an admin). */
+  onDetails: () => void;
 }>) {
   const { dm, isPrivate, peer } = access;
   const KindIcon = isPrivate ? LockIcon : HashIcon;
@@ -126,8 +129,24 @@ function ChannelHeader({
         <MenuIcon />
         <UnreadAlertsDot />
       </button>
-      {!dm && <KindIcon className="text-ink-secondary" />}
-      <h1 className="truncate font-semibold text-ink">{label}</h1>
+      {!dm && <KindIcon className="shrink-0 text-ink-secondary" />}
+      {dm || !channel ? (
+        <h1 className="truncate font-semibold text-ink">{label}</h1>
+      ) : (
+        <button
+          type="button"
+          onClick={onDetails}
+          className="flex min-w-0 flex-col items-start rounded-md px-1 py-0.5 text-left hover:bg-surface-hover"
+          title={channel.description || "Channel details"}
+        >
+          <h1 className="max-w-full truncate font-semibold leading-tight text-ink">{label}</h1>
+          {channel.topic && (
+            <span className="max-w-full truncate text-xs leading-tight text-ink-secondary">
+              {channel.topic}
+            </span>
+          )}
+        </button>
+      )}
       {peer && <PeerPresence peer={peer} myUserId={myUserId} />}
       {isPrivate && channel && <MemberCount channel={channel} />}
       <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -170,6 +189,7 @@ export function ChannelView({
   const channelsLoaded = useChat((s) => s.channelsLoaded);
   const nameOf = useNameOf();
   const [inviting, setInviting] = useState(false);
+  const [details, setDetails] = useState(false);
   const composer = useRef<ComposerHandle>(null);
   const [dragging, setDragging] = useState(false);
   // The call fills the column: messages and composer stay mounted but hidden.
@@ -209,8 +229,12 @@ export function ChannelView({
         myUserId={me.userId}
         onOpenSidebar={onOpenSidebar}
         onInvite={() => setInviting(true)}
+        onDetails={() => setDetails(true)}
       />
       {inviting && channel && <InviteModal channel={channel} onClose={() => setInviting(false)} />}
+      {details && channel && (
+        <EditChannelModal channel={channel} onClose={() => setDetails(false)} />
+      )}
 
       {access.notFound ? (
         <NotFound />

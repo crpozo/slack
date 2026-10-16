@@ -1,6 +1,6 @@
 import {
   canDeleteChannel,
-  canRenameChannel,
+  canEditChannel,
   dmChannelId,
   GENERAL_CHANNEL_ID,
   MAX_UNREAD_COUNT,
@@ -14,7 +14,7 @@ import { dmEntries, pinnedFirst, type DmEntry } from "../lib/channels";
 import type { WsStatus } from "../lib/ws";
 import { selectUnread, useChat, useNameOf } from "../store";
 import { Avatar, PresenceDot } from "./Avatar";
-import { DeleteChannelModal, RenameChannelModal } from "./ChannelModals";
+import { DeleteChannelModal, EditChannelModal } from "./ChannelModals";
 import { NotificationBell } from "./NotificationBell";
 import { Popover } from "./Popover";
 import {
@@ -266,7 +266,7 @@ export function Sidebar({
   const navigate = useNavigate();
   const nameOf = useNameOf();
   const [deleting, setDeleting] = useState<{ channel: Channel; label: string } | null>(null);
-  const [renaming, setRenaming] = useState<Channel | null>(null);
+  const [editing, setEditing] = useState<Channel | null>(null);
   const { me, status, channels, pinned, team, directory, users, online } = useChat(
     useShallow((s) => ({
       me: s.me,
@@ -333,8 +333,8 @@ export function Sidebar({
 
   function channelMenu(c: Channel): RowMenuItem[] {
     const items: RowMenuItem[] = [];
-    if (me && canRenameChannel(c, me.userId, me.role)) {
-      items.push({ label: "Rename channel", icon: <PencilIcon />, onSelect: () => setRenaming(c) });
+    if (me && canEditChannel(c, me.userId, me.role)) {
+      items.push({ label: "Edit channel", icon: <PencilIcon />, onSelect: () => setEditing(c) });
     }
     // Until the directory arrives, assume the creator exists (never offer it wrongly).
     const creatorKnown = Object.keys(users).length === 0 || !!users[c.createdBy];
@@ -353,7 +353,7 @@ export function Sidebar({
 
   return (
     <div className="flex h-full flex-col border-r border-line bg-surface-sidebar">
-      {renaming && <RenameChannelModal channel={renaming} onClose={() => setRenaming(null)} />}
+      {editing && <EditChannelModal channel={editing} onClose={() => setEditing(null)} />}
       {deleting && (
         <DeleteChannelModal
           channel={deleting.channel}

@@ -649,4 +649,47 @@ describe("channel rename", () => {
     await rename("ch_team", "Core Team", { ...BOB, role: "admin" });
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
   });
+
+  const update = (fields: object, user: object = ALICE, channelId = "ch_team") =>
+    handler(
+      wsEvent(
+        "channel",
+        { action: "channel", op: "update", channelId, ...fields },
+        { user: user as typeof ALICE },
+      ),
+    );
+
+  it("edits the topic and description (and the name) in one update", async () => {
+    await update({ name: "Core Team", topic: "Ship it", description: "Launch prep.\nDaily." });
+    const input = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(input?.ExpressionAttributeValues).toEqual({
+      ":name": "Core Team",
+      ":slug": "core-team",
+      ":topic": "Ship it",
+      ":description": "Launch prep.\nDaily.",
+    });
+    expect(sentEvents()).toEqual([
+      ["conn-alice", expect.objectContaining({ type: "channel.updated" })],
+    ]);
+  });
+
+  it("clears a topic with an empty string and leaves the name alone", async () => {
+    await update({ name: team.name, topic: "" });
+    const input = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(input?.UpdateExpression).toBe("SET #topic = :topic");
+    expect(input?.ExpressionAttributeValues).toEqual({ ":topic": "" });
+  });
+
+  it("lets only admins edit #general's details, and nobody rename it", async () => {
+    await update({ topic: "Hi" }, ALICE, "ch_general");
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+    await update({ topic: "Hi" }, BOB, "ch_team");
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+
+    await update({ topic: "Welcome" }, { ...ALICE, role: "admin" }, "ch_general");
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
+    await update({ name: "lobby" }, { ...ALICE, role: "admin" }, "ch_general");
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+  });
 });

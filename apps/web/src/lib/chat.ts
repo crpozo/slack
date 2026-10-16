@@ -57,6 +57,13 @@ export const TYPING_INTERVAL_MS = 3000;
 /** …and the indicator stays this long after the last one (slightly more than the interval). */
 export const TYPING_SHOW_MS = 5000;
 
+/** Fields of a channel its creator or an admin can edit. */
+export interface ChannelEdit {
+  name?: string;
+  topic?: string;
+  description?: string;
+}
+
 /** Glue between the WebSocket and the store; one instance per signed-in session. */
 class ChatController {
   private client: WsClient | null = null;
@@ -437,8 +444,12 @@ class ChatController {
   }
 
   /** Renames a channel (its creator or an admin); everyone sees `channel.updated`. */
-  renameChannel(channelId: string, name: string): void {
-    this.client?.send("channel", { op: "rename", channelId, name: name.trim() });
+  /** Name, topic and/or description; everyone in the channel gets `channel.updated`. */
+  updateChannel(channelId: string, fields: ChannelEdit): void {
+    const trimmed = Object.fromEntries(
+      Object.entries(fields).map(([k, v]) => [k, (v as string).trim()]),
+    ) as ChannelEdit;
+    this.client?.send("channel", { op: "update", channelId, ...trimmed });
   }
 
   /**

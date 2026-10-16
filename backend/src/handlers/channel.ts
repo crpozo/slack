@@ -10,6 +10,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import {
   canDeleteChannel,
+  canEditChannel,
   canRenameChannel,
   ChannelActionSchema,
   channelSlug,
@@ -289,43 +290,79 @@ async function deleteChannel(action: ActionOf<"delete">, caller: Caller) {
 }
 
 /**
- * Renames a channel: its creator or an admin, never `#general` or a DM. The id
- * and messages stay; only `name` and `slug` change, and the new slug must be free.
+ * Edits a channel's name, topic and/or description: its creator or an admin,
+ * never a DM. Renaming follows `canRenameChannel` (never `#general`); the id
+ * and messages stay, only `name` and `slug` change, and the new slug must be
+ * free. Everyone who can see the channel gets `channel.updated`.
  */
-async function renameChannel(action: ActionOf<"rename">, caller: Caller) {
+async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, caller: Caller) {
   const channels = await scanChannels();
   const channel = channels.find((c) => c.channelId === action.channelId);
   if (!channel || channel.archived || !isChannelMember(channel, caller.userId)) {
     return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
   }
-  if (!canRenameChannel(channel, caller.userId, caller.role)) {
+  const fields = {
+    name: action.name,
+    topic: "topic" in action ? action.topic : undefined,
+    description: "description" in action ? action.description : undefined,
+  };
+  const renaming = fields.name !== undefined && fields.name !== channel.name;
+  const allowed = renaming
+    ? canRenameChannel(channel, caller.userId, caller.role)
+    : canEditChannel(channel, caller.userId, caller.role);
+  if (!allowed) {
     return replyError(
       caller.connectionId,
       "FORBIDDEN",
-      "Only the channel creator or an admin can rename it",
+      renaming
+        ? "Only the channel creator or an admin can rename it"
+        : "Only the channel creator or an admin can edit it",
     );
   }
-  const slug = slugifyChannelName(action.name);
-  if (
-    channels.some(
-      (c) => c.type !== "dm" && c.channelId !== channel.channelId && channelSlug(c) === slug,
-    )
-  ) {
-    return replyError(caller.connectionId, "CHANNEL_NAME_TAKEN");
+  const names: Record<string, string> = {};
+  const values: Record<string, unknown> = {};
+  const sets: string[] = [];
+  const assign = (key: string, value: unknown) => {
+    names[`#${key}`] = key;
+    values[`:${key}`] = value;
+    sets.push(`#${key} = :${key}`);
+  };
+  if (renaming) {
+    const slug = slugifyChannelName(fields.name!);
+    if (
+      channels.some(
+        (c) => c.type !== "dm" && c.channelId !== channel.channelId && channelSlug(c) === slug,
+      )
+    ) {
+      return replyError(caller.connectionId, "CHANNEL_NAME_TAKEN");
+    }
+    assign("name", fields.name);
+    assign("slug", slug);
   }
+  if (fields.topic !== undefined) assign("topic", fields.topic);
+  if (fields.description !== undefined) assign("description", fields.description);
+  if (sets.length === 0) return ok(); // same name, nothing else
+
   const { Attributes } = await ddb.send(
     new UpdateCommand({
       TableName: tables.channels,
       Key: { channelId: channel.channelId },
-      UpdateExpression: "SET #name = :name, slug = :slug",
+      UpdateExpression: `SET ${sets.join(", ")}`,
       ConditionExpression: "attribute_exists(channelId)",
-      ExpressionAttributeNames: { "#name": "name" },
-      ExpressionAttributeValues: { ":name": action.name, ":slug": slug },
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
       ReturnValues: "ALL_NEW",
     }),
   );
-  const updated = (Attributes ?? { ...channel, name: action.name, slug }) as Channel;
-  log.info("channel renamed", { channelId: channel.channelId, userId: caller.userId });
+  const patch = Object.fromEntries(
+    Object.entries(values).map(([k, v]) => [k.slice(1), v]),
+  ) as Partial<Channel>;
+  const updated = (Attributes ?? { ...channel, ...patch }) as Channel;
+  log.info("channel updated", {
+    channelId: channel.channelId,
+    userId: caller.userId,
+    fields: Object.keys(patch),
+  });
   const inAudience = channelAudience(updated);
   await broadcast((connection) =>
     inAudience(connection) ? { type: "channel.updated", channel: updated } : null,
@@ -333,7 +370,7 @@ async function renameChannel(action: ActionOf<"rename">, caller: Caller) {
   return ok();
 }
 
-/** `channel`: list, create (private by default), open a DM, invite to a private channel, rename, or delete. */
+/** `channel`: list, create (private by default), open a DM, invite to a private channel, edit (rename, topic, description), or delete. */
 export const handler = wsHandler(async (event, caller) => {
   const parsed = parseAction(ChannelActionSchema, event.body);
   if (!parsed.success) return badRequest(caller.connectionId, parsed.error);
@@ -351,6 +388,7 @@ export const handler = wsHandler(async (event, caller) => {
     case "delete":
       return deleteChannel(action, caller);
     case "rename":
-      return renameChannel(action, caller);
+    case "update":
+      return updateChannel(action, caller);
   }
 });
