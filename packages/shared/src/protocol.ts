@@ -152,6 +152,11 @@ export interface Message {
    * watermarks (`readBy()`): never stored per message.
    */
   readBy?: string[];
+  /**
+   * The sender's id for this send (stored, so a retry of the same message is
+   * recognized, and a reloaded history settles a "failed" optimistic copy).
+   */
+  clientId?: string;
 }
 
 export interface UserProfile {

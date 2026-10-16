@@ -348,21 +348,36 @@ class ChatController {
     this.transmit(message);
   }
 
+  /**
+   * Sends a failed message again, under the same `clientId`: only from the
+   * `failed` state (a double tap, or a retry racing a late confirmation, does
+   * nothing), it replaces any copy still queued while offline, and the server
+   * ignores a clientId it already stored — so one message, however it raced.
+   */
   retry(message: ChatMessage): void {
-    if (!message.clientId) return;
-    useChat.getState().setPendingStatus(message.channelId, message.clientId, "pending");
-    this.transmit(message);
+    const { clientId, channelId } = message;
+    if (!clientId) return;
+    const current = useChat
+      .getState()
+      .messagesByChannel[channelId]?.find((m) => m.messageId === pendingMessageId(clientId));
+    if (current?.status !== "failed") return;
+    useChat.getState().setPendingStatus(channelId, clientId, "pending");
+    this.transmit(current);
   }
 
   private transmit({ channelId, text, attachments, clientId, replyTo }: ChatMessage): void {
     if (!this.client || !clientId) return;
-    this.client.send("message", {
-      channelId,
-      text,
-      attachments: attachments.length ? attachments : undefined,
+    this.client.send(
+      "message",
+      {
+        channelId,
+        text,
+        attachments: attachments.length ? attachments : undefined,
+        clientId,
+        ...(replyTo && { replyTo: { messageId: replyTo.messageId, sk: replyTo.sk } }),
+      },
       clientId,
-      ...(replyTo && { replyTo: { messageId: replyTo.messageId, sk: replyTo.sk } }),
-    });
+    );
     clearTimeout(this.sendTimers.get(clientId));
     this.sendTimers.set(
       clientId,

@@ -207,8 +207,9 @@ export class Api extends Construct {
     messages.grant(handlers.edit, "dynamodb:UpdateItem");
     // Board files (`attachments/<boardId>/…`) are gated by board membership.
     data.boards.grant(handlers.presign, "dynamodb:GetItem");
-    // PutItem the message; GetItem the one it replies to (for its snapshot).
-    messages.grant(handlers.message, "dynamodb:PutItem", "dynamodb:GetItem");
+    // PutItem the message; GetItem the one it replies to (for its snapshot); Query the
+    // channel's newest messages so a retried send (same clientId) isn't stored twice.
+    messages.grant(handlers.message, "dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:Query");
     // Push: the sender's display name (GetItem), @mention lookup (Scan), each
     // recipient's devices (Query) and dropping expired ones (DeleteItem).
     users.grant(handlers.message, "dynamodb:GetItem", "dynamodb:Scan");
