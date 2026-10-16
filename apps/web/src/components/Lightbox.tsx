@@ -68,7 +68,10 @@ export function Lightbox({ src, name, onClose }: Readonly<LightboxProps>) {
 
     const begin = () => {
       const [p, q] = [...pointers.values()];
-      if (!p) return (start = null);
+      if (!p) {
+        start = null;
+        return;
+      }
       const a = q ? { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 } : p;
       const dist = q ? Math.hypot(p.x - q.x, p.y - q.y) : 0;
       start = { view: viewRef.current, a, dist };
@@ -189,8 +192,6 @@ export function Lightbox({ src, name, onClose }: Readonly<LightboxProps>) {
     <dialog
       ref={dialog}
       aria-label={name}
-      // React bubbles through portals: a click here must not reach the message row.
-      onClick={(e) => e.stopPropagation()}
       className="m-0 h-full max-h-none w-full max-w-none overflow-hidden bg-black/90 p-0 text-white backdrop:bg-black/80"
     >
       <div className="flex h-full flex-col">

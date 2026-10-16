@@ -16,6 +16,14 @@ export const DOUBLE_TAP_ZOOM = 2.5;
 
 export const FIT: ZoomView = { scale: 1, x: 0, y: 0 };
 
+export interface Point {
+  x: number;
+  y: number;
+}
+
+/** The viewport's center (points are relative to it). */
+const CENTER: Point = { x: 0, y: 0 };
+
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
 /**
@@ -37,7 +45,7 @@ export function clampPan(
  * Zooms to `scale` keeping the image point under `at` where it is (the cursor,
  * the pinch center, the tapped spot). Back at 1× the image is re-centered.
  */
-export function zoomTo(view: ZoomView, scale: number, at = { x: 0, y: 0 }): ZoomView {
+export function zoomTo(view: ZoomView, scale: number, at: Point = CENTER): ZoomView {
   const next = clamp(scale, MIN_ZOOM, MAX_ZOOM);
   if (next === MIN_ZOOM) return FIT;
   const ratio = next / view.scale;
@@ -45,7 +53,7 @@ export function zoomTo(view: ZoomView, scale: number, at = { x: 0, y: 0 }): Zoom
 }
 
 /** Double-click / double-tap: zoom in on `at`, or back to fit when zoomed. */
-export function toggleZoom(view: ZoomView, at: { x: number; y: number }): ZoomView {
+export function toggleZoom(view: ZoomView, at: Point): ZoomView {
   return view.scale > MIN_ZOOM ? FIT : zoomTo(view, DOUBLE_TAP_ZOOM, at);
 }
 

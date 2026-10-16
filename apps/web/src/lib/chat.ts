@@ -6,6 +6,7 @@ import {
   type ChannelVisibility,
   type Attachment,
   type ErrorCode,
+  type Message,
   type PresignAction,
   type PresignResultEvent,
   type ReplySnapshot,
@@ -131,34 +132,7 @@ class ChatController {
         if (viewing) this.viewed(message.channelId);
         // Their message arrived: whatever they were typing is sent.
         s.setTyping(message.channelId, message.userId, null);
-        // A pop for messages from others that you are not already looking at.
-        if (!viewing && message.userId !== s.me?.userId) playMessageSound();
-        // DMs, private channels and @mentions also go to the bell (and to the desktop app's
-        // notifications while it's in the background).
-        // A brand-new DM isn't in the channel list yet; its id says what it is.
-        const channel =
-          s.channels.find((c) => c.channelId === message.channelId) ??
-          (isDmChannel(message.channelId) ? ({ type: "dm" } as const) : undefined);
-        const me = s.me && { ...s.me, displayName: s.users[s.me.userId]?.displayName };
-        const notify = !!channel && !!me && !viewing && shouldNotify(channel, message, me);
-        if (message.userId === s.me?.userId)
-          s.markRead(message.channelId); // you wrote: you read
-        else if (!viewing && !known) {
-          s.bumpUnread(message.channelId, notify && channel?.type === "public");
-        }
-        if (channel && me && notify) {
-          const sender = selectName(s, message.userId, message.userEmail);
-          const dm = channel.type === "dm";
-          raiseAlert(
-            {
-              kind: dm || channel.type === "private" ? "message" : "mention",
-              title: dm || !("name" in channel) ? sender : `${sender} in #${channel.name}`,
-              body: notificationBody(message),
-              url: `/app/${encodeURIComponent(message.channelId)}`,
-            },
-            { sound: false }, // the pop above already played
-          );
-        }
+        this.incoming(message, viewing, known);
       }),
 
       client.on("history.page", ({ channelId, items, nextCursor }) => {
@@ -461,6 +435,42 @@ class ChatController {
     const rest = s.pinned.filter((id) => id !== channelId);
     s.setPinned(pinned ? [channelId, ...rest] : rest);
     this.client?.send("user", { op: "pin", channelId, pinned });
+  }
+
+  /**
+   * A message arrived where you aren't looking: the pop, the unread count
+   * (unless `known`: already in the list), and for DMs, private channels and
+   * @mentions the bell (and the desktop app's notification while it's in the
+   * background). Your own messages mark the conversation read instead.
+   */
+  private incoming(message: Message, viewing: boolean, known: boolean | undefined): void {
+    const s = useChat.getState();
+    const mine = message.userId === s.me?.userId;
+    if (mine) {
+      s.markRead(message.channelId); // you wrote: you read
+      return;
+    }
+    if (viewing) return;
+    playMessageSound();
+    // A brand-new DM isn't in the channel list yet; its id says what it is.
+    const channel =
+      s.channels.find((c) => c.channelId === message.channelId) ??
+      (isDmChannel(message.channelId) ? ({ type: "dm" } as const) : undefined);
+    const me = s.me && { ...s.me, displayName: s.users[s.me.userId]?.displayName };
+    const notify = !!channel && !!me && shouldNotify(channel, message, me);
+    if (!known) s.bumpUnread(message.channelId, notify && channel?.type === "public");
+    if (!channel || !notify) return;
+    const sender = selectName(s, message.userId, message.userEmail);
+    const dm = channel.type === "dm";
+    raiseAlert(
+      {
+        kind: dm || channel.type === "private" ? "message" : "mention",
+        title: dm || !("name" in channel) ? sender : `${sender} in #${channel.name}`,
+        body: notificationBody(message),
+        url: `/app/${encodeURIComponent(message.channelId)}`,
+      },
+      { sound: false }, // the pop above already played
+    );
   }
 
   /**
