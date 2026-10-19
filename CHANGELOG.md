@@ -5,6 +5,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Changed
+
+- **Faster images.** Messages arrive with their download URLs already attached (`history.page`
+  and `message.new`), so a page with twenty pictures no longer makes twenty `presign` round
+  trips. URLs are signed per 2-hour window and stay valid for 3, and uploads are stored with
+  `Cache-Control: private, max-age=31536000, immutable`, so the browser keeps serving an image
+  it already has instead of re-downloading it under a fresh signature. Image uploads also get a
+  downscaled copy (≤ 1280 px, WebP or JPEG, made in the browser) that the conversation shows at
+  its known size, with the original one click away in the viewer and the Download button.
+- **Lighter conversations.** The message list is virtualized (`@tanstack/react-virtual`): only
+  the rows near the viewport exist in the DOM however long the session runs, scrolling up to
+  load older pages keeps the viewport still, and a directory refresh no longer re-renders every
+  message.
+
 ### Added
 
 - **Calendar** (Apps → Calendar): a shared company calendar with month, week and day views.

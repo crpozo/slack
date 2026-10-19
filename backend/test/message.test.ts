@@ -6,7 +6,7 @@ import {
   QueryCommand,
   ScanCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { dmChannelId, GENERAL_CHANNEL_ID, compareIds } from "@mindfultech/shared";
+import { dmChannelId, GENERAL_CHANNEL_ID, compareIds, type Attachment } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handler } from "../src/handlers/message";
 import {
@@ -104,6 +104,47 @@ describe("message", () => {
       ],
     });
     expect(result.statusCode).toBe(400);
+  });
+
+  it("rejects a thumbnail from another channel, and signs download URLs for images", async () => {
+    const base = { action: "message", channelId: GENERAL_CHANNEL_ID, text: "", clientId: "c9" };
+    await send({
+      ...base,
+      attachments: [
+        {
+          key: "attachments/ch_general/x.png",
+          thumbKey: "attachments/ch_other/x.webp",
+          name: "x.png",
+          size: 1,
+          contentType: "image/png",
+        },
+      ],
+    });
+    expect(sentEvents()[0]?.[1]).toMatchObject({ type: "error", code: "BAD_REQUEST" });
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+
+    await send({
+      ...base,
+      attachments: [
+        {
+          key: "attachments/ch_general/x.png",
+          thumbKey: "attachments/ch_general/x.webp",
+          name: "x.png",
+          size: 1,
+          contentType: "image/png",
+          width: 640,
+          height: 480,
+        },
+      ],
+    });
+    const stored = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item as {
+      attachments: Array<Record<string, unknown>>;
+    };
+    expect(stored.attachments[0]).not.toHaveProperty("url");
+    expect(stored.attachments[0]).toMatchObject({ width: 640, height: 480 });
+    const [, event] = sentEvents()[1] as [string, { message: { attachments: Attachment[] } }];
+    expect(event.message.attachments[0]?.url).toMatch(/\/attachments\/ch_general\/x\.png\?/);
+    expect(event.message.attachments[0]?.thumbUrl).toMatch(/x\.webp\?/);
   });
 
   it("returns CHANNEL_NOT_FOUND for an unknown channel", async () => {

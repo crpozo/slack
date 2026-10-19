@@ -98,6 +98,35 @@ describe("history", () => {
     expect(ddbMock.commandCalls(QueryCommand)).toHaveLength(0);
   });
 
+  it("attaches signed download URLs to image and audio attachments, not to other files", async () => {
+    ddbMock.on(QueryCommand).resolves({
+      Items: [
+        {
+          ...msg(1),
+          attachments: [
+            {
+              key: "attachments/ch_general/a.png",
+              name: "a.png",
+              size: 1,
+              contentType: "image/png",
+            },
+            {
+              key: "attachments/ch_general/b.pdf",
+              name: "b.pdf",
+              size: 1,
+              contentType: "application/pdf",
+            },
+          ],
+        },
+      ],
+    });
+    await handler(wsEvent("history", { action: "history", channelId: GENERAL_CHANNEL_ID }));
+    const [[, event]] = sentEvents() as [[string, HistoryPageEvent]];
+    const [image, pdf] = event.items[0]!.attachments;
+    expect(image?.url).toMatch(/\/attachments\/ch_general\/a\.png\?.*X-Amz-Signature=/);
+    expect(pdf?.url).toBeUndefined();
+  });
+
   it("sends reactions as sorted arrays instead of DynamoDB sets", async () => {
     ddbMock.on(QueryCommand).resolves({
       Items: [{ ...msg(1), reactions: { "👍": new Set(["u-b", "u-a"]) } }],

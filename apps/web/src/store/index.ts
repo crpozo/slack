@@ -102,6 +102,24 @@ export interface ChatState {
   showToast: (message: string | null) => void;
 }
 
+/** Same people with the same profiles (by value), so a refresh needn't re-render everything. */
+export function sameUsers(a: Record<string, UserProfile>, b: Record<string, UserProfile>): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((id) => {
+    const x = a[id];
+    const y = b[id];
+    return (
+      !!x &&
+      !!y &&
+      x.email === y.email &&
+      x.displayName === y.displayName &&
+      x.updatedAt === y.updatedAt &&
+      x.role === y.role
+    );
+  });
+}
+
 function learnAuthors(directory: Record<string, string>, messages: Message[]) {
   let next = directory;
   for (const m of messages) {
@@ -239,16 +257,19 @@ export const useChat = create<ChatState>()((set, get) => ({
 
   setUsers: (list, onlineIds) =>
     set((s) => {
-      const users: Record<string, UserProfile> = {};
-      const directory = { ...s.directory };
+      let users: Record<string, UserProfile> = {};
+      let directory = s.directory;
       for (const u of list) {
         users[u.userId] = u;
-        directory[u.userId] = u.email;
+        if (directory[u.userId] !== u.email) directory = { ...directory, [u.userId]: u.email };
       }
       const mine = s.me && users[s.me.userId];
       if (mine) saveOwnProfile(mine);
       // A guest's directory may not list them yet: keep what we know about ourselves.
       else if (s.me && s.users[s.me.userId]) users[s.me.userId] = s.users[s.me.userId]!;
+      // The periodic refresh usually brings the same people: keep the object (and
+      // everything derived from it, like every message's name) as it was.
+      if (sameUsers(s.users, users)) users = s.users;
       if (!onlineIds) return { users, directory };
       const online: Record<string, true> = {};
       for (const id of onlineIds) online[id] = true;

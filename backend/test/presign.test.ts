@@ -56,6 +56,8 @@ describe("presign", () => {
     expect(url.searchParams.get("X-Amz-Expires")).toBe("1800"); // 30 min for large uploads
     expect(url.searchParams.get("X-Amz-SignedHeaders")).toContain("content-length");
     expect(url.searchParams.get("X-Amz-SignedHeaders")).toContain("content-type");
+    // Browsers may keep the (immutable) object for a year: the PUT must carry the header.
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).toContain("cache-control");
   });
 
   it("put rejects files over 500 MB", async () => {
@@ -80,6 +82,7 @@ describe("presign", () => {
     const [[, event]] = sentEvents() as [[string, PresignResultEvent]];
     expect(event).toMatchObject({ type: "presign.result", key, requestId: "r2" });
     expect(new URL(event.url).pathname).toBe(`/${key}`);
+    expect(new URL(event.url).searchParams.get("X-Amz-Expires")).toBe("10800");
   });
 
   it("get answers FILE_NOT_FOUND for a key that does not exist", async () => {

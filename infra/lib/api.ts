@@ -242,6 +242,16 @@ export class Api extends Construct {
         resources: [props.attachments.arnForObjects("attachments/*")],
       }),
     );
+    // history and message sign download URLs for inline attachments: a URL only
+    // works if the credentials that signed it may read the object.
+    for (const h of [handlers.history, handlers.message]) {
+      h.addToRolePolicy(
+        new PolicyStatement({
+          actions: ["s3:GetObject"],
+          resources: [props.attachments.arnForObjects("attachments/*")],
+        }),
+      );
+    }
     // ListBucket only so HeadObject on a missing key answers 404 instead of 403.
     handlers.presign.addToRolePolicy(
       new PolicyStatement({
