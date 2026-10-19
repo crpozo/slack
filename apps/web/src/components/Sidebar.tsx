@@ -18,6 +18,8 @@ import { DeleteChannelModal, EditChannelModal } from "./ChannelModals";
 import { NotificationBell } from "./NotificationBell";
 import { Popover } from "./Popover";
 import {
+  ArchiveIcon,
+  ChevronDownIcon,
   CalendarIcon,
   HashIcon,
   KanbanIcon,
@@ -248,6 +250,8 @@ const channelIcon = (c: Channel) => {
 
 interface SidebarProps {
   activeChannelId: string;
+  /** Phones' tab screens: one section, full width, no header or footer. */
+  only?: "channels" | "dms";
   /** Icon-only rail (desktop). */
   collapsed: boolean;
   onToggleCollapsed?: () => void;
@@ -260,6 +264,7 @@ interface SidebarProps {
 
 export function Sidebar({
   activeChannelId,
+  only,
   collapsed,
   onToggleCollapsed,
   onOpenSwitcher,
@@ -292,9 +297,14 @@ export function Sidebar({
   const mentioned = useChat((s) => s.mentioned);
 
   const namedChannels = useMemo(
-    () => channels.filter((c) => c.type !== "dm").sort(generalFirst),
+    () => channels.filter((c) => c.type !== "dm" && !c.archived).sort(generalFirst),
     [channels],
   );
+  const archivedChannels = useMemo(
+    () => channels.filter((c) => c.type !== "dm" && c.archived).sort(generalFirst),
+    [channels],
+  );
+  const [showArchived, setShowArchived] = useState(false);
   const dms = useMemo(
     () =>
       me
@@ -366,218 +376,270 @@ export function Sidebar({
           onClose={() => setDeleting(null)}
         />
       )}
-      <header
-        className={`flex items-center border-b border-line py-3 ${
-          compact ? "flex-col gap-2 px-2" : "gap-3 px-4"
-        }`}
-      >
-        <span
-          className="relative"
-          title={compact ? `MindfulTech · ${statusInfo.label}` : undefined}
+      {!only && (
+        <header
+          className={`flex items-center border-b border-line py-3 ${
+            compact ? "flex-col gap-2 px-2" : "gap-3 px-4"
+          }`}
         >
-          <Logo />
-          {compact && (
-            <span
-              className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-surface-sidebar ${statusInfo.dot}`}
-            />
+          <span
+            className="relative"
+            title={compact ? `MindfulTech · ${statusInfo.label}` : undefined}
+          >
+            <Logo />
+            {compact && (
+              <span
+                className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-surface-sidebar ${statusInfo.dot}`}
+              />
+            )}
+          </span>
+          {!compact && (
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold text-ink">MindfulTech</p>
+              <p
+                className="flex items-center gap-1.5 text-xs text-ink-secondary"
+                aria-live="polite"
+              >
+                <span className={`h-2 w-2 rounded-full ${statusInfo.dot}`} />
+                {statusInfo.label}
+              </p>
+            </div>
           )}
-        </span>
-        {!compact && (
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-semibold text-ink">MindfulTech</p>
-            <p className="flex items-center gap-1.5 text-xs text-ink-secondary" aria-live="polite">
-              <span className={`h-2 w-2 rounded-full ${statusInfo.dot}`} />
-              {statusInfo.label}
-            </p>
-          </div>
-        )}
-        <NotificationBell className={iconButton} />
-        {onToggleCollapsed && (
+          <NotificationBell className={iconButton} />
+          {onToggleCollapsed && (
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              className={iconButton}
+              aria-label={compact ? "Expand sidebar" : "Collapse sidebar"}
+              title={`${compact ? "Expand" : "Collapse"} (Ctrl B)`}
+            >
+              {compact ? <PanelLeftOpenIcon /> : <PanelLeftCloseIcon />}
+            </button>
+          )}
+        </header>
+      )}
+
+      {!only && (
+        <div className={compact ? "flex justify-center px-2 pt-3" : "px-3 pt-3"}>
           <button
             type="button"
-            onClick={onToggleCollapsed}
-            className={iconButton}
-            aria-label={compact ? "Expand sidebar" : "Collapse sidebar"}
-            title={`${compact ? "Expand" : "Collapse"} (Ctrl B)`}
+            onClick={onOpenSwitcher}
+            title={compact ? `Jump to… (${SHORTCUT})` : undefined}
+            aria-label="Jump to a channel"
+            className={
+              compact
+                ? iconButton
+                : "flex w-full items-center gap-2 rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-ink-secondary hover:border-primary"
+            }
           >
-            {compact ? <PanelLeftOpenIcon /> : <PanelLeftCloseIcon />}
+            <SearchIcon />
+            {!compact && (
+              <>
+                <span className="flex-1 text-left">Jump to…</span>
+                <kbd className="rounded border border-line px-1 text-[10px]">{SHORTCUT}</kbd>
+              </>
+            )}
           </button>
-        )}
-      </header>
-
-      <div className={compact ? "flex justify-center px-2 pt-3" : "px-3 pt-3"}>
-        <button
-          type="button"
-          onClick={onOpenSwitcher}
-          title={compact ? `Jump to… (${SHORTCUT})` : undefined}
-          aria-label="Jump to a channel"
-          className={
-            compact
-              ? iconButton
-              : "flex w-full items-center gap-2 rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-ink-secondary hover:border-primary"
-          }
-        >
-          <SearchIcon />
-          {!compact && (
-            <>
-              <span className="flex-1 text-left">Jump to…</span>
-              <kbd className="rounded border border-line px-1 text-[10px]">{SHORTCUT}</kbd>
-            </>
-          )}
-        </button>
-      </div>
-
+        </div>
+      )}
       <nav
         className="flex-1 overflow-y-auto overflow-x-hidden pb-4"
         aria-label="Channels and direct messages"
       >
-        <Section
-          title="Channels"
-          compact={compact}
-          action={
-            <button
-              type="button"
-              onClick={onCreateChannel}
-              className={iconButton}
-              aria-label="Create channel"
-              title="Create channel"
-            >
-              <PlusIcon />
-            </button>
-          }
-        >
-          <ul className="space-y-0.5 px-2">
-            {namedChannels.map((c) => (
-              <NavItem
-                key={c.channelId}
-                compact={compact}
-                label={c.name}
-                icon={channelIcon(c)}
-                title={c.type === "private" ? `#${c.name} (private)` : undefined}
-                active={c.channelId === activeChannelId}
-                unread={c.channelId === activeChannelId ? 0 : (unread[c.channelId] ?? 0)}
-                urgent={!!mentioned[c.channelId]}
-                onClick={() => navigate(`/app/${c.channelId}`)}
-                menu={channelMenu(c)}
-              />
-            ))}
-          </ul>
-        </Section>
-
-        <Section
-          title="Direct messages"
-          compact={compact}
-          action={
-            <button
-              type="button"
-              onClick={onNewDm}
-              className={iconButton}
-              aria-label="New direct message"
-              title="New direct message"
-            >
-              <PlusIcon />
-            </button>
-          }
-        >
-          <ul className="space-y-0.5 px-2">
-            {dms.map((dm) => {
-              const id = dm.userId ? dmChannelId(me.userId, dm.userId) : undefined;
-              const isOnline = !!dm.userId && !!online[dm.userId];
-              return (
+        {only !== "dms" && (
+          <Section
+            title="Channels"
+            compact={compact}
+            action={
+              <button
+                type="button"
+                onClick={onCreateChannel}
+                className={iconButton}
+                aria-label="Create channel"
+                title="Create channel"
+              >
+                <PlusIcon />
+              </button>
+            }
+          >
+            <ul className="space-y-0.5 px-2">
+              {namedChannels.map((c) => (
                 <NavItem
-                  key={dm.userId ?? dm.email}
+                  key={c.channelId}
                   compact={compact}
-                  label={dm.name}
-                  icon={
-                    <span className="relative inline-flex">
-                      <Avatar name={dm.name} size={compact ? "md" : "sm"} />
-                      <PresenceDot online={isOnline} overlay />
-                    </span>
-                  }
-                  title={`${dmTitle(dm, compact)} · ${isOnline ? "Online" : "Offline"}`}
-                  active={id === activeChannelId}
-                  unread={dm.channelId && id !== activeChannelId ? (unread[dm.channelId] ?? 0) : 0}
-                  urgent
-                  disabled={!dm.userId}
-                  onClick={() => dm.userId && openDm(dm.userId)}
-                  menu={dmMenu(dm)}
-                  pinned={!!dm.channelId && pinned.includes(dm.channelId)}
+                  label={c.name}
+                  icon={channelIcon(c)}
+                  title={c.type === "private" ? `#${c.name} (private)` : undefined}
+                  active={c.channelId === activeChannelId}
+                  unread={c.channelId === activeChannelId ? 0 : (unread[c.channelId] ?? 0)}
+                  urgent={!!mentioned[c.channelId]}
+                  onClick={() => navigate(`/app/${c.channelId}`)}
+                  menu={channelMenu(c)}
                 />
-              );
-            })}
-            {dms.length === 0 && !compact && (
-              <li className="px-2 py-1 text-xs text-ink-secondary">
-                Your team appears here once they sign in.
-              </li>
-            )}
-          </ul>
-        </Section>
+              ))}
+            </ul>
+          </Section>
+        )}
 
-        <Section title="Apps" compact={compact}>
-          <ul className="space-y-0.5 px-2">
-            <NavItem
-              compact={compact}
-              label="Task Manager"
-              icon={<KanbanIcon className="text-ink-secondary" />}
-              active={activeChannelId === "tasks"}
-              unread={0}
-              onClick={() => navigate("/app/tasks")}
-            />
-            <NavItem
-              compact={compact}
-              label="Calendar"
-              icon={<CalendarIcon className="text-ink-secondary" />}
-              active={activeChannelId === "calendar"}
-              unread={0}
-              onClick={() => navigate("/app/calendar")}
-            />
-          </ul>
-        </Section>
+        {archivedChannels.length > 0 && only !== "dms" && (
+          <Section
+            title="Archived"
+            compact={compact}
+            action={
+              <button
+                type="button"
+                onClick={() => setShowArchived((v) => !v)}
+                className={iconButton}
+                aria-expanded={showArchived}
+                aria-label={showArchived ? "Hide archived channels" : "Show archived channels"}
+                title={showArchived ? "Hide" : `Show (${archivedChannels.length})`}
+              >
+                <ChevronDownIcon className={showArchived ? "rotate-180" : ""} />
+              </button>
+            }
+          >
+            {showArchived && (
+              <ul className="space-y-0.5 px-2">
+                {archivedChannels.map((c) => (
+                  <NavItem
+                    key={c.channelId}
+                    compact={compact}
+                    label={c.name}
+                    icon={<ArchiveIcon className="text-ink-secondary" />}
+                    title={`#${c.name} (archived)`}
+                    active={c.channelId === activeChannelId}
+                    unread={0}
+                    onClick={() => navigate(`/app/${c.channelId}`)}
+                  />
+                ))}
+              </ul>
+            )}
+          </Section>
+        )}
+
+        {only !== "channels" && (
+          <Section
+            title="Direct messages"
+            compact={compact}
+            action={
+              <button
+                type="button"
+                onClick={onNewDm}
+                className={iconButton}
+                aria-label="New direct message"
+                title="New direct message"
+              >
+                <PlusIcon />
+              </button>
+            }
+          >
+            <ul className="space-y-0.5 px-2">
+              {dms.map((dm) => {
+                const id = dm.userId ? dmChannelId(me.userId, dm.userId) : undefined;
+                const isOnline = !!dm.userId && !!online[dm.userId];
+                return (
+                  <NavItem
+                    key={dm.userId ?? dm.email}
+                    compact={compact}
+                    label={dm.name}
+                    icon={
+                      <span className="relative inline-flex">
+                        <Avatar name={dm.name} size={compact ? "md" : "sm"} />
+                        <PresenceDot online={isOnline} overlay />
+                      </span>
+                    }
+                    title={`${dmTitle(dm, compact)} · ${isOnline ? "Online" : "Offline"}`}
+                    active={id === activeChannelId}
+                    unread={
+                      dm.channelId && id !== activeChannelId ? (unread[dm.channelId] ?? 0) : 0
+                    }
+                    urgent
+                    disabled={!dm.userId}
+                    onClick={() => dm.userId && openDm(dm.userId)}
+                    menu={dmMenu(dm)}
+                    pinned={!!dm.channelId && pinned.includes(dm.channelId)}
+                  />
+                );
+              })}
+              {dms.length === 0 && !compact && (
+                <li className="px-2 py-1 text-xs text-ink-secondary">
+                  Your team appears here once they sign in.
+                </li>
+              )}
+            </ul>
+          </Section>
+        )}
+
+        {only !== "dms" && (
+          <Section title="Apps" compact={compact}>
+            <ul className="space-y-0.5 px-2">
+              <NavItem
+                compact={compact}
+                label="Task Manager"
+                icon={<KanbanIcon className="text-ink-secondary" />}
+                active={activeChannelId === "tasks"}
+                unread={0}
+                onClick={() => navigate("/app/tasks")}
+              />
+              <NavItem
+                compact={compact}
+                label="Calendar"
+                icon={<CalendarIcon className="text-ink-secondary" />}
+                active={activeChannelId === "calendar"}
+                unread={0}
+                onClick={() => navigate("/app/calendar")}
+              />
+            </ul>
+          </Section>
+        )}
       </nav>
 
-      <footer
-        className={`flex items-center gap-2 border-t border-line py-3 ${
-          compact ? "flex-col px-2" : "px-3"
-        }`}
-      >
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className={`flex min-w-0 items-center gap-2 rounded-md text-left hover:bg-surface-hover ${
-            compact ? "p-1" : "flex-1 p-1"
+      {!only && (
+        <footer
+          className={`flex items-center gap-2 border-t border-line py-3 ${
+            compact ? "flex-col px-2" : "px-3"
           }`}
-          title={`${myName} · Settings`}
-          aria-label="Profile and theme settings"
         >
-          <Avatar name={myName} mine size="sm" />
-          {!compact && (
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium text-ink">{myName}</span>
-              <span className="block truncate text-xs text-ink-secondary">{me.email}</span>
-            </span>
-          )}
-        </button>
-        {!compact && (
           <button
             type="button"
             onClick={onOpenSettings}
-            className={iconButton}
-            aria-label="Settings"
-            title="Settings"
+            className={`flex min-w-0 items-center gap-2 rounded-md text-left hover:bg-surface-hover ${
+              compact ? "p-1" : "flex-1 p-1"
+            }`}
+            title={`${myName} · Settings`}
+            aria-label="Profile and theme settings"
           >
-            <SettingsIcon />
+            <Avatar name={myName} mine size="sm" />
+            {!compact && (
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-ink">{myName}</span>
+                <span className="block truncate text-xs text-ink-secondary">{me.email}</span>
+              </span>
+            )}
           </button>
-        )}
-        <button
-          type="button"
-          onClick={onSignOut}
-          className={iconButton}
-          aria-label="Sign out"
-          title="Sign out"
-        >
-          <LogOutIcon />
-        </button>
-      </footer>
+          {!compact && (
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className={iconButton}
+              aria-label="Settings"
+              title="Settings"
+            >
+              <SettingsIcon />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onSignOut}
+            className={iconButton}
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogOutIcon />
+          </button>
+        </footer>
+      )}
     </div>
   );
 }

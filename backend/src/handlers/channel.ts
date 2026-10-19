@@ -48,9 +48,13 @@ async function scanChannels(): Promise<Channel[]> {
   return channels.sort((a, b) => a.createdAt - b.createdAt);
 }
 
-/** Non-archived public channels plus the private channels and DMs `userId` belongs to. */
+/**
+ * Public channels plus the private channels and DMs `userId` belongs to.
+ * Archived channels are listed too (the client shows them under "Archived",
+ * read-only); posting to them is refused by `getAccessibleChannel`.
+ */
 export function visibleTo(channels: Channel[], userId: string): Channel[] {
-  return channels.filter((c) => !c.archived && isChannelMember(c, userId));
+  return channels.filter((c) => isChannelMember(c, userId));
 }
 
 /** Sends every connection its own filtered `channel.list`. */
@@ -386,8 +390,21 @@ async function deleteChannel(action: ActionOf<"delete">, caller: Caller) {
 async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, caller: Caller) {
   const channels = await scanChannels();
   const channel = channels.find((c) => c.channelId === action.channelId);
-  if (!channel || channel.archived || !isChannelMember(channel, caller.userId)) {
+  const archiving = "archived" in action ? action.archived : undefined;
+  if (!channel || !isChannelMember(channel, caller.userId)) {
     return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
+  }
+  // An archived channel is frozen, except for an admin restoring it.
+  if (channel.archived && archiving !== false) {
+    return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
+  }
+  if (archiving !== undefined) {
+    if (caller.role !== "admin") {
+      return replyError(caller.connectionId, "FORBIDDEN", "Only an admin can archive a channel");
+    }
+    if (channel.type === "dm" || channel.channelId === GENERAL_CHANNEL_ID) {
+      return replyError(caller.connectionId, "FORBIDDEN", "This conversation can't be archived");
+    }
   }
   const fields = {
     name: action.name,
@@ -436,6 +453,7 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
   }
   if (fields.topic !== undefined) assign("topic", fields.topic);
   if (fields.description !== undefined) assign("description", fields.description);
+  if (archiving !== undefined && archiving !== !!channel.archived) assign("archived", archiving);
 
   // Project settings: a board to link or create, or turning the project off.
   let newBoard: Board | undefined;

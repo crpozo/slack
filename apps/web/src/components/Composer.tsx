@@ -1,6 +1,13 @@
 import type { Attachment } from "@mindfultech/shared";
 import { isDmChannel, MAX_TEXT_LENGTH } from "@mindfultech/shared";
 import {
+  applyCommand,
+  commandQuery,
+  matchCommands,
+  parseCommand,
+  type SlashCommand,
+} from "../lib/commands";
+import {
   forwardRef,
   useCallback,
   useEffect,
@@ -29,6 +36,7 @@ import { EmojiPicker } from "./EmojiPicker";
 import {
   CloseIcon,
   FileIcon,
+  ArchiveIcon,
   CalendarIcon,
   LockIcon,
   MicIcon,
@@ -58,6 +66,10 @@ interface ComposerProps {
   channelId: string;
   placeholder: string;
   disabled?: boolean;
+  /** Posts into this message's thread instead of the channel. */
+  thread?: { messageId: string; sk: string };
+  /** Archived channel: a banner instead of the input. */
+  readOnly?: boolean;
 }
 
 const MAX_HEIGHT_PX = 200;
@@ -127,7 +139,7 @@ function RecordingBar({
 }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
-  { channelId, placeholder, disabled = false },
+  { channelId, placeholder, disabled = false, thread, readOnly = false },
   ref,
 ) {
   const showToast = useChat((s) => s.showToast);
@@ -148,7 +160,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [secret, setSecret] = useState(false);
   // Direct messages: schedule a meeting with the other person from here.
   const [scheduling, setScheduling] = useState(false);
-  const dm = isDmChannel(channelId);
+  const dm = isDmChannel(channelId) && !thread;
 
   // Another conversation, or editing: back to a normal message.
   useEffect(() => setSecret(false), [channelId]);
@@ -185,6 +197,28 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       .reverse()
       .find((m) => m.userId === me?.userId && !m.status && m.text);
     if (own) setEditing(channelId, { sk: own.sk, messageId: own.messageId, text: own.text });
+  }
+
+  // Slash commands: typing `/` at the start opens the list, filtered as you type.
+  const commandText = editing ? null : commandQuery(text);
+  const commands = useMemo(
+    () => (commandText === null ? [] : matchCommands(commandText)),
+    [commandText],
+  );
+  const [commandIndex, setCommandIndex] = useState(0);
+  useEffect(() => setCommandIndex(0), [commandText]);
+  const commandOpen = commands.length > 0;
+
+  function pickCommand(command: SlashCommand) {
+    if (command.effect === "secret") {
+      setSecret(true);
+      setText("");
+    } else if (command.effect === "clear") {
+      setText("");
+    } else {
+      setText(`/${command.name} `);
+    }
+    textareaRef.current?.focus();
   }
 
   function handleChange(value: string) {
@@ -280,6 +314,17 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const voice = useVoiceRecorder((clip) => void sendVoice(clip));
   const recording = voice.state !== "idle" || sendingVoice;
 
+  if (readOnly) {
+    return (
+      <div
+        className="mx-2 mb-2 flex items-center justify-center gap-2 rounded-xl border border-line bg-surface-sidebar px-4 py-3 text-sm text-ink-secondary"
+        role="status"
+      >
+        <ArchiveIcon /> This channel is archived. You can read it, but not post.
+      </div>
+    );
+  }
+
   function startRecording() {
     voice.start().catch((err: unknown) => {
       showToast(
@@ -300,7 +345,29 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       return;
     }
     if (!canSend) return;
-    chat.sendMessage(channelId, text.trim(), secret ? [] : ready, replyTo, secret);
+    // A complete command on the line (`/shrug hi`): its effect, not the slash text.
+    const command = !secret ? parseCommand(text) : null;
+    let outgoing = text.trim();
+    let asSecret = secret;
+    if (command?.command.effect === "secret") {
+      asSecret = true;
+      outgoing = command.rest.trim();
+      if (!outgoing) return;
+    } else if (command) {
+      outgoing = applyCommand(command.command, command.rest);
+      if (!outgoing && ready.length === 0) {
+        setText("");
+        return;
+      }
+    }
+    chat.sendMessage(
+      channelId,
+      outgoing,
+      asSecret ? [] : ready,
+      thread ? undefined : replyTo,
+      asSecret,
+      thread,
+    );
     if (replyTo) setReplyTo(channelId, null);
     setText("");
     if (secret) setSecret(false);
@@ -309,6 +376,24 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (commandOpen) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const delta = e.key === "ArrowDown" ? 1 : -1;
+        setCommandIndex((i) => (i + delta + commands.length) % commands.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        pickCommand(commands[commandIndex] ?? commands[0]!);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setText("");
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
@@ -445,6 +530,33 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           </ul>
         )}
 
+        {commandOpen && (
+          <ul
+            role="listbox"
+            aria-label="Slash commands"
+            className="mx-1.5 mb-1 overflow-hidden rounded-lg border border-line bg-surface-raised shadow-lg"
+          >
+            {commands.map((c, i) => (
+              <li key={c.name} role="option" aria-selected={i === commandIndex}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => pickCommand(c)}
+                  onMouseEnter={() => setCommandIndex(i)}
+                  className={`flex w-full items-baseline gap-2 px-3 py-2 text-left text-sm ${
+                    i === commandIndex ? "bg-surface-hover" : ""
+                  }`}
+                >
+                  <span className="font-mono font-semibold text-ink">/{c.name}</span>
+                  {c.usage && <span className="text-xs text-ink-secondary">{c.usage}</span>}
+                  <span className="ml-auto truncate text-xs text-ink-secondary">
+                    {c.description}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="flex items-end gap-1 p-1.5">
           {recording ? (
             <RecordingBar

@@ -6,18 +6,37 @@ import { GuestLayout } from "./components/GuestLayout";
 import { LoginPage, Logo } from "./components/LoginPage";
 import { getCurrentUser } from "./lib/auth";
 import type { AppConfig } from "./lib/config";
+import { MOBILE_QUERY } from "./lib/hooks";
+import { loadSessionSnapshot, saveSessionSnapshot } from "./lib/session";
+import { MOBILE_HOME } from "./components/MobileScreens";
 import { useChat } from "./store";
 
-const HOME = `/app/${GENERAL_CHANNEL_ID}`;
+/** Phones open on the Home tab; desktop on #general. */
+const HOME = window.matchMedia(MOBILE_QUERY).matches ? MOBILE_HOME : `/app/${GENERAL_CHANNEL_ID}`;
 
 export default function App({ config }: Readonly<{ config: AppConfig }>) {
   const me = useChat((s) => s.me);
   const [checked, setChecked] = useState(false);
 
-  // Restore a persisted Cognito session (Amplify refreshes tokens on its own).
+  // Paint for the last signed-in person at once (from the session snapshot),
+  // while Amplify verifies the session in the background; a dead one signs out.
   useEffect(() => {
+    const remembered = loadSessionSnapshot();
+    if (remembered) {
+      useChat.getState().setSession(remembered, config.users);
+      setChecked(true);
+    }
     void getCurrentUser().then((user) => {
-      useChat.getState().setSession(user, config.users);
+      saveSessionSnapshot(user);
+      const current = useChat.getState().me;
+      if (!user) {
+        if (current) useChat.getState().setSession(null);
+      } else if (!current || current.userId !== user.userId) {
+        useChat.getState().setSession(user, config.users);
+      } else if (current.role !== user.role) {
+        // Same person, a role change since last time: refresh without losing the cache.
+        useChat.setState({ me: user });
+      }
       setChecked(true);
     });
   }, [config.users]);
@@ -53,7 +72,12 @@ export default function App({ config }: Readonly<{ config: AppConfig }>) {
             me ? (
               <Navigate to={HOME} replace />
             ) : (
-              <LoginPage onSignedIn={(user) => useChat.getState().setSession(user, config.users)} />
+              <LoginPage
+                onSignedIn={(user) => {
+                  saveSessionSnapshot(user);
+                  useChat.getState().setSession(user, config.users);
+                }}
+              />
             )
           }
         />
@@ -63,6 +87,17 @@ export default function App({ config }: Readonly<{ config: AppConfig }>) {
         />
         <Route
           path="/app/calendar"
+          element={me ? <ChatLayout wsUrl={config.wsUrl} /> : <Navigate to="/login" replace />}
+        />
+        {["/app/home", "/app/dms", "/app/activity", "/app/search"].map((path) => (
+          <Route
+            key={path}
+            path={path}
+            element={me ? <ChatLayout wsUrl={config.wsUrl} /> : <Navigate to="/login" replace />}
+          />
+        ))}
+        <Route
+          path="/app/:channelId/thread/:messageId"
           element={me ? <ChatLayout wsUrl={config.wsUrl} /> : <Navigate to="/login" replace />}
         />
         <Route

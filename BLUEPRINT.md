@@ -649,6 +649,21 @@ Uploads already go straight to S3 with a presigned **PUT** whose signature pins 
 
 ---
 
+### Phase 23 — Threads, mobile tabs, slash commands, archiving, offline-first start
+
+**Branch:** `feature/f23-threads-and-chat-ux`
+
+1. **Threads:** a reply is stored in its channel's partition with `sk = thread#<parentSk>#<epochMs>#<ulid>` plus `parentId`/`parentSk`; digits sort before `t`, so the channel's history is `sk < "thread#"` and a thread's is `begins_with(sk, "thread#<parentSk>#")` (ascending, paginated). The `message` action takes `thread: { messageId, sk }` (never with `isSecret`; a reply can't be a parent); the reply and the parent's `replyCount`, `lastReplyAt` and `replyUserIds` (newest 5, distinct) are one `TransactWriteItems`, retried once on a race. Everyone in the channel gets `message.new` for the reply and `message.thread_updated` for the parent. Web: `ThreadPanel` beside the conversation (desktop) or at `/app/:channelId/thread/:messageId` (phones), `threads` in the store keyed by the parent's sort key, reactions and edits patched wherever a message lives.
+2. **Mobile tabs:** under 768 px `ChatLayout` renders Home (`Sidebar only="channels"` plus app links), DMs, Activity (the bell's list) and Search (the quick switcher's items) under a fixed `BottomTabs`; a conversation takes the screen with a back arrow. The drawer and edge swipe are off.
+3. **Slash commands:** `lib/commands.ts` is the registry (`secret`, `shrug`, `clear`); `commandQuery` decides when the popover shows, `parseCommand`/`applyCommand` run a complete command on send.
+4. **Archive:** `channel update { archived }` is admin-only (never `#general` or a DM); `channel.list` includes archived channels, `history` and `presign get` read them (`getAccessibleChannel(…, { allowArchived })`), every other action refuses them. Web: banner and no composer, an _Archived_ sidebar section, the edit modal's Archive/Restore.
+5. **Scroll and read marks:** `MessageList` pins to the bottom in its layout effect and again two frames later, once rows are measured, and only then calls `chat.viewed`; the read mark no longer depends on a scroll event.
+6. **Offline-first:** `lib/session.ts` remembers who was signed in so `App` paints before `getCurrentUser()` resolves; `lib/cache.ts` + `lib/persist.ts` keep a per-user `Snapshot` (channels, pinned, users, directory, 50 messages per channel, cursors, reads) in IndexedDB, debounced; `hydrate` applies it as `stale`, which `ChannelView` refreshes on open; `invalidateInactive` marks stale instead of wiping.
+
+**Phase 23 acceptance criteria:** a reply never appears in the channel's list and the parent shows the count at once for everyone; the phone shows four tabs and no drawer; `/s` lists `/secret` and `/shrug`; an archived channel is read-only with a banner and sits under _Archived_; reopening the app on a phone shows the last conversation's messages before the socket connects.
+
+---
+
 ### PHASE 7 (optional) — Desktop app with Tauri
 
 **Branch:** `feature/f7-tauri` (starts from `main` after v0.2.0).

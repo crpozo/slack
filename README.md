@@ -172,6 +172,24 @@ The UI:
   thumbnail made in the browser (`lib/thumbnail.ts`), shown at its known size so nothing shifts;
   the viewer and Download use the original. The message list is virtualized
   (`@tanstack/react-virtual`), so a long session keeps a few dozen rows in the DOM.
+- **Threads:** _Reply in thread_ on a message opens its thread (a side panel on desktop, a
+  screen on phones) with its own composer; the parent shows "N replies". Replies are stored in
+  the channel's partition under `thread#<parentSk>#<epochMs>#<ulid>`, so the main history
+  (`sk < "thread#"`) never includes them and a thread is one `begins_with` query; the parent's
+  `replyCount`, `lastReplyAt` and `replyUserIds` are written in the same transaction as the reply.
+- **Phones:** a bottom tab bar (Home, DMs, Activity, Search) replaces the drawer; a conversation
+  opens on top with a back arrow.
+- **Slash commands:** `/` at the start of a message opens the command list (`/secret`, `/shrug`,
+  `/clear`), filtered as you type. Add one in `apps/web/src/lib/commands.ts`.
+- **Archived channels:** an admin archives a channel from its details; it becomes read-only (a
+  banner replaces the composer), moves to the sidebar's _Archived_ section, stays searchable and
+  can be restored. The server still lists archived channels and serves their history, and refuses
+  new messages in them.
+- **Offline-first start:** the last signed-in session paints the shell at once while Amplify
+  verifies it, and `IndexedDB` (via `idb-keyval`) keeps the channel list, directory and the newest
+  50 messages per channel per user, so switching to a conversation you've opened before shows it
+  instantly while the fresh page loads. Cached channels are marked stale (and refreshed on open)
+  rather than wiped on reconnect.
 - **Phones:** the calendar is a continuous list of days (iOS style) under 768 px, with today in
   a red circle, colored event pills, the month in the header and a floating _Today_ pill; the
   desktop grid is untouched. Meeting cards show _Join call_ from five minutes before the start
