@@ -662,6 +662,19 @@ Uploads already go straight to S3 with a presigned **PUT** whose signature pins 
 
 **Phase 23 acceptance criteria:** a reply never appears in the channel's list and the parent shows the count at once for everyone; the phone shows four tabs and no drawer; `/s` lists `/secret` and `/shrug`; an archived channel is read-only with a banner and sits under _Archived_; reopening the app on a phone shows the last conversation's messages before the socket connects.
 
+
+---
+
+### Phase 24 — Living meeting cards
+
+**Branch:** `feature/f23-threads-and-chat-ux` (follow-up)
+
+1. **Link:** a meeting scheduled from a DM stores `channelId`, `messageId` and `messageSk` on its event row (`MeetingEvent`), so the card it posted can be found without a query. `meetingCardOf(event)` in `shared` is the one place a card is derived from an event; the card's `allDay` is now a boolean with optional `startDate`/`endDate`, since the organizer may make the meeting all-day later.
+2. **Edit:** `PUT /calendar/events/{id}` on a linked meeting writes the event (`updatedAt = :was`) and an `UpdateItem` on the card's message (`SET meeting = :card, #text = :text`, conditioned on `kind = "meeting"`) in one `TransactWriteItems`. If the event's condition fails the edit is a 409; if the message's fails (the card was deleted), the event is written alone. The calendar Lambda gains `UpdateItem` on the messages table.
+3. **Push:** after the `calendar.event_updated` pushes, the DM's audience gets `message.updated` carrying `meeting` (and the refreshed fallback `text`) with no edit mark; the `MessageUpdatedEvent` contract makes `isEdited`/`editedAt` optional and adds `meeting`.
+4. **Web:** the store's `updateMeetingCard` patches the message wherever it lives (`message.updated` with `meeting` routes there; a text edit still goes to `applyEdit`), and `MeetingCard` reads the live event from the calendar store when it has one, so a `calendar.event_updated` that arrives first, or an open calendar, already shows the new time.
+
+**Phase 24 acceptance criteria:** moving a DM meeting in the calendar changes the card in both people's chats without a reload; the card never shows an edit mark; deleting the card's message doesn't block editing the meeting; a stale edit is refused with a 409.
 ---
 
 ### PHASE 7 (optional) — Desktop app with Tauri

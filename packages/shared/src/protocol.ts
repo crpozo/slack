@@ -207,12 +207,15 @@ export interface MeetingCard {
   eventId: string;
   title: string;
   description: string;
-  /** DM meetings are timed. */
-  allDay: false;
+  /** A DM meeting is scheduled timed; the organizer may make it all-day later. */
+  allDay: boolean;
   /** Epoch ms. */
   startAt: number;
   endAt: number;
-  /** Both people of the DM, sorted. */
+  /** Inclusive `YYYY-MM-DD` bounds; only when `allDay`. */
+  startDate?: string;
+  endDate?: string;
+  /** Both people of the DM (and anyone invited since), sorted. */
   participants: string[];
 }
 
@@ -261,10 +264,11 @@ export interface Message {
   /** Up to `MAX_THREAD_AVATARS` people who replied, newest last. */
   replyUserIds?: string[];
   /**
-   * A meeting scheduled from this conversation (Phase 21): a snapshot of the
-   * calendar event when it was created, written by the server (the `message`
-   * action never accepts it). The event itself is the source of truth; the
-   * card's button opens it. Cards can't be edited.
+   * A meeting scheduled from this conversation (Phase 21): the calendar event
+   * as it stands, written by the server (the `message` action never accepts
+   * it) and rewritten whenever the organizer edits the meeting, announced as
+   * `message.updated` (Phase 24). The event itself is the source of truth;
+   * the card's button opens it. Cards can't be edited by hand.
    */
   meeting?: MeetingCard;
   /** DynamoDB TTL (epoch **seconds**): set by the server on secret messages only. */
@@ -841,14 +845,20 @@ export interface MessageThreadUpdatedEvent {
   replyUserIds: string[];
 }
 
+/**
+ * A message changed: its text as it now stands and, when the author edited it,
+ * the edit mark; when it's a meeting card the calendar rewrote (the meeting
+ * was edited), the card as it now is.
+ */
 export interface MessageUpdatedEvent {
   type: "message.updated";
   channelId: string;
   sk: string;
   messageId: string;
   text: string;
-  isEdited: true;
-  editedAt: number;
+  isEdited?: true;
+  editedAt?: number;
+  meeting?: MeetingCard;
 }
 
 /** `userId` has read `channelId` up to `sk` (their watermark moved forward). */

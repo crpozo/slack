@@ -136,6 +136,23 @@ describe("read marks, typing and edits", () => {
     setEditing("dm_a_b", null);
     expect(useChat.getState().editing.dm_a_b).toBeUndefined();
   });
+
+  it("replaces a meeting card (the calendar edited the meeting) without an edit mark", () => {
+    const card = {
+      eventId: "ev_1",
+      title: "Kickoff (moved)",
+      description: "",
+      allDay: false,
+      startAt: 2_000,
+      endAt: 3_000,
+      participants: ["u-a", "u-b"],
+    };
+    useChat.getState().updateMeetingCard("dm_a_b", "1#a", card, "📅 Meeting scheduled: moved");
+    useChat.getState().updateMeetingCard("dm_a_b", "9#z", card, "nope"); // not loaded: no-op
+    const message = useChat.getState().messagesByChannel.dm_a_b?.[0];
+    expect(message).toMatchObject({ meeting: card, text: "📅 Meeting scheduled: moved" });
+    expect(message?.isEdited).toBeUndefined();
+  });
 });
 
 describe("directory refreshes", () => {

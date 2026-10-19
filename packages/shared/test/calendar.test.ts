@@ -14,6 +14,7 @@ import {
   isWeekend,
   ListEventsQuerySchema,
   MAX_EVENT_DAYS,
+  meetingCardOf,
   meetingCardText,
   remainingDays,
   UpdateEventSchema,
@@ -248,5 +249,52 @@ describe("meetings scheduled from a direct message", () => {
     expect(meetingCardText({ title: "Kickoff", startAt, endAt: startAt + 3_600_000 })).toBe(
       "📅 Meeting scheduled: Kickoff · Nov 4, 10:00 AM",
     );
+    expect(
+      meetingCardText({
+        title: "Offsite",
+        allDay: true,
+        startAt,
+        endAt: startAt,
+        startDate: "2026-11-04",
+        endDate: "2026-11-05",
+      }),
+    ).toBe("📅 Meeting scheduled: Offsite · 2026-11-04 → 2026-11-05");
+  });
+
+  it("derive the card from the event as it stands, dates only when all-day", () => {
+    const meeting = {
+      eventId: "ev_1",
+      type: "meeting" as const,
+      title: "Kickoff",
+      description: "Agenda",
+      allDay: false,
+      startAt,
+      endAt: startAt + 3_600_000,
+      participants: ["user-a", "user-b"],
+      createdBy: "user-a",
+      createdAt: 1,
+      updatedAt: 2,
+      channelId: "dm_user-a_user-b",
+      messageId: "m1",
+      messageSk: "1#m1",
+    };
+    expect(meetingCardOf(meeting)).toEqual({
+      eventId: "ev_1",
+      title: "Kickoff",
+      description: "Agenda",
+      allDay: false,
+      startAt,
+      endAt: startAt + 3_600_000,
+      participants: ["user-a", "user-b"],
+    });
+    expect(
+      meetingCardOf({
+        ...meeting,
+        allDay: true,
+        ...allDaySpan("2026-11-04", "2026-11-04"),
+        startDate: "2026-11-04",
+        endDate: "2026-11-04",
+      }),
+    ).toMatchObject({ allDay: true, startDate: "2026-11-04", endDate: "2026-11-04" });
   });
 });
