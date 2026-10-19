@@ -16,7 +16,9 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
+import { eventStartDate, monthOf, monthTitle } from "../lib/agenda";
 import { formatDateRange, holidayDates, toCalendarInput } from "../lib/calendarUi";
+import { MOBILE_QUERY, useMediaQuery } from "../lib/hooks";
 import { tasksApiConfigured } from "../lib/tasksApi";
 import { useChat, useNameOf } from "../store";
 import { drawableEvents, localDate, thisYear, useCalendar, visibleRange } from "../store/calendar";
@@ -30,6 +32,7 @@ import {
   MenuIcon,
   PlusIcon,
 } from "./icons";
+import { MobileAgenda } from "./MobileAgenda";
 import { Modal } from "./Modal";
 import { UnreadAlertsDot } from "./NotificationBell";
 
@@ -86,6 +89,11 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
   const [selected, setSelected] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const configured = tasksApiConfigured();
+  // Phones get the continuous day list instead of the grid (see MobileAgenda).
+  const mobile = useMediaQuery(MOBILE_QUERY);
+  const [agendaMonth, setAgendaMonth] = useState(() => monthOf(dateInZone(Date.now())));
+  const [todayNonce, setTodayNonce] = useState(0);
+  const [focusDate, setFocusDate] = useState<string | null>(null);
   // `?event=<id>` (a meeting card's button): go to its day and open it, then drop the param.
   const [searchParams, setSearchParams] = useSearchParams();
   const wanted = searchParams.get("event");
@@ -94,6 +102,7 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
     const event = events[wanted];
     if (event) {
       calendarRef.current?.getApi().gotoDate(new Date(event.startAt));
+      setFocusDate(eventStartDate(event));
       setSelected(wanted);
     } else if (Object.keys(events).length > 0) {
       showToast("That meeting is no longer on the calendar.");
@@ -120,6 +129,7 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
     [events, nameOf],
   );
   const holidays = useMemo(() => holidayDates(Object.values(events)), [events]);
+  const agendaEvents = useMemo(() => drawableEvents(events), [events]);
 
   const onDatesSet = useCallback(
     (arg: DatesSetArg) => {
@@ -184,25 +194,65 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
             <UnreadAlertsDot />
           </button>
         )}
-        <CalendarIcon className="text-ink-secondary" />
-        <h1 className="truncate font-semibold text-ink">Calendar</h1>
-        <div className="ml-auto flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setPanelOpen(true)}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-ink-secondary hover:bg-surface-hover hover:text-ink lg:hidden"
-          >
-            Vacations
-          </button>
-          <button type="button" className="btn-primary" onClick={() => newEvent()}>
-            <PlusIcon /> <span className="hidden sm:inline">New event</span>
-          </button>
-        </div>
+        {mobile ? (
+          <>
+            {/* Like iOS: the month and year on the left (tap: back to today), "+" on the right. */}
+            <button
+              type="button"
+              onClick={() => setTodayNonce((n) => n + 1)}
+              className="min-w-0 truncate text-left text-xl font-bold text-ink"
+              aria-label={`${monthTitle(agendaMonth)}. Back to today`}
+              aria-live="polite"
+            >
+              {monthTitle(agendaMonth)}
+            </button>
+            <button
+              type="button"
+              className="ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary text-on-accent hover:bg-primary-hover"
+              onClick={() => newEvent()}
+              aria-label="New event"
+            >
+              <PlusIcon />
+            </button>
+          </>
+        ) : (
+          <>
+            <CalendarIcon className="text-ink-secondary" />
+            <h1 className="truncate font-semibold text-ink">Calendar</h1>
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setPanelOpen(true)}
+                className="rounded-lg px-3 py-1.5 text-sm font-medium text-ink-secondary hover:bg-surface-hover hover:text-ink lg:hidden"
+              >
+                Vacations
+              </button>
+              <button type="button" className="btn-primary" onClick={() => newEvent()}>
+                <PlusIcon /> <span className="hidden sm:inline">New event</span>
+              </button>
+            </div>
+          </>
+        )}
       </header>
 
       {!configured ? (
         <div className="flex flex-1 items-center justify-center p-8 text-center text-ink-secondary">
           This deployment has no calendar API URL.
+        </div>
+      ) : mobile ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <VacationSummaryRow onOpen={() => setPanelOpen(true)} />
+          <MobileAgenda
+            events={agendaEvents}
+            holidays={holidays}
+            nameOf={nameOf}
+            onMonthChange={setAgendaMonth}
+            onRangeChange={loadRange}
+            onSelectEvent={setSelected}
+            onNewEvent={(date) => setDraft({ startDate: date, endDate: date, allDay: false })}
+            focusDate={focusDate}
+            todayNonce={todayNonce}
+          />
         </div>
       ) : (
         <div className="flex min-h-0 flex-1">
@@ -342,6 +392,41 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
         />
       )}
     </div>
+  );
+}
+
+/** Phones: the vacations panel lives behind one row above the day list. */
+function VacationSummaryRow({ onOpen }: Readonly<{ onOpen: () => void }>) {
+  const mine = useCalendar((s) => s.mine);
+  const admin = useChat((s) => s.me?.role === "admin");
+  const pending = useCalendar(
+    (s) =>
+      Object.values(s.events).filter((e) => e.type === "vacation" && e.status === "pending").length,
+  );
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2 text-left text-sm hover:bg-surface-hover"
+    >
+      <span className="h-2.5 w-2.5 rounded-full bg-success" aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate text-ink">
+        {mine ? (
+          <>
+            <span className="font-semibold">{remainingDays(mine)}</span> of {mine.allowance}{" "}
+            vacation days left
+          </>
+        ) : (
+          "Vacations"
+        )}
+        {admin && pending > 0 && (
+          <span className="ml-2 rounded-full bg-warning/30 px-2 py-0.5 text-xs font-semibold">
+            {pending} to review
+          </span>
+        )}
+      </span>
+      <ChevronRightIcon className="shrink-0 text-ink-secondary" aria-hidden="true" />
+    </button>
   );
 }
 

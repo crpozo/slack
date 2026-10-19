@@ -7,6 +7,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Calendar on phones, iOS style:** under 768 px the month grid gives way to a continuous
+  vertical list of days (earlier months above, later below, loaded as you scroll), each with its
+  events as colored pills (meeting, vacation, pending, holiday) and today in a red circle. The
+  header is just the month and year (tap it, or the floating _Today_ pill, to come back to
+  today) and a "+" button; the vacations panel sits behind one row above the list. Desktop keeps
+  the Month / Week / Day grid.
+- **Join call from a meeting card:** from five minutes before a meeting starts until it ends,
+  the card in the DM shows _Join call_, which starts the video call with the other person. The
+  card re-checks the clock every minute, so the button appears on its own.
+
 - **Schedule a meeting from a direct message:** a calendar button in the DM composer opens a
   small form (title, date, time, details); the two people of the conversation are the
   participants. One request creates the calendar event and posts a **meeting card** in the chat
