@@ -7,6 +7,7 @@ import {
   channelSlug,
   ChannelNameSchema,
   isChannelMember,
+  isExpired,
   MAX_ATTACHMENT_SIZE,
   MAX_SDP_LENGTH,
   MAX_TEXT_LENGTH,
@@ -274,6 +275,29 @@ describe("phase 10: read marks, edits, typing", () => {
     expect(parse({ action: "edit", channelId: "ch_x", sk: "1#a", text: "  " })).toMatchObject({
       success: false,
     });
+  });
+});
+
+describe("secret messages", () => {
+  it("accept isSecret on a send", () => {
+    const sent = parseAction(
+      ClientActionSchema,
+      JSON.stringify({
+        action: "message",
+        channelId: "ch_x",
+        text: "pw",
+        clientId: "c",
+        isSecret: true,
+      }),
+    );
+    expect(sent).toMatchObject({ success: true, data: { isSecret: true } });
+  });
+
+  it("count as expired as soon as their TTL (epoch seconds) passes", () => {
+    const now = 1_700_000_000_000;
+    expect(isExpired({ expiresAt: now / 1000 + 1 }, now)).toBe(false);
+    expect(isExpired({ expiresAt: now / 1000 }, now)).toBe(true);
+    expect(isExpired({}, now)).toBe(false);
   });
 });
 

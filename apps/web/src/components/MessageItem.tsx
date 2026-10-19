@@ -1,4 +1,11 @@
-import { isDmChannel, readBy, replyPreview, type ReplySnapshot } from "@mindfultech/shared";
+import {
+  isDmChannel,
+  readBy,
+  replyPreview,
+  SECRET_PREVIEW,
+  SECRET_TTL_MS,
+  type ReplySnapshot,
+} from "@mindfultech/shared";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { chat } from "../lib/chat";
@@ -9,7 +16,16 @@ import { renderMarkdown } from "../lib/markdown";
 import { useChat, useNameOf, type ChatMessage } from "../store";
 import { Attachment } from "./Attachment";
 import { Avatar } from "./Avatar";
-import { CheckCheckIcon, CopyIcon, PencilIcon, ReplyIcon, SmilePlusIcon } from "./icons";
+import {
+  CheckCheckIcon,
+  CopyIcon,
+  EyeIcon,
+  EyeOffIcon,
+  LockIcon,
+  PencilIcon,
+  ReplyIcon,
+  SmilePlusIcon,
+} from "./icons";
 import { ReactionPicker, Reactions } from "./Reactions";
 
 /** The message whose toolbar a long press opened (touch screens; one at a time). */
@@ -22,7 +38,7 @@ const snapshotOf = (message: ChatMessage): ReplySnapshot => ({
   messageId: message.messageId,
   sk: message.sk,
   userId: message.userId,
-  preview: replyPreview(message.text),
+  preview: message.isSecret ? SECRET_PREVIEW : replyPreview(message.text),
   hasAttachments: message.attachments.length > 0,
 });
 
@@ -113,7 +129,7 @@ function MessageActions({
       >
         <ReplyIcon />
       </button>
-      {mine && message.text && (
+      {mine && message.text && !message.isSecret && (
         <button
           type="button"
           onClick={() => {
@@ -131,7 +147,7 @@ function MessageActions({
           <PencilIcon />
         </button>
       )}
-      {pressed && message.text && (
+      {pressed && message.text && !message.isSecret && (
         <button
           type="button"
           onClick={() => {
@@ -163,6 +179,80 @@ function MessageActions({
 }
 
 /** The message a reply answers, above the reply; tap to jump to it. */
+/** "in 3 days", "in 2 hours", "soon": how long until DynamoDB deletes the secret. */
+function expiresIn(expiresAt: number | undefined, createdAt: number): string {
+  const at = expiresAt ? expiresAt * 1000 : createdAt + SECRET_TTL_MS;
+  const left = at - Date.now();
+  const hours = Math.ceil(left / 3_600_000);
+  if (hours <= 1) return "soon";
+  if (hours < 24) return `in ${hours} hours`;
+  const days = Math.round(left / 86_400_000);
+  return `in ${days} day${days === 1 ? "" : "s"}`;
+}
+
+/**
+ * A password or API key: masked until the reader presses the eye (this
+ * device only, and only until the conversation is reopened). Plain text, not
+ * Markdown, so nothing in it is ever turned into a link or formatting.
+ */
+function SecretBody({ message, mine }: Readonly<{ message: ChatMessage; mine: boolean }>) {
+  const [revealed, setRevealed] = useState(false);
+  const showToast = useChat((s) => s.showToast);
+  // Masked again if the conversation re-renders this message anew (e.g. after a reload).
+  useEffect(() => setRevealed(false), [message.messageId]);
+  const copy = () =>
+    void navigator.clipboard?.writeText(message.text).then(
+      () => showToast("Copied"),
+      () => showToast("Couldn't copy"),
+    );
+  const button =
+    "shrink-0 rounded-md p-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink";
+  return (
+    <div
+      className={`mt-0.5 inline-flex max-w-full flex-col gap-1 rounded-2xl rounded-tl-sm border border-warning/40 px-3 py-2 text-sm ${
+        mine ? "bg-primary/15" : "bg-surface-sidebar"
+      } ${message.status === "failed" ? "ring-1 ring-error" : ""}`}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <LockIcon className="shrink-0 text-warning" aria-label="Secret" />
+        {revealed ? (
+          <code className="min-w-0 select-all whitespace-pre-wrap break-all font-mono text-ink">
+            {message.text}
+          </code>
+        ) : (
+          <span className="font-mono tracking-widest text-ink" aria-label="Hidden secret">
+            ••••••••
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => setRevealed((v) => !v)}
+          className={button}
+          aria-pressed={revealed}
+          aria-label={revealed ? "Hide secret" : "Reveal secret"}
+          title={revealed ? "Hide" : "Reveal"}
+        >
+          {revealed ? <EyeOffIcon /> : <EyeIcon />}
+        </button>
+        {revealed && (
+          <button
+            type="button"
+            onClick={copy}
+            className={button}
+            aria-label="Copy secret"
+            title="Copy"
+          >
+            <CopyIcon />
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-ink-secondary">
+        Secret · deleted {expiresIn(message.expiresAt, message.createdAt)}
+      </p>
+    </div>
+  );
+}
+
 function ReplyQuote({ reply }: Readonly<{ reply: ReplySnapshot }>) {
   const nameOf = useNameOf();
   return (
@@ -331,7 +421,9 @@ export const MessageItem = memo(function MessageItem({
 
           {message.replyTo && <ReplyQuote reply={message.replyTo} />}
 
-          {message.text && (
+          {message.isSecret && <SecretBody message={message} mine={mine} />}
+
+          {message.text && !message.isSecret && (
             <div
               className={`md mt-0.5 inline-block max-w-full break-words rounded-2xl rounded-tl-sm px-3 py-1.5 text-sm leading-relaxed text-ink ${
                 mine ? "bg-primary/15" : "bg-surface-sidebar"

@@ -98,6 +98,20 @@ describe("history", () => {
     expect(ddbMock.commandCalls(QueryCommand)).toHaveLength(0);
   });
 
+  it("leaves out expired secrets DynamoDB hasn't swept yet", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    ddbMock.on(QueryCommand).resolves({
+      Items: [
+        { ...msg(3), isSecret: true, expiresAt: now + 60 },
+        { ...msg(2), isSecret: true, expiresAt: now - 60 },
+        msg(1),
+      ],
+    });
+    await handler(wsEvent("history", { action: "history", channelId: GENERAL_CHANNEL_ID }));
+    const [[, event]] = sentEvents() as [[string, HistoryPageEvent]];
+    expect(event.items.map((m) => m.text)).toEqual(["m1", "m3"]);
+  });
+
   it("sends reactions as sorted arrays instead of DynamoDB sets", async () => {
     ddbMock.on(QueryCommand).resolves({
       Items: [{ ...msg(1), reactions: { "👍": new Set(["u-b", "u-a"]) } }],

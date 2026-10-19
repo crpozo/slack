@@ -269,6 +269,13 @@ describe("notifyOffline", () => {
     expect(JSON.parse(String(sendNotification.mock.calls[0]?.[1])).body).toBe("🎤 Voice message");
   });
 
+  it("never puts a secret's text in a push", async () => {
+    await notifyOffline(dm, { ...message(dm.channelId, "hunter2"), isSecret: true }, new Set());
+    const payload = String(sendNotification.mock.calls[0]?.[1]);
+    expect(JSON.parse(payload).body).toBe("🔒 Secret sent");
+    expect(payload).not.toContain("hunter2");
+  });
+
   it("titles channel notifications with the channel name", async () => {
     ddbMock.on(ScanCommand, { TableName: "slack-test-users" }).resolves({
       Items: [{ userId: BOB.userId, email: BOB.email, displayName: "Bob" }],

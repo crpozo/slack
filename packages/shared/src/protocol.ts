@@ -71,6 +71,16 @@ export type Attachment = z.infer<typeof AttachmentSchema>;
 /** Longest quoted text kept with a reply. */
 export const REPLY_PREVIEW_LENGTH = 140;
 
+/** Secret messages (passwords, API keys) are deleted by DynamoDB a week after they're sent. */
+export const SECRET_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** What a secret looks like anywhere but its own body: previews, quotes, notifications. */
+export const SECRET_PREVIEW = "🔒 Secret";
+
+/** Gone (or about to be): DynamoDB deletes expired rows within a few days, so don't wait for it. */
+export function isExpired(message: Pick<Message, "expiresAt">, now = Date.now()): boolean {
+  return message.expiresAt !== undefined && message.expiresAt * 1000 <= now;
+}
+
 /** The quoted text of a reply: whitespace collapsed, cut at `REPLY_PREVIEW_LENGTH` with "…". */
 export function replyPreview(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -169,6 +179,13 @@ export interface Message {
    * recognized, and a reloaded history settles a "failed" optimistic copy).
    */
   clientId?: string;
+  /**
+   * A password or API key: shown masked until the reader reveals it, never
+   * quoted or previewed, can't be edited, and deleted after `SECRET_TTL_MS`.
+   */
+  isSecret?: true;
+  /** DynamoDB TTL (epoch **seconds**): set by the server on secret messages only. */
+  expiresAt?: number;
 }
 
 export interface UserProfile {
@@ -277,6 +294,8 @@ export const MessageActionSchema = z.object({
   text: z.string().max(MAX_TEXT_LENGTH),
   attachments: z.array(AttachmentSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
   clientId: z.string().min(1).max(64),
+  /** A secret (text only): stored with a 7-day TTL and shown masked. */
+  isSecret: z.boolean().optional(),
   /** Answers this message of the same channel (the server copies a snapshot of it). */
   replyTo: z
     .object({ messageId: z.string().min(1).max(64), sk: z.string().min(1).max(128) })

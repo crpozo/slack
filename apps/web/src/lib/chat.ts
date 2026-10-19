@@ -328,6 +328,8 @@ class ChatController {
     text: string,
     attachments: Attachment[],
     replyTo?: ReplySnapshot,
+    /** A password or API key: masked for readers, deleted by the server after a week. */
+    isSecret = false,
   ): void {
     const { me, addPending } = useChat.getState();
     if (!me) return;
@@ -344,6 +346,7 @@ class ChatController {
       clientId,
       status: "pending",
       ...(replyTo && { replyTo }),
+      ...(isSecret && { isSecret: true as const }),
     };
     addPending(message);
     this.transmit(message);
@@ -366,7 +369,14 @@ class ChatController {
     this.transmit(current);
   }
 
-  private transmit({ channelId, text, attachments, clientId, replyTo }: ChatMessage): void {
+  private transmit({
+    channelId,
+    text,
+    attachments,
+    clientId,
+    replyTo,
+    isSecret,
+  }: ChatMessage): void {
     if (!this.client || !clientId) return;
     this.client.send(
       "message",
@@ -376,6 +386,7 @@ class ChatController {
         attachments: attachments.length ? attachments : undefined,
         clientId,
         ...(replyTo && { replyTo: { messageId: replyTo.messageId, sk: replyTo.sk } }),
+        ...(isSecret && { isSecret }),
       },
       clientId,
     );
