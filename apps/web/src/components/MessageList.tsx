@@ -1,5 +1,6 @@
+import { isExpired } from "@mindfultech/shared";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { chat } from "../lib/chat";
 import { formatDay } from "../lib/channels";
 import { useChat, type ChatMessage } from "../store";
@@ -24,7 +25,20 @@ const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Dat
  * changes height (an image loading). Rows are measured, never guessed twice.
  */
 export function MessageList({ channelId, title }: Readonly<{ channelId: string; title: string }>) {
-  const messages = useChat((s) => s.messagesByChannel[channelId] ?? EMPTY);
+  const stored = useChat((s) => s.messagesByChannel[channelId] ?? EMPTY);
+  // Secrets vanish at their TTL, even in an open conversation: `now` moves once a minute
+  // while one is on screen, and the list is filtered against it.
+  const hasSecrets = stored.some((m) => m.expiresAt !== undefined);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!hasSecrets) return;
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, [hasSecrets]);
+  const messages = useMemo(
+    () => (hasSecrets ? stored.filter((m) => !isExpired(m, now)) : stored),
+    [stored, hasSecrets, now],
+  );
   const loaded = useChat((s) => channelId in s.cursors);
   const cursor = useChat((s) => s.cursors[channelId]);
   const loadingOlder = useChat((s) => s.historyRequests[channelId] === "older");

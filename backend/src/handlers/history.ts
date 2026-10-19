@@ -1,5 +1,10 @@
 import { QueryCommand } from "@aws-sdk/lib-dynamodb";
-import { HISTORY_PAGE_SIZE, HistoryActionSchema, parseAction } from "@mindfultech/shared";
+import {
+  HISTORY_PAGE_SIZE,
+  HistoryActionSchema,
+  isExpired,
+  parseAction,
+} from "@mindfultech/shared";
 import { getAccessibleChannel } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import { wsHandler } from "../lib/handler";
@@ -66,10 +71,13 @@ export const handler = wsHandler(async (event, caller) => {
     }),
   );
 
-  // Inline attachments leave with their download URLs: no presign round trip per image.
+  // Expired secrets wait for DynamoDB's sweep; readers don't. Inline attachments
+  // leave with their download URLs: no presign round trip per image.
+  const now = Date.now();
   const items = await Promise.all(
     (page.Items ?? [])
       .map(toWireMessage)
+      .filter((m) => !isExpired(m, now))
       .reverse()
       .map((m) => signAttachments(m)),
   );

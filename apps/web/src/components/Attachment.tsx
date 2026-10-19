@@ -5,6 +5,7 @@ import { formatDuration } from "../lib/voice";
 import { useChat } from "../store";
 import { DownloadIcon, FileIcon, MicIcon } from "./icons";
 import { Lightbox } from "./Lightbox";
+import { PdfViewer } from "./PdfViewer";
 
 /** The preview's box: the thumbnail's size, capped by the usual max height/width via CSS. */
 function previewSize(a: AttachmentData): { width: number; height: number } | null {
@@ -89,6 +90,39 @@ function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
           placeholder={attachment.thumbKey ? url : undefined}
           name={attachment.name}
           onClose={() => setViewing(null)}
+        />
+      )}
+    </>
+  );
+}
+
+/** A PDF opens in the app's own viewer; its menu still downloads it. */
+function PdfAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
+  const [viewing, setViewing] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setViewing(true)}
+        className="flex w-72 max-w-full items-center gap-3 rounded-lg border border-line bg-surface p-2.5 text-left hover:border-primary hover:bg-surface-hover"
+        aria-label={`Open ${attachment.name}`}
+        title="Open"
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-error/15 text-[10px] font-bold text-error">
+          PDF
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-ink">{attachment.name}</span>
+          <span className="block text-xs text-ink-secondary">
+            {formatBytes(attachment.size)} · Click to read
+          </span>
+        </span>
+      </button>
+      {viewing && (
+        <PdfViewer
+          fileKey={attachment.key}
+          name={attachment.name}
+          onClose={() => setViewing(false)}
         />
       )}
     </>
@@ -209,5 +243,7 @@ export function Attachment({ attachment }: Readonly<{ attachment: AttachmentData
     return <ImageAttachment attachment={attachment} />;
   if (attachment.contentType.startsWith("audio/"))
     return <AudioAttachment attachment={attachment} />;
+  if (attachment.contentType === "application/pdf" || /\.pdf$/i.test(attachment.name))
+    return <PdfAttachment attachment={attachment} />;
   return <FileAttachment attachment={attachment} />;
 }

@@ -68,6 +68,39 @@ describe("message", () => {
     }
   });
 
+  it("stores a secret with a 7-day TTL (epoch seconds) and refuses one with files", async () => {
+    const before = Date.now();
+    const result = await send({
+      action: "message",
+      channelId: GENERAL_CHANNEL_ID,
+      text: "hunter2",
+      clientId: "c1",
+      isSecret: true,
+    });
+    expect(result.statusCode).toBe(200);
+    const stored = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item as {
+      isSecret?: boolean;
+      expiresAt?: number;
+    };
+    expect(stored.isSecret).toBe(true);
+    const week = 7 * 24 * 3600;
+    expect(stored.expiresAt).toBeGreaterThanOrEqual(Math.floor(before / 1000) + week);
+    expect(stored.expiresAt).toBeLessThanOrEqual(Math.ceil(Date.now() / 1000) + week);
+
+    const withFile = await send({
+      action: "message",
+      channelId: GENERAL_CHANNEL_ID,
+      text: "hunter2",
+      clientId: "c2",
+      isSecret: true,
+      attachments: [
+        { key: `attachments/${GENERAL_CHANNEL_ID}/k`, name: "k", size: 1, contentType: "x/y" },
+      ],
+    });
+    expect(withFile.statusCode).toBe(400);
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(1);
+  });
+
   it("rejects an invalid payload with BAD_REQUEST and stores nothing", async () => {
     const result = await send({ action: "message", channelId: GENERAL_CHANNEL_ID });
 
@@ -333,6 +366,19 @@ describe("message replies", () => {
       hasAttachments: true,
     });
     expect((stored?.replyTo as { preview: string }).preview).toHaveLength(140);
+  });
+
+  it("quotes a secret as 🔒 Secret, never its text", async () => {
+    ddbMock
+      .on(GetCommand, {
+        TableName: "slack-test-messages",
+        Key: { channelId: GENERAL_CHANNEL_ID, sk: original.sk },
+      })
+      .resolves({ Item: { ...original, text: "hunter2", isSecret: true } });
+    await reply({ messageId: original.messageId, sk: original.sk });
+    const stored = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item;
+    expect((stored?.replyTo as { preview: string }).preview).toBe("🔒 Secret");
+    expect(JSON.stringify(stored)).not.toContain("hunter2");
   });
 
   it("refuses to quote a message that isn't in this channel or doesn't match", async () => {

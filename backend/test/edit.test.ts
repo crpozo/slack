@@ -41,7 +41,9 @@ describe("edit", () => {
 
     const input = ddbMock.commandCalls(UpdateCommand)[0]!.args[0].input;
     expect(input.Key).toEqual({ channelId: "ch_general", sk: SK });
-    expect(input.ConditionExpression).toBe("attribute_exists(sk) AND userId = :me");
+    expect(input.ConditionExpression).toBe(
+      "attribute_exists(sk) AND userId = :me AND attribute_not_exists(isSecret)",
+    );
     expect(input.ExpressionAttributeValues).toMatchObject({
       ":text": "hola!",
       ":me": ALICE.userId,

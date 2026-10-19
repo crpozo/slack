@@ -4,6 +4,8 @@ import {
   newMessageSk,
   parseAction,
   replyPreview,
+  SECRET_PREVIEW,
+  SECRET_TTL_MS,
   type Message,
   type MessageAction,
   type MessageNewEvent,
@@ -58,18 +60,19 @@ async function replySnapshot(
     new GetCommand({
       TableName: tables.messages,
       Key: { channelId, sk: replyTo.sk },
-      ProjectionExpression: "messageId, sk, userId, #text, attachments",
+      ProjectionExpression: "messageId, sk, userId, #text, attachments, isSecret",
       ExpressionAttributeNames: { "#text": "text" },
     }),
   );
   const original = Item as
-    Pick<Message, "messageId" | "sk" | "userId" | "text" | "attachments"> | undefined;
+    Pick<Message, "messageId" | "sk" | "userId" | "text" | "attachments" | "isSecret"> | undefined;
   if (!original || original.messageId !== replyTo.messageId) return null;
   return {
     messageId: original.messageId,
     sk: original.sk,
     userId: original.userId,
-    preview: replyPreview(original.text ?? ""),
+    // A quote must never carry a secret's text.
+    preview: original.isSecret ? SECRET_PREVIEW : replyPreview(original.text ?? ""),
     hasAttachments: (original.attachments ?? []).length > 0,
   };
 }
@@ -82,10 +85,13 @@ async function replySnapshot(
 export const handler = wsHandler(async (event, caller) => {
   const parsed = parseAction(MessageActionSchema, event.body);
   if (!parsed.success) return badRequest(caller.connectionId, parsed.error);
-  const { channelId, text, attachments = [], clientId, replyTo } = parsed.data;
+  const { channelId, text, attachments = [], clientId, replyTo, isSecret } = parsed.data;
 
   if (!text.trim() && attachments.length === 0) {
     return badRequest(caller.connectionId, "Message is empty");
+  }
+  if (isSecret && (!text.trim() || attachments.length > 0)) {
+    return badRequest(caller.connectionId, "A secret is text only");
   }
   const prefix = `attachments/${channelId}/`;
   const ownKey = (key: string) => key.startsWith(prefix) && !key.includes("..");
@@ -124,6 +130,8 @@ export const handler = wsHandler(async (event, caller) => {
     reactions: {},
     ...(quoted && { replyTo: quoted }),
     clientId,
+    // TTL in seconds: DynamoDB deletes the row (and the secret with it) a week from now.
+    ...(isSecret && { isSecret: true, expiresAt: Math.floor((now + SECRET_TTL_MS) / 1000) }),
   };
   await ddb.send(new PutCommand({ TableName: tables.messages, Item: message }));
   log.info("message stored", { channelId, messageId: message.messageId, userId: caller.userId });
