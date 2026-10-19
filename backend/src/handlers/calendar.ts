@@ -27,6 +27,7 @@ import {
   yearOf,
   type CalendarEvent,
   dmMembers,
+  meetingCardOf,
   meetingCardText,
   newMessageSk,
   type CalendarPushEvent,
@@ -269,6 +270,9 @@ async function createDmMeeting(
   const now = Date.now();
   const span = meetingSpan(input);
   const participants = [...new Set(members)].sort((a, b) => a.localeCompare(b));
+  const messageId = ulid(now);
+  const messageSk = newMessageSk(now);
+  // The event remembers its card, so an edit of the meeting rewrites the card.
   const meeting: MeetingEvent = {
     eventId: `ev_${ulid()}`,
     type: "meeting",
@@ -279,20 +283,15 @@ async function createDmMeeting(
     createdBy: caller.userId,
     createdAt: now,
     updatedAt: now,
-  };
-  const card: MeetingCard = {
-    eventId: meeting.eventId,
-    title: meeting.title,
-    description: meeting.description,
-    allDay: false,
-    startAt: meeting.startAt,
-    endAt: meeting.endAt,
-    participants,
-  };
-  const message: Message = {
-    messageId: ulid(now),
     channelId,
-    sk: newMessageSk(now),
+    messageId,
+    messageSk,
+  };
+  const card = meetingCardOf(meeting);
+  const message: Message = {
+    messageId,
+    channelId,
+    sk: messageSk,
     userId: caller.userId,
     userEmail: caller.email,
     text: meetingCardText(card),
@@ -507,14 +506,7 @@ async function updateEvent(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
     throw new HttpError(400, "A vacation request can't be edited: cancel it and request again");
   }
   updated.updatedAt = Date.now();
-  await ddb.send(
-    new PutCommand({
-      TableName: tables.events,
-      Item: toItem(updated),
-      ConditionExpression: "attribute_exists(eventId) AND updatedAt = :was",
-      ExpressionAttributeValues: { ":was": before.updatedAt },
-    }),
-  );
+  const card = await saveEdited(updated, before.updatedAt);
   log.info("event updated", { eventId, userId: caller.userId, fields: Object.keys(patch) });
   // Whoever may still see it gets the update; anyone dropped from a meeting, a deletion.
   let connections: LiveConnection[] = [];
@@ -529,6 +521,7 @@ async function updateEvent(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
           ? { type: "calendar.event_updated", event: updated, by: caller.userId }
           : { type: "calendar.event_deleted", eventId, by: caller.userId },
     );
+    if (card && isLinked(updated)) await announceCard(updated, card, caller, connections);
   } catch (err) {
     log.error("calendar broadcast failed", { eventId, ...errorFields(err) });
   }
@@ -544,6 +537,102 @@ async function updateEvent(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
     }
   }
   return json(200, { event: updated });
+}
+
+/** A meeting scheduled from a DM: it knows the card it posted there. */
+type LinkedMeeting = MeetingEvent & { channelId: string; messageId: string; messageSk: string };
+
+const isLinked = (event: CalendarEvent): event is LinkedMeeting =>
+  event.type === "meeting" && !!event.channelId && !!event.messageId && !!event.messageSk;
+
+/**
+ * Writes the edited event (only if nobody else changed it meanwhile). A
+ * meeting scheduled from a DM rewrites its card in the conversation in the
+ * same transaction, so the chat and the calendar never disagree; returns the
+ * card it wrote, or `null` when there's none (no card, or the message was
+ * deleted meanwhile, in which case the event alone is written).
+ */
+async function saveEdited(updated: CalendarEvent, was: number): Promise<MeetingCard | null> {
+  const Put = {
+    TableName: tables.events,
+    Item: toItem(updated),
+    ConditionExpression: "attribute_exists(eventId) AND updatedAt = :was",
+    ExpressionAttributeValues: { ":was": was },
+  };
+  const conflict = () =>
+    new HttpError(409, "The event changed meanwhile: reload the calendar and try again");
+  if (!isLinked(updated)) {
+    try {
+      await ddb.send(new PutCommand(Put));
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) throw conflict();
+      throw err;
+    }
+    return null;
+  }
+  const card = meetingCardOf(updated);
+  try {
+    await ddb.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          { Put },
+          {
+            Update: {
+              TableName: tables.messages,
+              Key: { channelId: updated.channelId, sk: updated.messageSk },
+              UpdateExpression: "SET meeting = :card, #text = :text",
+              ConditionExpression: "attribute_exists(sk) AND kind = :kind",
+              ExpressionAttributeNames: { "#text": "text" },
+              ExpressionAttributeValues: {
+                ":card": card,
+                ":text": meetingCardText(card),
+                ":kind": "meeting",
+              },
+            },
+          },
+        ],
+      }),
+    );
+    return card;
+  } catch (err) {
+    if (!(err instanceof TransactionCanceledException)) throw err;
+    const [event, message] = err.CancellationReasons ?? [];
+    if (event?.Code === "ConditionalCheckFailed") throw conflict();
+    if (message?.Code !== "ConditionalCheckFailed") throw err;
+    // The card's message is gone (deleted): the meeting still changes.
+    log.warn("meeting card missing, event written alone", {
+      eventId: updated.eventId,
+      channelId: updated.channelId,
+    });
+    await ddb.send(new PutCommand(Put));
+    return null;
+  }
+}
+
+/** The card changed: the conversation's people see the new one at once. */
+async function announceCard(
+  meeting: LinkedMeeting,
+  card: MeetingCard,
+  caller: HttpCaller,
+  connections: LiveConnection[],
+): Promise<void> {
+  const channel = await getAccessibleChannel(meeting.channelId, caller.userId, {
+    allowArchived: true,
+  });
+  if (!channel) return;
+  const inAudience = channelAudience(channel);
+  await deliver(connections, (c) =>
+    inAudience(c)
+      ? {
+          type: "message.updated",
+          channelId: meeting.channelId,
+          sk: meeting.messageSk,
+          messageId: meeting.messageId,
+          text: meetingCardText(card),
+          meeting: card,
+        }
+      : null,
+  );
 }
 
 async function editedMeeting(

@@ -33,6 +33,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **Living meeting cards:** a meeting scheduled from a direct message used to leave a snapshot
+  in the chat, so moving the meeting in the calendar left the card showing the old time. The
+  event now remembers its card (`channelId`, `messageId`, `messageSk`), an edit rewrites the card
+  in the same DynamoDB transaction as the event, and the conversation gets a `message.updated`
+  push with the new card, so it re-renders at once. The card also draws from the live event when
+  the calendar store holds it.
 - The conversation now reliably opens at the newest message, and the read mark is sent only once
   the newest message has actually been painted (a frame after the rows are measured), instead of
   from the scroll handler, which never ran on an open that landed at the bottom by itself.

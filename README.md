@@ -198,7 +198,9 @@ The UI:
   with the other person (participants come from the conversation, never from the form) and posts
   a card in the chat with _View in Calendar_. The `calendar` Lambda writes the event and the card
   in one `TransactWriteItems`; the `message` WebSocket action never accepts a card, so one can't
-  be forged. A retried request (same `clientId`) returns the pair already created.
+  be forged. A retried request (same `clientId`) returns the pair already created. The card is
+  alive: editing the meeting in the calendar rewrites it in the same transaction and pushes
+  `message.updated` to the conversation, so both people see the new time at once.
 - **Apps → Calendar:** the shared company calendar (month, week and day views, FullCalendar).
   Click a day or drag a time range to create a **meeting** and invite people from the directory;
   only its participants see it, and invitees get a bell/push notification. **Vacations:** every

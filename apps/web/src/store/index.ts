@@ -1,6 +1,7 @@
 import {
   isThreadSk,
   type Channel,
+  type MeetingCard,
   type Message,
   type MessageThreadUpdatedEvent,
   type ReadMark,
@@ -106,6 +107,8 @@ export interface ChatState {
   setReactions: (channelId: string, sk: string, reactions: Record<string, string[]>) => void;
   /** `message.updated`: the author changed the text. */
   applyEdit: (channelId: string, sk: string, text: string, editedAt: number) => void;
+  /** `message.updated` with a card: the meeting was edited in the calendar. */
+  updateMeetingCard: (channelId: string, sk: string, meeting: MeetingCard, text: string) => void;
   /** Starts (or, with `null`, ends) editing a message in `channelId`'s composer. */
   setEditing: (channelId: string, target: EditTarget | null) => void;
   setReadMark: (channelId: string, userId: string, mark: ReadMark) => void;
@@ -432,6 +435,9 @@ export const useChat = create<ChatState>()((set, get) => ({
 
   applyEdit: (channelId, sk, text, editedAt) =>
     set((s) => patchMessage(s, channelId, sk, (m) => ({ ...m, text, isEdited: true, editedAt }))),
+
+  updateMeetingCard: (channelId, sk, meeting, text) =>
+    set((s) => patchMessage(s, channelId, sk, (m) => ({ ...m, meeting, text }))),
 
   setEditing: (channelId, target) =>
     set((s) => ({ editing: { ...s.editing, [channelId]: target ?? undefined } })),

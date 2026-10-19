@@ -125,7 +125,11 @@ describe("company calendar", () => {
     expect(actionsOn("DataTasks")).toEqual([]);
     // DM meetings: the conversation row, and the card written with the event (retries find it).
     expect(actionsOn("DataChannels")).toEqual(["dynamodb:GetItem"]);
-    expect(actionsOn("DataMessages")).toEqual(["dynamodb:PutItem", "dynamodb:Query"]);
+    expect(actionsOn("DataMessages")).toEqual([
+      "dynamodb:PutItem",
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+    ]);
     expect(actionsOn("DataConnections")).toEqual(["dynamodb:DeleteItem", "dynamodb:Scan"]);
     expect(actionsOn("DataPushSubscriptions")).toEqual(["dynamodb:DeleteItem", "dynamodb:Query"]);
     expect(

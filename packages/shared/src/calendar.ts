@@ -213,6 +213,15 @@ export interface MeetingEvent extends CalendarEventBase {
   endDate?: string;
   /** The organizer (`createdBy`) and everyone invited; only they see the meeting. */
   participants: string[];
+  /**
+   * Scheduled from a direct message (Phase 21): the conversation and the
+   * "meeting scheduled" card posted there, so an edit of the meeting rewrites
+   * the card in the same transaction (Phase 24) and the chat never shows a
+   * stale time.
+   */
+  channelId?: string;
+  messageId?: string;
+  messageSk?: string;
 }
 
 export interface VacationEvent extends CalendarEventBase {
@@ -453,8 +462,30 @@ export type CalendarPushEvent =
   CalendarEventCreatedEvent | CalendarEventUpdatedEvent | CalendarEventDeletedEvent;
 
 /** The plain-text fallback of a meeting card (notifications, previews, older clients). */
-export function meetingCardText(card: Pick<MeetingCard, "title" | "startAt" | "endAt">): string {
-  return `📅 Meeting scheduled: ${card.title} · ${describeEventWhen({ ...card, allDay: false })}`;
+export function meetingCardText(
+  card: Pick<MeetingCard, "title" | "startAt" | "endAt"> &
+    Partial<Pick<MeetingCard, "allDay" | "startDate" | "endDate">>,
+): string {
+  const when = describeEventWhen({ ...card, allDay: card.allDay ?? false });
+  return `📅 Meeting scheduled: ${card.title} · ${when}`;
+}
+
+/**
+ * The card of a meeting as it stands now: what its DM's "meeting scheduled"
+ * message shows. The server writes it when the meeting is scheduled and again
+ * on every edit; the web app derives it from the live event when it has one.
+ */
+export function meetingCardOf(event: MeetingEvent): MeetingCard {
+  return {
+    eventId: event.eventId,
+    title: event.title,
+    description: event.description,
+    allDay: event.allDay,
+    startAt: event.startAt,
+    endAt: event.endAt,
+    participants: event.participants,
+    ...(event.allDay && { startDate: event.startDate, endDate: event.endDate }),
+  };
 }
 
 /** Date and time of an event, for notification text; all-day events show the dates only. */

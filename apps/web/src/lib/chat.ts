@@ -184,8 +184,10 @@ class ChatController {
       client.on("message.reaction", ({ channelId, sk, reactions }) =>
         store().setReactions(channelId, sk, reactions),
       ),
-      client.on("message.updated", ({ channelId, sk, text, editedAt }) =>
-        store().applyEdit(channelId, sk, text, editedAt),
+      client.on("message.updated", ({ channelId, sk, text, editedAt, meeting }) =>
+        meeting
+          ? store().updateMeetingCard(channelId, sk, meeting, text)
+          : store().applyEdit(channelId, sk, text, editedAt ?? Date.now()),
       ),
       client.on("channel.read", ({ channelId, userId, sk, at }) => {
         const s = store();

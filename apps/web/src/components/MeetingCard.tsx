@@ -1,10 +1,12 @@
-import type { MeetingCard as MeetingCardData } from "@mindfultech/shared";
+import { meetingCardOf, type MeetingCard as MeetingCardData } from "@mindfultech/shared";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { joinState } from "../lib/agenda";
 import { calls, useCall } from "../lib/call";
 import { formatWhen } from "../lib/calendarUi";
 import { useNow } from "../lib/hooks";
 import { useChat, useNameOf } from "../store";
+import { useCalendar } from "../store/calendar";
 import { Avatar } from "./Avatar";
 import { CalendarIcon, ChevronRightIcon, VideoIcon } from "./icons";
 
@@ -18,11 +20,15 @@ export const calendarEventPath = (eventId: string) =>
  * a button that opens the live event in the calendar. From five minutes
  * before the start until the end, a "Join call" button starts the video
  * call with the other person right from the card (the clock is re-read
- * every minute, so the button appears on its own). The card is a snapshot
- * from when the meeting was scheduled; the calendar is the truth.
+ * every minute, so the button appears on its own).
+ *
+ * A living card: the server rewrites the message's card whenever the meeting
+ * is edited (`message.updated`), and when the calendar store already holds
+ * the live event (the calendar was opened, or its push arrived first), the
+ * card is drawn from that, so the two never disagree.
  */
 export function MeetingCard({
-  card,
+  card: stored,
   channelId,
   mine,
   myUserId,
@@ -36,8 +42,14 @@ export function MeetingCard({
   const nameOf = useNameOf();
   const showToast = useChat((s) => s.showToast);
   const inCall = useCall((s) => s.call !== null);
+  const live = useCalendar((s) => s.events[stored.eventId]);
+  const card = useMemo(
+    () => (live?.type === "meeting" ? meetingCardOf(live) : stored),
+    [live, stored],
+  );
   const now = useNow();
-  const join = joinState(card, now);
+  // An all-day meeting has no call to join.
+  const join = card.allDay ? "upcoming" : joinState(card, now);
   // The other person of the DM (yourself in a self-DM).
   const peerId = card.participants.find((id) => id !== myUserId) ?? myUserId;
 
@@ -73,6 +85,7 @@ export function MeetingCard({
         <p className="text-sm text-ink">
           <time dateTime={new Date(card.startAt).toISOString()}>
             {formatWhen({ ...card, type: "meeting" } as Parameters<typeof formatWhen>[0])}
+            {card.allDay && " (all day)"}
           </time>
         </p>
         {card.description && (

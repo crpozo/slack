@@ -270,9 +270,15 @@ export class TasksApi extends Construct {
     // Invitees must exist and not be guests (BatchGetItem); the actor's name for pushes (GetItem).
     data.users.grant(this.calendarHandler, "dynamodb:BatchGetItem", "dynamodb:GetItem");
     // DM meetings: the conversation must be the caller's (GetItem); the card is
-    // written with the event (PutItem) and a retried request finds it (Query).
+    // written with the event (PutItem), rewritten when the meeting is edited
+    // (UpdateItem) and a retried request finds it (Query).
     data.channels.grant(this.calendarHandler, "dynamodb:GetItem");
-    data.messages.grant(this.calendarHandler, "dynamodb:PutItem", "dynamodb:Query");
+    data.messages.grant(
+      this.calendarHandler,
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:Query",
+    );
     this.calendarHandler.addToRolePolicy(
       new PolicyStatement({
         actions: ["cognito-idp:ListUsersInGroup"],

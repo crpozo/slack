@@ -688,6 +688,12 @@ describe("meetings scheduled from a direct message", () => {
       },
     });
     expect(reply.message.text).toMatch(/^📅 Meeting scheduled: Client kickoff · Nov 4, 3:00 PM$/);
+    // The event remembers its card, so editing the meeting can rewrite it.
+    expect(reply.event).toMatchObject({
+      channelId: DM,
+      messageId: reply.message.messageId,
+      messageSk: reply.message.sk,
+    });
     // Nothing written outside the transaction, which holds exactly the pair.
     expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
     const [event, message] = transactItems();
@@ -783,5 +789,108 @@ describe("meetings scheduled from a direct message", () => {
     expect(reply.message.messageId).toBe("m1");
     expect(ddbMock.commandCalls(TransactWriteCommand)).toHaveLength(0);
     expect(sentEvents()).toEqual([]);
+  });
+
+  describe("editing the meeting keeps the card alive", () => {
+    const linkedRow = { ...meetingRow, channelId: DM, messageId: "m1", messageSk: "1#m1" };
+    const params = { id: linkedRow.eventId };
+    const movedTo = zonedMidnight("2026-11-05") + 16 * 3_600_000;
+    const cancelled = (event: string, message: string) =>
+      new TransactionCanceledException({
+        message: "cancelled",
+        $metadata: {},
+        CancellationReasons: [{ Code: event }, { Code: message }],
+      });
+
+    beforeEach(() => {
+      ddbMock
+        .on(GetCommand, { TableName: EVENTS, Key: { eventId: linkedRow.eventId } })
+        .resolves({ Item: linkedRow });
+    });
+
+    it("rewrites the card in the same transaction and tells the conversation", async () => {
+      const { status, body: reply } = await call("PUT /calendar/events/{id}", {
+        params,
+        body: { title: "Daily standup (moved)", startAt: movedTo, endAt: movedTo + 1_800_000 },
+      });
+      expect(status).toBe(200);
+      expect(reply.event).toMatchObject({ title: "Daily standup (moved)", startAt: movedTo });
+
+      // The event and the card, nothing outside the transaction.
+      expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+      const [event, message] = transactItems();
+      expect(event!.Put).toMatchObject({
+        TableName: EVENTS,
+        ConditionExpression: "attribute_exists(eventId) AND updatedAt = :was",
+        ExpressionAttributeValues: { ":was": linkedRow.updatedAt },
+        Item: { eventId: linkedRow.eventId, startAt: movedTo, messageSk: "1#m1" },
+      });
+      expect(message!.Update).toMatchObject({
+        TableName: MESSAGES,
+        Key: { channelId: DM, sk: "1#m1" },
+        ConditionExpression: "attribute_exists(sk) AND kind = :kind",
+        ExpressionAttributeValues: {
+          ":kind": "meeting",
+          ":card": {
+            eventId: linkedRow.eventId,
+            title: "Daily standup (moved)",
+            allDay: false,
+            startAt: movedTo,
+            endAt: movedTo + 1_800_000,
+            participants: [ALICE.userId, BOB.userId],
+          },
+        },
+      });
+      expect(message!.Update!.ExpressionAttributeValues![":text"]).toMatch(
+        /^📅 Meeting scheduled: Daily standup \(moved\) · Nov 5, 4:00 PM$/,
+      );
+
+      // Both people get the calendar update and the new card; nobody else does.
+      const byType = sentEvents()
+        .map(([id, e]) => `${id}:${e.type}`)
+        .sort();
+      expect(byType).toEqual([
+        "conn-alice:calendar.event_updated",
+        "conn-alice:message.updated",
+        "conn-bob:calendar.event_updated",
+        "conn-bob:message.updated",
+      ]);
+      const chat = sentEvents().find(([, e]) => e.type === "message.updated")?.[1] as {
+        channelId: string;
+        sk: string;
+        messageId: string;
+        text: string;
+        meeting: { startAt: number };
+        isEdited?: boolean;
+      };
+      expect(chat).toMatchObject({ channelId: DM, sk: "1#m1", messageId: "m1" });
+      expect(chat.meeting.startAt).toBe(movedTo);
+      expect(chat.isEdited).toBeUndefined();
+    });
+
+    it("still edits the meeting when its card was deleted, and says nothing to the chat", async () => {
+      ddbMock.on(TransactWriteCommand).rejects(cancelled("None", "ConditionalCheckFailed"));
+      const { status } = await call("PUT /calendar/events/{id}", {
+        params,
+        body: { startAt: movedTo, endAt: movedTo + 1_800_000 },
+      });
+      expect(status).toBe(200);
+      const put = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
+      expect(put).toMatchObject({ TableName: EVENTS, Item: { startAt: movedTo } });
+      const types = sentEvents().map(([, e]) => e.type);
+      expect(types).toContain("calendar.event_updated");
+      expect(types).not.toContain("message.updated");
+    });
+
+    it("refuses an edit of a meeting that changed meanwhile", async () => {
+      ddbMock.on(TransactWriteCommand).rejects(cancelled("ConditionalCheckFailed", "None"));
+      const { status } = await call("PUT /calendar/events/{id}", {
+        params,
+        body: { title: "Too late" },
+      });
+      expect(status).toBe(409);
+      expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+      expect(sentEvents()).toEqual([]);
+    });
   });
 });
