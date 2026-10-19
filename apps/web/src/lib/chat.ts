@@ -64,6 +64,8 @@ export const TYPING_SHOW_MS = 5000;
 
 /** Fields of a channel its creator or an admin can edit. */
 export interface ChannelEdit {
+  /** Admins: archive (read-only, out of the sidebar) or restore. */
+  archived?: boolean;
   name?: string;
   topic?: string;
   description?: string;
@@ -135,18 +137,24 @@ class ChatController {
         if (!s.channels.some((c) => c.channelId === message.channelId)) {
           client.send("channel", { op: "list" }); // e.g. someone just opened a DM with us
         }
-        const viewing = message.channelId === s.activeChannelId && isFocused();
+        const parentSk = message.parentSk ?? null;
+        const viewing =
+          message.channelId === s.activeChannelId &&
+          isFocused() &&
+          (parentSk === null || parentSk === this.activeThread);
         if (viewing) this.viewed(message.channelId);
         // Their message arrived: whatever they were typing is sent.
         s.setTyping(message.channelId, message.userId, null);
         this.incoming(message, viewing, known);
       }),
 
-      client.on("history.page", ({ channelId, items, nextCursor }) => {
+      client.on("history.page", ({ channelId, thread, items, nextCursor }) => {
         const s = store();
+        if (thread) return s.receiveThreadHistory(thread.sk, items, nextCursor);
         s.receiveHistory(channelId, items, nextCursor);
         if (channelId === s.activeChannelId && isFocused()) this.viewed(channelId);
       }),
+      client.on("message.thread_updated", (event) => store().applyThreadUpdate(event)),
 
       client.on("user.list", ({ users, online }) => {
         this.usersFetchedAt = Date.now();
@@ -330,9 +338,36 @@ class ChatController {
     const s = useChat.getState();
     if (!this.client || s.historyRequests[channelId]) return;
     const cursor = kind === "older" ? s.cursors[channelId] : undefined;
-    if (kind === "older" && !cursor) return;
+    // "stale" is the offline cache saying "there's more"; the next page's cursor
+    // only arrives with a fresh first page, which `initial` fetches.
+    if (kind === "older" && (!cursor || cursor === "stale")) return;
     s.historyRequested(channelId, kind);
     this.client.send("history", cursor ? { channelId, cursor } : { channelId });
+  }
+
+  /** The thread the user is looking at (its replies count as seen on arrival). */
+  private activeThread: string | null = null;
+
+  setActiveThread(parentSk: string | null): void {
+    this.activeThread = parentSk;
+  }
+
+  /** A page of a thread's replies: the first one, or older ones from its cursor. */
+  loadThread(
+    channelId: string,
+    parent: { messageId: string; sk: string },
+    kind: "initial" | "older",
+  ): void {
+    const s = useChat.getState();
+    if (!this.client || s.threadRequests[parent.sk]) return;
+    const cursor = kind === "older" ? s.threadCursors[parent.sk] : undefined;
+    if (kind === "older" && !cursor) return;
+    s.threadRequested(parent.sk, kind);
+    this.client.send("history", {
+      channelId,
+      thread: { messageId: parent.messageId, sk: parent.sk },
+      ...(cursor && { cursor }),
+    });
   }
 
   /** Optimistically inserts the message, then sends it (as a reply when `replyTo` is set). */
@@ -343,6 +378,8 @@ class ChatController {
     replyTo?: ReplySnapshot,
     /** A password or API key: masked for readers, deleted by the server after a week. */
     isSecret = false,
+    /** A reply in this top-level message's thread. */
+    thread?: { messageId: string; sk: string },
   ): void {
     const { me, addPending } = useChat.getState();
     if (!me) return;
@@ -360,6 +397,7 @@ class ChatController {
       status: "pending",
       ...(replyTo && { replyTo }),
       ...(isSecret && { isSecret: true as const }),
+      ...(thread && { parentId: thread.messageId, parentSk: thread.sk }),
     };
     addPending(message);
     this.transmit(message);
@@ -374,9 +412,11 @@ class ChatController {
   retry(message: ChatMessage): void {
     const { clientId, channelId } = message;
     if (!clientId) return;
-    const current = useChat
-      .getState()
-      .messagesByChannel[channelId]?.find((m) => m.messageId === pendingMessageId(clientId));
+    const s = useChat.getState();
+    const id = pendingMessageId(clientId);
+    const current =
+      s.messagesByChannel[channelId]?.find((m) => m.messageId === id) ??
+      (message.parentSk ? s.threads[message.parentSk]?.find((m) => m.messageId === id) : undefined);
     if (current?.status !== "failed") return;
     useChat.getState().setPendingStatus(channelId, clientId, "pending");
     this.transmit(current);
@@ -389,6 +429,8 @@ class ChatController {
     clientId,
     replyTo,
     isSecret,
+    parentId,
+    parentSk,
   }: ChatMessage): void {
     if (!this.client || !clientId) return;
     this.client.send(
@@ -400,6 +442,7 @@ class ChatController {
         clientId,
         ...(replyTo && { replyTo: { messageId: replyTo.messageId, sk: replyTo.sk } }),
         ...(isSecret && { isSecret }),
+        ...(parentId && parentSk && { thread: { messageId: parentId, sk: parentSk } }),
       },
       clientId,
     );

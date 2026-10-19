@@ -24,7 +24,16 @@ const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Dat
  * keeps the viewport still when older pages are prepended above it or a row
  * changes height (an image loading). Rows are measured, never guessed twice.
  */
-export function MessageList({ channelId, title }: Readonly<{ channelId: string; title: string }>) {
+export function MessageList({
+  channelId,
+  title,
+  onOpenThread,
+}: Readonly<{
+  channelId: string;
+  title: string;
+  /** "Reply in thread" / "N replies": opens the thread of that message. */
+  onOpenThread?: (message: ChatMessage) => void;
+}>) {
   const stored = useChat((s) => s.messagesByChannel[channelId] ?? EMPTY);
   // Secrets vanish at their TTL, even in an open conversation: `now` moves once a minute
   // while one is on screen, and the list is filtered against it.
@@ -91,16 +100,33 @@ export function MessageList({ channelId, title }: Readonly<{ channelId: string; 
 
   // Bottom on open; on append, follow when we were there (or it's ours), else offer the pill.
   // Prepends (older pages) need nothing: the virtualizer re-anchors on the row we were at.
+  //
+  // Opening a conversation takes two passes: this layout effect pins before paint
+  // with estimated row heights, and the frame after, once the rows are measured
+  // (so the height can be final with no `totalSize` change to re-pin on, e.g. a
+  // cached history that was already measured), pins again and only then tells
+  // the server we've read the newest message: it is on screen by then.
   useLayoutEffect(() => {
     const last = messages.at(-1)?.messageId;
     const prev = previous.current;
-    if (prev?.channelId !== channelId || !prev.last) {
+    const opened = prev?.channelId !== channelId || !prev.last;
+    if (opened) {
       if (messages.length > 0) scrollToBottom();
     } else if (last !== prev.last) {
       if (atBottom.current || messages.at(-1)?.userId === myUserId) scrollToBottom();
       else setShowNewPill(true);
     }
     previous.current = { channelId, last };
+    if (!opened || messages.length === 0) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        const el = scrollRef.current;
+        if (!el || !atBottom.current) return;
+        el.scrollTop = el.scrollHeight;
+        chat.viewed(channelId);
+      });
+    });
+    return () => cancelAnimationFrame(frame);
   }, [messages, channelId, myUserId, scrollToBottom]);
 
   // Infinite scroll upwards: the sentinel sits at the very top of the list's full height.
@@ -204,6 +230,7 @@ export function MessageList({ channelId, title }: Readonly<{ channelId: string; 
                     grouped={!newDay && isGroupedWith(prev, m)}
                     mine={m.userId === myUserId}
                     last={row.index === messages.length - 1}
+                    onOpenThread={onOpenThread}
                   />
                 </div>
               );

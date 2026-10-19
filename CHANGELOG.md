@@ -7,6 +7,35 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Threads:** _Reply in thread_ on any message; parents show "N replies · last reply" with the
+  repliers' avatars. The thread opens beside the conversation on desktop and as its own screen on
+  phones, with its own composer. Replies live under their parent's sort key
+  (`thread#<parentSk>#…`), so the channel's history never sees them and a thread is one query;
+  the parent's counters are kept by the server in the same transaction as the reply.
+- **Phones: bottom tab bar** (Home, DMs, Activity, Search) instead of the side drawer, like
+  Slack's app. A conversation opens on top with a back arrow; Home also links to Tasks and
+  Calendar.
+- **Slash commands:** typing `/` at the start of a message lists the commands (`/secret`,
+  `/shrug`, `/clear`), filtered as you type; arrows, Enter/Tab and Esc work. New commands are one
+  entry in `lib/commands.ts`.
+- **Archive channels** (admins): _Archive channel_ in a channel's details makes it read-only
+  (banner instead of the composer) and moves it to a collapsed _Archived_ section of the sidebar;
+  it stays searchable and can be restored. `#general` and DMs can't be archived.
+
+### Changed
+
+- **Opens instantly.** The shell paints for the last signed-in person before Amplify has verified
+  the session, and the channel list, directory and the newest 50 messages of every channel you
+  opened are kept in IndexedDB per user: a conversation shows its cached history the moment you
+  open it while a fresh page loads behind it. A reconnect no longer throws cached history away;
+  it only marks it stale. Secrets and unsent messages are never cached; sign-out wipes the cache.
+
+### Fixed
+
+- The conversation now reliably opens at the newest message, and the read mark is sent only once
+  the newest message has actually been painted (a frame after the rows are measured), instead of
+  from the scroll handler, which never ran on an open that landed at the bottom by itself.
+
 - **Calendar on phones, iOS style:** under 768 px the month grid gives way to a continuous
   vertical list of days (earlier months above, later below, loaded as you scroll), each with its
   events as colored pills (meeting, vacation, pending, holiday) and today in a red circle. The

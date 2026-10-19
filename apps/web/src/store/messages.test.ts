@@ -140,3 +140,116 @@ describe("store: users and reactions", async () => {
     expect(selectName(useChat.getState(), "bob")).toBe("Bobby");
   });
 });
+
+describe("store: threads and the offline cache", async () => {
+  const { useChat, parentSkOf } = await import("./index");
+  const parent = {
+    messageId: "p1",
+    channelId: "ch_general",
+    sk: "1700000000000#P",
+    userId: "a",
+    userEmail: "a@x",
+    text: "parent",
+    attachments: [],
+    createdAt: 1_700_000_000_000,
+  };
+  const reply = (i: number) => ({
+    messageId: `r${i}`,
+    channelId: "ch_general",
+    sk: `thread#1700000000000#P#${1_700_000_000_000 + i}#R${i}`,
+    parentId: "p1",
+    parentSk: "1700000000000#P",
+    userId: "b",
+    userEmail: "b@x",
+    text: `r${i}`,
+    attachments: [],
+    createdAt: 1_700_000_000_000 + i,
+  });
+
+  it("reads the parent's key out of a reply's", () => {
+    expect(parentSkOf(reply(1).sk)).toBe("1700000000000#P");
+    expect(parentSkOf("1700000000000#P")).toBeNull();
+  });
+
+  it("routes replies to their thread and counters to the parent", () => {
+    useChat.setState({
+      messagesByChannel: { ch_general: [parent] },
+      threads: {},
+      threadCursors: {},
+    });
+    const s = useChat.getState();
+    // A reply for a thread that isn't open changes nothing in the channel list.
+    s.receiveMessage(reply(1));
+    expect(useChat.getState().messagesByChannel.ch_general).toHaveLength(1);
+    expect(useChat.getState().threads).toEqual({});
+    // Once loaded, replies land in it (deduped), and the parent shows the count.
+    s.receiveThreadHistory("1700000000000#P", [reply(1)], null);
+    s.receiveMessage(reply(2));
+    s.receiveMessage(reply(2));
+    expect(useChat.getState().threads["1700000000000#P"]!.map((m) => m.text)).toEqual(["r1", "r2"]);
+    s.applyThreadUpdate({
+      type: "message.thread_updated",
+      channelId: "ch_general",
+      sk: parent.sk,
+      messageId: "p1",
+      replyCount: 2,
+      lastReplyAt: 5,
+      replyUserIds: ["b"],
+    });
+    expect(useChat.getState().messagesByChannel.ch_general![0]).toMatchObject({
+      replyCount: 2,
+      replyUserIds: ["b"],
+    });
+    // Reactions and edits find a reply by its key.
+    s.setReactions("ch_general", reply(2).sk, { "👍": ["a"] });
+    s.applyEdit("ch_general", reply(2).sk, "edited", 9);
+    const r2 = useChat.getState().threads["1700000000000#P"]![1]!;
+    expect(r2).toMatchObject({ reactions: { "👍": ["a"] }, text: "edited", isEdited: true });
+  });
+
+  it("hydrates from the cache as stale, and a fresh page clears the mark", () => {
+    useChat.getState().setSession({ userId: "me", email: "me@x" } as never);
+    useChat.getState().hydrate({
+      version: 1,
+      savedAt: 1,
+      channels: [
+        {
+          channelId: "ch_general",
+          name: "general",
+          type: "public",
+          createdBy: "s",
+          createdAt: 1,
+          archived: false,
+        },
+      ],
+      pinned: [],
+      users: {},
+      directory: { a: "a@x" },
+      messagesByChannel: { ch_general: [parent] },
+      cursors: { ch_general: "stale" },
+      reads: {},
+    });
+    let s = useChat.getState();
+    expect(s.hydrated).toBe(true);
+    expect(s.channels).toHaveLength(1);
+    expect(s.messagesByChannel.ch_general).toHaveLength(1);
+    expect(s.stale.ch_general).toBe(true);
+    expect(s.cursors.ch_general).toBe("stale");
+    // The server's first page replaces the "stale" cursor with a real one and clears the mark.
+    s.historyRequested("ch_general", "initial");
+    s.receiveHistory(
+      "ch_general",
+      [parent, { ...parent, messageId: "p2", sk: "1700000000001#Q" }],
+      "cur",
+    );
+    s = useChat.getState();
+    expect(s.stale.ch_general).toBeUndefined();
+    expect(s.cursors.ch_general).toBe("cur");
+    expect(s.messagesByChannel.ch_general).toHaveLength(2);
+    // A reconnect keeps what's cached but marks the inactive channels stale again.
+    s.setActiveChannel("dm_x_y");
+    s.invalidateInactive();
+    expect(useChat.getState().messagesByChannel.ch_general).toHaveLength(2);
+    expect(useChat.getState().stale.ch_general).toBe(true);
+  });
+});

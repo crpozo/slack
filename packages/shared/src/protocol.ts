@@ -107,6 +107,19 @@ export const REPLY_PREVIEW_LENGTH = 140;
 
 /** Secret messages (passwords, API keys) are deleted by DynamoDB a week after they're sent. */
 export const SECRET_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
+// Threads (Phase 23). A reply lives in its channel's partition under a sort
+// key prefixed by its parent's: `thread#<parentSk>#<epochMs>#<ulid>`. Every
+// top-level sort key starts with a digit, so replies sort after all of them:
+// the channel's history is `sk < "thread#"`, a thread's is `begins_with`.
+// ---------------------------------------------------------------------------
+export const THREAD_SK_PREFIX = "thread#";
+/** Prefix of every reply of the message with sort key `parentSk`. */
+export const threadSkPrefix = (parentSk: string) => `${THREAD_SK_PREFIX}${parentSk}#`;
+export const isThreadSk = (sk: string) => sk.startsWith(THREAD_SK_PREFIX);
+/** How many repliers' avatars a parent carries (the newest ones). */
+export const MAX_THREAD_AVATARS = 5;
 /** What a secret looks like anywhere but its own body: previews, quotes, notifications. */
 export const SECRET_PREVIEW = "🔒 Secret";
 
@@ -238,6 +251,15 @@ export interface Message {
   isSecret?: true;
   /** Absent for ordinary messages; `"meeting"` renders `meeting` as a card. */
   kind?: MessageKind;
+  /** A thread reply: the parent message's id and sort key (see `threadSkPrefix`). */
+  parentId?: string;
+  parentSk?: string;
+  /** A parent with replies: counters kept by the server when replies are written. */
+  replyCount?: number;
+  /** Epoch ms of the newest reply. */
+  lastReplyAt?: number;
+  /** Up to `MAX_THREAD_AVATARS` people who replied, newest last. */
+  replyUserIds?: string[];
   /**
    * A meeting scheduled from this conversation (Phase 21): a snapshot of the
    * calendar event when it was created, written by the server (the `message`
@@ -361,12 +383,20 @@ export const MessageActionSchema = z.object({
   replyTo: z
     .object({ messageId: z.string().min(1).max(64), sk: z.string().min(1).max(128) })
     .optional(),
+  /** A reply in the thread of this top-level message of the same channel. */
+  thread: z
+    .object({ messageId: z.string().min(1).max(64), sk: z.string().min(1).max(128) })
+    .optional(),
 });
 
 export const HistoryActionSchema = z.object({
   action: z.literal("history"),
   channelId,
   cursor: z.string().min(1).max(2048).optional(),
+  /** The replies of this message (oldest first) instead of the channel's messages. */
+  thread: z
+    .object({ messageId: z.string().min(1).max(64), sk: z.string().min(1).max(128) })
+    .optional(),
 });
 
 export const ChannelListActionSchema = z.object({
@@ -475,6 +505,8 @@ export const ChannelUpdateActionSchema = z
     /** `true` needs `board` (unless the channel already has one); `false` unlinks the board. */
     isProject: z.boolean().optional(),
     board: ProjectBoardSchema.optional(),
+    /** Admins: archive (read-only, out of the sidebar) or restore the channel. */
+    archived: z.boolean().optional(),
   })
   .refine(
     (a) =>
@@ -482,7 +514,8 @@ export const ChannelUpdateActionSchema = z
       a.topic !== undefined ||
       a.description !== undefined ||
       a.isProject !== undefined ||
-      a.board !== undefined,
+      a.board !== undefined ||
+      a.archived !== undefined,
     "nothing to update",
   );
 
@@ -751,6 +784,8 @@ export interface MessageNewEvent {
 export interface HistoryPageEvent {
   type: "history.page";
   channelId: string;
+  /** Set when the page is a thread's replies (of this parent). */
+  thread?: { messageId: string; sk: string };
   /** Chronological (ascending) order. */
   items: Message[];
   /** Opaque cursor for the next (older) page, `null` when there is none. */
@@ -795,6 +830,17 @@ export interface MessageReactionEvent {
 }
 
 /** The author edited a message: its new text (everything else is unchanged). */
+/** A reply was added: the parent's counters, for "N replies" under it. */
+export interface MessageThreadUpdatedEvent {
+  type: "message.thread_updated";
+  channelId: string;
+  sk: string;
+  messageId: string;
+  replyCount: number;
+  lastReplyAt: number;
+  replyUserIds: string[];
+}
+
 export interface MessageUpdatedEvent {
   type: "message.updated";
   channelId: string;
@@ -948,6 +994,7 @@ export type ServerEvent =
   | MessageNewEvent
   | MessageReactionEvent
   | MessageUpdatedEvent
+  | MessageThreadUpdatedEvent
   | ChannelReadEvent
   | UserTypingEvent
   | HistoryPageEvent

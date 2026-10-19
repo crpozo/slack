@@ -1,4 +1,13 @@
-import type { Channel, Message, ReadMark, ReplySnapshot, UserProfile } from "@mindfultech/shared";
+import {
+  isThreadSk,
+  type Channel,
+  type Message,
+  type MessageThreadUpdatedEvent,
+  type ReadMark,
+  type ReplySnapshot,
+  type UserProfile,
+} from "@mindfultech/shared";
+import type { Snapshot } from "../lib/cache";
 import { useCallback } from "react";
 import { create } from "zustand";
 import type { SessionUser } from "../lib/auth";
@@ -60,6 +69,18 @@ export interface ChatState {
   /** The active channel's message list is scrolled to the bottom (new messages count as seen). */
   listAtBottom: boolean;
   toast: string | null;
+  /**
+   * Channels whose cached history may be behind the server (loaded from the
+   * offline cache, or kept across a reconnect): shown at once, refreshed on open.
+   */
+  stale: Record<string, true>;
+  /** The offline cache was applied (or there was none): the shell can stop waiting. */
+  hydrated: boolean;
+  /** Thread replies by the parent's sort key, oldest first; absent until loaded. */
+  threads: Record<string, ChatMessage[]>;
+  /** Per thread: cursor to older replies (`null`: all loaded). */
+  threadCursors: Record<string, string | null>;
+  threadRequests: Record<string, HistoryRequest | undefined>;
 
   setSession: (me: SessionUser | null, team?: DirectoryUser[]) => void;
   setStatus: (status: WsStatus) => void;
@@ -97,9 +118,15 @@ export interface ChatState {
   markRead: (channelId: string) => void;
   /** Your read mark moved (e.g. you read it on another device): recount from it. */
   recountUnread: (channelId: string, sk: string) => void;
-  /** After a reconnect: forget cached history of inactive channels so it reloads on open. */
+  /** After a reconnect: cached history of inactive channels is kept but refreshed on open. */
   invalidateInactive: () => void;
   showToast: (message: string | null) => void;
+  /** Applies the offline snapshot (everything in it is `stale` until the server confirms it). */
+  hydrate: (snapshot: Snapshot | null) => void;
+  threadRequested: (parentSk: string, kind: HistoryRequest) => void;
+  receiveThreadHistory: (parentSk: string, items: Message[], nextCursor: string | null) => void;
+  /** `message.thread_updated`: the parent's counters. */
+  applyThreadUpdate: (event: MessageThreadUpdatedEvent) => void;
 }
 
 /** Same people with the same profiles (by value), so a refresh needn't re-render everything. */
@@ -150,7 +177,44 @@ const initialState = {
   typing: {},
   listAtBottom: true,
   toast: null,
+  stale: {} as Record<string, true>,
+  hydrated: false,
+  threads: {} as Record<string, ChatMessage[]>,
+  threadCursors: {} as Record<string, string | null>,
+  threadRequests: {} as Record<string, HistoryRequest | undefined>,
 };
+
+/** The parent's sort key encoded in a reply's (`thread#<parentSk>#<epoch>#<ulid>`). */
+export function parentSkOf(sk: string): string | null {
+  if (!isThreadSk(sk)) return null;
+  const parts = sk.split("#"); // ["thread", epoch, ulid, epoch, ulid]
+  return parts.length >= 5 ? `${parts[1]}#${parts[2]}` : null;
+}
+
+/** Patches the message with `sk` wherever it lives: the channel list or a thread. */
+function patchMessage(
+  s: Pick<ChatState, "messagesByChannel" | "threads">,
+  channelId: string,
+  sk: string,
+  patch: (m: ChatMessage) => ChatMessage,
+): Partial<ChatState> {
+  const parentSk = parentSkOf(sk);
+  if (parentSk) {
+    const replies = s.threads[parentSk];
+    if (!replies?.some((m) => m.sk === sk)) return {};
+    return {
+      threads: { ...s.threads, [parentSk]: replies.map((m) => (m.sk === sk ? patch(m) : m)) },
+    };
+  }
+  const messages = s.messagesByChannel[channelId];
+  if (!messages?.some((m) => m.sk === sk)) return {};
+  return {
+    messagesByChannel: {
+      ...s.messagesByChannel,
+      [channelId]: messages.map((m) => (m.sk === sk ? patch(m) : m)),
+    },
+  };
+}
 
 /** The watermarks carried by the channel rows, replacing what we had for those channels. */
 function readsOf(
@@ -213,46 +277,83 @@ export const useChat = create<ChatState>()((set, get) => ({
     set((s) => {
       const request = s.historyRequests[channelId];
       const existing = s.messagesByChannel[channelId] ?? [];
-      // A refresh of the newest page must not lose the cursor to older pages.
-      const keepCursor = request === "initial" && channelId in s.cursors && existing.length > 0;
+      // A refresh of the newest page must not lose the cursor to older pages
+      // (unless it's the cache's "there's more, but we don't know where" mark).
+      const keepCursor =
+        request === "initial" &&
+        channelId in s.cursors &&
+        s.cursors[channelId] !== "stale" &&
+        existing.length > 0;
+      const stale = { ...s.stale };
+      delete stale[channelId];
       return {
         messagesByChannel: { ...s.messagesByChannel, [channelId]: mergeMessages(existing, items) },
         cursors: keepCursor ? s.cursors : { ...s.cursors, [channelId]: nextCursor },
         historyRequests: { ...s.historyRequests, [channelId]: undefined },
         directory: learnAuthors(s.directory, items),
+        stale,
       };
     }),
 
   receiveMessage: (message, clientId) =>
-    set((s) => ({
-      messagesByChannel: {
-        ...s.messagesByChannel,
-        [message.channelId]: mergeMessages(s.messagesByChannel[message.channelId] ?? [], [
-          { ...message, clientId },
-        ]),
-      },
-      directory: learnAuthors(s.directory, [message]),
-    })),
-
-  addPending: (message) =>
-    set((s) => ({
-      messagesByChannel: {
-        ...s.messagesByChannel,
-        [message.channelId]: mergeMessages(s.messagesByChannel[message.channelId] ?? [], [message]),
-      },
-    })),
-
-  setPendingStatus: (channelId, clientId, status) =>
     set((s) => {
-      const messages = s.messagesByChannel[channelId];
-      const id = pendingMessageId(clientId);
-      if (!messages?.some((m) => m.messageId === id)) return {};
+      const parentSk = message.parentSk ?? parentSkOf(message.sk);
+      if (parentSk) {
+        // A reply: into its thread (only if that thread is loaded; the parent's
+        // counters, pushed separately, tell everyone else about it).
+        const replies = s.threads[parentSk];
+        if (!replies) return { directory: learnAuthors(s.directory, [message]) };
+        return {
+          threads: { ...s.threads, [parentSk]: mergeMessages(replies, [{ ...message, clientId }]) },
+          directory: learnAuthors(s.directory, [message]),
+        };
+      }
       return {
         messagesByChannel: {
           ...s.messagesByChannel,
-          [channelId]: messages.map((m) => (m.messageId === id ? { ...m, status } : m)),
+          [message.channelId]: mergeMessages(s.messagesByChannel[message.channelId] ?? [], [
+            { ...message, clientId },
+          ]),
+        },
+        directory: learnAuthors(s.directory, [message]),
+      };
+    }),
+
+  addPending: (message) =>
+    set((s) => {
+      if (message.parentSk) {
+        return {
+          threads: {
+            ...s.threads,
+            [message.parentSk]: mergeMessages(s.threads[message.parentSk] ?? [], [message]),
+          },
+        };
+      }
+      return {
+        messagesByChannel: {
+          ...s.messagesByChannel,
+          [message.channelId]: mergeMessages(s.messagesByChannel[message.channelId] ?? [], [
+            message,
+          ]),
         },
       };
+    }),
+
+  setPendingStatus: (channelId, clientId, status) =>
+    set((s) => {
+      const id = pendingMessageId(clientId);
+      const flag = (m: ChatMessage) => (m.messageId === id ? { ...m, status } : m);
+      const messages = s.messagesByChannel[channelId];
+      if (messages?.some((m) => m.messageId === id)) {
+        return {
+          messagesByChannel: { ...s.messagesByChannel, [channelId]: messages.map(flag) },
+        };
+      }
+      const parentSk = Object.keys(s.threads).find((k) =>
+        s.threads[k]!.some((m) => m.messageId === id),
+      );
+      if (!parentSk) return {};
+      return { threads: { ...s.threads, [parentSk]: s.threads[parentSk]!.map(flag) } };
     }),
 
   setUsers: (list, onlineIds) =>
@@ -310,6 +411,10 @@ export const useChat = create<ChatState>()((set, get) => ({
         editing: omit(s.editing),
         reads: omit(s.reads),
         typing: omit(s.typing),
+        stale: omit(s.stale),
+        threads: Object.fromEntries(
+          Object.entries(s.threads).filter(([, list]) => list[0]?.channelId !== channelId),
+        ),
       };
     }),
 
@@ -323,30 +428,10 @@ export const useChat = create<ChatState>()((set, get) => ({
     }),
 
   setReactions: (channelId, sk, reactions) =>
-    set((s) => {
-      const messages = s.messagesByChannel[channelId];
-      if (!messages?.some((m) => m.sk === sk)) return {};
-      return {
-        messagesByChannel: {
-          ...s.messagesByChannel,
-          [channelId]: messages.map((m) => (m.sk === sk ? { ...m, reactions } : m)),
-        },
-      };
-    }),
+    set((s) => patchMessage(s, channelId, sk, (m) => ({ ...m, reactions }))),
 
   applyEdit: (channelId, sk, text, editedAt) =>
-    set((s) => {
-      const messages = s.messagesByChannel[channelId];
-      if (!messages?.some((m) => m.sk === sk)) return {};
-      return {
-        messagesByChannel: {
-          ...s.messagesByChannel,
-          [channelId]: messages.map((m) =>
-            m.sk === sk ? { ...m, text, isEdited: true, editedAt } : m,
-          ),
-        },
-      };
-    }),
+    set((s) => patchMessage(s, channelId, sk, (m) => ({ ...m, text, isEdited: true, editedAt }))),
 
   setEditing: (channelId, target) =>
     set((s) => ({ editing: { ...s.editing, [channelId]: target ?? undefined } })),
@@ -396,17 +481,56 @@ export const useChat = create<ChatState>()((set, get) => ({
 
   invalidateInactive: () =>
     set((s) => {
-      const keep = s.activeChannelId;
-      const pick = <T>(record: Record<string, T>) =>
-        keep && keep in record ? { [keep]: record[keep] as T } : {};
-      return {
-        messagesByChannel: pick(s.messagesByChannel),
-        cursors: pick(s.cursors),
-        historyRequests: {},
-      };
+      // What we have is still worth showing; it's just not guaranteed current.
+      const stale: Record<string, true> = { ...s.stale };
+      for (const id of Object.keys(s.messagesByChannel)) {
+        if (id !== s.activeChannelId) stale[id] = true;
+      }
+      return { stale, historyRequests: {}, threads: {}, threadCursors: {}, threadRequests: {} };
     }),
 
   showToast: (toast) => set({ toast }),
+
+  hydrate: (snapshot) =>
+    set((s) => {
+      if (!snapshot || !s.me) return { hydrated: true };
+      const stale: Record<string, true> = { ...s.stale };
+      const messagesByChannel = { ...s.messagesByChannel };
+      const cursors = { ...s.cursors };
+      for (const [channelId, cached] of Object.entries(snapshot.messagesByChannel)) {
+        if (channelId in messagesByChannel) continue; // the server already spoke
+        messagesByChannel[channelId] = cached;
+        cursors[channelId] = snapshot.cursors[channelId] ?? null;
+        stale[channelId] = true;
+      }
+      return {
+        hydrated: true,
+        channels: s.channelsLoaded ? s.channels : snapshot.channels,
+        pinned: s.pinned.length ? s.pinned : snapshot.pinned,
+        users: Object.keys(s.users).length > 1 ? s.users : { ...snapshot.users, ...s.users },
+        directory: { ...snapshot.directory, ...s.directory },
+        reads: { ...snapshot.reads, ...s.reads },
+        messagesByChannel,
+        cursors,
+        stale,
+      };
+    }),
+
+  threadRequested: (parentSk, kind) =>
+    set((s) => ({ threadRequests: { ...s.threadRequests, [parentSk]: kind } })),
+
+  receiveThreadHistory: (parentSk, items, nextCursor) =>
+    set((s) => ({
+      threads: { ...s.threads, [parentSk]: mergeMessages(s.threads[parentSk] ?? [], items) },
+      threadCursors: { ...s.threadCursors, [parentSk]: nextCursor },
+      threadRequests: { ...s.threadRequests, [parentSk]: undefined },
+      directory: learnAuthors(s.directory, items),
+    })),
+
+  applyThreadUpdate: ({ channelId, sk, replyCount, lastReplyAt, replyUserIds }) =>
+    set((s) =>
+      patchMessage(s, channelId, sk, (m) => ({ ...m, replyCount, lastReplyAt, replyUserIds })),
+    ),
 }));
 
 /** Unread count for a channel (messages from others after your read mark). */

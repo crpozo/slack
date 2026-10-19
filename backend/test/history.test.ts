@@ -35,10 +35,11 @@ describe("history", () => {
     );
 
     expect(result.statusCode).toBe(200);
+    // Top-level rows only: every thread reply sorts after "thread#".
     expect(ddbMock.commandCalls(QueryCommand)[0]?.args[0].input).toEqual({
       TableName: "slack-test-messages",
-      KeyConditionExpression: "channelId = :c",
-      ExpressionAttributeValues: { ":c": GENERAL_CHANNEL_ID },
+      KeyConditionExpression: "channelId = :c AND sk < :prefix",
+      ExpressionAttributeValues: { ":c": GENERAL_CHANNEL_ID, ":prefix": "thread#" },
       ScanIndexForward: false,
       Limit: 50,
       ExclusiveStartKey: undefined,
@@ -139,6 +140,36 @@ describe("history", () => {
     await handler(wsEvent("history", { action: "history", channelId: GENERAL_CHANNEL_ID }));
     const [[, event]] = sentEvents() as [[string, HistoryPageEvent]];
     expect(event.items.map((m) => m.text)).toEqual(["m1", "m3"]);
+  });
+
+  it("reads a thread's replies oldest first, under the parent's key prefix", async () => {
+    const parent = msg(1);
+    ddbMock.on(QueryCommand).resolves({
+      Items: [{ ...parent, sk: `thread#${parent.sk}#${1_700_000_000_005}#R`, text: "r1" }],
+    });
+    await handler(
+      wsEvent("history", {
+        action: "history",
+        channelId: GENERAL_CHANNEL_ID,
+        thread: { messageId: "p1", sk: parent.sk },
+      }),
+    );
+    expect(ddbMock.commandCalls(QueryCommand)[0]?.args[0].input).toMatchObject({
+      KeyConditionExpression: "channelId = :c AND begins_with(sk, :prefix)",
+      ExpressionAttributeValues: { ":c": GENERAL_CHANNEL_ID, ":prefix": `thread#${parent.sk}#` },
+      ScanIndexForward: true,
+    });
+    const [[, event]] = sentEvents() as [[string, HistoryPageEvent]];
+    expect(event.thread).toEqual({ messageId: "p1", sk: parent.sk });
+    expect(event.items.map((m) => m.text)).toEqual(["r1"]);
+  });
+
+  it("still reads an archived channel's history (it's read-only, not gone)", async () => {
+    mockChannels({ ...GENERAL, archived: true });
+    ddbMock.on(QueryCommand).resolves({ Items: [msg(1)] });
+    await handler(wsEvent("history", { action: "history", channelId: GENERAL_CHANNEL_ID }));
+    const [[, event]] = sentEvents() as [[string, HistoryPageEvent]];
+    expect(event.items).toHaveLength(1);
   });
 
   it("sends reactions as sorted arrays instead of DynamoDB sets", async () => {

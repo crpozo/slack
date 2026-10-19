@@ -1,4 +1,5 @@
 import {
+  GENERAL_CHANNEL_ID,
   canEditChannel,
   canRenameChannel,
   ChannelNameSchema,
@@ -447,6 +448,14 @@ export function EditChannelModal({
     onClose();
   }
 
+  const admin = me?.role === "admin";
+  const canArchive = admin && channel.channelId !== GENERAL_CHANNEL_ID && channel.type !== "dm";
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  function toggleArchive() {
+    chat.updateChannel(channel.channelId, { archived: !channel.archived });
+    onClose();
+  }
+
   if (!canEdit) {
     return (
       <Modal title={`#${channel.name}`} width="sm" onClose={onClose}>
@@ -489,6 +498,35 @@ export function EditChannelModal({
       }
     >
       <form id="edit-channel" onSubmit={submit} className="space-y-4">
+        {canArchive && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-sidebar px-3 py-2 text-sm">
+            <span className="min-w-0 flex-1 text-ink-secondary">
+              {channel.archived
+                ? "Archived: read-only, listed under Archived."
+                : "Archiving makes it read-only and moves it out of the sidebar."}
+            </span>
+            {confirmArchive ? (
+              <>
+                <button
+                  type="button"
+                  onClick={toggleArchive}
+                  className="rounded-lg bg-warning px-3 py-1.5 text-xs font-semibold text-on-accent"
+                >
+                  Yes, archive
+                </button>
+                <SecondaryButton onClick={() => setConfirmArchive(false)}>No</SecondaryButton>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => (channel.archived ? toggleArchive() : setConfirmArchive(true))}
+                className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-hover"
+              >
+                {channel.archived ? "Restore channel" : "Archive channel"}
+              </button>
+            )}
+          </div>
+        )}
         <div className="space-y-1.5">
           <label htmlFor="channel-name" className="text-sm font-medium text-ink">
             Name

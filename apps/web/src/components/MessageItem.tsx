@@ -9,7 +9,7 @@ import {
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { chat } from "../lib/chat";
-import { formatTime, seenByLine } from "../lib/channels";
+import { formatDay, formatTime, seenByLine } from "../lib/channels";
 import { QUICK_REACTIONS } from "../lib/emoji";
 import { useMessageGestures } from "../lib/gestures";
 import { renderMarkdown } from "../lib/markdown";
@@ -23,6 +23,7 @@ import {
   EyeIcon,
   EyeOffIcon,
   LockIcon,
+  MessageIcon,
   PencilIcon,
   ReplyIcon,
   SmilePlusIcon,
@@ -67,7 +68,13 @@ function MessageActions({
   message,
   pressed,
   mine,
-}: Readonly<{ message: ChatMessage; pressed: boolean; mine: boolean }>) {
+  onOpenThread,
+}: Readonly<{
+  message: ChatMessage;
+  pressed: boolean;
+  mine: boolean;
+  onOpenThread?: (message: ChatMessage) => void;
+}>) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const close = usePressed((s) => s.set);
   const setReplyTo = useChat((s) => s.setReplyTo);
@@ -130,6 +137,20 @@ function MessageActions({
       >
         <ReplyIcon />
       </button>
+      {onOpenThread && !message.isSecret && (
+        <button
+          type="button"
+          onClick={() => {
+            onOpenThread(message);
+            done();
+          }}
+          className={actionButton}
+          aria-label="Reply in thread"
+          title="Reply in thread"
+        >
+          <MessageIcon />
+        </button>
+      )}
       {mine && message.text && !message.isSecret && !message.kind && (
         <button
           type="button"
@@ -280,6 +301,46 @@ interface MessageItemProps {
   mine: boolean;
   /** The newest message of the conversation (where a DM shows its read receipt). */
   last?: boolean;
+  /** Opens this message's thread; absent inside a thread (replies have no threads). */
+  onOpenThread?: (message: ChatMessage) => void;
+}
+
+/** "3 replies · last reply 2h ago", with the repliers' avatars; opens the thread. */
+function ThreadSummary({
+  message,
+  onOpen,
+}: Readonly<{ message: ChatMessage; onOpen: (message: ChatMessage) => void }>) {
+  const nameOf = useNameOf();
+  const count = message.replyCount ?? 0;
+  if (count === 0) return null;
+  const who = message.replyUserIds ?? [];
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(message)}
+      className="mt-1 flex items-center gap-2 rounded-lg px-1 py-1 text-left text-xs hover:bg-surface-hover"
+      aria-label={`Open thread: ${count} ${count === 1 ? "reply" : "replies"}`}
+    >
+      <span className="flex -space-x-1" aria-hidden="true">
+        {who.slice(-3).map((id) => (
+          <span key={id} className="rounded-lg ring-2 ring-surface">
+            <Avatar name={nameOf(id)} size="xs" />
+          </span>
+        ))}
+      </span>
+      <span className="font-semibold text-primary">
+        {count} {count === 1 ? "reply" : "replies"}
+      </span>
+      {message.lastReplyAt && (
+        <span className="text-ink-secondary">
+          Last reply{" "}
+          {formatDay(message.lastReplyAt) === "Today"
+            ? formatTime(message.lastReplyAt)
+            : formatDay(message.lastReplyAt)}
+        </span>
+      )}
+    </button>
+  );
 }
 
 /** "(edited)" after the time, with the edit's time on hover. */
@@ -352,6 +413,7 @@ export const MessageItem = memo(function MessageItem({
   grouped,
   mine,
   last = false,
+  onOpenThread,
 }: Readonly<MessageItemProps>) {
   const html = useMemo(() => renderMarkdown(message.text), [message.text]);
   const time = formatTime(message.createdAt);
@@ -453,6 +515,7 @@ export const MessageItem = memo(function MessageItem({
           )}
 
           {grouped && message.isEdited && <EditedMark editedAt={message.editedAt} />}
+          {onOpenThread && sent && <ThreadSummary message={message} onOpen={onOpenThread} />}
 
           {!message.status && <Reactions message={message} />}
 
@@ -477,7 +540,14 @@ export const MessageItem = memo(function MessageItem({
         </div>
       </div>
 
-      {sent && <MessageActions message={message} pressed={pressed} mine={mine} />}
+      {sent && (
+        <MessageActions
+          message={message}
+          pressed={pressed}
+          mine={mine}
+          onOpenThread={onOpenThread}
+        />
+      )}
     </div>
   );
 });

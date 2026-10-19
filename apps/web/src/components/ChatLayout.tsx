@@ -25,11 +25,15 @@ import {
 import { selectUnread, useChat } from "../store";
 import { useTasks } from "../store/tasks";
 import { DESKTOP_QUERY, useMediaQuery } from "../lib/hooks";
+import { forgetPersisted, startPersistence } from "../lib/persist";
+import { saveSessionSnapshot } from "../lib/session";
+import { ActivityScreen, AppsRow, BottomTabs, MobileScreen, SearchScreen } from "./MobileScreens";
 import { useCalendar } from "../store/calendar";
 import { CreateChannelModal, NewDmModal } from "./ChannelModals";
 import { CallLayer } from "./CallLayer";
 import { PushPrompt } from "./PushPrompt";
 import { ChannelView } from "./ChannelView";
+import { PlusIcon, SettingsIcon } from "./icons";
 
 // Not needed to show a conversation: loaded on first use, off the initial bundle.
 const TaskManager = lazy(() => import("./TaskManager").then((m) => ({ default: m.TaskManager })));
@@ -53,13 +57,41 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const tasksMatch = useMatch("/app/tasks/:boardId?");
   // `/app/calendar` likewise shows the company calendar.
   const calendarMatch = useMatch("/app/calendar");
-  const channelId = tasksMatch || calendarMatch ? null : (params.channelId ?? GENERAL_CHANNEL_ID);
+  const navigate = useNavigate();
+  // Phones' tabs and a thread's own screen are routes too.
+  const threadMatch = useMatch("/app/:channelId/thread/:messageId");
+  const homeMatch = useMatch("/app/home");
+  const dmsMatch = useMatch("/app/dms");
+  const activityMatch = useMatch("/app/activity");
+  const searchMatch = useMatch("/app/search");
+  const tab = homeMatch
+    ? "home"
+    : dmsMatch
+      ? "dms"
+      : activityMatch
+        ? "activity"
+        : searchMatch
+          ? "search"
+          : null;
+  const channelId =
+    tasksMatch || calendarMatch || tab
+      ? null
+      : (threadMatch?.params.channelId ?? params.channelId ?? GENERAL_CHANNEL_ID);
+  const threadId = threadMatch?.params.messageId;
+  const openThread = useCallback(
+    (m: { messageId: string; channelId: string }) =>
+      navigate(`/app/${encodeURIComponent(m.channelId)}/thread/${encodeURIComponent(m.messageId)}`),
+    [navigate],
+  );
+  const closeThread = useCallback(
+    () => channelId && navigate(`/app/${encodeURIComponent(channelId)}`),
+    [navigate, channelId],
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [newDmOpen, setNewDmOpen] = useState(false);
-  const navigate = useNavigate();
 
   // Desktop sidebar: resizable width + icon-only mode, both remembered.
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
@@ -85,7 +117,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const openDrawer = useCallback(() => setSidebarOpen(true), []);
   const closeDrawer = useCallback(() => setSidebarOpen(false), []);
   const drag = useEdgeSwipe({
-    enabled: !isDesktop,
+    enabled: false, // phones use the tab bar now; the drawer is never shown
     open: sidebarOpen,
     width: drawerWidth,
     onOpen: openDrawer,
@@ -129,6 +161,9 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     chat.stop();
     useTasks.getState().reset();
     useCalendar.getState().reset();
+    const userId = useChat.getState().me?.userId;
+    if (userId) await forgetPersisted(userId);
+    saveSessionSnapshot(null);
     await signOut().catch(() => {});
     useChat.getState().setSession(null);
   }, []);
@@ -142,8 +177,14 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     return () => chat.stop();
   }, [wsUrl, handleSignOut]);
 
-  // Web Push: keep this device's subscription current (never prompts by itself).
+  // Offline cache: paint from the last snapshot, keep it current (see lib/persist).
   const meId = useChat((s) => s.me?.userId);
+  useEffect(() => {
+    if (!meId) return;
+    return startPersistence(meId);
+  }, [meId]);
+
+  // Web Push: keep this device's subscription current (never prompts by itself).
   useEffect(() => {
     if (meId) void syncPush(meId);
   }, [meId]);
@@ -172,7 +213,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     s.setActiveChannel(channelId);
     setSidebarOpen(false);
     if (!channelId) return;
-    if (!(channelId in s.cursors)) chat.loadHistory(channelId, "initial");
+    if (!(channelId in s.cursors) || s.stale[channelId]) chat.loadHistory(channelId, "initial");
     s.setListAtBottom(true);
     chat.viewed(channelId);
   }, [channelId]);
@@ -249,6 +290,137 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     document.title = totalUnread > 0 ? `(${totalUnread}) ${BASE_TITLE}` : BASE_TITLE;
   }, [totalUnread]);
 
+  const overlays = (
+    <>
+      <CallLayer />
+      <Suspense fallback={null}>
+        {switcherOpen && <QuickSwitcher onClose={() => setSwitcherOpen(false)} />}
+        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      </Suspense>
+      {createOpen && (
+        <CreateChannelModal
+          onClose={() => setCreateOpen(false)}
+          onCreated={(id) => {
+            setCreateOpen(false);
+            navigate(`/app/${id}`);
+          }}
+        />
+      )}
+      {newDmOpen && (
+        <NewDmModal
+          onClose={() => setNewDmOpen(false)}
+          onOpened={(id) => {
+            setNewDmOpen(false);
+            setSidebarOpen(false);
+            navigate(`/app/${id}`);
+          }}
+        />
+      )}
+      <Toast />
+    </>
+  );
+
+  if (!isDesktop) {
+    const sidebarProps = {
+      collapsed: false,
+      activeChannelId: channelId ?? "",
+      onOpenSwitcher: () => navigate("/app/search"),
+      onCreateChannel: () => setCreateOpen(true),
+      onNewDm: () => setNewDmOpen(true),
+      onOpenSettings: () => setSettingsOpen(true),
+      onSignOut: () => void handleSignOut(),
+    };
+    const headerButton = "rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink";
+    let screen;
+    if (channelId) {
+      screen = (
+        <ChannelView
+          channelId={channelId}
+          onOpenSidebar={() => navigate("/app/home")}
+          onBack={() => navigate(isDmChannel(channelId) ? "/app/dms" : "/app/home")}
+          threadId={threadId}
+          onOpenThread={openThread}
+          onCloseThread={closeThread}
+        />
+      );
+    } else if (calendarMatch) {
+      screen = (
+        <Suspense
+          fallback={<div className="flex-1" aria-busy="true" aria-label="Loading calendar" />}
+        >
+          <CalendarView />
+        </Suspense>
+      );
+    } else if (tasksMatch) {
+      screen = (
+        <Suspense fallback={<div className="flex-1" aria-busy="true" aria-label="Loading tasks" />}>
+          <TaskManager boardId={tasksMatch.params.boardId} />
+        </Suspense>
+      );
+    } else if (tab === "dms") {
+      screen = (
+        <MobileScreen
+          title="Direct messages"
+          actions={
+            <button
+              type="button"
+              onClick={() => setNewDmOpen(true)}
+              className={headerButton}
+              aria-label="New direct message"
+            >
+              <PlusIcon />
+            </button>
+          }
+        >
+          <Sidebar only="dms" {...sidebarProps} />
+        </MobileScreen>
+      );
+    } else if (tab === "activity") {
+      screen = <ActivityScreen />;
+    } else if (tab === "search") {
+      screen = <SearchScreen />;
+    } else {
+      screen = (
+        <MobileScreen
+          title="Home"
+          actions={
+            <>
+              <button
+                type="button"
+                onClick={() => setCreateOpen(true)}
+                className={headerButton}
+                aria-label="Create channel"
+              >
+                <PlusIcon />
+              </button>
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(true)}
+                className={headerButton}
+                aria-label="Settings"
+              >
+                <SettingsIcon />
+              </button>
+            </>
+          }
+        >
+          <AppsRow />
+          <Sidebar only="channels" {...sidebarProps} />
+        </MobileScreen>
+      );
+    }
+    return (
+      <div className="flex h-full flex-col overflow-hidden bg-surface">
+        <main className="flex min-h-0 w-full flex-1 flex-col">
+          <PushPrompt />
+          {screen}
+        </main>
+        {!channelId && <BottomTabs />}
+        {overlays}
+      </div>
+    );
+  }
+
   return (
     <div
       className={`flex h-full overflow-hidden bg-surface ${resizing ? "cursor-col-resize select-none" : ""}`}
@@ -301,7 +473,13 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
       <main className="flex h-full w-full min-w-0 flex-1 flex-col">
         <PushPrompt />
         {channelId ? (
-          <ChannelView channelId={channelId} onOpenSidebar={() => setSidebarOpen(true)} />
+          <ChannelView
+            channelId={channelId}
+            onOpenSidebar={() => setSidebarOpen(true)}
+            threadId={threadId}
+            onOpenThread={openThread}
+            onCloseThread={closeThread}
+          />
         ) : calendarMatch ? (
           <Suspense
             fallback={<div className="flex-1" aria-busy="true" aria-label="Loading calendar" />}
@@ -320,31 +498,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         )}
       </main>
 
-      <CallLayer />
-      <Suspense fallback={null}>
-        {switcherOpen && <QuickSwitcher onClose={() => setSwitcherOpen(false)} />}
-        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
-      </Suspense>
-      {createOpen && (
-        <CreateChannelModal
-          onClose={() => setCreateOpen(false)}
-          onCreated={(id) => {
-            setCreateOpen(false);
-            navigate(`/app/${id}`);
-          }}
-        />
-      )}
-      {newDmOpen && (
-        <NewDmModal
-          onClose={() => setNewDmOpen(false)}
-          onOpened={(id) => {
-            setNewDmOpen(false);
-            setSidebarOpen(false);
-            navigate(`/app/${id}`);
-          }}
-        />
-      )}
-      <Toast />
+      {overlays}
     </div>
   );
 }

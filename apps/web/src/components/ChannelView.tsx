@@ -9,12 +9,23 @@ import { Link, useNavigate } from "react-router-dom";
 import { calls, useCall } from "../lib/call";
 import { channelLabel, dmPeer } from "../lib/channels";
 import { supportsCalls } from "../lib/media";
-import { useChat, useIsOnline, useNameOf } from "../store";
+import { useChat, useIsOnline, useNameOf, type ChatMessage } from "../store";
 import { PresenceDot } from "./Avatar";
 import { CallPanel, useCallExpanded } from "./CallLayer";
 import { Composer, type ComposerHandle } from "./Composer";
 import { EditChannelModal, InviteModal } from "./ChannelModals";
-import { HashIcon, LockIcon, MenuIcon, PhoneIcon, UserPlusIcon, VideoIcon } from "./icons";
+import {
+  ArchiveIcon,
+  ArrowDownIcon,
+  HashIcon,
+  LockIcon,
+  MenuIcon,
+  PhoneIcon,
+  UserPlusIcon,
+  VideoIcon,
+} from "./icons";
+import { ThreadPanel } from "./ThreadPanel";
+import { DESKTOP_QUERY, useMediaQuery } from "../lib/hooks";
 import { MessageList } from "./MessageList";
 import { UnreadAlertsDot } from "./NotificationBell";
 import { TypingIndicator } from "./TypingIndicator";
@@ -116,6 +127,7 @@ function ChannelHeader({
   channelId,
   channel,
   label,
+  onBack,
   access,
   myUserId,
   onOpenSidebar,
@@ -128,6 +140,7 @@ function ChannelHeader({
   access: Access;
   myUserId: string;
   onOpenSidebar: () => void;
+  onBack?: () => void;
   onInvite: () => void;
   /** Opens the channel's details (editable by its creator or an admin). */
   onDetails: () => void;
@@ -136,15 +149,26 @@ function ChannelHeader({
   const KindIcon = isPrivate ? LockIcon : HashIcon;
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
-      <button
-        type="button"
-        onClick={onOpenSidebar}
-        className="relative rounded-md p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink md:hidden"
-        aria-label="Open menu"
-      >
-        <MenuIcon />
-        <UnreadAlertsDot />
-      </button>
+      {onBack ? (
+        <button
+          type="button"
+          onClick={onBack}
+          className="rounded-md p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink md:hidden"
+          aria-label="Back"
+        >
+          <ArrowDownIcon className="rotate-90" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={onOpenSidebar}
+          className="relative rounded-md p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink md:hidden"
+          aria-label="Open menu"
+        >
+          <MenuIcon />
+          <UnreadAlertsDot />
+        </button>
+      )}
       {!dm && <KindIcon className="shrink-0 text-ink-secondary" />}
       {dm || !channel ? (
         <h1 className="truncate font-semibold text-ink">{label}</h1>
@@ -199,9 +223,19 @@ function NotFound() {
 export function ChannelView({
   channelId,
   onOpenSidebar,
+  onBack,
+  threadId,
+  onOpenThread,
+  onCloseThread,
 }: Readonly<{
   channelId: string;
   onOpenSidebar: () => void;
+  /** Phones with the tab bar: a back arrow instead of the menu button. */
+  onBack?: () => void;
+  /** The open thread's parent message id (desktop: side panel; phones: its own screen). */
+  threadId?: string;
+  onOpenThread?: (message: ChatMessage) => void;
+  onCloseThread?: () => void;
 }>) {
   const me = useChat((s) => s.me);
   const channel = useChat((s) => s.channels.find((c) => c.channelId === channelId));
@@ -213,8 +247,15 @@ export function ChannelView({
   const [dragging, setDragging] = useState(false);
   // The call fills the column: messages and composer stay mounted but hidden.
   const callExpanded = useCallExpanded(channelId);
+  const threadParent = useChat((s) =>
+    threadId ? s.messagesByChannel[channelId]?.find((m) => m.messageId === threadId) : undefined,
+  );
+  const desktop = useMediaQuery(DESKTOP_QUERY);
 
   if (!me) return null;
+  const archived = !!channel?.archived;
+  // Phones: the thread takes the whole screen, header included.
+  const mobileThread = !!threadParent && !desktop;
   const access = channelAccess(channelId, channel, me.userId, channelsLoaded);
   const label = channelLabel(channelId, channel, me.userId, (id) => nameOf(id));
   const title = access.dm ? label : `#${label}`;
@@ -240,16 +281,27 @@ export function ChannelView({
       }}
       onDrop={handleDrop}
     >
-      <ChannelHeader
-        channelId={channelId}
-        channel={channel}
-        label={label}
-        access={access}
-        myUserId={me.userId}
-        onOpenSidebar={onOpenSidebar}
-        onInvite={() => setInviting(true)}
-        onDetails={() => setDetails(true)}
-      />
+      {!mobileThread && (
+        <ChannelHeader
+          channelId={channelId}
+          channel={channel}
+          label={label}
+          access={access}
+          myUserId={me.userId}
+          onOpenSidebar={onOpenSidebar}
+          onBack={onBack}
+          onInvite={() => setInviting(true)}
+          onDetails={() => setDetails(true)}
+        />
+      )}
+      {archived && !mobileThread && (
+        <div
+          className="flex items-center justify-center gap-2 border-b border-line bg-warning/15 px-4 py-1.5 text-xs font-medium text-ink"
+          role="status"
+        >
+          <ArchiveIcon /> This channel is archived
+        </div>
+      )}
       {inviting && channel && <InviteModal channel={channel} onClose={() => setInviting(false)} />}
       {details && channel && (
         <EditChannelModal channel={channel} onClose={() => setDetails(false)} />
@@ -260,16 +312,34 @@ export function ChannelView({
       ) : (
         <>
           <CallPanel channelId={channelId} />
-          <div className={callExpanded ? "hidden" : "contents"}>
-            <MessageList channelId={channelId} title={title} />
-            <TypingIndicator channelId={channelId} />
-            <Composer
-              key={channelId}
-              ref={composer}
-              channelId={channelId}
-              disabled={!channel}
-              placeholder={channel ? `Message ${title}` : "Opening conversation…"}
-            />
+          <div className={callExpanded ? "hidden" : "flex min-h-0 flex-1"}>
+            {/* Phones show the thread instead of the conversation; desktop beside it. */}
+            <div
+              className={`flex min-h-0 min-w-0 flex-1 flex-col ${
+                threadParent && !desktop ? "hidden" : ""
+              }`}
+            >
+              <MessageList channelId={channelId} title={title} onOpenThread={onOpenThread} />
+              <TypingIndicator channelId={channelId} />
+              <Composer
+                key={channelId}
+                ref={composer}
+                channelId={channelId}
+                disabled={!channel}
+                readOnly={archived}
+                placeholder={channel ? `Message ${title}` : "Opening conversation…"}
+              />
+            </div>
+            {threadParent && onCloseThread && (
+              <div className="flex min-h-0 w-full flex-col md:w-96 md:shrink-0 md:border-l md:border-line">
+                <ThreadPanel
+                  channelId={channelId}
+                  parent={threadParent}
+                  onClose={onCloseThread}
+                  readOnly={archived}
+                />
+              </div>
+            )}
           </div>
         </>
       )}

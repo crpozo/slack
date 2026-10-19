@@ -5,6 +5,7 @@ import {
   PutCommand,
   QueryCommand,
   ScanCommand,
+  TransactWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { dmChannelId, GENERAL_CHANNEL_ID, compareIds, type Attachment } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -178,6 +179,72 @@ describe("message", () => {
     const [, event] = sentEvents()[1] as [string, { message: { attachments: Attachment[] } }];
     expect(event.message.attachments[0]?.url).toMatch(/\/attachments\/ch_general\/x\.png\?/);
     expect(event.message.attachments[0]?.thumbUrl).toMatch(/x\.webp\?/);
+  });
+
+  it("stores a thread reply with its parent's counters in one transaction", async () => {
+    const parentSk = "1700000000000#P";
+    ddbMock
+      .on(GetCommand, {
+        TableName: "slack-test-messages",
+        Key: { channelId: GENERAL_CHANNEL_ID, sk: parentSk },
+      })
+      .resolves({
+        Item: { messageId: "p1", replyCount: 2, replyUserIds: [BOB.userId, ALICE.userId] },
+      });
+    ddbMock.on(TransactWriteCommand).resolves({});
+
+    const result = await send({
+      action: "message",
+      channelId: GENERAL_CHANNEL_ID,
+      text: "me too",
+      clientId: "c7",
+      thread: { messageId: "p1", sk: parentSk },
+    });
+
+    expect(result.statusCode).toBe(200);
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    const items = ddbMock.commandCalls(TransactWriteCommand)[0]?.args[0].input.TransactItems ?? [];
+    expect(items[0]?.Put?.Item).toMatchObject({
+      channelId: GENERAL_CHANNEL_ID,
+      parentId: "p1",
+      parentSk,
+      text: "me too",
+    });
+    expect(String(items[0]?.Put?.Item?.sk)).toMatch(/^thread#1700000000000#P#\d+#/);
+    expect(items[1]?.Update).toMatchObject({
+      Key: { channelId: GENERAL_CHANNEL_ID, sk: parentSk },
+      ExpressionAttributeValues: expect.objectContaining({
+        ":count": 3,
+        ":ids": [BOB.userId, ALICE.userId], // Alice already replied: moved to the end, no repeat
+        ":was": 2,
+      }),
+    });
+    const types = sentEvents()
+      .map(([id, e]) => `${id}:${e.type}`)
+      .sort();
+    expect(types).toEqual([
+      "conn-alice:message.new",
+      "conn-alice:message.thread_updated",
+      "conn-bob:message.new",
+      "conn-bob:message.thread_updated",
+    ]);
+    const counters = sentEvents().find(([, e]) => e.type === "message.thread_updated")?.[1];
+    expect(counters).toMatchObject({ sk: parentSk, messageId: "p1", replyCount: 3 });
+  });
+
+  it("refuses a reply to a missing parent, to a reply, or as a secret", async () => {
+    ddbMock.on(GetCommand, { TableName: "slack-test-messages" }).resolves({});
+    const base = { action: "message", channelId: GENERAL_CHANNEL_ID, text: "x", clientId: "c8" };
+    await send({ ...base, thread: { messageId: "nope", sk: "1700000000000#N" } });
+    expect(sentEvents()[0]?.[1]).toMatchObject({ type: "error", code: "MESSAGE_NOT_FOUND" });
+    await send({
+      ...base,
+      thread: { messageId: "r", sk: "thread#1700000000000#P#1700000000001#R" },
+    });
+    expect(sentEvents()[1]?.[1]).toMatchObject({ type: "error", code: "BAD_REQUEST" });
+    await send({ ...base, isSecret: true, thread: { messageId: "p1", sk: "1700000000000#P" } });
+    expect(sentEvents()[2]?.[1]).toMatchObject({ type: "error", code: "BAD_REQUEST" });
+    expect(ddbMock.commandCalls(TransactWriteCommand)).toHaveLength(0);
   });
 
   it("returns CHANNEL_NOT_FOUND for an unknown channel", async () => {

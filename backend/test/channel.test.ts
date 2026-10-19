@@ -77,14 +77,15 @@ describe("channel", () => {
     ddbMock.on(QueryCommand).resolves({ Items: [] }); // no unread messages
   });
 
-  it("list returns visible channels only to the sender", async () => {
+  it("list returns visible channels only to the sender, archived ones included", async () => {
     mockScans([general, archived, foreignDm]);
 
     const result = await handler(wsEvent("channel", { action: "channel", op: "list" }));
 
     expect(result.statusCode).toBe(200);
+    // Archived channels stay listed (read-only, under "Archived"); someone else's DM doesn't.
     expect(sentEvents()).toEqual([
-      ["conn-alice", { type: "channel.list", channels: [general], unread: {} }],
+      ["conn-alice", { type: "channel.list", channels: [general, archived], unread: {} }],
     ]);
   });
 
@@ -817,5 +818,77 @@ describe("project channels", () => {
     expect(input?.UpdateExpression).toBe("SET #isProject = :isProject REMOVE #linkedBoardId");
     expect(input?.ExpressionAttributeValues).toEqual({ ":isProject": false });
     expect(transactions()).toHaveLength(0);
+  });
+});
+
+describe("channel archive", () => {
+  const team = { ...privateRow("ch_team", ALICE.userId, [ALICE.userId, BOB.userId]), slug: "team" };
+  const frozen = {
+    ...privateRow("ch_old", ALICE.userId, [ALICE.userId]),
+    slug: "old",
+    archived: true,
+  };
+  const update = (fields: object, user: object = ALICE, channelId = "ch_team") =>
+    handler(
+      wsEvent(
+        "channel",
+        { action: "channel", op: "update", channelId, ...fields },
+        { user: user as typeof ALICE },
+      ),
+    );
+  const admin = { ...ALICE, role: "admin" };
+
+  beforeEach(() => {
+    resetMocks();
+    ddbMock
+      .on(ScanCommand, { TableName: "slack-test-channels" })
+      .resolves({ Items: [general, team, frozen] });
+    ddbMock.on(ScanCommand, { TableName: "slack-test-connections" }).resolves({
+      Items: [{ connectionId: "conn-alice", userId: ALICE.userId }],
+    });
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { ...team, archived: true } });
+  });
+
+  it("an admin archives a channel; members hear channel.updated with archived: true", async () => {
+    await update({ archived: true }, admin);
+    const input = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(input?.Key).toEqual({ channelId: "ch_team" });
+    expect(input?.UpdateExpression).toBe("SET #archived = :archived");
+    expect(input?.ExpressionAttributeValues).toEqual({ ":archived": true });
+    expect(sentEvents()).toEqual([
+      [
+        "conn-alice",
+        expect.objectContaining({
+          type: "channel.updated",
+          channel: expect.objectContaining({ archived: true }),
+        }),
+      ],
+    ]);
+  });
+
+  it("an admin restores an archived channel, which is otherwise frozen", async () => {
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { ...frozen, archived: false } });
+    await update({ archived: false }, admin, "ch_old");
+    expect(
+      ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input?.ExpressionAttributeValues,
+    ).toEqual({ ":archived": false });
+    resetMocks();
+    ddbMock
+      .on(ScanCommand, { TableName: "slack-test-channels" })
+      .resolves({ Items: [general, team, frozen] });
+    await update({ topic: "Still here?" }, admin, "ch_old");
+    expect(sentEvents()[0]?.[1]).toMatchObject({ type: "error", code: "CHANNEL_NOT_FOUND" });
+  });
+
+  it("refuses non-admins (even the creator), #general and DMs", async () => {
+    await update({ archived: true });
+    expect(sentEvents()[0]?.[1]).toMatchObject({ type: "error", code: "FORBIDDEN" });
+    resetMocks();
+    ddbMock
+      .on(ScanCommand, { TableName: "slack-test-channels" })
+      .resolves({ Items: [general, team, frozen] });
+    await update({ archived: true }, admin, "ch_general");
+    expect(sentEvents()[0]?.[1]).toMatchObject({ type: "error", code: "FORBIDDEN" });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
   });
 });
