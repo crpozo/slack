@@ -2,13 +2,14 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatDay, formatTime } from "../lib/channels";
 import { useNotifications, useUnreadAlerts, type AppAlert } from "../store/notifications";
-import { BellIcon, KanbanIcon, MessageIcon } from "./icons";
+import { BellIcon, CalendarIcon, KanbanIcon, MessageIcon } from "./icons";
 import { Popover } from "./Popover";
 
 const KIND_ICON: Record<AppAlert["kind"], typeof BellIcon> = {
   message: MessageIcon,
   mention: MessageIcon,
   task: KanbanIcon,
+  calendar: CalendarIcon,
 };
 
 /** Red dot for "you have unread alerts", e.g. on the phone's menu button. */

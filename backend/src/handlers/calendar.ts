@@ -383,18 +383,22 @@ async function updateEvent(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
     }),
   );
   log.info("event updated", { eventId, userId: caller.userId, fields: Object.keys(patch) });
-  // Someone dropped from a meeting must hear about it too: tell both audiences.
-  const connections = await notify(before, {
-    type: "calendar.event_deleted",
-    eventId,
-    by: caller.userId,
-  });
-  await deliver(
-    connections.filter((c) => eventAudience(updated)(c)),
-    () => ({ type: "calendar.event_updated", event: updated, by: caller.userId }),
-  ).catch((err: unknown) =>
-    log.error("calendar broadcast failed", { eventId, ...errorFields(err) }),
-  );
+  // Whoever may still see it gets the update; anyone dropped from a meeting, a deletion.
+  let connections: LiveConnection[] = [];
+  try {
+    connections = await listConnections();
+    const sees = eventAudience(updated);
+    const saw = eventAudience(before);
+    await deliver(
+      connections.filter((c) => saw(c) || sees(c)),
+      (c) =>
+        sees(c)
+          ? { type: "calendar.event_updated", event: updated, by: caller.userId }
+          : { type: "calendar.event_deleted", eventId, by: caller.userId },
+    );
+  } catch (err) {
+    log.error("calendar broadcast failed", { eventId, ...errorFields(err) });
+  }
   if (updated.type === "meeting" && before.type === "meeting") {
     const newcomers = updated.participants.filter((id) => !before.participants.includes(id));
     if (newcomers.length > 0) {

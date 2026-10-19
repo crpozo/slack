@@ -7,6 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Calendar** (Apps → Calendar): a shared company calendar with month, week and day views.
+  Meetings with invitees (only participants see them; invitees are notified), **vacation
+  requests** charged in working days against a yearly allowance of 15 (admins can adjust it),
+  an **admin approval queue** (pending → approved / rejected, days released on rejection or
+  cancellation) and **national holidays** added by admins on everyone's calendar. New `events`
+  and `vacation-balances` DynamoDB tables and `/calendar/*` routes on the HTTP API.
 - **Presence:** green dot for online, hollow gray ring for offline next to people under
   _Direct messages_ and in the DM header. Multiple tabs/devices count as one presence.
 - **Delete channels and DMs** from the header (creator only for channels, never `#general`;

@@ -3,6 +3,7 @@ import {
   dmChannelId,
   isDmChannel,
   type BoardEvent,
+  type CalendarPushEvent,
   type ChannelVisibility,
   type Attachment,
   type ErrorCode,
@@ -18,11 +19,12 @@ import { useNotifications } from "../store/notifications";
 import { getIdToken, SessionExpiredError } from "./auth";
 import { calls } from "./call";
 import { isAppActive, watchActivity } from "./activity";
-import { boardActivity, raiseAlert } from "./alerts";
+import { boardActivity, calendarActivity, raiseAlert } from "./alerts";
 import { notificationBody, prepareDesktopNotifications, shouldNotify } from "./desktop";
 import { startHeartbeat } from "./heartbeat";
 import { playMessageSound } from "./sounds";
 import { useTasks } from "../store/tasks";
+import { useCalendar } from "../store/calendar";
 import { WsClient, type DistributiveOmit } from "./ws";
 
 const ERROR_TEXT: Record<ErrorCode, string> = {
@@ -255,12 +257,23 @@ class ChatController {
       const activity = boardActivity(event, me.userId);
       if (activity) raiseAlert(activity);
     };
+    // Company calendar pushes, the same way.
+    const applyCalendarEvent = (event: CalendarPushEvent) => {
+      const me = store().me;
+      if (!me) return;
+      useCalendar.getState().applyEvent(event, me);
+      const activity = calendarActivity(event, me.userId);
+      if (activity) raiseAlert(activity);
+    };
     this.cleanups.push(
       client.on("board.task_created", applyBoardEvent),
       client.on("board.task_updated", applyBoardEvent),
       client.on("board.task_deleted", applyBoardEvent),
       client.on("board.updated", applyBoardEvent),
       client.on("board.deleted", applyBoardEvent),
+      client.on("calendar.event_created", applyCalendarEvent),
+      client.on("calendar.event_updated", applyCalendarEvent),
+      client.on("calendar.event_deleted", applyCalendarEvent),
       // Keep the connection alive (API Gateway drops idle sockets after 10 minutes)
       // and tell the server whether we're in front of the person: it pushes to
       // their devices only while none of them is active.

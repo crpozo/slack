@@ -18,6 +18,7 @@ import { DeleteChannelModal, EditChannelModal } from "./ChannelModals";
 import { NotificationBell } from "./NotificationBell";
 import { Popover } from "./Popover";
 import {
+  CalendarIcon,
   HashIcon,
   KanbanIcon,
   LockIcon,
@@ -517,6 +518,14 @@ export function Sidebar({
               active={activeChannelId === "tasks"}
               unread={0}
               onClick={() => navigate("/app/tasks")}
+            />
+            <NavItem
+              compact={compact}
+              label="Calendar"
+              icon={<CalendarIcon className="text-ink-secondary" />}
+              active={activeChannelId === "calendar"}
+              unread={0}
+              onClick={() => navigate("/app/calendar")}
             />
           </ul>
         </Section>

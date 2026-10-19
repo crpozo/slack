@@ -49,7 +49,7 @@ function request(
     body?: unknown;
   } = {},
 ): HttpEvent {
-  const user = opts.user ?? ALICE;
+  const user: { userId: string; email: string; groups?: string[] } = opts.user ?? ALICE;
   const [method, path] = routeKey.split(" ");
   return {
     version: "2.0",
@@ -155,11 +155,9 @@ beforeEach(() => {
 
 describe("listing", () => {
   it("returns what the caller may see, in a month, querying the years it spans", async () => {
-    ddbMock
-      .on(QueryCommand, { TableName: EVENTS })
-      .resolves({
-        Items: [holidayRow, meetingRow, vacationRow("pending"), vacationRow("approved")],
-      });
+    ddbMock.on(QueryCommand, { TableName: EVENTS }).resolves({
+      Items: [holidayRow, meetingRow, vacationRow("pending"), vacationRow("approved")],
+    });
 
     const { status, body } = await call("GET /calendar/events", {
       user: CAROL,
@@ -290,6 +288,8 @@ describe("meetings", () => {
     const byType = sentEvents().map(([id, e]) => `${id}:${e.type}`);
     expect(byType).toContain("conn-bob:calendar.event_deleted");
     expect(byType).toContain("conn-carol:calendar.event_updated");
+    expect(byType).toContain("conn-alice:calendar.event_updated");
+    expect(byType).not.toContain("conn-alice:calendar.event_deleted");
     expect(byType).not.toContain("conn-carol:calendar.event_created");
     expect(sendPush).toHaveBeenCalledWith([CAROL.userId], expect.anything());
   });

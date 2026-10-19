@@ -87,3 +87,97 @@
     @apply bg-transparent p-0;
   }
 }
+
+/* FullCalendar (company calendar), on the design tokens so it follows the theme. */
+.fc {
+  --fc-border-color: rgb(var(--c-line));
+  --fc-page-bg-color: rgb(var(--c-surface));
+  --fc-neutral-bg-color: rgb(var(--c-surface-sidebar));
+  --fc-neutral-text-color: rgb(var(--c-ink-secondary));
+  --fc-today-bg-color: rgb(var(--c-primary) / 0.12);
+  --fc-highlight-color: rgb(var(--c-sky) / 0.3);
+  --fc-now-indicator-color: rgb(var(--c-error));
+  --fc-event-bg-color: rgb(var(--c-primary));
+  --fc-event-border-color: rgb(var(--c-primary-hover));
+  --fc-event-text-color: rgb(var(--c-on-accent));
+  --fc-more-link-bg-color: rgb(var(--c-surface-hover));
+  --fc-more-link-text-color: rgb(var(--c-ink));
+  --fc-non-business-color: rgb(var(--c-surface-sidebar) / 0.6);
+  font-size: 0.875rem;
+}
+.fc .fc-col-header-cell-cushion,
+.fc .fc-daygrid-day-number,
+.fc .fc-timegrid-slot-label-cushion,
+.fc .fc-timegrid-axis-cushion {
+  color: rgb(var(--c-ink-secondary));
+  text-decoration: none;
+  font-weight: 500;
+}
+.fc .fc-day-today .fc-daygrid-day-number {
+  color: rgb(var(--c-ink));
+  font-weight: 700;
+}
+.fc .fc-daygrid-day-frame {
+  min-height: 5.5rem;
+}
+.fc .fc-event {
+  cursor: pointer;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.fc .fc-event-main {
+  color: inherit;
+}
+.fc .ev-meeting {
+  background: rgb(var(--c-primary));
+  border-color: rgb(var(--c-primary-hover));
+  color: rgb(var(--c-on-accent));
+}
+.fc .ev-vacation {
+  background: rgb(var(--c-success));
+  border-color: rgb(var(--c-success));
+  color: rgb(var(--c-on-accent));
+}
+.fc .ev-vacation.ev-pending {
+  background: rgb(var(--c-success) / 0.2);
+  border: 1px dashed rgb(var(--c-success));
+  color: rgb(var(--c-ink));
+}
+.fc .ev-holiday {
+  background: rgb(var(--c-error));
+  border-color: rgb(var(--c-error));
+  color: rgb(var(--c-on-accent));
+}
+.fc .fc-day.fc-holiday {
+  background: rgb(var(--c-error) / 0.08);
+}
+.fc .fc-popover {
+  background: rgb(var(--c-surface-raised));
+  border-color: rgb(var(--c-line));
+  border-radius: 0.75rem;
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.15);
+}
+.fc .fc-popover-header {
+  background: rgb(var(--c-surface-sidebar));
+  color: rgb(var(--c-ink));
+}
+.fc .fc-timegrid-slot {
+  height: 2.25rem;
+}
+.fc .fc-scrollgrid {
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+/* Phones: fewer pixels per day cell, still readable. */
+@media (max-width: 640px) {
+  .fc .fc-daygrid-day-frame {
+    min-height: 4rem;
+  }
+  .fc .fc-event {
+    font-size: 0.6875rem;
+  }
+  .fc .fc-col-header-cell-cushion {
+    font-size: 0.75rem;
+  }
+}
