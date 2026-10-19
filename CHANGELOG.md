@@ -60,6 +60,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **Pin chats:** _Pin chat_ in a DM's ⋯ menu keeps it at the top of Direct messages, with a pin;
   pins follow you across devices.
 
+- **Secret messages** for passwords and API keys: the 🔒 button in the composer (or `/secret `
+  at the start of the message) sends the text masked as `••••••••`; readers press the eye to
+  reveal it on their screen, and Copy copies it. DynamoDB deletes the message exactly 7 days
+  after it was sent (TTL on `expiresAt`); notifications, pushes and reply quotes only ever say
+  "🔒 Secret". A secret can't be edited and can't carry files.
+- **PDF viewer:** PDFs open in a large in-app window (the browser's own PDF viewer in a frame)
+  instead of jumping to the S3 link, with Download and "New tab" for iPhones, which show only the
+  first page in a frame.
 - **Image viewer:** clicking an image opens it full screen inside the app (no more jumping to the
   raw S3 link): zoom with the wheel, a pinch or double-click / double-tap, drag to pan, Esc or a
   tap beside the picture to close, and a Download button.
