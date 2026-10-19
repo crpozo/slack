@@ -68,9 +68,11 @@ describe("company calendar", () => {
     expect(fn).toBeDefined();
     const env = fn?.Properties.Environment.Variables as Record<string, unknown>;
     expect(Object.keys(env).sort()).toEqual([
+      "CHANNELS_TABLE",
       "CONNECTIONS_TABLE",
       "EVENTS_TABLE",
       "LOG_LEVEL",
+      "MESSAGES_TABLE",
       "PUSH_SUBSCRIPTIONS_TABLE",
       "STAGE",
       "USERS_TABLE",
@@ -121,7 +123,9 @@ describe("company calendar", () => {
     expect(actionsOn("DataUsers")).toEqual(["dynamodb:BatchGetItem", "dynamodb:GetItem"]);
     expect(actionsOn("DataBoards")).toEqual([]);
     expect(actionsOn("DataTasks")).toEqual([]);
-    expect(actionsOn("DataMessages")).toEqual([]);
+    // DM meetings: the conversation row, and the card written with the event (retries find it).
+    expect(actionsOn("DataChannels")).toEqual(["dynamodb:GetItem"]);
+    expect(actionsOn("DataMessages")).toEqual(["dynamodb:PutItem", "dynamodb:Query"]);
     expect(actionsOn("DataConnections")).toEqual(["dynamodb:DeleteItem", "dynamodb:Scan"]);
     expect(actionsOn("DataPushSubscriptions")).toEqual(["dynamodb:DeleteItem", "dynamodb:Query"]);
     expect(

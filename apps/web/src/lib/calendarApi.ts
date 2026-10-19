@@ -1,6 +1,7 @@
 import type {
   CalendarEvent,
   CreateEventInput,
+  Message,
   UpdateEventInput,
   VacationBalance,
   VacationDecisionInput,
@@ -18,9 +19,16 @@ export const calendarApi = {
       "GET",
       `/calendar/events?from=${id(from)}&to=${id(to)}`,
     ).then((r) => r.events),
-  /** A meeting (anyone), a vacation request (anyone) or a holiday (admins). */
+  /**
+   * A meeting (anyone), a vacation request (anyone) or a holiday (admins). A
+   * meeting with `channelId` (a DM) also posts a card there: `message`.
+   */
   createEvent: (input: CreateEventInput) =>
-    request<{ event: CalendarEvent; balance?: VacationBalance }>("POST", "/calendar/events", input),
+    request<{ event: CalendarEvent; balance?: VacationBalance; message?: Message }>(
+      "POST",
+      "/calendar/events",
+      input,
+    ),
   updateEvent: (eventId: string, patch: UpdateEventInput) =>
     request<{ event: CalendarEvent }>("PUT", `/calendar/events/${id(eventId)}`, patch).then(
       (r) => r.event,

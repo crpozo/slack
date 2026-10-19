@@ -26,9 +26,14 @@ import {
   YearSchema,
   yearOf,
   type CalendarEvent,
+  dmMembers,
+  meetingCardText,
+  newMessageSk,
   type CalendarPushEvent,
   type HolidayEvent,
+  type MeetingCard,
   type MeetingEvent,
+  type Message,
   type UpdateEventInput,
   type VacationBalance,
   type VacationEvent,
@@ -47,6 +52,7 @@ import {
   toItem,
   vacationsOf,
 } from "../lib/calendar";
+import { channelAudience, getAccessibleChannel } from "../lib/channels";
 import { adminUserIds } from "../lib/cognito";
 import { ddb, tables } from "../lib/ddb";
 import {
@@ -62,6 +68,7 @@ import {
   type HttpResult,
 } from "../lib/http";
 import { errorFields, log } from "../lib/logger";
+import { findSentMessage } from "../lib/messages";
 import { displayNameOf } from "../lib/notify";
 import { sendPush } from "../lib/push";
 import { guestsAmong, unknownUsers } from "../lib/users";
@@ -193,6 +200,9 @@ async function createMeeting(
   input: Extract<ReturnType<typeof CreateEventSchema.parse>, { type: "meeting" }>,
   caller: HttpCaller,
 ): Promise<HttpResult> {
+  if (input.channelId !== undefined) {
+    return createDmMeeting({ ...input, channelId: input.channelId }, caller);
+  }
   const invited = await checkParticipants(input.participants, caller);
   const now = Date.now();
   const meeting: MeetingEvent = {
@@ -222,6 +232,129 @@ async function createMeeting(
     });
   }
   return json(201, { event: meeting });
+}
+
+/**
+ * A meeting scheduled from a direct message: its participants are the DM's
+ * two people (from the channel id, never the body), and a "meeting scheduled"
+ * card is posted in the conversation. The event and the message are written
+ * in one transaction, so the calendar and the chat never disagree; the
+ * pushes afterwards are best effort, as everywhere (a reload shows both).
+ */
+async function createDmMeeting(
+  input: Extract<ReturnType<typeof CreateEventSchema.parse>, { type: "meeting" }> & {
+    channelId: string;
+  },
+  caller: HttpCaller,
+): Promise<HttpResult> {
+  const { channelId } = input;
+  const members = dmMembers(channelId);
+  const channel = members ? await getAccessibleChannel(channelId, caller.userId) : null;
+  if (!members || !channel || channel.type !== "dm") throw notFound("Conversation not found");
+  const peers = [...new Set(members)].filter((id) => id !== caller.userId);
+  if ((await guestsAmong(peers)).length > 0) {
+    throw new HttpError(400, "Guests can't be invited to meetings");
+  }
+
+  // A retry of a request that did go through: hand back what it created.
+  if (input.clientId) {
+    const sent = await findSentMessage(channelId, caller.userId, input.clientId);
+    if (sent?.meeting) {
+      const event = await getEvent(sent.meeting.eventId);
+      log.info("duplicate meeting request ignored", { channelId, eventId: sent.meeting.eventId });
+      return json(201, { event, message: sent });
+    }
+  }
+
+  const now = Date.now();
+  const span = meetingSpan(input);
+  const participants = [...new Set(members)].sort((a, b) => a.localeCompare(b));
+  const meeting: MeetingEvent = {
+    eventId: `ev_${ulid()}`,
+    type: "meeting",
+    title: input.title,
+    description: input.description,
+    ...span,
+    participants,
+    createdBy: caller.userId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const card: MeetingCard = {
+    eventId: meeting.eventId,
+    title: meeting.title,
+    description: meeting.description,
+    allDay: false,
+    startAt: meeting.startAt,
+    endAt: meeting.endAt,
+    participants,
+  };
+  const message: Message = {
+    messageId: ulid(now),
+    channelId,
+    sk: newMessageSk(now),
+    userId: caller.userId,
+    userEmail: caller.email,
+    text: meetingCardText(card),
+    attachments: [],
+    createdAt: now,
+    reactions: {},
+    kind: "meeting",
+    meeting: card,
+    ...(input.clientId && { clientId: input.clientId }),
+  };
+  await ddb.send(
+    new TransactWriteCommand({
+      TransactItems: [
+        {
+          Put: {
+            TableName: tables.events,
+            Item: toItem(meeting),
+            ConditionExpression: "attribute_not_exists(eventId)",
+          },
+        },
+        {
+          Put: {
+            TableName: tables.messages,
+            Item: message,
+            ConditionExpression: "attribute_not_exists(sk)",
+          },
+        },
+      ],
+    }),
+  );
+  log.info("meeting scheduled from DM", {
+    eventId: meeting.eventId,
+    channelId,
+    userId: caller.userId,
+  });
+
+  // The calendar push to the participants, the chat push to the conversation.
+  let connections: LiveConnection[] = [];
+  try {
+    connections = await listConnections();
+    const inAudience = channelAudience(channel);
+    const sees = eventAudience(meeting);
+    await deliver(
+      connections.filter((c) => sees(c) || inAudience(c)),
+      (c) =>
+        sees(c) ? { type: "calendar.event_created", event: meeting, by: caller.userId } : null,
+    );
+    await deliver(connections, (c) =>
+      inAudience(c) ? { type: "message.new", message, clientId: input.clientId ?? "" } : null,
+    );
+  } catch (err) {
+    log.error("calendar broadcast failed", { eventId: meeting.eventId, ...errorFields(err) });
+  }
+  if (peers.length > 0) {
+    const organizer = await displayNameOf(caller.userId, caller.email);
+    await pushOffline(peers, connections, {
+      title: `${organizer} invited you to “${meeting.title}”`,
+      body: describeEventWhen(meeting),
+      tag: meeting.eventId,
+    });
+  }
+  return json(201, { event: meeting, message });
 }
 
 async function createHoliday(

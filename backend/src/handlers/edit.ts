@@ -25,9 +25,10 @@ async function applyEdit(
         TableName: tables.messages,
         Key: key,
         UpdateExpression: "SET #text = :text, isEdited = :yes, editedAt = :at",
-        // A secret can't be edited: that would keep a credential past its week.
+        // A secret can't be edited (that would keep a credential past its week);
+        // neither can a card (a meeting snapshot): the calendar event is the truth.
         ConditionExpression:
-          "attribute_exists(sk) AND userId = :me AND attribute_not_exists(isSecret)",
+          "attribute_exists(sk) AND userId = :me AND attribute_not_exists(isSecret) AND attribute_not_exists(kind)",
         ExpressionAttributeNames: { "#text": "text" },
         ExpressionAttributeValues: { ":text": text, ":yes": true, ":at": editedAt, ":me": userId },
         ReturnValues: "ALL_NEW",

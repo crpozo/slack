@@ -637,6 +637,18 @@ Uploads already go straight to S3 with a presigned **PUT** whose signature pins 
 
 ---
 
+### Phase 21 — Meetings scheduled from direct messages
+
+**Branch:** `feature/f21-dm-meetings`
+
+1. **Schema:** `Message.kind?: "meeting"` and `Message.meeting?: MeetingCard` (`eventId`, `title`, `description`, `allDay: false`, `startAt`, `endAt`, `participants`), a snapshot written by the server; `text` keeps a plain-text fallback ("📅 Meeting scheduled: …") for pushes, previews and older clients. The `message` WebSocket action's zod schema does not accept `kind`/`meeting`; `edit` refuses rows with `kind`. `CreateMeetingSchema` gains `channelId` (a DM) and `clientId`; with `channelId`, body `participants` and `allDay` are rejected.
+2. **Dual write:** `POST /calendar/events` with `channelId` loads the channel (must be a DM that includes the caller, 404 otherwise; a guest peer is a 400), derives the participants from the DM id, then writes the event row and the message row in one `TransactWriteItems` (both `attribute_not_exists`). Afterwards it pushes `calendar.event_created` to the participants and `message.new` to the conversation, and a Web Push to the other person when away; all best effort, as a reload reads both tables. A retried `clientId` returns the pair already created. The calendar Lambda gains `MESSAGES_TABLE` (`PutItem`, `Query`) and `CHANNELS_TABLE` (`GetItem`).
+3. **Web:** the DM composer's calendar button opens `ScheduleMeetingModal` (title, date, from/to, details, the two people shown read-only); `MessageItem` renders `kind === "meeting"` with `MeetingCard`; _View in Calendar_ opens `/app/calendar?event=<id>`, which jumps to the day and opens the event (a toast if it was cancelled since).
+
+**Phase 21 acceptance criteria:** scheduling from a DM produces exactly one event and one card, both visible to both people at once; a card can't be edited; a request from someone outside the DM is a 404; a retried request creates nothing new.
+
+---
+
 ### PHASE 7 (optional) — Desktop app with Tauri
 
 **Branch:** `feature/f7-tauri` (starts from `main` after v0.2.0).

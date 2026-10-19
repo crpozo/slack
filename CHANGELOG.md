@@ -5,6 +5,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Added
+
+- **Schedule a meeting from a direct message:** a calendar button in the DM composer opens a
+  small form (title, date, time, details); the two people of the conversation are the
+  participants. One request creates the calendar event and posts a **meeting card** in the chat
+  (title, when, details, both people, _View in Calendar_), written together in a single DynamoDB
+  transaction so the calendar and the conversation never disagree. Cards can be replied to and
+  reacted to but not edited; the calendar event is the source of truth.
+
 ### Changed
 
 - **Faster images.** Messages arrive with their download URLs already attached (`history.page`

@@ -14,6 +14,7 @@ import {
   type VacationEvent,
 } from "@mindfultech/shared";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { formatDateRange, holidayDates, toCalendarInput } from "../lib/calendarUi";
 import { tasksApiConfigured } from "../lib/tasksApi";
@@ -85,6 +86,22 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
   const [selected, setSelected] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const configured = tasksApiConfigured();
+  // `?event=<id>` (a meeting card's button): go to its day and open it, then drop the param.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const wanted = searchParams.get("event");
+  useEffect(() => {
+    if (!wanted || loading) return;
+    const event = events[wanted];
+    if (event) {
+      calendarRef.current?.getApi().gotoDate(new Date(event.startAt));
+      setSelected(wanted);
+    } else if (Object.keys(events).length > 0) {
+      showToast("That meeting is no longer on the calendar.");
+    } else {
+      return; // nothing loaded yet: try again once the year arrives
+    }
+    setSearchParams({}, { replace: true });
+  }, [wanted, loading, events, showToast, setSearchParams]);
 
   useEffect(() => {
     if (!configured) return;

@@ -1,4 +1,4 @@
-import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import {
   MessageActionSchema,
   newMessageSk,
@@ -17,36 +17,10 @@ import { channelAudience, getAccessibleChannel } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import { wsHandler } from "../lib/handler";
 import { log } from "../lib/logger";
+import { findSentMessage } from "../lib/messages";
 import { notifyOffline } from "../lib/notify";
 import { badRequest, ok, reply, replyError } from "../lib/response";
 import { signAttachments } from "../lib/s3";
-
-/** How far back a resent message is recognized (its own retry window is seconds). */
-const DEDUPE_WINDOW = 25;
-
-/**
- * The message `userId` already stored under `clientId`, among the channel's
- * newest messages. A client retries with the same clientId when its first
- * send looked lost (a slow confirmation, a dropped connection, a queued frame
- * flushed on reconnect): storing it again would post the message twice.
- */
-async function alreadyStored(
-  channelId: string,
-  userId: string,
-  clientId: string,
-): Promise<Message | null> {
-  const { Items } = await ddb.send(
-    new QueryCommand({
-      TableName: tables.messages,
-      KeyConditionExpression: "channelId = :c",
-      ExpressionAttributeValues: { ":c": channelId },
-      ScanIndexForward: false,
-      Limit: DEDUPE_WINDOW,
-    }),
-  );
-  const found = (Items ?? []).find((m) => m.clientId === clientId && m.userId === userId);
-  return (found as Message | undefined) ?? null;
-}
 
 /**
  * Snapshot of the message `replyTo` points at, which must exist in the same
@@ -105,7 +79,7 @@ export const handler = wsHandler(async (event, caller) => {
   if (replyTo && !quoted) return replyError(caller.connectionId, "MESSAGE_NOT_FOUND");
 
   // A retry of a message that did arrive: confirm it to the sender, store nothing.
-  const existing = await alreadyStored(channelId, caller.userId, clientId);
+  const existing = await findSentMessage(channelId, caller.userId, clientId);
   if (existing) {
     log.info("duplicate send ignored", { channelId, messageId: existing.messageId });
     await reply(caller.connectionId, {
