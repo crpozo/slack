@@ -33,6 +33,33 @@ export async function getAccessibleBoard(boardId: string, userId: string): Promi
   return canAccessBoard(board, userId) ? board : null;
 }
 
+/**
+ * The rows that make a board exist: the board itself and one membership row
+ * per member (the `byUser` index lists boards per user from them). Written in
+ * one transaction, with the channel row too for project channels.
+ */
+export function boardRows(
+  board: Board,
+): Array<{
+  Put: { TableName: string; Item: Record<string, unknown>; ConditionExpression?: string };
+}> {
+  return [
+    {
+      Put: {
+        TableName: tables.boards,
+        Item: { ...board, sk: BOARD_SK, members: new Set(board.members) },
+        ConditionExpression: "attribute_not_exists(boardId)",
+      },
+    },
+    ...board.members.map((userId) => ({
+      Put: {
+        TableName: tables.boards,
+        Item: { boardId: board.boardId, sk: memberSk(userId), userId, createdAt: board.createdAt },
+      },
+    })),
+  ];
+}
+
 /** Broadcast filter: who may receive events of `board`. */
 export function boardAudience(board: Pick<Board, "ownerId" | "members">) {
   return (connection: { userId: string }) => canAccessBoard(board, connection.userId);

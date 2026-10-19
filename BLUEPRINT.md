@@ -612,6 +612,18 @@ Uploads already go straight to S3 with a presigned **PUT** whose signature pins 
 
 ---
 
+### Phase 17 — Project channels linked to Kanban boards
+
+**Branch:** `feature/f17-project-channels`
+
+1. **Schema:** `Channel.isProject?: boolean` and `linkedBoardId?: string`; `channel.create` and `channel.update` take `isProject` and `board: { mode: "link", boardId } | { mode: "create" }`; `isProject: false` unlinks (the board and its tasks stay). New error code `BOARD_NOT_FOUND`.
+2. **Atomic creation:** channels and boards both live in DynamoDB (a channel row; a `BOARD` row plus `MEMBER#<user>` rows), so creating a project channel with a new board is **one `TransactWriteItems`** across both tables: the channel Put (conditional on the id) and the board rows (conditional on the board id) succeed or fail together — no orphan boards, no compensation logic. Marking an existing channel as a project with a new board is the same transaction with an `Update` instead of the Put. Linking an existing board checks `getAccessibleBoard` first; guests can't create boards (as in `POST /boards`). The new board is owned by the caller with the channel's members (private channels) on it, and its members hear `board.updated` so it shows in their Task Manager at once. The channel Lambda gets `GetItem`/`PutItem` on the boards table (asserted in the infra tests); `boardRows()` in `lib/boards.ts` is shared with `POST /boards`.
+3. **UI:** Create channel and Edit channel modals gain "Mark this channel as a Project" with *Link an existing board* (dropdown of your boards; a linked board you can no longer see stays selectable as "Current board") or *Create a new board automatically* (named after the channel). The channel header shows a **📊 Board** pill that navigates to `/app/tasks/<boardId>`; the sidebar marks project channels with the board icon. Turning the project off removes the shortcut only.
+
+**Phase 17 acceptance criteria:** creating "Launch" as a project with a new board yields a channel and a board named "Launch" in one write (none without the other); the header's 📊 Board opens that board; Edit channel can re-link or unlink without touching the board; linking a board you can't see is refused.
+
+---
+
 ### PHASE 7 (optional) — Desktop app with Tauri
 
 **Branch:** `feature/f7-tauri` (starts from `main` after v0.2.0).

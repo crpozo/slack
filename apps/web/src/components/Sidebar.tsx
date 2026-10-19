@@ -234,12 +234,16 @@ function Section({
   );
 }
 
-const channelIcon = (c: Channel) =>
-  c.type === "private" ? (
+const channelIcon = (c: Channel) => {
+  if (c.isProject && c.linkedBoardId) {
+    return <KanbanIcon className="text-primary" aria-label="Project channel" />;
+  }
+  return c.type === "private" ? (
     <LockIcon className="text-ink-secondary" aria-label="Private" />
   ) : (
     <HashIcon className="text-ink-secondary" />
   );
+};
 
 interface SidebarProps {
   activeChannelId: string;
