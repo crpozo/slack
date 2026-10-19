@@ -38,9 +38,7 @@ export async function getAccessibleBoard(boardId: string, userId: string): Promi
  * per member (the `byUser` index lists boards per user from them). Written in
  * one transaction, with the channel row too for project channels.
  */
-export function boardRows(
-  board: Board,
-): Array<{
+export function boardRows(board: Board): Array<{
   Put: { TableName: string; Item: Record<string, unknown>; ConditionExpression?: string };
 }> {
   return [
