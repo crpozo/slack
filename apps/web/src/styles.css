@@ -45,10 +45,12 @@
     height: 100dvh;
   }
 
-  /* viewport-fit=cover draws under the iPhone notch and home bar: keep the app clear of them. */
+  /* viewport-fit=cover draws under the iPhone notch and home bar. The top and the
+     sides stay clear here; the bottom is left to whatever sits at the edge (the tab
+     bar, the composer, a sheet), which paints edge-to-edge and pads its own content
+     above the home indicator, so no bare strip shows under it. */
   #root {
-    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
-      env(safe-area-inset-left);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
   }
 
   body {

@@ -1,9 +1,26 @@
 import { useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { formatDay, formatTime } from "../lib/channels";
-import { selectUnread, useChat } from "../store";
+import { getThemePreference, setThemePreference, type ThemePreference } from "../lib/theme";
+import { selectUnread, useChat, useNameOf } from "../store";
 import { useNotifications, useUnreadAlerts, type AppAlert } from "../store/notifications";
-import { BellIcon, CalendarIcon, HashIcon, KanbanIcon, MessageIcon, SearchIcon } from "./icons";
+import { Avatar } from "./Avatar";
+import {
+  BellIcon,
+  CalendarIcon,
+  ChevronRightIcon,
+  HashIcon,
+  KanbanIcon,
+  LogOutIcon,
+  MessageIcon,
+  MonitorIcon,
+  MoonIcon,
+  MoreHorizontalIcon,
+  SearchIcon,
+  SettingsIcon,
+  SunIcon,
+} from "./icons";
+import { Modal } from "./Modal";
 import { useSwitcherItems } from "./QuickSwitcher";
 
 // ---------------------------------------------------------------------------
@@ -19,11 +36,21 @@ const TABS = [
   { path: "/app/dms", label: "DMs", icon: MessageIcon },
   { path: "/app/activity", label: "Activity", icon: BellIcon },
   { path: "/app/search", label: "Search", icon: SearchIcon },
+  { path: "more", label: "More", icon: MoreHorizontalIcon },
 ] as const;
 
-export function BottomTabs() {
+/**
+ * The bar paints edge-to-edge (its background runs under the home indicator)
+ * and pads its buttons above it, so nothing bare shows beneath. The active
+ * tab's icon sits in a pill, like Slack's.
+ */
+export function BottomTabs({
+  onOpenSettings,
+  onSignOut,
+}: Readonly<{ onOpenSettings: () => void; onSignOut: () => void }>) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const [moreOpen, setMoreOpen] = useState(false);
   const unreadChannels = useChat((s) =>
     s.channels.reduce((sum, c) => sum + (c.type === "dm" ? 0 : selectUnread(s, c.channelId)), 0),
   );
@@ -42,39 +69,129 @@ export function BottomTabs() {
   // Apps (tasks, calendar) are reached from Home: that tab stays lit there.
   const activePath = TABS.some((t) => t.path === pathname) ? pathname : "/app/home";
   return (
-    <nav
-      className="flex shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]"
-      aria-label="Main"
-    >
-      {TABS.map((tab) => {
-        const active = tab.path === activePath;
-        const count = badge(tab.path);
-        return (
-          <button
-            key={tab.path}
-            type="button"
-            onClick={() => navigate(tab.path)}
-            aria-current={active ? "page" : undefined}
-            className={`relative flex flex-1 flex-col items-center gap-0.5 px-2 pb-1.5 pt-2 text-[11px] font-medium ${
-              active ? "text-primary" : "text-ink-secondary"
-            }`}
-          >
-            <span className="relative text-xl">
-              <tab.icon />
-              {count > 0 && (
-                <span
-                  className="absolute -right-2 -top-1 min-w-[1.1rem] rounded-full bg-error px-1 text-center text-[10px] font-bold leading-[1.1rem] text-white"
-                  aria-label={`${count} unread`}
-                >
-                  {count > 99 ? "99+" : count}
-                </span>
-              )}
-            </span>
-            {tab.label}
-          </button>
-        );
-      })}
-    </nav>
+    <>
+      <nav
+        className="flex shrink-0 border-t border-line bg-surface px-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1"
+        aria-label="Main"
+      >
+        {TABS.map((tab) => {
+          const isMore = tab.path === "more";
+          const active = isMore ? moreOpen : tab.path === activePath && !moreOpen;
+          const count = isMore ? 0 : badge(tab.path);
+          return (
+            <button
+              key={tab.path}
+              type="button"
+              onClick={() => (isMore ? setMoreOpen(true) : navigate(tab.path))}
+              aria-current={active ? "page" : undefined}
+              aria-haspopup={isMore ? "dialog" : undefined}
+              className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 py-1 text-[11px] font-medium transition-colors ${
+                active ? "text-primary" : "text-ink-secondary"
+              }`}
+            >
+              <span
+                className={`relative flex h-8 w-16 items-center justify-center rounded-full text-xl transition-colors ${
+                  active ? "bg-primary/20" : ""
+                }`}
+              >
+                <tab.icon />
+                {count > 0 && (
+                  <span
+                    className="absolute right-2 top-0 min-w-[1.1rem] rounded-full bg-error px-1 text-center text-[10px] font-bold leading-[1.1rem] text-white ring-2 ring-surface"
+                    aria-label={`${count} unread`}
+                  >
+                    {count > 99 ? "99+" : count}
+                  </span>
+                )}
+              </span>
+              {tab.label}
+            </button>
+          );
+        })}
+      </nav>
+      {moreOpen && (
+        <MoreSheet
+          onClose={() => setMoreOpen(false)}
+          onOpenSettings={() => {
+            setMoreOpen(false);
+            onOpenSettings();
+          }}
+          onSignOut={onSignOut}
+        />
+      )}
+    </>
+  );
+}
+
+const THEMES: Array<{ value: ThemePreference; label: string; Icon: typeof SunIcon }> = [
+  { value: "light", label: "Light", Icon: SunIcon },
+  { value: "dark", label: "Dark", Icon: MoonIcon },
+  { value: "system", label: "System", Icon: MonitorIcon },
+];
+
+/** The More tab's sheet: who you are, the theme, settings and sign out. */
+function MoreSheet({
+  onClose,
+  onOpenSettings,
+  onSignOut,
+}: Readonly<{ onClose: () => void; onOpenSettings: () => void; onSignOut: () => void }>) {
+  const me = useChat((s) => s.me);
+  const nameOf = useNameOf();
+  const [theme, setTheme] = useState<ThemePreference>(getThemePreference);
+  if (!me) return null;
+  const row =
+    "flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-ink active:bg-surface-hover";
+  return (
+    <Modal title="More" width="sm" onClose={onClose}>
+      <div className="-mx-5 -my-4 divide-y divide-line pb-[env(safe-area-inset-bottom)]">
+        <button type="button" onClick={onOpenSettings} className={row}>
+          <Avatar name={nameOf(me.userId, me.email)} mine size="md" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-semibold">{nameOf(me.userId, me.email)}</span>
+            <span className="block truncate text-xs text-ink-secondary">{me.email}</span>
+          </span>
+          <span className="text-xs text-ink-secondary">Edit profile</span>
+          <ChevronRightIcon className="text-ink-secondary" aria-hidden="true" />
+        </button>
+        <div className="px-4 py-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-secondary">
+            Theme
+          </p>
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Theme">
+            {THEMES.map(({ value, label, Icon }) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={theme === value}
+                onClick={() => {
+                  setTheme(value);
+                  setThemePreference(value);
+                }}
+                className={`flex flex-col items-center gap-1 rounded-xl border px-2 py-2 text-xs font-medium ${
+                  theme === value
+                    ? "border-primary bg-primary/15 text-ink"
+                    : "border-line text-ink-secondary"
+                }`}
+              >
+                <Icon className="text-lg" />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button type="button" onClick={onOpenSettings} className={row}>
+          <SettingsIcon className="text-ink-secondary" />
+          <span className="flex-1">Settings</span>
+          <span className="text-xs text-ink-secondary">Notifications, audio &amp; video</span>
+          <ChevronRightIcon className="text-ink-secondary" aria-hidden="true" />
+        </button>
+        <button type="button" onClick={onSignOut} className={`${row} text-error`}>
+          <LogOutIcon />
+          Sign out
+        </button>
+      </div>
+    </Modal>
   );
 }
 

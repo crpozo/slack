@@ -12,9 +12,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   phones, with its own composer. Replies live under their parent's sort key
   (`thread#<parentSk>#…`), so the channel's history never sees them and a thread is one query;
   the parent's counters are kept by the server in the same transaction as the reply.
-- **Phones: bottom tab bar** (Home, DMs, Activity, Search) instead of the side drawer, like
-  Slack's app. A conversation opens on top with a back arrow; Home also links to Tasks and
-  Calendar.
+- **Phones: bottom tab bar** (Home, DMs, Activity, Search, More) instead of the side drawer, like
+  Slack's app: the active tab's icon sits in a pill, the bar paints edge-to-edge under the home
+  indicator, and More opens a sheet with your profile, the theme (light/dark/system), Settings and
+  Sign out. A conversation opens on top with a back arrow; Home also links to Tasks and Calendar.
 - **Slash commands:** typing `/` at the start of a message lists the commands (`/secret`,
   `/shrug`, `/clear`), filtered as you type; arrows, Enter/Tab and Esc work. New commands are one
   entry in `lib/commands.ts`.

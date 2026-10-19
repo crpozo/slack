@@ -317,7 +317,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   if (readOnly) {
     return (
       <div
-        className="mx-2 mb-2 flex items-center justify-center gap-2 rounded-xl border border-line bg-surface-sidebar px-4 py-3 text-sm text-ink-secondary"
+        className="mx-2 mb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-center gap-2 rounded-xl border border-line bg-surface-sidebar px-4 py-3 text-sm text-ink-secondary"
         role="status"
       >
         <ArchiveIcon /> This channel is archived. You can read it, but not post.
@@ -420,7 +420,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }
 
   return (
-    <div className="border-t border-line bg-surface px-3 pb-3 pt-2 sm:px-4">
+    <div className="border-t border-line bg-surface px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4 sm:pb-3">
       <div className="rounded-xl border border-line bg-surface focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30">
         {editing && (
           <div
