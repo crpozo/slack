@@ -2,6 +2,7 @@ import { z } from "zod";
 import { compareIds, GENERAL_CHANNEL_ID } from "./ids";
 import type { Role } from "./roles";
 import type { Board, Task, TaskStatus } from "./tasks";
+import type { CalendarPushEvent } from "./calendar";
 
 // ---------------------------------------------------------------------------
 // Limits & constants
@@ -855,6 +856,7 @@ export type ServerEvent =
   | UserDisconnectedEvent
   | CallEvent
   | BoardEvent
+  | CalendarPushEvent
   | ErrorEvent;
 
 export type ServerEventType = ServerEvent["type"];

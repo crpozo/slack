@@ -89,17 +89,24 @@ describe("task manager API", () => {
     ).map((r) => r.Properties as { RouteKey: string; AuthorizationType?: string });
     expect(routes.map((r) => r.RouteKey).sort((a, b) => a.localeCompare(b))).toEqual([
       "DELETE /boards/{id}",
+      "DELETE /calendar/events/{id}",
       "DELETE /push/subscribe",
       "DELETE /tasks/{taskId}",
       "GET /boards",
       "GET /boards/{id}/tasks",
+      "GET /calendar/balances",
+      "GET /calendar/events",
       "GET /push/key",
       "POST /boards",
       "POST /boards/{id}/invites",
       "POST /boards/{id}/members",
       "POST /boards/{id}/tasks",
+      "POST /calendar/events",
       "POST /push/subscribe",
       "PUT /boards/{id}",
+      "PUT /calendar/balances/{userId}/{year}",
+      "PUT /calendar/events/{id}",
+      "PUT /calendar/vacations/{id}/status",
       "PUT /tasks/{taskId}",
     ]);
     expect(routes.every((r) => r.AuthorizationType === "JWT")).toBe(true);
@@ -194,11 +201,14 @@ describe("guest access", () => {
     const withCognito = Object.entries(template.findResources("AWS::IAM::Policy")).filter(([, p]) =>
       JSON.stringify(p).includes("cognito-idp:"),
     );
-    expect(withCognito.map(([id]) => id.replace(/[0-9A-F]{8}$/, ""))).toEqual([
+    // The calendar Lambda only lists the admins group (see calendar.test.ts).
+    expect(withCognito.map(([id]) => id.replace(/[0-9A-F]{8}$/, "")).sort()).toEqual([
+      "TasksApiCalendarFnServiceRoleDefaultPolicy",
       "TasksApiFnServiceRoleDefaultPolicy",
     ]);
+    const tasksPolicy = withCognito.find(([id]) => id.startsWith("TasksApiFn"))?.[1];
     const statement = (
-      withCognito[0]?.[1].Properties.PolicyDocument.Statement as Array<{
+      tasksPolicy?.Properties.PolicyDocument.Statement as Array<{
         Action: string[];
         Resource: unknown;
       }>
