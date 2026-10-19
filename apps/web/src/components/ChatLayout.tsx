@@ -415,7 +415,12 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           <PushPrompt />
           {screen}
         </main>
-        {!channelId && <BottomTabs />}
+        {!channelId && (
+          <BottomTabs
+            onOpenSettings={() => setSettingsOpen(true)}
+            onSignOut={() => void handleSignOut()}
+          />
+        )}
         {overlays}
       </div>
     );

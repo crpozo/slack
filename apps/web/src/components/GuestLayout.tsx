@@ -62,7 +62,7 @@ export function GuestLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-surface">
+    <div className="flex h-full flex-col overflow-hidden bg-surface pb-[env(safe-area-inset-bottom)]">
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface-sidebar px-3 pt-[env(safe-area-inset-top)] sm:px-4">
         <Logo />
         <div className="min-w-0 flex-1">

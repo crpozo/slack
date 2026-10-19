@@ -119,7 +119,7 @@ export function ThreadPanel({
         ))}
       </div>
       {readOnly ? (
-        <p className="border-t border-line px-4 py-3 text-center text-sm text-ink-secondary">
+        <p className="border-t border-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 text-center text-sm text-ink-secondary">
           This channel is archived.
         </p>
       ) : (

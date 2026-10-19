@@ -177,8 +177,8 @@ The UI:
   the channel's partition under `thread#<parentSk>#<epochMs>#<ulid>`, so the main history
   (`sk < "thread#"`) never includes them and a thread is one `begins_with` query; the parent's
   `replyCount`, `lastReplyAt` and `replyUserIds` are written in the same transaction as the reply.
-- **Phones:** a bottom tab bar (Home, DMs, Activity, Search) replaces the drawer; a conversation
-  opens on top with a back arrow.
+- **Phones:** a bottom tab bar (Home, DMs, Activity, Search, More) replaces the drawer; More holds
+  your profile, the theme and settings. A conversation opens on top with a back arrow.
 - **Slash commands:** `/` at the start of a message opens the command list (`/secret`, `/shrug`,
   `/clear`), filtered as you type. Add one in `apps/web/src/lib/commands.ts`.
 - **Archived channels:** an admin archives a channel from its details; it becomes read-only (a
