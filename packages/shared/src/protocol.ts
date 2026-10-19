@@ -114,6 +114,10 @@ export interface Channel {
   topic?: string;
   /** What the channel is for ("" or absent: none). */
   description?: string;
+  /** A project channel: its work is tracked on `linkedBoardId` (Task Manager). */
+  isProject?: boolean;
+  /** The Kanban board of a project channel (`/app/tasks/<boardId>`). */
+  linkedBoardId?: string;
   /**
    * Read watermarks: per user, the newest message `sk` they have seen (and
    * when). One row per channel, however many messages: a message is read by
@@ -302,6 +306,17 @@ export const ChannelNameSchema = z
     "channel name needs at least one letter or number",
   );
 
+/**
+ * The board of a project channel: link one the caller can see, or have the
+ * server create one named after the channel (in the same transaction as the
+ * channel, so neither exists without the other).
+ */
+export const ProjectBoardSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("link"), boardId: z.string().min(1).max(128) }),
+  z.object({ mode: z.literal("create") }),
+]);
+export type ProjectBoard = z.infer<typeof ProjectBoardSchema>;
+
 export const ChannelCreateActionSchema = z.object({
   action: z.literal("channel"),
   op: z.literal("create"),
@@ -309,6 +324,9 @@ export const ChannelCreateActionSchema = z.object({
   name: ChannelNameSchema,
   /** Defaults to `private`: only the creator (and later invitees) can see it. */
   visibility: z.enum(["public", "private"]).default("private"),
+  /** Marks the channel as a project; `board` says which board (required then). */
+  isProject: z.boolean().default(false),
+  board: ProjectBoardSchema.optional(),
 });
 
 export const ChannelDmActionSchema = z.object({
@@ -374,9 +392,17 @@ export const ChannelUpdateActionSchema = z
       // Line breaks are fine; other control characters are not.
       .refine((v) => !/[^\P{Cc}\n]/u.test(v), "description cannot contain control characters")
       .optional(),
+    /** `true` needs `board` (unless the channel already has one); `false` unlinks the board. */
+    isProject: z.boolean().optional(),
+    board: ProjectBoardSchema.optional(),
   })
   .refine(
-    (a) => a.name !== undefined || a.topic !== undefined || a.description !== undefined,
+    (a) =>
+      a.name !== undefined ||
+      a.topic !== undefined ||
+      a.description !== undefined ||
+      a.isProject !== undefined ||
+      a.board !== undefined,
     "nothing to update",
   );
 
@@ -633,6 +659,7 @@ export type ErrorCode =
   | "RATE_LIMITED"
   | "MESSAGE_NOT_FOUND"
   | "FILE_NOT_FOUND"
+  | "BOARD_NOT_FOUND"
   | "INTERNAL_ERROR";
 
 export interface MessageNewEvent {

@@ -276,3 +276,40 @@ describe("phase 10: read marks, edits, typing", () => {
     });
   });
 });
+
+describe("project channels", () => {
+  const parse = (action: object) => parseAction(ClientActionSchema, JSON.stringify(action));
+  it("create and update carry the project flag and the board choice", () => {
+    expect(
+      parse({
+        action: "channel",
+        op: "create",
+        name: "Launch",
+        isProject: true,
+        board: { mode: "create" },
+      }),
+    ).toMatchObject({ success: true, data: { isProject: true, board: { mode: "create" } } });
+    expect(parse({ action: "channel", op: "create", name: "Launch" })).toMatchObject({
+      success: true,
+      data: { isProject: false },
+    });
+    expect(
+      parse({
+        action: "channel",
+        op: "update",
+        channelId: "ch_x",
+        board: { mode: "link", boardId: "b_1" },
+      }),
+    ).toMatchObject({ success: true });
+    expect(
+      parse({ action: "channel", op: "update", channelId: "ch_x", isProject: false }),
+    ).toMatchObject({
+      success: true,
+    });
+    expect(
+      parse({ action: "channel", op: "update", channelId: "ch_x", board: { mode: "nope" } }),
+    ).toMatchObject({
+      success: false,
+    });
+  });
+});
