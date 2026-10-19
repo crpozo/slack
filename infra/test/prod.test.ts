@@ -279,6 +279,15 @@ describe("GitHub deploy role", () => {
 describe("phase 5.1 resources", () => {
   const template = () => synth("dev");
 
+  it("lets DynamoDB expire secret messages through `expiresAt`", () => {
+    expect(
+      matching(template(), "AWS::DynamoDB::Table", {
+        TableName: "slack-dev-messages",
+        TimeToLiveSpecification: { AttributeName: "expiresAt", Enabled: true },
+      }),
+    ).toHaveLength(1);
+  });
+
   it("adds the users table", () => {
     expect(
       matching(template(), "AWS::DynamoDB::Table", {

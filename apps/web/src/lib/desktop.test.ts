@@ -43,6 +43,9 @@ describe("notificationBody", async () => {
     expect(notificationBody({ text: "x".repeat(300), attachments: [] })).toHaveLength(120);
     const voice = { contentType: "audio/webm" } as never;
     expect(notificationBody({ text: "", attachments: [voice] })).toBe("🎤 Voice message");
+    expect(notificationBody({ text: "hunter2", attachments: [], isSecret: true })).toBe(
+      "🔒 Secret sent",
+    );
   });
 });
 

@@ -5,6 +5,7 @@ import {
   isChannelMember,
   mentionHandle,
   PUSH_PREVIEW_LENGTH,
+  SECRET_PREVIEW,
   type Board,
   type Channel,
   type Message,
@@ -68,6 +69,7 @@ export async function pushRecipients(channel: Channel, message: Message): Promis
 }
 
 function preview(message: Message): string {
+  if (message.isSecret) return `${SECRET_PREVIEW} sent`;
   const text = message.text.replace(/\s+/g, " ").trim();
   if (!text) {
     if (message.attachments.some((a) => a.contentType.startsWith("audio/")))
