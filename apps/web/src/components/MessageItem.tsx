@@ -15,6 +15,7 @@ import { useMessageGestures } from "../lib/gestures";
 import { renderMarkdown } from "../lib/markdown";
 import { selectName, useChat, useNameOf, type ChatMessage } from "../store";
 import { Attachment } from "./Attachment";
+import { MeetingCard } from "./MeetingCard";
 import { Avatar } from "./Avatar";
 import {
   CheckCheckIcon,
@@ -129,7 +130,7 @@ function MessageActions({
       >
         <ReplyIcon />
       </button>
-      {mine && message.text && !message.isSecret && (
+      {mine && message.text && !message.isSecret && !message.kind && (
         <button
           type="button"
           onClick={() => {
@@ -147,7 +148,7 @@ function MessageActions({
           <PencilIcon />
         </button>
       )}
-      {pressed && message.text && !message.isSecret && (
+      {pressed && message.text && !message.isSecret && !message.kind && (
         <button
           type="button"
           onClick={() => {
@@ -356,6 +357,7 @@ export const MessageItem = memo(function MessageItem({
   const time = formatTime(message.createdAt);
   // One string, not the whole directory: a refresh re-renders this row only if its name changed.
   const name = useChat((s) => selectName(s, message.userId, message.userEmail));
+  const myUserId = useChat((s) => s.me?.userId);
   const sent = !message.status;
   const pressed = usePressed((s) => s.id === message.messageId);
   const setPressed = usePressed((s) => s.set);
@@ -423,7 +425,11 @@ export const MessageItem = memo(function MessageItem({
 
           {message.isSecret && <SecretBody message={message} mine={mine} />}
 
-          {message.text && !message.isSecret && (
+          {message.kind === "meeting" && message.meeting && (
+            <MeetingCard card={message.meeting} mine={mine} myUserId={myUserId} />
+          )}
+
+          {message.text && !message.isSecret && !message.kind && (
             <div
               className={`md mt-0.5 inline-block max-w-full break-words rounded-2xl rounded-tl-sm px-3 py-1.5 text-sm leading-relaxed text-ink ${
                 mine ? "bg-primary/15" : "bg-surface-sidebar"

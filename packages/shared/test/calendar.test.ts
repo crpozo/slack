@@ -14,6 +14,7 @@ import {
   isWeekend,
   ListEventsQuerySchema,
   MAX_EVENT_DAYS,
+  meetingCardText,
   remainingDays,
   UpdateEventSchema,
   VacationDecisionSchema,
@@ -217,6 +218,35 @@ describe("schemas", () => {
     );
     expect(describeEventWhen({ allDay: false, startAt: Date.UTC(2026, 10, 2, 15), endAt: 0 })).toBe(
       "Nov 2, 10:00 AM",
+    );
+  });
+});
+
+describe("meetings scheduled from a direct message", () => {
+  const startAt = Date.UTC(2026, 10, 4, 15);
+  const base = { type: "meeting", title: "Kickoff", startAt, endAt: startAt + 3_600_000 };
+
+  it("take their participants from the conversation, never from the body", () => {
+    const ok = CreateEventSchema.parse({ ...base, channelId: "dm_a_b", clientId: "c1" });
+    expect(ok).toMatchObject({ channelId: "dm_a_b", clientId: "c1", participants: [] });
+    expect(
+      CreateEventSchema.safeParse({ ...base, channelId: "dm_a_b", participants: ["u9"] }).success,
+    ).toBe(false);
+    expect(
+      CreateEventSchema.safeParse({
+        type: "meeting",
+        title: "x",
+        channelId: "dm_a_b",
+        allDay: true,
+        startDate: "2026-11-04",
+        endDate: "2026-11-04",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("have a plain-text fallback for the card", () => {
+    expect(meetingCardText({ title: "Kickoff", startAt, endAt: startAt + 3_600_000 })).toBe(
+      "📅 Meeting scheduled: Kickoff · Nov 4, 10:00 AM",
     );
   });
 });

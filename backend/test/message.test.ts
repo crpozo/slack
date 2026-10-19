@@ -432,7 +432,10 @@ describe("message retries", () => {
     expect(result.statusCode).toBe(200);
     expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
     expect(sentEvents()).toEqual([
-      ["conn-alice", { type: "message.new", message: stored, clientId: "c1" }],
+      [
+        "conn-alice",
+        { type: "message.new", message: { ...stored, reactions: {} }, clientId: "c1" },
+      ],
     ]);
     const query = ddbMock.commandCalls(QueryCommand)[0]?.args[0].input;
     expect(query).toMatchObject({ ScanIndexForward: false, Limit: 25 });

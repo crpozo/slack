@@ -137,6 +137,9 @@ export class TasksApi extends Construct {
     this.calendarHandler = lambda("CalendarFn", "calendar", {
       EVENTS_TABLE: data.events.tableName,
       VACATION_BALANCES_TABLE: data.vacationBalances.tableName,
+      // Meetings scheduled from a DM post a card in it (same transaction as the event).
+      MESSAGES_TABLE: data.messages.tableName,
+      CHANNELS_TABLE: data.channels.tableName,
       USERS_TABLE: data.users.tableName,
       CONNECTIONS_TABLE: data.connections.tableName,
       WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
@@ -266,6 +269,10 @@ export class TasksApi extends Construct {
     );
     // Invitees must exist and not be guests (BatchGetItem); the actor's name for pushes (GetItem).
     data.users.grant(this.calendarHandler, "dynamodb:BatchGetItem", "dynamodb:GetItem");
+    // DM meetings: the conversation must be the caller's (GetItem); the card is
+    // written with the event (PutItem) and a retried request finds it (Query).
+    data.channels.grant(this.calendarHandler, "dynamodb:GetItem");
+    data.messages.grant(this.calendarHandler, "dynamodb:PutItem", "dynamodb:Query");
     this.calendarHandler.addToRolePolicy(
       new PolicyStatement({
         actions: ["cognito-idp:ListUsersInGroup"],

@@ -185,6 +185,24 @@ export function readBy(message: Pick<Message, "sk" | "userId">, reads: Channel["
     .sort(compareIds);
 }
 
+export const MESSAGE_KINDS = ["meeting"] as const;
+export type MessageKind = (typeof MESSAGE_KINDS)[number];
+
+/** What a "meeting scheduled" message carries (see `Message.meeting`). */
+export interface MeetingCard {
+  /** The calendar event this card points at. */
+  eventId: string;
+  title: string;
+  description: string;
+  /** DM meetings are timed. */
+  allDay: false;
+  /** Epoch ms. */
+  startAt: number;
+  endAt: number;
+  /** Both people of the DM, sorted. */
+  participants: string[];
+}
+
 export interface Message {
   messageId: string;
   channelId: string;
@@ -218,6 +236,15 @@ export interface Message {
    * quoted or previewed, can't be edited, and deleted after `SECRET_TTL_MS`.
    */
   isSecret?: true;
+  /** Absent for ordinary messages; `"meeting"` renders `meeting` as a card. */
+  kind?: MessageKind;
+  /**
+   * A meeting scheduled from this conversation (Phase 21): a snapshot of the
+   * calendar event when it was created, written by the server (the `message`
+   * action never accepts it). The event itself is the source of truth; the
+   * card's button opens it. Cards can't be edited.
+   */
+  meeting?: MeetingCard;
   /** DynamoDB TTL (epoch **seconds**): set by the server on secret messages only. */
   expiresAt?: number;
 }

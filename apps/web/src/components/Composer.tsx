@@ -1,5 +1,5 @@
 import type { Attachment } from "@mindfultech/shared";
-import { MAX_TEXT_LENGTH } from "@mindfultech/shared";
+import { isDmChannel, MAX_TEXT_LENGTH } from "@mindfultech/shared";
 import {
   forwardRef,
   useCallback,
@@ -29,6 +29,7 @@ import { EmojiPicker } from "./EmojiPicker";
 import {
   CloseIcon,
   FileIcon,
+  CalendarIcon,
   LockIcon,
   MicIcon,
   PaperclipIcon,
@@ -39,6 +40,7 @@ import {
   TrashIcon,
 } from "./icons";
 import { Popover } from "./Popover";
+import { ScheduleMeetingModal } from "./ScheduleMeetingModal";
 
 interface Upload {
   id: string;
@@ -144,6 +146,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const nameOf = useNameOf();
   /** Secret mode: the message is sent masked, text only, and deleted after a week. */
   const [secret, setSecret] = useState(false);
+  // Direct messages: schedule a meeting with the other person from here.
+  const [scheduling, setScheduling] = useState(false);
+  const dm = isDmChannel(channelId);
 
   // Another conversation, or editing: back to a normal message.
   useEffect(() => setSecret(false), [channelId]);
@@ -466,6 +471,18 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               >
                 <LockIcon />
               </button>
+              {dm && (
+                <button
+                  type="button"
+                  onClick={() => setScheduling(true)}
+                  disabled={disabled || !!editing}
+                  className="rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
+                  aria-label="Schedule meeting"
+                  title="Schedule a meeting (goes to both calendars)"
+                >
+                  <CalendarIcon />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -496,6 +513,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               >
                 <SmileIcon />
               </button>
+              {scheduling && (
+                <ScheduleMeetingModal channelId={channelId} onClose={() => setScheduling(false)} />
+              )}
               {emojiAnchor && (
                 <Popover anchor={emojiAnchor} onClose={() => setEmojiAnchor(null)}>
                   <EmojiPicker

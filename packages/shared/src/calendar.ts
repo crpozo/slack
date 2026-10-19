@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { UserIdSchema } from "./protocol";
+import { UserIdSchema, type MeetingCard } from "./protocol";
 
 // ---------------------------------------------------------------------------
 // Company calendar (Phase 19): meetings between members, vacation requests
@@ -299,6 +299,12 @@ const DATE_RANGE_MESSAGE = `the end must be on or after the start, at most ${MAX
 /**
  * A meeting: timed (`startAt`/`endAt`) or all-day (`startDate`/`endDate`).
  * The organizer is added to `participants` by the server.
+ *
+ * With `channelId` (a direct message), the meeting is scheduled from that
+ * conversation: the participants are the DM's two people (never taken from
+ * the body), it must be timed, and the server also posts a "meeting
+ * scheduled" card in the DM, in the same transaction. `clientId` makes a
+ * retried request return the pair already created instead of a second one.
  */
 export const CreateMeetingSchema = z
   .object({
@@ -311,8 +317,22 @@ export const CreateMeetingSchema = z
     startDate: DateStringSchema.optional(),
     endDate: DateStringSchema.optional(),
     participants: z.array(UserIdSchema).max(MAX_EVENT_PARTICIPANTS).default([]),
+    channelId: z.string().min(1).max(128).optional(),
+    clientId: z.string().min(1).max(64).optional(),
   })
   .superRefine((v, ctx) => {
+    if (v.channelId !== undefined) {
+      if (v.participants.length > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["participants"],
+          message: "a meeting scheduled from a conversation takes its participants from it",
+        });
+      }
+      if (v.allDay) {
+        ctx.addIssue({ code: "custom", path: ["allDay"], message: "a DM meeting has a time" });
+      }
+    }
     if (v.allDay) {
       if (!v.startDate || !v.endDate) {
         ctx.addIssue({ code: "custom", message: "an all-day meeting needs startDate and endDate" });
@@ -431,6 +451,11 @@ export interface CalendarEventDeletedEvent {
 }
 export type CalendarPushEvent =
   CalendarEventCreatedEvent | CalendarEventUpdatedEvent | CalendarEventDeletedEvent;
+
+/** The plain-text fallback of a meeting card (notifications, previews, older clients). */
+export function meetingCardText(card: Pick<MeetingCard, "title" | "startAt" | "endAt">): string {
+  return `📅 Meeting scheduled: ${card.title} · ${describeEventWhen({ ...card, allDay: false })}`;
+}
 
 /** Date and time of an event, for notification text; all-day events show the dates only. */
 export function describeEventWhen(

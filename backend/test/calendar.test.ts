@@ -9,13 +9,13 @@ import {
   TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { allDaySpan, zonedMidnight } from "@mindfultech/shared";
+import { allDaySpan, dmChannelId, zonedMidnight } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { handler } from "../src/handlers/calendar";
 import * as cognito from "../src/lib/cognito";
 import type { HttpEvent } from "../src/lib/http";
 import * as push from "../src/lib/push";
-import { ALICE, BOB, ddbMock, resetMocks, sentEvents } from "./helpers";
+import { ALICE, BOB, ddbMock, dmRow, mockChannels, resetMocks, sentEvents } from "./helpers";
 
 const CAROL = { userId: "user-carol", email: "carol@example.com" };
 const ADMIN = { userId: "user-admin", email: "admin@example.com", groups: ["admins"] };
@@ -637,5 +637,151 @@ describe("balances", () => {
         })
       ).status,
     ).toBe(400);
+  });
+});
+
+describe("meetings scheduled from a direct message", () => {
+  const DM = dmChannelId(ALICE.userId, BOB.userId);
+  const MESSAGES = "slack-test-messages";
+  const startAt = zonedMidnight("2026-11-04") + 15 * 3_600_000;
+  const body = {
+    type: "meeting",
+    title: "Client kickoff",
+    description: "Agenda in the doc",
+    startAt,
+    endAt: startAt + 3_600_000,
+    channelId: DM,
+    clientId: "c-meet-1",
+  };
+
+  beforeEach(() => {
+    mockChannels(dmRow(ALICE.userId, BOB.userId));
+    ddbMock.on(QueryCommand, { TableName: MESSAGES }).resolves({ Items: [] });
+  });
+
+  it("writes the event and the card in one transaction, participants from the DM", async () => {
+    const { status, body: reply } = await call("POST /calendar/events", { body });
+
+    expect(status).toBe(201);
+    expect(reply.event).toMatchObject({
+      type: "meeting",
+      title: "Client kickoff",
+      allDay: false,
+      startAt,
+      participants: [ALICE.userId, BOB.userId],
+      createdBy: ALICE.userId,
+    });
+    expect(reply.message).toMatchObject({
+      channelId: DM,
+      userId: ALICE.userId,
+      userEmail: ALICE.email,
+      kind: "meeting",
+      clientId: "c-meet-1",
+      attachments: [],
+      meeting: {
+        eventId: reply.event.eventId,
+        title: "Client kickoff",
+        description: "Agenda in the doc",
+        allDay: false,
+        startAt,
+        participants: [ALICE.userId, BOB.userId],
+      },
+    });
+    expect(reply.message.text).toMatch(/^📅 Meeting scheduled: Client kickoff · Nov 4, 3:00 PM$/);
+    // Nothing written outside the transaction, which holds exactly the pair.
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    const [event, message] = transactItems();
+    expect(event!.Put).toMatchObject({
+      TableName: EVENTS,
+      ConditionExpression: "attribute_not_exists(eventId)",
+      Item: { year: "2026", participants: new Set([ALICE.userId, BOB.userId]) },
+    });
+    expect(message!.Put).toMatchObject({
+      TableName: MESSAGES,
+      ConditionExpression: "attribute_not_exists(sk)",
+      Item: { channelId: DM, kind: "meeting" },
+    });
+    // Both people get the calendar push and the chat message; nobody else gets either.
+    const byType = sentEvents()
+      .map(([id, e]) => `${id}:${e.type}`)
+      .sort();
+    expect(byType).toEqual([
+      "conn-alice:calendar.event_created",
+      "conn-alice:message.new",
+      "conn-bob:calendar.event_created",
+      "conn-bob:message.new",
+    ]);
+    const chat = sentEvents().find(([, e]) => e.type === "message.new")?.[1] as {
+      message: { kind: string };
+      clientId: string;
+    };
+    expect(chat.message.kind).toBe("meeting");
+    expect(chat.clientId).toBe("c-meet-1");
+    expect(sendPush).toHaveBeenCalledWith(
+      [BOB.userId],
+      expect.objectContaining({ title: "alice invited you to “Client kickoff”" }),
+    );
+  });
+
+  it("refuses participants in the body, all-day, channels that aren't your DMs, and guests", async () => {
+    expect(
+      (await call("POST /calendar/events", { body: { ...body, participants: [CAROL.userId] } }))
+        .status,
+    ).toBe(400);
+    expect(
+      (
+        await call("POST /calendar/events", {
+          body: { ...body, allDay: true, startDate: "2026-11-04", endDate: "2026-11-04" },
+        })
+      ).status,
+    ).toBe(400);
+    // Carol isn't in Alice & Bob's DM; a public channel isn't a DM.
+    expect((await call("POST /calendar/events", { user: CAROL, body })).status).toBe(404);
+    expect(
+      (await call("POST /calendar/events", { body: { ...body, channelId: "ch_general" } })).status,
+    ).toBe(404);
+    ddbMock.on(BatchGetCommand).resolves({
+      Responses: { [USERS]: [{ userId: BOB.userId, role: "guest" }] },
+    });
+    const guest = await call("POST /calendar/events", { body });
+    expect(guest.status).toBe(400);
+    expect(guest.body.message).toBe("Guests can't be invited to meetings");
+    expect(ddbMock.commandCalls(TransactWriteCommand)).toHaveLength(0);
+  });
+
+  it("a retried request returns the pair already created instead of a second meeting", async () => {
+    const card = {
+      eventId: "ev_01MEETING0000000000000000M",
+      title: "Client kickoff",
+      description: "",
+      allDay: false,
+      startAt,
+      endAt: startAt + 3_600_000,
+      participants: [ALICE.userId, BOB.userId],
+    };
+    ddbMock.on(QueryCommand, { TableName: MESSAGES }).resolves({
+      Items: [
+        {
+          messageId: "m1",
+          channelId: DM,
+          sk: "1#m1",
+          userId: ALICE.userId,
+          text: "📅 Meeting scheduled: Client kickoff",
+          kind: "meeting",
+          meeting: card,
+          clientId: "c-meet-1",
+        },
+      ],
+    });
+    ddbMock
+      .on(GetCommand, { TableName: EVENTS, Key: { eventId: card.eventId } })
+      .resolves({ Item: meetingRow });
+
+    const { status, body: reply } = await call("POST /calendar/events", { body });
+    expect(status).toBe(201);
+    expect(reply.event.eventId).toBe(card.eventId);
+    expect(reply.message.messageId).toBe("m1");
+    expect(ddbMock.commandCalls(TransactWriteCommand)).toHaveLength(0);
+    expect(sentEvents()).toEqual([]);
   });
 });
