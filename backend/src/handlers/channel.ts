@@ -6,6 +6,7 @@ import {
   paginateScan,
   PutCommand,
   QueryCommand,
+  TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import {
@@ -23,10 +24,14 @@ import {
   newChannelId,
   parseAction,
   slugifyChannelName,
+  type Board,
   type Channel,
   type ChannelAction,
+  type ProjectBoard,
 } from "@mindfultech/shared";
-import { broadcast } from "../lib/broadcast";
+import { ulid } from "ulid";
+import { boardAudience, boardRows, getAccessibleBoard } from "../lib/boards";
+import { broadcast, deliver, listConnections } from "../lib/broadcast";
 import { channelAudience } from "../lib/channels";
 import { batchDelete, ddb, tables } from "../lib/ddb";
 import { wsHandler, type Caller } from "../lib/handler";
@@ -118,6 +123,61 @@ async function listChannels(caller: Caller) {
   return ok();
 }
 
+/** What a project channel's board request resolved to, or why it was refused. */
+type ProjectOutcome =
+  | { ok: true; linkedBoardId?: string; newBoard?: Board }
+  | { ok: false; code: "BOARD_NOT_FOUND" | "FORBIDDEN" | "BAD_REQUEST"; message: string };
+
+/**
+ * Resolves the board of a project channel: `link` must be a board the caller
+ * can see; `create` builds a board named after the channel with the caller
+ * as owner and the channel's members (private channels) on it. The rows are
+ * written by the caller in the same transaction as the channel.
+ */
+async function resolveProjectBoard(
+  board: ProjectBoard | undefined,
+  caller: Caller,
+  channel: Pick<Channel, "name" | "members">,
+  current?: string,
+): Promise<ProjectOutcome> {
+  if (!board) {
+    if (current) return { ok: true, linkedBoardId: current }; // already has one
+    return { ok: false, code: "BAD_REQUEST", message: "A project needs a board" };
+  }
+  if (board.mode === "link") {
+    const linked = await getAccessibleBoard(board.boardId, caller.userId);
+    if (!linked) {
+      return { ok: false, code: "BOARD_NOT_FOUND", message: "That board doesn't exist" };
+    }
+    return { ok: true, linkedBoardId: linked.boardId };
+  }
+  if (caller.role === "guest") {
+    return { ok: false, code: "FORBIDDEN", message: "Guests can't create boards" };
+  }
+  const members = [...new Set([caller.userId, ...(channel.members ?? [])])].sort(compareIds);
+  const newBoard: Board = {
+    boardId: `b_${ulid()}`,
+    name: channel.name,
+    ownerId: caller.userId,
+    members,
+    createdAt: Date.now(),
+  };
+  return { ok: true, linkedBoardId: newBoard.boardId, newBoard };
+}
+
+/** The new board shows up in its members' Task Manager at once (as `addMembers` does). */
+async function announceBoard(board: Board): Promise<void> {
+  try {
+    const connections = await listConnections();
+    await deliver(connections.filter(boardAudience(board)), () => ({
+      type: "board.updated",
+      board,
+    }));
+  } catch (err) {
+    log.error("board announce failed", { boardId: board.boardId, ...errorFields(err) });
+  }
+}
+
 async function createChannel(action: ActionOf<"create">, caller: Caller) {
   // The readable name is kept as typed ("Web Design"); uniqueness is on its slug.
   const slug = slugifyChannelName(action.name);
@@ -135,12 +195,40 @@ async function createChannel(action: ActionOf<"create">, caller: Caller) {
     archived: false,
     ...(action.visibility === "private" && { members: [caller.userId] }),
   };
-  await putIfAbsent(channel);
+  let newBoard: Board | undefined;
+  if (action.isProject) {
+    const project = await resolveProjectBoard(action.board, caller, channel);
+    if (!project.ok) return replyError(caller.connectionId, project.code, project.message);
+    channel.isProject = true;
+    channel.linkedBoardId = project.linkedBoardId;
+    newBoard = project.newBoard;
+  }
+  if (newBoard) {
+    // Channel and board in one transaction: neither exists without the other.
+    await ddb.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          {
+            Put: {
+              TableName: tables.channels,
+              Item: channel,
+              ConditionExpression: "attribute_not_exists(channelId)",
+            },
+          },
+          ...boardRows(newBoard),
+        ],
+      }),
+    );
+  } else {
+    await putIfAbsent(channel);
+  }
   log.info("channel created", {
     channelId: channel.channelId,
     type: channel.type,
     userId: caller.userId,
+    ...(channel.isProject && { boardId: channel.linkedBoardId, newBoard: !!newBoard }),
   });
+  if (newBoard) await announceBoard(newBoard);
   await broadcastChannelList();
   return ok();
 }
@@ -305,6 +393,8 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
     name: action.name,
     topic: "topic" in action ? action.topic : undefined,
     description: "description" in action ? action.description : undefined,
+    isProject: "isProject" in action ? action.isProject : undefined,
+    board: "board" in action ? action.board : undefined,
   };
   const renaming = fields.name !== undefined && fields.name !== channel.name;
   const allowed = renaming
@@ -322,10 +412,15 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
   const names: Record<string, string> = {};
   const values: Record<string, unknown> = {};
   const sets: string[] = [];
+  const removes: string[] = [];
   const assign = (key: string, value: unknown) => {
     names[`#${key}`] = key;
     values[`:${key}`] = value;
     sets.push(`#${key} = :${key}`);
+  };
+  const remove = (key: string) => {
+    names[`#${key}`] = key;
+    removes.push(`#${key}`);
   };
   if (renaming) {
     const slug = slugifyChannelName(fields.name!);
@@ -341,23 +436,61 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
   }
   if (fields.topic !== undefined) assign("topic", fields.topic);
   if (fields.description !== undefined) assign("description", fields.description);
-  if (sets.length === 0) return ok(); // same name, nothing else
 
-  const { Attributes } = await ddb.send(
-    new UpdateCommand({
-      TableName: tables.channels,
-      Key: { channelId: channel.channelId },
-      UpdateExpression: `SET ${sets.join(", ")}`,
-      ConditionExpression: "attribute_exists(channelId)",
-      ExpressionAttributeNames: names,
-      ExpressionAttributeValues: values,
-      ReturnValues: "ALL_NEW",
-    }),
-  );
+  // Project settings: a board to link or create, or turning the project off.
+  let newBoard: Board | undefined;
+  let unlinked = false;
+  const wantsProject = fields.isProject ?? (fields.board ? true : undefined);
+  if (wantsProject === true) {
+    const project = await resolveProjectBoard(
+      fields.board,
+      caller,
+      { name: fields.name ?? channel.name, members: channel.members },
+      channel.linkedBoardId,
+    );
+    if (!project.ok) return replyError(caller.connectionId, project.code, project.message);
+    newBoard = project.newBoard;
+    if (!channel.isProject) assign("isProject", true);
+    if (project.linkedBoardId !== channel.linkedBoardId) {
+      assign("linkedBoardId", project.linkedBoardId);
+    }
+  } else if (wantsProject === false && (channel.isProject || channel.linkedBoardId)) {
+    assign("isProject", false);
+    if (channel.linkedBoardId) remove("linkedBoardId");
+    unlinked = true;
+  }
+  if (sets.length === 0 && removes.length === 0) return ok(); // same name, nothing else
+
+  const expression = [
+    sets.length ? `SET ${sets.join(", ")}` : "",
+    removes.length ? `REMOVE ${removes.join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const update = {
+    TableName: tables.channels,
+    Key: { channelId: channel.channelId },
+    UpdateExpression: expression,
+    ConditionExpression: "attribute_exists(channelId)",
+    ExpressionAttributeNames: names,
+    ...(Object.keys(values).length > 0 && { ExpressionAttributeValues: values }),
+  };
+  let Attributes: Record<string, unknown> | undefined;
+  if (newBoard) {
+    // The channel's new link and the board itself: one transaction, no half state.
+    await ddb.send(
+      new TransactWriteCommand({ TransactItems: [{ Update: update }, ...boardRows(newBoard)] }),
+    );
+  } else {
+    ({ Attributes } = await ddb.send(new UpdateCommand({ ...update, ReturnValues: "ALL_NEW" })));
+  }
   const patch = Object.fromEntries(
     Object.entries(values).map(([k, v]) => [k.slice(1), v]),
   ) as Partial<Channel>;
-  const updated = (Attributes ?? { ...channel, ...patch }) as Channel;
+  const merged: Channel = { ...channel, ...patch };
+  if (unlinked) delete merged.linkedBoardId;
+  const updated = (Attributes ?? merged) as Channel;
+  if (newBoard) await announceBoard(newBoard);
   log.info("channel updated", {
     channelId: channel.channelId,
     userId: caller.userId,

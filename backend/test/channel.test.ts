@@ -3,10 +3,12 @@ import {
   BatchGetCommand,
   BatchWriteCommand,
   DeleteCommand,
+  GetCommand,
   PutCommand,
   QueryCommand,
   ScanCommand,
   UpdateCommand,
+  TransactWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { dmChannelId, type ChannelListEvent, compareIds } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -691,5 +693,129 @@ describe("channel rename", () => {
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
     await update({ name: "lobby" }, { ...ALICE, role: "admin" }, "ch_general");
     expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+  });
+});
+
+describe("project channels", () => {
+  const board = {
+    boardId: "b_01JA0000000000000000000001",
+    sk: "BOARD",
+    name: "Website",
+    ownerId: ALICE.userId,
+    members: [ALICE.userId],
+    createdAt: 1,
+  };
+  const team = { ...privateRow("ch_team", ALICE.userId, [ALICE.userId, BOB.userId]), slug: "team" };
+  const create = (fields: object, user: object = ALICE) =>
+    handler(
+      wsEvent(
+        "channel",
+        { action: "channel", op: "create", name: "Launch", visibility: "private", ...fields },
+        { user: user as typeof ALICE },
+      ),
+    );
+  const update = (fields: object, user: object = ALICE) =>
+    handler(
+      wsEvent(
+        "channel",
+        { action: "channel", op: "update", channelId: "ch_team", ...fields },
+        { user: user as typeof ALICE },
+      ),
+    );
+  const transactions = () => ddbMock.commandCalls(TransactWriteCommand);
+
+  beforeEach(() => {
+    resetMocks();
+    mockScans([general, team]);
+    ddbMock.on(PutCommand).resolves({});
+    ddbMock.on(UpdateCommand).resolves({});
+    ddbMock.on(TransactWriteCommand).resolves({});
+    ddbMock.on(GetCommand, { TableName: "slack-test-boards" }).resolves({ Item: board });
+  });
+
+  it("creates the channel and a new board in one transaction, then announces both", async () => {
+    expect((await create({ isProject: true, board: { mode: "create" } })).statusCode).toBe(200);
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0); // never a separate write
+    const items = transactions()[0]?.args[0].input.TransactItems ?? [];
+    expect(items.map((i) => i.Put?.TableName)).toEqual([
+      "slack-test-channels",
+      "slack-test-boards",
+      "slack-test-boards",
+    ]);
+    const channel = items[0]?.Put?.Item;
+    const boardRow = items[1]?.Put?.Item;
+    expect(channel).toMatchObject({ name: "Launch", isProject: true, createdBy: ALICE.userId });
+    expect(channel?.linkedBoardId).toMatch(/^b_[0-9A-Z]{26}$/);
+    expect(boardRow).toMatchObject({
+      boardId: channel?.linkedBoardId,
+      sk: "BOARD",
+      name: "Launch",
+      ownerId: ALICE.userId,
+    });
+    expect(items[0]?.Put?.ConditionExpression).toBe("attribute_not_exists(channelId)");
+    expect(items[1]?.Put?.ConditionExpression).toBe("attribute_not_exists(boardId)");
+    expect(items[2]?.Put?.Item).toMatchObject({ sk: `MEMBER#${ALICE.userId}` });
+
+    const events = sentEvents().map(([to, e]) => [to, e.type]);
+    expect(events).toContainEqual(["conn-alice", "board.updated"]);
+    expect(events).toContainEqual(["conn-alice", "channel.list"]);
+    expect(events).not.toContainEqual(["conn-bob", "board.updated"]); // not a member
+  });
+
+  it("links an existing board the caller can see; refuses one they can't", async () => {
+    await create({ isProject: true, board: { mode: "link", boardId: board.boardId } });
+    expect(transactions()).toHaveLength(0);
+    expect(ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item).toMatchObject({
+      isProject: true,
+      linkedBoardId: board.boardId,
+    });
+
+    ddbMock.on(GetCommand, { TableName: "slack-test-boards" }).resolves({ Item: undefined });
+    await create({
+      isProject: true,
+      board: { mode: "link", boardId: "b_01JA0000000000000000000002" },
+    });
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "BOARD_NOT_FOUND" });
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(1); // nothing written the second time
+  });
+
+  it("a project needs a board, and guests can't create one", async () => {
+    await create({ isProject: true });
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "BAD_REQUEST" });
+    await create({ isProject: true, board: { mode: "create" } }, { ...ALICE, role: "guest" });
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    expect(transactions()).toHaveLength(0);
+  });
+
+  it("update marks a channel as a project with a new board (channel members join it) in one transaction", async () => {
+    await update({ isProject: true, board: { mode: "create" } });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+    const items = transactions()[0]?.args[0].input.TransactItems ?? [];
+    expect(items[0]?.Update).toMatchObject({
+      TableName: "slack-test-channels",
+      Key: { channelId: "ch_team" },
+      UpdateExpression: "SET #isProject = :isProject, #linkedBoardId = :linkedBoardId",
+    });
+    expect(items[1]?.Put?.Item).toMatchObject({ sk: "BOARD", name: team.name });
+    // Alice (owner) and Bob (channel member) are on the new board.
+    expect(
+      items
+        .slice(2)
+        .map((i) => i.Put?.Item?.sk)
+        .sort(),
+    ).toEqual([`MEMBER#${ALICE.userId}`, `MEMBER#${BOB.userId}`].sort());
+    const events = sentEvents().map(([to, e]) => [to, e.type]);
+    expect(events).toContainEqual(["conn-bob", "board.updated"]);
+    expect(events).toContainEqual(["conn-alice", "channel.updated"]);
+  });
+
+  it("update unlinks the board when the project is turned off", async () => {
+    mockScans([general, { ...team, isProject: true, linkedBoardId: board.boardId }]);
+    await update({ isProject: false });
+    const input = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(input?.UpdateExpression).toBe("SET #isProject = :isProject REMOVE #linkedBoardId");
+    expect(input?.ExpressionAttributeValues).toEqual({ ":isProject": false });
+    expect(transactions()).toHaveLength(0);
   });
 });

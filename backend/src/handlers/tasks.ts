@@ -22,7 +22,14 @@ import {
   type Task,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
-import { BOARD_SK, boardAudience, boardsOf, getAccessibleBoard, memberSk } from "../lib/boards";
+import {
+  BOARD_SK,
+  boardAudience,
+  boardRows,
+  boardsOf,
+  getAccessibleBoard,
+  memberSk,
+} from "../lib/boards";
 import { activeUserIds, deliver, listConnections, type LiveConnection } from "../lib/broadcast";
 import { batchDelete, ddb, tables } from "../lib/ddb";
 import {
@@ -126,30 +133,7 @@ async function createBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
     members: [caller.userId],
     createdAt: Date.now(),
   };
-  await ddb.send(
-    new TransactWriteCommand({
-      TransactItems: [
-        {
-          Put: {
-            TableName: tables.boards,
-            Item: { ...board, sk: BOARD_SK, members: new Set(board.members) },
-            ConditionExpression: "attribute_not_exists(boardId)",
-          },
-        },
-        {
-          Put: {
-            TableName: tables.boards,
-            Item: {
-              boardId: board.boardId,
-              sk: memberSk(caller.userId),
-              userId: caller.userId,
-              createdAt: board.createdAt,
-            },
-          },
-        },
-      ],
-    }),
-  );
+  await ddb.send(new TransactWriteCommand({ TransactItems: boardRows(board) }));
   log.info("board created", { boardId: board.boardId, userId: caller.userId });
   return json(201, { board });
 }

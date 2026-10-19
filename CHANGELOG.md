@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Project channels:** "Mark this channel as a Project" when creating or editing a channel, linking
+  one of your Kanban boards or creating a new one named after the channel (created together with
+  the channel, never one without the other). Project channels show a **📊 Board** shortcut in the
+  header that opens the board, and a board icon in the sidebar.
+
 - **Presence:** green dot for online, hollow gray ring for offline next to people under
   _Direct messages_ and in the DM header. Multiple tabs/devices count as one presence.
 - **Delete channels and DMs** from the header (creator only for channels, never `#general`;

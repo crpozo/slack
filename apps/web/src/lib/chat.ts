@@ -4,6 +4,7 @@ import {
   isDmChannel,
   type BoardEvent,
   type ChannelVisibility,
+  type ProjectBoard,
   type Attachment,
   type ErrorCode,
   type Message,
@@ -31,6 +32,7 @@ const ERROR_TEXT: Record<ErrorCode, string> = {
   CHANNEL_NOT_FOUND: "That channel doesn't exist or you don't have access.",
   CHANNEL_NAME_TAKEN: "A channel with that name already exists.",
   FILE_NOT_FOUND: "That file no longer exists.",
+  BOARD_NOT_FOUND: "That board doesn't exist or you can't see it.",
   FORBIDDEN: "You don't have permission to do that.",
   USER_NOT_FOUND: "That person doesn't exist or has never signed in.",
   MESSAGE_NOT_FOUND: "That message no longer exists.",
@@ -63,6 +65,9 @@ export interface ChannelEdit {
   name?: string;
   topic?: string;
   description?: string;
+  /** `false` unlinks the board; `true` needs `board` unless the channel already has one. */
+  isProject?: boolean;
+  board?: ProjectBoard;
 }
 
 /** Glue between the WebSocket and the store; one instance per signed-in session. */
@@ -403,6 +408,8 @@ class ChatController {
     rawName: string,
     visibility: ChannelVisibility = "private",
     invitees: string[] = [],
+    /** Makes it a project channel: link this board, or create one named after the channel. */
+    board?: ProjectBoard,
   ): Promise<string> {
     const client = this.client;
     if (!client) throw new Error("Not connected");
@@ -414,7 +421,12 @@ class ChatController {
         reject(new Error("The server didn't respond. Please try again."));
       }, REQUEST_TIMEOUT_MS);
       this.pendingCreate = { name, resolve, reject, timer };
-      client.send("channel", { op: "create", name, visibility });
+      client.send("channel", {
+        op: "create",
+        name,
+        visibility,
+        ...(board && { isProject: true, board }),
+      });
     });
     if (visibility === "private" && invitees.length > 0) this.invite(channelId, invitees);
     return channelId;
@@ -432,7 +444,7 @@ class ChatController {
   /** Name, topic and/or description; everyone in the channel gets `channel.updated`. */
   updateChannel(channelId: string, fields: ChannelEdit): void {
     const trimmed = Object.fromEntries(
-      Object.entries(fields).map(([k, v]) => [k, (v as string).trim()]),
+      Object.entries(fields).map(([k, v]) => [k, typeof v === "string" ? v.trim() : v]),
     ) as ChannelEdit;
     this.client?.send("channel", { op: "update", channelId, ...trimmed });
   }
