@@ -24,6 +24,7 @@ import {
 } from "../lib/sidebar";
 import { selectUnread, useChat } from "../store";
 import { useTasks } from "../store/tasks";
+import { useCalendar } from "../store/calendar";
 import { CreateChannelModal, NewDmModal } from "./ChannelModals";
 import { CallLayer } from "./CallLayer";
 import { PushPrompt } from "./PushPrompt";
@@ -31,6 +32,9 @@ import { ChannelView } from "./ChannelView";
 
 // Not needed to show a conversation: loaded on first use, off the initial bundle.
 const TaskManager = lazy(() => import("./TaskManager").then((m) => ({ default: m.TaskManager })));
+const CalendarView = lazy(() =>
+  import("./CalendarView").then((m) => ({ default: m.CalendarView })),
+);
 const SettingsModal = lazy(() =>
   import("./SettingsModal").then((m) => ({ default: m.SettingsModal })),
 );
@@ -58,7 +62,9 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const params = useParams();
   // `/app/tasks[/:boardId]` swaps the chat column for the Task Manager; no channel is active.
   const tasksMatch = useMatch("/app/tasks/:boardId?");
-  const channelId = tasksMatch ? null : (params.channelId ?? GENERAL_CHANNEL_ID);
+  // `/app/calendar` likewise shows the company calendar.
+  const calendarMatch = useMatch("/app/calendar");
+  const channelId = tasksMatch || calendarMatch ? null : (params.channelId ?? GENERAL_CHANNEL_ID);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -133,6 +139,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     await signOutPush();
     chat.stop();
     useTasks.getState().reset();
+    useCalendar.getState().reset();
     await signOut().catch(() => {});
     useChat.getState().setSession(null);
   }, []);
@@ -275,7 +282,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         }`}
       >
         <Sidebar
-          activeChannelId={channelId ?? "tasks"}
+          activeChannelId={channelId ?? (calendarMatch ? "calendar" : "tasks")}
           collapsed={collapsed}
           onToggleCollapsed={isDesktop ? toggleCollapsed : undefined}
           onOpenSwitcher={() => setSwitcherOpen(true)}
@@ -306,6 +313,12 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         <PushPrompt />
         {channelId ? (
           <ChannelView channelId={channelId} onOpenSidebar={() => setSidebarOpen(true)} />
+        ) : calendarMatch ? (
+          <Suspense
+            fallback={<div className="flex-1" aria-busy="true" aria-label="Loading calendar" />}
+          >
+            <CalendarView onOpenSidebar={() => setSidebarOpen(true)} />
+          </Suspense>
         ) : (
           <Suspense
             fallback={<div className="flex-1" aria-busy="true" aria-label="Loading tasks" />}

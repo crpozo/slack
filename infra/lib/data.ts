@@ -12,6 +12,10 @@ export class Data extends Construct {
   readonly tasks: Table;
   /** Web Push (Phase 8): one row per browser/device that enabled notifications. */
   readonly pushSubscriptions: Table;
+  /** Company calendar (Phase 19): meetings, vacation requests and holidays, see backend/src/handlers/calendar.ts. */
+  readonly events: Table;
+  /** Vacation ledger: one row per person and year (allowance, used, pending). */
+  readonly vacationBalances: Table;
 
   constructor(scope: Construct, id: string, props: { stage: Stage }) {
     super(scope, id);
@@ -80,6 +84,33 @@ export class Data extends Construct {
       indexName: "byBoard",
       partitionKey: { name: "boardId", type: AttributeType.STRING },
       sortKey: { name: "createdAt", type: AttributeType.NUMBER },
+      projectionType: ProjectionType.ALL,
+    });
+
+    this.events = new Table(this, "Events", {
+      ...common,
+      tableName: `slack-${props.stage}-events`,
+      partitionKey: { name: "eventId", type: AttributeType.STRING },
+    });
+    // "What's on the calendar between these dates?": one query per year the range spans.
+    this.events.addGlobalSecondaryIndex({
+      indexName: "byYear",
+      partitionKey: { name: "year", type: AttributeType.STRING },
+      sortKey: { name: "startAt", type: AttributeType.NUMBER },
+      projectionType: ProjectionType.ALL,
+    });
+
+    this.vacationBalances = new Table(this, "VacationBalances", {
+      ...common,
+      tableName: `slack-${props.stage}-vacation-balances`,
+      partitionKey: { name: "userId", type: AttributeType.STRING },
+      sortKey: { name: "year", type: AttributeType.STRING },
+    });
+    // Admins' overview: everyone's balance for a year.
+    this.vacationBalances.addGlobalSecondaryIndex({
+      indexName: "byYear",
+      partitionKey: { name: "year", type: AttributeType.STRING },
+      sortKey: { name: "userId", type: AttributeType.STRING },
       projectionType: ProjectionType.ALL,
     });
   }

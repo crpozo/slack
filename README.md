@@ -165,6 +165,21 @@ The UI:
   Tasks done for over a week are archived by a daily job (EventBridge → `archive-tasks` Lambda,
   which can only scan and flag tasks) and hidden from the board; _Show archived (N)_ in the Done
   column lists them, and moving one out of Done unarchives it.
+- **Apps → Calendar:** the shared company calendar (month, week and day views, FullCalendar).
+  Click a day or drag a time range to create a **meeting** and invite people from the directory;
+  only its participants see it, and invitees get a bell/push notification. **Vacations:** every
+  member has a yearly allowance (15 statutory days, admins can adjust it per person) tracked in
+  working days, Monday–Friday excluding national holidays; _Request vacation_ reserves the days
+  at once, an admin **approves or rejects** it from the pending queue in the side panel (or the
+  request's details), and approved vacations show on everyone's calendar as all-day bars.
+  Rejecting or cancelling gives the days back. **National holidays** are added by admins and
+  tint the day on everyone's calendar. All-day dates are kept as `YYYY-MM-DD` in the company
+  timezone (America/Guayaquil), so a holiday never shifts with the browser's timezone; meetings
+  are instants shown in local time. The data lives in two DynamoDB tables (`events`, indexed by
+  year, and the `vacation-balances` ledger) behind the same HTTP API as the Task Manager; the
+  ledger is updated in the same `TransactWriteItems` as the request under the condition
+  `used + pending + days <= allowance`, so two requests can't both squeeze in. Changes are
+  pushed to open calendars over the chat WebSocket.
 
 ### Test the WebSocket with `wscat`
 

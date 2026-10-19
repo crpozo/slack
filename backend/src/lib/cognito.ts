@@ -5,10 +5,11 @@ import {
   AdminGetUserCommand,
   AdminListGroupsForUserCommand,
   CognitoIdentityProviderClient,
+  ListUsersInGroupCommand,
   UserNotFoundException,
   type AttributeType,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { GUEST_GROUP, roleFromGroups, type Role } from "@mindfultech/shared";
+import { ADMIN_GROUP, GUEST_GROUP, roleFromGroups, type Role } from "@mindfultech/shared";
 import { requireEnv } from "./env";
 
 /**
@@ -98,4 +99,33 @@ export async function findOrInviteGuest(email: string): Promise<InvitedAccount> 
     throw err;
   }
   return { userId, email, role: "guest", created: true };
+}
+
+/**
+ * Ids (`sub`) of every account in the admins group: who decides vacation
+ * requests, so they can be told about new ones. Best effort: a Cognito error
+ * means an empty list, never a failed request.
+ */
+export async function adminUserIds(): Promise<string[]> {
+  const ids: string[] = [];
+  let next: string | undefined;
+  try {
+    do {
+      const page = await cognito().send(
+        new ListUsersInGroupCommand({
+          UserPoolId: poolId(),
+          GroupName: ADMIN_GROUP,
+          NextToken: next,
+        }),
+      );
+      for (const user of page.Users ?? []) {
+        const id = subOf(user.Attributes);
+        if (id) ids.push(id);
+      }
+      next = page.NextToken;
+    } while (next);
+  } catch {
+    return ids;
+  }
+  return ids;
 }

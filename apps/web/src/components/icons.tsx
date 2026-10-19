@@ -219,6 +219,12 @@ export const ChevronDownIcon = (p: IconProps) => (
     <path d="m6 9 6 6 6-6" />
   </Icon>
 );
+export const CalendarIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="5" width="18" height="16" rx="2" />
+    <path d="M16 3v4M8 3v4M3 11h18" />
+  </Icon>
+);
 export const KanbanIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M5 3v16M12 3v10M19 3v7" />

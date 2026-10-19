@@ -15,6 +15,13 @@ export default defineConfig({
         manualChunks: {
           react: ["react", "react-dom", "react-router-dom"],
           amplify: ["aws-amplify"],
+          fullcalendar: [
+            "@fullcalendar/core",
+            "@fullcalendar/react",
+            "@fullcalendar/daygrid",
+            "@fullcalendar/timegrid",
+            "@fullcalendar/interaction",
+          ],
         },
       },
     },

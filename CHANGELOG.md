@@ -7,6 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Calendar** (Apps → Calendar): a shared company calendar with month, week and day views.
+  Meetings with invitees (only participants see them; invitees are notified), **vacation
+  requests** charged in working days against a yearly allowance of 15 (admins can adjust it),
+  an **admin approval queue** (pending → approved / rejected, days released on rejection or
+  cancellation) and **national holidays** added by admins on everyone's calendar. New `events`
+  and `vacation-balances` DynamoDB tables and `/calendar/*` routes on the HTTP API.
 - **Project channels:** "Mark this channel as a Project" when creating or editing a channel, linking
   one of your Kanban boards or creating a new one named after the channel (created together with
   the channel, never one without the other). Project channels show a **📊 Board** shortcut in the

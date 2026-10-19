@@ -39,6 +39,17 @@ export const TASKS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.DELETE, path: "/tasks/{taskId}" },
 ];
 
+/** Company calendar (Phase 19): events, vacation requests and the yearly allowance, its own Lambda. */
+export const CALENDAR_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/calendar/events" },
+  { method: HttpMethod.POST, path: "/calendar/events" },
+  { method: HttpMethod.PUT, path: "/calendar/events/{id}" },
+  { method: HttpMethod.DELETE, path: "/calendar/events/{id}" },
+  { method: HttpMethod.PUT, path: "/calendar/vacations/{id}/status" },
+  { method: HttpMethod.GET, path: "/calendar/balances" },
+  { method: HttpMethod.PUT, path: "/calendar/balances/{userId}/{year}" },
+];
+
 /** Web Push subscriptions (Phase 8), served by their own small Lambda on the same API. */
 export const PUSH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/push/key" },
@@ -68,6 +79,8 @@ export class TasksApi extends Construct {
   readonly pushHandler: NodejsFunction;
   /** `archive-tasks`: daily, archives tasks done for over a week (only touches the tasks table). */
   readonly archiveHandler: NodejsFunction;
+  /** `calendar`: meetings, vacation requests (with the ledger) and holidays. */
+  readonly calendarHandler: NodejsFunction;
   /** Base URL clients call, without a trailing slash. */
   readonly url: string;
   private readonly origins: string[];
@@ -121,6 +134,18 @@ export class TasksApi extends Construct {
       VAPID_PARAMETER: vapidParameterName(stage),
     });
 
+    this.calendarHandler = lambda("CalendarFn", "calendar", {
+      EVENTS_TABLE: data.events.tableName,
+      VACATION_BALANCES_TABLE: data.vacationBalances.tableName,
+      USERS_TABLE: data.users.tableName,
+      CONNECTIONS_TABLE: data.connections.tableName,
+      WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+      // Who the admins are (vacation requests are pushed to them).
+      USER_POOL_ID: auth.userPool.userPoolId,
+      PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
+      VAPID_PARAMETER: vapidParameterName(stage),
+    });
+
     this.archiveHandler = lambda(
       "ArchiveFn",
       "archive-tasks",
@@ -164,6 +189,13 @@ export class TasksApi extends Construct {
     const pushIntegration = new HttpLambdaIntegration("PushIntegration", this.pushHandler);
     for (const { method, path } of PUSH_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: pushIntegration });
+    }
+    const calendarIntegration = new HttpLambdaIntegration(
+      "CalendarIntegration",
+      this.calendarHandler,
+    );
+    for (const { method, path } of CALENDAR_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: calendarIntegration });
     }
     this.url = this.httpApi.apiEndpoint;
 
@@ -215,6 +247,35 @@ export class TasksApi extends Construct {
     // Real-time pushes: list live connections, post to members', drop stale ones (410).
     data.connections.grant(this.handler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.handler);
+
+    // calendar: events by id and by year; the ledger by person/year and by year (admins).
+    data.events.grant(
+      this.calendarHandler,
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+    );
+    data.vacationBalances.grant(
+      this.calendarHandler,
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:Query",
+    );
+    // Invitees must exist and not be guests (BatchGetItem); the actor's name for pushes (GetItem).
+    data.users.grant(this.calendarHandler, "dynamodb:BatchGetItem", "dynamodb:GetItem");
+    this.calendarHandler.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["cognito-idp:ListUsersInGroup"],
+        resources: [auth.userPool.userPoolArn],
+      }),
+    );
+    data.pushSubscriptions.grant(this.calendarHandler, "dynamodb:Query", "dynamodb:DeleteItem");
+    grantReadVapid(this.calendarHandler, stage);
+    data.connections.grant(this.calendarHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
+    wsApi.webSocketApi.grantManageConnections(this.calendarHandler);
 
     // archive-tasks: find done tasks (Scan) and flag them (UpdateItem). Nothing else.
     data.tasks.grant(this.archiveHandler, "dynamodb:Scan", "dynamodb:UpdateItem");

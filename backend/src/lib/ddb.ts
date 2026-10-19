@@ -30,6 +30,12 @@ export const tables = {
   get pushSubscriptions() {
     return requireEnv("PUSH_SUBSCRIPTIONS_TABLE");
   },
+  get events() {
+    return requireEnv("EVENTS_TABLE");
+  },
+  get vacationBalances() {
+    return requireEnv("VACATION_BALANCES_TABLE");
+  },
 };
 
 /** Row of the `connections` table. */

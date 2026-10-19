@@ -1,4 +1,10 @@
-import { describeTaskActivity, type BoardEvent } from "@mindfultech/shared";
+import {
+  describeEventWhen,
+  describeTaskActivity,
+  vacationOwner,
+  type BoardEvent,
+  type CalendarPushEvent,
+} from "@mindfultech/shared";
 import { selectName, useChat } from "../store";
 import { useNotifications, type AppAlert } from "../store/notifications";
 import { useTasks } from "../store/tasks";
@@ -47,4 +53,35 @@ export function boardActivity(event: BoardEvent, myUserId: string): AlertInput |
     previousStatus,
   });
   return { kind: "task", title, body, url: `/app/tasks/${encodeURIComponent(event.boardId)}` };
+}
+
+/**
+ * The bell entry for a calendar push: someone invited you to a meeting, or
+ * an admin decided your vacation request. Other changes only refresh the view.
+ */
+export function calendarActivity(push: CalendarPushEvent, myUserId: string): AlertInput | null {
+  if (push.type === "calendar.event_deleted" || push.by === myUserId) return null;
+  const { event } = push;
+  const url = "/app/calendar";
+  if (push.type === "calendar.event_created" && event.type === "meeting") {
+    if (!event.participants.includes(myUserId)) return null;
+    const organizer = selectName(useChat.getState(), push.by);
+    return {
+      kind: "calendar",
+      title: `${organizer} invited you to “${event.title}”`,
+      body: describeEventWhen(event),
+      url,
+    };
+  }
+  if (push.type === "calendar.event_updated" && push.decision && event.type === "vacation") {
+    if (vacationOwner(event) !== myUserId) return null;
+    const note = event.decisionNote ? ` · ${event.decisionNote}` : "";
+    return {
+      kind: "calendar",
+      title: `Vacation ${push.decision}`,
+      body: `${describeEventWhen(event)}${note}`,
+      url,
+    };
+  }
+  return null;
 }
