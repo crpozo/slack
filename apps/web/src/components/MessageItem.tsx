@@ -13,7 +13,7 @@ import { formatTime, seenByLine } from "../lib/channels";
 import { QUICK_REACTIONS } from "../lib/emoji";
 import { useMessageGestures } from "../lib/gestures";
 import { renderMarkdown } from "../lib/markdown";
-import { useChat, useNameOf, type ChatMessage } from "../store";
+import { selectName, useChat, useNameOf, type ChatMessage } from "../store";
 import { Attachment } from "./Attachment";
 import { Avatar } from "./Avatar";
 import {
@@ -254,17 +254,17 @@ function SecretBody({ message, mine }: Readonly<{ message: ChatMessage; mine: bo
 }
 
 function ReplyQuote({ reply }: Readonly<{ reply: ReplySnapshot }>) {
-  const nameOf = useNameOf();
+  const author = useChat((s) => selectName(s, reply.userId));
   return (
     <button
       type="button"
       onClick={() => jumpTo(reply.messageId)}
       className="mb-0.5 mt-0.5 flex max-w-full items-start gap-1.5 rounded-md border-l-2 border-primary bg-surface-sidebar/80 px-2 py-1 text-left text-xs text-ink-secondary hover:bg-surface-hover"
-      aria-label={`In reply to ${nameOf(reply.userId)}: ${reply.preview}`}
+      aria-label={`In reply to ${author}: ${reply.preview}`}
     >
       <ReplyIcon className="mt-0.5 shrink-0" />
       <span className="min-w-0">
-        <span className="font-semibold text-ink">{nameOf(reply.userId)}</span>{" "}
+        <span className="font-semibold text-ink">{author}</span>{" "}
         <span className="line-clamp-2 break-words">
           {reply.preview || (reply.hasAttachments ? "📎 Attachment" : "")}
         </span>
@@ -354,8 +354,8 @@ export const MessageItem = memo(function MessageItem({
 }: Readonly<MessageItemProps>) {
   const html = useMemo(() => renderMarkdown(message.text), [message.text]);
   const time = formatTime(message.createdAt);
-  const nameOf = useNameOf();
-  const name = nameOf(message.userId, message.userEmail);
+  // One string, not the whole directory: a refresh re-renders this row only if its name changed.
+  const name = useChat((s) => selectName(s, message.userId, message.userEmail));
   const sent = !message.status;
   const pressed = usePressed((s) => s.id === message.messageId);
   const setPressed = usePressed((s) => s.set);

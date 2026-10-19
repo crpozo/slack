@@ -12,7 +12,10 @@ const TAP_SLOP_PX = 6;
 const STEP = 1.5;
 
 interface LightboxProps {
+  /** The original, full-size image. */
   src: string;
+  /** The thumbnail already on screen, shown until the original has loaded. */
+  placeholder?: string;
   name: string;
   onClose: () => void;
 }
@@ -26,8 +29,9 @@ interface LightboxProps {
  * events from bubbling out: the page's own gestures (swipe to reply, the
  * drawer's edge swipe, listening on `document`) never see them.
  */
-export function Lightbox({ src, name, onClose }: Readonly<LightboxProps>) {
+export function Lightbox({ src, placeholder, name, onClose }: Readonly<LightboxProps>) {
   const dialog = useModalDialog(onClose);
+  const [loaded, setLoaded] = useState(!placeholder);
   const viewportRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const [view, setView] = useState<ZoomView>(FIT);
@@ -256,7 +260,7 @@ export function Lightbox({ src, name, onClose }: Readonly<LightboxProps>) {
         >
           <img
             ref={imageRef}
-            src={src}
+            src={loaded ? src : placeholder}
             alt={name}
             draggable={false}
             className="max-h-full max-w-full object-contain will-change-transform"
@@ -264,6 +268,17 @@ export function Lightbox({ src, name, onClose }: Readonly<LightboxProps>) {
               transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
             }}
           />
+          {!loaded && (
+            // Decodes the original off screen; the placeholder is swapped out once it's ready.
+            <img
+              src={src}
+              alt=""
+              aria-hidden="true"
+              className="hidden"
+              onLoad={() => setLoaded(true)}
+              onError={() => setLoaded(true)}
+            />
+          )}
         </div>
       </div>
     </dialog>,

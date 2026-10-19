@@ -10,6 +10,7 @@ import { ddb, tables } from "../lib/ddb";
 import { wsHandler } from "../lib/handler";
 import { toWireMessage } from "../lib/messages";
 import { badRequest, ok, reply, replyError } from "../lib/response";
+import { signAttachments } from "../lib/s3";
 
 type MessageKey = { channelId: string; sk: string };
 
@@ -39,7 +40,10 @@ export function decodeCursor(cursor: string, channelId: string): MessageKey | nu
   return null;
 }
 
-/** `history`: one page of messages, newest first from DynamoDB, returned ascending. */
+/**
+ * `history`: one page of messages, newest first from DynamoDB, returned
+ * ascending, image and audio attachments carrying signed download URLs.
+ */
 export const handler = wsHandler(async (event, caller) => {
   const parsed = parseAction(HistoryActionSchema, event.body);
   if (!parsed.success) return badRequest(caller.connectionId, parsed.error);
@@ -67,12 +71,16 @@ export const handler = wsHandler(async (event, caller) => {
     }),
   );
 
-  // Expired secrets wait for DynamoDB's sweep; readers don't.
+  // Expired secrets wait for DynamoDB's sweep; readers don't. Inline attachments
+  // leave with their download URLs: no presign round trip per image.
   const now = Date.now();
-  const items = (page.Items ?? [])
-    .map(toWireMessage)
-    .filter((m) => !isExpired(m, now))
-    .reverse();
+  const items = await Promise.all(
+    (page.Items ?? [])
+      .map(toWireMessage)
+      .filter((m) => !isExpired(m, now))
+      .reverse()
+      .map((m) => signAttachments(m)),
+  );
   const last = page.LastEvaluatedKey as MessageKey | undefined;
   await reply(caller.connectionId, {
     type: "history.page",

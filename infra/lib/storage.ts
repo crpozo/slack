@@ -45,8 +45,8 @@ export class Storage extends Construct {
     this.attachments.addCorsRule({
       allowedMethods: [HttpMethods.PUT, HttpMethods.GET],
       allowedOrigins: origins,
-      // Presigned PUTs send Content-Type; signed headers must be allowed.
-      allowedHeaders: ["content-type", "content-length"],
+      // Presigned PUTs send Content-Type and Cache-Control; signed headers must be allowed.
+      allowedHeaders: ["content-type", "content-length", "cache-control"],
       maxAge: 3000,
     });
   }

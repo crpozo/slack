@@ -20,8 +20,27 @@ export const MAX_CHANNEL_TOPIC_LENGTH = 120;
 /** What the channel is for; may span lines. */
 export const MAX_CHANNEL_DESCRIPTION_LENGTH = 500;
 export const HISTORY_PAGE_SIZE = 50;
-/** Download URLs: short-lived (the client caches them for a bit less). */
-export const PRESIGN_EXPIRES_SECONDS = 300;
+/**
+ * Download URLs are signed against a quantized clock: every URL minted in the
+ * same `PRESIGN_GET_WINDOW_SECONDS` window (by the same Lambda credentials) is
+ * byte-identical, so the browser's cache keeps serving an image it already
+ * has instead of re-fetching it under a fresh signature. Each URL stays valid
+ * for `PRESIGN_GET_EXPIRES_SECONDS` from the start of its window: at least an
+ * hour after the window ends.
+ */
+export const PRESIGN_GET_WINDOW_SECONDS = 2 * 60 * 60;
+export const PRESIGN_GET_EXPIRES_SECONDS = 3 * 60 * 60;
+/** @deprecated Kept for older clients' expectations; download URLs now last `PRESIGN_GET_EXPIRES_SECONDS`. */
+export const PRESIGN_EXPIRES_SECONDS = PRESIGN_GET_EXPIRES_SECONDS;
+/**
+ * Stored on every upload (the presigned PUT signs it): keys are unique ULIDs,
+ * so an object never changes and the browser may keep it for a year.
+ */
+export const ATTACHMENT_CACHE_CONTROL = "private, max-age=31536000, immutable";
+/** Image previews: the longest side of the thumbnail the client uploads next to the original. */
+export const THUMBNAIL_MAX_SIDE = 1280;
+/** Largest dimension an attachment may declare (sanity bound, not a limit on the file). */
+export const MAX_IMAGE_DIMENSION = 20_000;
 /** Upload URLs: long enough for 500 MB on a slow connection. */
 export const PRESIGN_PUT_EXPIRES_SECONDS = 30 * 60;
 export const MAX_DISPLAY_NAME_LENGTH = 40;
@@ -66,8 +85,22 @@ export const AttachmentSchema = z.object({
     .positive()
     .max(60 * 60 * 1000)
     .optional(),
+  /** Images: a downscaled copy (≤ `THUMBNAIL_MAX_SIDE`) uploaded next to the original. */
+  thumbKey: z.string().min(1).max(1024).optional(),
+  /** Images: pixel size of what the list shows (the thumbnail when there is one), for layout. */
+  width: z.number().int().positive().max(MAX_IMAGE_DIMENSION).optional(),
+  height: z.number().int().positive().max(MAX_IMAGE_DIMENSION).optional(),
 });
-export type Attachment = z.infer<typeof AttachmentSchema>;
+/**
+ * An attachment as stored and sent by clients, plus the signed download URLs
+ * the server attaches to image and audio attachments on the way out
+ * (`history.page`, `message.new`); never stored, never accepted from a client.
+ */
+export type Attachment = z.infer<typeof AttachmentSchema> & { url?: string; thumbUrl?: string };
+
+/** Whether the server attaches download URLs to this attachment (shown inline in the list). */
+export const isInlineAttachment = (a: Pick<Attachment, "contentType">) =>
+  a.contentType.startsWith("image/") || a.contentType.startsWith("audio/");
 
 /** Longest quoted text kept with a reply. */
 export const REPLY_PREVIEW_LENGTH = 140;

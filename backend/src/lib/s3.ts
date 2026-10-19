@@ -5,16 +5,26 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { PRESIGN_EXPIRES_SECONDS, PRESIGN_PUT_EXPIRES_SECONDS } from "@mindfultech/shared";
+import {
+  ATTACHMENT_CACHE_CONTROL,
+  isInlineAttachment,
+  PRESIGN_GET_EXPIRES_SECONDS,
+  PRESIGN_GET_WINDOW_SECONDS,
+  PRESIGN_PUT_EXPIRES_SECONDS,
+  type Attachment,
+  type Message,
+} from "@mindfultech/shared";
 import { requireEnv } from "./env";
 
 const s3 = new S3Client({});
 
 /**
- * Upload URL; the signature pins Content-Type and Content-Length, so the
- * object can only be exactly the size the server accepted (≤ MAX_ATTACHMENT_SIZE,
- * checked by the presign schema): the PUT equivalent of a POST policy's
- * content-length-range. Valid for 30 minutes: 500 MB takes a while.
+ * Upload URL; the signature pins Content-Type, Content-Length and
+ * Cache-Control, so the object can only be exactly the size the server
+ * accepted (≤ MAX_ATTACHMENT_SIZE, checked by the presign schema): the PUT
+ * equivalent of a POST policy's content-length-range. The client must send
+ * `Cache-Control: ATTACHMENT_CACHE_CONTROL`, which S3 stores on the object.
+ * Valid for 30 minutes: 500 MB takes a while.
  */
 export function presignPut(key: string, contentType: string, size: number): Promise<string> {
   return getSignedUrl(
@@ -24,22 +34,54 @@ export function presignPut(key: string, contentType: string, size: number): Prom
       Key: key,
       ContentType: contentType,
       ContentLength: size,
+      CacheControl: ATTACHMENT_CACHE_CONTROL,
     }),
     {
       expiresIn: PRESIGN_PUT_EXPIRES_SECONDS,
-      signableHeaders: new Set(["content-type", "content-length"]),
+      signableHeaders: new Set(["content-type", "content-length", "cache-control"]),
     },
   );
 }
 
-export function presignGet(key: string): Promise<string> {
+/** Start of the signing window `at` falls in (see `PRESIGN_GET_WINDOW_SECONDS`). */
+export function signingWindowStart(at = Date.now()): Date {
+  const windowMs = PRESIGN_GET_WINDOW_SECONDS * 1000;
+  return new Date(Math.floor(at / windowMs) * windowMs);
+}
+
+/**
+ * Download URL, signed as of the start of the current window so every URL for
+ * `key` minted in that window is identical (same `X-Amz-Date`, same expiry,
+ * same signature) and the browser cache keeps hitting. Valid until
+ * `PRESIGN_GET_EXPIRES_SECONDS` after the window started. One caveat: the
+ * signature also depends on the Lambda's own session credentials, so two
+ * execution environments can mint different (equally valid) URLs.
+ */
+export function presignGet(key: string, now = Date.now()): Promise<string> {
   return getSignedUrl(
     s3,
     new GetObjectCommand({ Bucket: requireEnv("ATTACHMENTS_BUCKET"), Key: key }),
-    {
-      expiresIn: PRESIGN_EXPIRES_SECONDS,
-    },
+    { expiresIn: PRESIGN_GET_EXPIRES_SECONDS, signingDate: signingWindowStart(now) },
   );
+}
+
+/** `attachment` with `url` (and `thumbUrl`) when it's shown inline; other files are left alone. */
+export async function withSignedUrls(attachment: Attachment, now?: number): Promise<Attachment> {
+  if (!isInlineAttachment(attachment)) return attachment;
+  const [url, thumbUrl] = await Promise.all([
+    presignGet(attachment.key, now),
+    attachment.thumbKey ? presignGet(attachment.thumbKey, now) : undefined,
+  ]);
+  return { ...attachment, url, ...(thumbUrl && { thumbUrl }) };
+}
+
+/** `message` as sent to clients: its inline attachments carry download URLs. */
+export async function signAttachments(message: Message, now?: number): Promise<Message> {
+  if (!message.attachments?.length) return message;
+  return {
+    ...message,
+    attachments: await Promise.all(message.attachments.map((a) => withSignedUrls(a, now))),
+  };
 }
 
 /**

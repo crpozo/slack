@@ -19,6 +19,7 @@ import { wsHandler } from "../lib/handler";
 import { log } from "../lib/logger";
 import { notifyOffline } from "../lib/notify";
 import { badRequest, ok, reply, replyError } from "../lib/response";
+import { signAttachments } from "../lib/s3";
 
 /** How far back a resent message is recognized (its own retry window is seconds). */
 const DEDUPE_WINDOW = 25;
@@ -92,7 +93,9 @@ export const handler = wsHandler(async (event, caller) => {
   if (isSecret && (!text.trim() || attachments.length > 0)) {
     return badRequest(caller.connectionId, "A secret is text only");
   }
-  if (attachments.some((a) => !a.key.startsWith(`attachments/${channelId}/`))) {
+  const prefix = `attachments/${channelId}/`;
+  const ownKey = (key: string) => key.startsWith(prefix) && !key.includes("..");
+  if (attachments.some((a) => !ownKey(a.key) || (a.thumbKey && !ownKey(a.thumbKey)))) {
     return badRequest(caller.connectionId, "Attachment does not belong to this channel");
   }
 
@@ -105,7 +108,11 @@ export const handler = wsHandler(async (event, caller) => {
   const existing = await alreadyStored(channelId, caller.userId, clientId);
   if (existing) {
     log.info("duplicate send ignored", { channelId, messageId: existing.messageId });
-    await reply(caller.connectionId, { type: "message.new", message: existing, clientId });
+    await reply(caller.connectionId, {
+      type: "message.new",
+      message: await signAttachments(existing),
+      clientId,
+    });
     return ok();
   }
 
@@ -129,7 +136,12 @@ export const handler = wsHandler(async (event, caller) => {
   await ddb.send(new PutCommand({ TableName: tables.messages, Item: message }));
   log.info("message stored", { channelId, messageId: message.messageId, userId: caller.userId });
 
-  const newMessage: MessageNewEvent = { type: "message.new", message, clientId };
+  // Stored without URLs; sent with them (see `signAttachments`).
+  const newMessage: MessageNewEvent = {
+    type: "message.new",
+    message: await signAttachments(message),
+    clientId,
+  };
   const inAudience = channelAudience(channel);
   const connections = await listConnections();
   await deliver(connections, (connection) => (inAudience(connection) ? newMessage : null));

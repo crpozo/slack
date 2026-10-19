@@ -137,3 +137,25 @@ describe("read marks, typing and edits", () => {
     expect(useChat.getState().editing.dm_a_b).toBeUndefined();
   });
 });
+
+describe("directory refreshes", () => {
+  const alice = { userId: "u-a", email: "a@mt.ec", displayName: "Alice", updatedAt: 1 };
+  const bob = { userId: "u-b", email: "b@mt.ec", displayName: "Bob", updatedAt: 1 };
+
+  it("keep the users object when nobody changed, so nothing derived re-renders", () => {
+    useChat.getState().setSession(null);
+    useChat.getState().setUsers([alice, bob]);
+    const before = useChat.getState().users;
+    const directoryBefore = useChat.getState().directory;
+    useChat.getState().setUsers([bob, alice], ["u-a"]);
+    expect(useChat.getState().users).toBe(before);
+    expect(useChat.getState().directory).toBe(directoryBefore);
+    expect(useChat.getState().online).toEqual({ "u-a": true });
+
+    useChat.getState().setUsers([alice, { ...bob, displayName: "Roberto", updatedAt: 2 }]);
+    expect(useChat.getState().users).not.toBe(before);
+    expect(useChat.getState().users["u-b"]?.displayName).toBe("Roberto");
+    useChat.getState().setUsers([alice]);
+    expect(Object.keys(useChat.getState().users)).toEqual(["u-a"]);
+  });
+});

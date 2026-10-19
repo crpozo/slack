@@ -165,6 +165,13 @@ The UI:
   Tasks done for over a week are archived by a daily job (EventBridge → `archive-tasks` Lambda,
   which can only scan and flag tasks) and hidden from the board; _Show archived (N)_ in the Done
   column lists them, and moving one out of Done unarchives it.
+- **Attachments and performance:** image and audio attachments arrive with signed download URLs
+  attached to the message itself (no per-image request), signed per 2-hour window and valid for
+  3 hours so the browser cache keeps hitting; objects are stored immutable
+  (`Cache-Control: private, max-age=31536000, immutable`). Images are uploaded with a ≤ 1280 px
+  thumbnail made in the browser (`lib/thumbnail.ts`), shown at its known size so nothing shifts;
+  the viewer and Download use the original. The message list is virtualized
+  (`@tanstack/react-virtual`), so a long session keeps a few dozen rows in the DOM.
 - **Apps → Calendar:** the shared company calendar (month, week and day views, FullCalendar).
   Click a day or drag a time range to create a **meeting** and invite people from the directory;
   only its participants see it, and invitees get a bell/push notification. **Vacations:** every

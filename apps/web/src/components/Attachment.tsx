@@ -1,33 +1,65 @@
 import type { Attachment as AttachmentData } from "@mindfultech/shared";
 import { useEffect, useRef, useState } from "react";
-import { formatBytes, getDownloadUrl } from "../lib/upload";
+import { formatBytes, getDownloadUrl, isUsableUrl, rememberDownloadUrl } from "../lib/upload";
 import { formatDuration } from "../lib/voice";
 import { useChat } from "../store";
 import { DownloadIcon, FileIcon, MicIcon } from "./icons";
 import { Lightbox } from "./Lightbox";
 import { PdfViewer } from "./PdfViewer";
 
+/** The preview's box: the thumbnail's size, capped by the usual max height/width via CSS. */
+function previewSize(a: AttachmentData): { width: number; height: number } | null {
+  return a.width && a.height ? { width: a.width, height: a.height } : null;
+}
+
 function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
-  const [url, setUrl] = useState<string | null>(null);
+  const previewKey = attachment.thumbKey ?? attachment.key;
+  const [url, setUrl] = useState<string | null>(() =>
+    isUsableUrl(attachment.thumbUrl ?? attachment.url)
+      ? (attachment.thumbUrl ?? attachment.url)!
+      : null,
+  );
   const [failed, setFailed] = useState(false);
-  const [viewing, setViewing] = useState(false);
+  const [viewing, setViewing] = useState<string | null>(null);
+  const showToast = useChat((s) => s.showToast);
+
+  // URLs the server attached to the message are good for hours; keep them for later lookups.
+  useEffect(() => {
+    rememberDownloadUrl(attachment.key, attachment.url);
+    if (attachment.thumbKey) rememberDownloadUrl(attachment.thumbKey, attachment.thumbUrl);
+  }, [attachment.key, attachment.url, attachment.thumbKey, attachment.thumbUrl]);
 
   useEffect(() => {
     let cancelled = false;
-    getDownloadUrl(attachment.key).then(
+    getDownloadUrl(previewKey, attachment.thumbKey ? attachment.thumbUrl : attachment.url).then(
       (u) => !cancelled && setUrl(u),
       () => !cancelled && setFailed(true),
     );
     return () => {
       cancelled = true;
     };
-  }, [attachment.key]);
+  }, [previewKey, attachment.thumbKey, attachment.thumbUrl, attachment.url]);
 
+  async function view() {
+    try {
+      // The viewer gets the original; the thumbnail stands in while it loads.
+      setViewing(await getDownloadUrl(attachment.key, attachment.url));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Couldn't open the image.");
+    }
+  }
+
+  const size = previewSize(attachment);
   if (failed) return <FileAttachment attachment={attachment} />;
   if (!url) {
     return (
       <div
-        className="h-40 w-60 max-w-full animate-pulse rounded-lg bg-surface-hover"
+        className="max-w-full animate-pulse rounded-lg bg-surface-hover"
+        style={
+          size
+            ? { aspectRatio: `${size.width} / ${size.height}`, width: size.width, maxHeight: 320 }
+            : { width: 240, height: 160 }
+        }
         aria-hidden="true"
       />
     );
@@ -37,7 +69,7 @@ function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
     <>
       <button
         type="button"
-        onClick={() => setViewing(true)}
+        onClick={() => void view()}
         className="inline-block max-w-full cursor-zoom-in rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
         aria-label={`View ${attachment.name}`}
       >
@@ -45,11 +77,21 @@ function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
           src={url}
           alt={attachment.name}
           loading="lazy"
-          className="max-h-attachment max-w-full rounded-lg border border-line object-contain"
+          decoding="async"
+          width={size?.width}
+          height={size?.height}
+          className="max-h-attachment h-auto max-w-full rounded-lg border border-line object-contain"
           onError={() => setFailed(true)}
         />
       </button>
-      {viewing && <Lightbox src={url} name={attachment.name} onClose={() => setViewing(false)} />}
+      {viewing && (
+        <Lightbox
+          src={viewing}
+          placeholder={attachment.thumbKey ? url : undefined}
+          name={attachment.name}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </>
   );
 }
@@ -139,7 +181,7 @@ function FileAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>
 /**
  * Voice messages and other audio: a native player, so it plays inline with the
  * platform's controls (lock-screen controls on phones included). Download URLs
- * expire after 5 minutes: if playback fails on an old one, fetch a fresh URL once.
+ * expire after a few hours: if playback fails on an old one, fetch a fresh URL once.
  */
 function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
   const [url, setUrl] = useState<string | null>(null);
@@ -149,14 +191,15 @@ function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
 
   useEffect(() => {
     let cancelled = false;
-    getDownloadUrl(attachment.key).then(
+    rememberDownloadUrl(attachment.key, attachment.url);
+    getDownloadUrl(attachment.key, attachment.url).then(
       (u) => !cancelled && setUrl(u),
       () => !cancelled && setFailed(true),
     );
     return () => {
       cancelled = true;
     };
-  }, [attachment.key]);
+  }, [attachment.key, attachment.url]);
 
   function onError() {
     if (refreshed.current) return setFailed(true);
