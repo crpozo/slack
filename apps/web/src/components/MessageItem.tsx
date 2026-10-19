@@ -426,7 +426,12 @@ export const MessageItem = memo(function MessageItem({
           {message.isSecret && <SecretBody message={message} mine={mine} />}
 
           {message.kind === "meeting" && message.meeting && (
-            <MeetingCard card={message.meeting} mine={mine} myUserId={myUserId} />
+            <MeetingCard
+              card={message.meeting}
+              channelId={message.channelId}
+              mine={mine}
+              myUserId={myUserId}
+            />
           )}
 
           {message.text && !message.isSecret && !message.kind && (

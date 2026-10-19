@@ -172,6 +172,10 @@ The UI:
   thumbnail made in the browser (`lib/thumbnail.ts`), shown at its known size so nothing shifts;
   the viewer and Download use the original. The message list is virtualized
   (`@tanstack/react-virtual`), so a long session keeps a few dozen rows in the DOM.
+- **Phones:** the calendar is a continuous list of days (iOS style) under 768 px, with today in
+  a red circle, colored event pills, the month in the header and a floating _Today_ pill; the
+  desktop grid is untouched. Meeting cards show _Join call_ from five minutes before the start
+  until the end, which opens the video call with the other person.
 - **Meetings from a DM:** the calendar button in a direct message's composer schedules a meeting
   with the other person (participants come from the conversation, never from the form) and posts
   a card in the chat with _View in Calendar_. The `calendar` Lambda writes the event and the card

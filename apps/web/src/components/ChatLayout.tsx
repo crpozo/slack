@@ -24,6 +24,7 @@ import {
 } from "../lib/sidebar";
 import { selectUnread, useChat } from "../store";
 import { useTasks } from "../store/tasks";
+import { DESKTOP_QUERY, useMediaQuery } from "../lib/hooks";
 import { useCalendar } from "../store/calendar";
 import { CreateChannelModal, NewDmModal } from "./ChannelModals";
 import { CallLayer } from "./CallLayer";
@@ -45,18 +46,6 @@ import { Sidebar } from "./Sidebar";
 import { Toast } from "./Toast";
 
 const BASE_TITLE = "MindfulTech Slack";
-const DESKTOP_QUERY = "(min-width: 768px)";
-
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
-  useEffect(() => {
-    const media = window.matchMedia(query);
-    const onChange = () => setMatches(media.matches);
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, [query]);
-  return matches;
-}
 
 export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const params = useParams();
