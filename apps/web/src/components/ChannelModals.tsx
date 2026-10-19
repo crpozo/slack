@@ -10,11 +10,20 @@ import {
   type ChannelVisibility,
   type Channel,
 } from "@mindfultech/shared";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { chat, type ChannelEdit } from "../lib/chat";
+import {
+  projectBoardOf,
+  projectChoiceOf,
+  projectChoiceValid,
+  projectEdit,
+  type ProjectChoice,
+} from "../lib/projects";
+import { tasksApiConfigured } from "../lib/tasksApi";
 import { useChat } from "../store";
-import { GlobeIcon, LockIcon } from "./icons";
+import { useTasks } from "../store/tasks";
+import { GlobeIcon, KanbanIcon, LockIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 import { UserPicker } from "./UserPicker";
 
@@ -37,6 +46,127 @@ const VISIBILITY: Array<{
   { value: "public", label: "Public", hint: "Visible to the whole team", Icon: GlobeIcon },
 ];
 
+/**
+ * "Mark this channel as a Project": link one of your boards, or have a new one
+ * created with the channel's name (in the same transaction as the channel).
+ * Hidden on deployments without the Task Manager.
+ */
+function ProjectSection({
+  value,
+  onChange,
+  channelName,
+  disabled = false,
+}: Readonly<{
+  value: ProjectChoice;
+  onChange: (next: ProjectChoice) => void;
+  channelName: string;
+  disabled?: boolean;
+}>) {
+  const me = useChat((s) => s.me);
+  const { boards, boardsLoaded, loadBoards } = useTasks(
+    useShallow((s) => ({
+      boards: s.boards,
+      boardsLoaded: s.boardsLoaded,
+      loadBoards: s.loadBoards,
+    })),
+  );
+  const configured = tasksApiConfigured();
+  useEffect(() => {
+    if (configured && value.isProject && !boardsLoaded) void loadBoards();
+  }, [configured, value.isProject, boardsLoaded, loadBoards]);
+  if (!configured) return null;
+  const canCreateBoard = me?.role !== "guest";
+  const set = (patch: Partial<ProjectChoice>) => onChange({ ...value, ...patch });
+  const radio = (mode: ProjectChoice["mode"]) =>
+    `flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm ${
+      value.mode === mode ? "border-primary bg-primary/10" : "border-line hover:bg-surface-hover"
+    }`;
+
+  return (
+    <fieldset className="space-y-2" aria-label="Project">
+      <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5">
+        <span>
+          <span className="flex items-center gap-1.5 text-sm font-medium text-ink">
+            <KanbanIcon className="text-ink-secondary" /> Mark this channel as a Project
+          </span>
+          <span className="block text-xs text-ink-secondary">
+            Adds a 📊 Board shortcut to the channel header.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          role="switch"
+          aria-checked={value.isProject}
+          checked={value.isProject}
+          disabled={disabled}
+          onChange={(e) => set({ isProject: e.target.checked })}
+          className="peer sr-only"
+        />
+        <span
+          aria-hidden="true"
+          className="relative h-6 w-11 shrink-0 rounded-full bg-line transition-colors peer-checked:bg-primary peer-disabled:opacity-50 peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-surface after:shadow after:transition-transform peer-checked:after:translate-x-5"
+        />
+      </label>
+      {value.isProject && (
+        <div className="space-y-2" role="radiogroup" aria-label="Board">
+          <label className={radio("link")}>
+            <input
+              type="radio"
+              name="project-board"
+              className="mt-0.5"
+              checked={value.mode === "link"}
+              disabled={disabled}
+              onChange={() => set({ mode: "link" })}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium text-ink">Link an existing board</span>
+              <select
+                aria-label="Board to link"
+                className="input mt-1.5"
+                value={value.boardId}
+                disabled={disabled || value.mode !== "link"}
+                onChange={(e) => set({ boardId: e.target.value })}
+              >
+                <option value="">{boardsLoaded ? "Choose a board…" : "Loading boards…"}</option>
+                {value.boardId && !boards.some((b) => b.boardId === value.boardId) && (
+                  // Linked before the list loaded, or a board you can no longer see.
+                  <option value={value.boardId}>
+                    {boardsLoaded ? "Current board (not in your list)" : "Current board"}
+                  </option>
+                )}
+                {boards.map((b) => (
+                  <option key={b.boardId} value={b.boardId}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </span>
+          </label>
+          {canCreateBoard && (
+            <label className={radio("create")}>
+              <input
+                type="radio"
+                name="project-board"
+                className="mt-0.5"
+                checked={value.mode === "create"}
+                disabled={disabled}
+                onChange={() => set({ mode: "create" })}
+              />
+              <span>
+                <span className="block font-medium text-ink">Create a new board automatically</span>
+                <span className="block text-xs text-ink-secondary">
+                  Named {channelName.trim() ? `“${channelName.trim()}”` : "after the channel"}; the
+                  channel's members join it.
+                </span>
+              </span>
+            </label>
+          )}
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
 export function CreateChannelModal({
   onClose,
   onCreated,
@@ -48,11 +178,13 @@ export function CreateChannelModal({
   const [value, setValue] = useState("");
   const [visibility, setVisibility] = useState<ChannelVisibility>("private");
   const [invitees, setInvitees] = useState<string[]>([]);
+  const [project, setProject] = useState<ProjectChoice>(projectChoiceOf());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // The name is saved as typed ("Web Design"); the slug only guards uniqueness.
   const name = value.trim();
   const slug = slugifyChannelName(value);
+  const projectOk = projectChoiceValid(project);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -64,7 +196,12 @@ export function CreateChannelModal({
     setError(null);
     try {
       onCreated(
-        await chat.createChannel(name, visibility, visibility === "private" ? invitees : []),
+        await chat.createChannel(
+          name,
+          visibility,
+          visibility === "private" ? invitees : [],
+          projectBoardOf(project) ?? undefined,
+        ),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't create the channel.");
@@ -83,7 +220,7 @@ export function CreateChannelModal({
             type="submit"
             form="create-channel"
             className="btn-primary"
-            disabled={busy || !name}
+            disabled={busy || !name || !projectOk}
           >
             {busy ? "Creating…" : "Create"}
           </button>
@@ -143,6 +280,8 @@ export function CreateChannelModal({
             <UserPicker users={others} selected={invitees} onChange={setInvitees} />
           </div>
         )}
+
+        <ProjectSection value={project} onChange={setProject} channelName={name} disabled={busy} />
 
         {error && (
           <p
@@ -284,11 +423,14 @@ export function EditChannelModal({
   const [name, setName] = useState(channel.name);
   const [topic, setTopic] = useState(channel.topic ?? "");
   const [description, setDescription] = useState(channel.description ?? "");
+  const [project, setProject] = useState<ProjectChoice>(() => projectChoiceOf(channel));
 
   const fields: ChannelEdit = {};
   if (canRename && name.trim() !== channel.name) fields.name = name;
   if (topic.trim() !== (channel.topic ?? "")) fields.topic = topic;
   if (description.trim() !== (channel.description ?? "")) fields.description = description;
+  Object.assign(fields, projectEdit(channel, project));
+  const projectOk = projectChoiceValid(project);
   const parsed = ChannelUpdateActionSchema.safeParse({
     action: "channel",
     op: "update",
@@ -339,7 +481,7 @@ export function EditChannelModal({
             type="submit"
             form="edit-channel"
             className="btn-primary"
-            disabled={!parsed.success || !changed}
+            disabled={!parsed.success || !changed || !projectOk}
           >
             Save
           </button>
@@ -396,6 +538,12 @@ export function EditChannelModal({
             {description.length}/{MAX_CHANNEL_DESCRIPTION_LENGTH}
           </p>
         </div>
+        <ProjectSection value={project} onChange={setProject} channelName={name} />
+        {channel.isProject && channel.linkedBoardId && !project.isProject && (
+          <p className="text-xs text-ink-secondary">
+            Turning the project off only removes the shortcut; the board and its tasks stay.
+          </p>
+        )}
       </form>
     </Modal>
   );

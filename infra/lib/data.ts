@@ -29,6 +29,8 @@ export class Data extends Construct {
       tableName: `slack-${props.stage}-messages`,
       partitionKey: { name: "channelId", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
+      // Secret messages carry `expiresAt` (epoch seconds, 7 days out); nothing else does.
+      timeToLiveAttribute: "expiresAt",
     });
 
     this.connections = new Table(this, "Connections", {

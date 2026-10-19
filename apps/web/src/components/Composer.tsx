@@ -29,6 +29,7 @@ import { EmojiPicker } from "./EmojiPicker";
 import {
   CloseIcon,
   FileIcon,
+  LockIcon,
   MicIcon,
   PaperclipIcon,
   PencilIcon,
@@ -60,6 +61,8 @@ interface ComposerProps {
 const MAX_HEIGHT_PX = 200;
 /** Shorter recordings are a slip of the finger, not a message. */
 const MIN_VOICE_MS = 500;
+/** Typed at the start of a message, turns secret mode on (and is dropped from the text). */
+const SECRET_COMMAND = /^\/secret(\s|$)/i;
 
 /** Replaces the input row while recording: red dot, timer, level, Cancel and Send. */
 function RecordingBar({
@@ -139,6 +142,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const editing = useChat((s) => s.editing[channelId]);
   const setEditing = useChat((s) => s.setEditing);
   const nameOf = useNameOf();
+  /** Secret mode: the message is sent masked, text only, and deleted after a week. */
+  const [secret, setSecret] = useState(false);
+
+  // Another conversation, or editing: back to a normal message.
+  useEffect(() => setSecret(false), [channelId]);
+  useEffect(() => {
+    if (editing) setSecret(false);
+  }, [editing]);
 
   // Starting a reply (swipe, or Reply in the toolbar) puts the cursor here.
   useEffect(() => {
@@ -172,9 +183,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }
 
   function handleChange(value: string) {
+    // `/secret ` at the start is the keyboard's lock button.
+    if (!editing && SECRET_COMMAND.test(value)) {
+      setSecret(true);
+      value = value.replace(SECRET_COMMAND, "");
+    }
     setText(value);
     // Keystrokes with content (not deletions to empty) tell the channel you're typing.
     if (value.trim() && !editing) chat.typing(channelId);
+  }
+
+  function toggleSecret() {
+    setSecret((on) => !on);
+    textareaRef.current?.focus();
   }
 
   /** Inserts at the caret (replacing any selection) and keeps focus in the textarea. */
@@ -191,7 +212,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   const uploading = uploads.some((u) => !u.attachment && !u.error);
   const ready = uploads.flatMap((u) => (u.attachment ? [u.attachment] : []));
-  const canSend = !disabled && !uploading && (text.trim().length > 0 || ready.length > 0);
+  // A secret is text only: files wait until secret mode is off.
+  const canSend =
+    !disabled && !uploading && (text.trim().length > 0 || (ready.length > 0 && !secret));
 
   // Auto-grow up to MAX_HEIGHT_PX.
   useLayoutEffect(() => {
@@ -272,10 +295,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       return;
     }
     if (!canSend) return;
-    chat.sendMessage(channelId, text.trim(), ready, replyTo);
+    chat.sendMessage(channelId, text.trim(), secret ? [] : ready, replyTo, secret);
     if (replyTo) setReplyTo(channelId, null);
     setText("");
-    setUploads((list) => list.filter((u) => !u.attachment));
+    if (secret) setSecret(false);
+    else setUploads((list) => list.filter((u) => !u.attachment));
     textareaRef.current?.focus();
   }
 
@@ -289,6 +313,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     } else if (e.key === "Escape" && replyTo) {
       e.preventDefault();
       setReplyTo(channelId, null);
+    } else if (e.key === "Escape" && secret) {
+      e.preventDefault();
+      setSecret(false);
     } else if (e.key === "ArrowUp" && !text && !editing && !e.nativeEvent.isComposing) {
       e.preventDefault();
       editLastOwnMessage();
@@ -319,6 +346,27 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               onClick={cancelEdit}
               aria-label="Cancel editing"
               title="Cancel editing (Esc)"
+              className="shrink-0 rounded-md p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+        )}
+        {secret && !editing && (
+          <div
+            className="flex items-center gap-2 border-b border-line bg-warning/10 px-3 py-2 text-sm"
+            aria-label="Sending a secret"
+          >
+            <LockIcon className="shrink-0 text-warning" />
+            <p className="min-w-0 flex-1 truncate text-ink-secondary">
+              <strong className="text-ink">Secret:</strong> shown as ••••••• until revealed, and
+              deleted after 7 days. Text only.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSecret(false)}
+              aria-label="Send as a normal message"
+              title="Send as a normal message (Esc)"
               className="shrink-0 rounded-md p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink"
             >
               <CloseIcon />
@@ -405,8 +453,23 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             <>
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={toggleSecret}
                 disabled={disabled || !!editing}
+                aria-pressed={secret}
+                className={`rounded-lg p-2 hover:bg-surface-hover disabled:opacity-50 ${
+                  secret ? "bg-warning/15 text-warning" : "text-ink-secondary hover:text-ink"
+                }`}
+                aria-label={secret ? "Secret mode on" : "Send a secret"}
+                title={
+                  secret ? "Secret: sent masked, deleted in 7 days" : "Send a secret (/secret)"
+                }
+              >
+                <LockIcon />
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={disabled || !!editing || secret}
                 className="rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
                 aria-label="Attach file"
                 title={`Attach (max. ${MAX_SIZE_LABEL})`}
@@ -451,16 +514,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 onChange={(e) => handleChange(e.target.value)}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
-                placeholder={placeholder}
+                placeholder={secret ? "Password or API key (deleted in 7 days)" : placeholder}
                 disabled={disabled}
-                aria-label="Message"
+                aria-label={secret ? "Secret" : "Message"}
                 className="max-h-[200px] min-h-[36px] flex-1 resize-none bg-transparent px-1 py-2 text-base text-ink placeholder:text-ink-secondary/80 focus:outline-none disabled:cursor-not-allowed sm:text-sm"
               />
               {voiceSupported && (
                 <button
                   type="button"
                   onClick={startRecording}
-                  disabled={disabled || inCall || !!editing}
+                  disabled={disabled || inCall || !!editing || secret}
                   className="rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
                   aria-label="Record a voice message"
                   title={inCall ? "Not available during a call" : "Voice message"}

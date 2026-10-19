@@ -5,7 +5,7 @@ import {
   type Channel,
 } from "@mindfultech/shared";
 import { useRef, useState, type DragEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { calls, useCall } from "../lib/call";
 import { channelLabel, dmPeer } from "../lib/channels";
 import { supportsCalls } from "../lib/media";
@@ -52,6 +52,22 @@ function PeerPresence({ peer, myUserId }: Readonly<{ peer: string; myUserId: str
       <PresenceDot online={online} />
       <span className="hidden sm:inline">{online ? "Online" : "Offline"}</span>
     </span>
+  );
+}
+
+/** Project channels: straight to their board in the Task Manager. */
+function BoardShortcut({ boardId }: Readonly<{ boardId: string }>) {
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(`/app/tasks/${encodeURIComponent(boardId)}`)}
+      className="ml-1 flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/15 px-2.5 py-1 text-xs font-semibold text-ink hover:bg-primary/25"
+      title="Open this project's board"
+      aria-label="Open board"
+    >
+      <span aria-hidden="true">📊</span> Board
+    </button>
   );
 }
 
@@ -149,6 +165,9 @@ function ChannelHeader({
       )}
       {peer && <PeerPresence peer={peer} myUserId={myUserId} />}
       {isPrivate && channel && <MemberCount channel={channel} />}
+      {channel?.isProject && channel.linkedBoardId && (
+        <BoardShortcut boardId={channel.linkedBoardId} />
+      )}
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {access.canCall && peer && <CallButtons channelId={channelId} peer={peer} label={label} />}
         {access.canInvite && (

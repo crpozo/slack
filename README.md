@@ -117,6 +117,12 @@ The UI:
 - **Messages:** Enter sends and Shift + Enter adds a new line. Files up to 500 MB can be
   attached, pasted or dropped, and emoji inserted with the composer's 🙂 button. Images open in
   a full-screen viewer (wheel / pinch / double-tap to zoom, drag to pan, Esc to close).
+- **Secrets:** the 🔒 button next to the paperclip (or `/secret ` typed first) sends a password
+  or API key masked; the reader's eye button reveals it. The server stores it with a DynamoDB
+  TTL and the row is deleted 7 days later. Secrets are text only, can't be edited, and never
+  appear in notifications or quotes. They are not encrypted: anyone in the conversation can
+  reveal them, so send them in a DM.
+- **PDFs** open in an in-app viewer (click the card); other files download.
 - **Channel details:** the header shows the channel's topic under its name; click it for the
   description. The creator or an admin edits name, topic and description from _Edit channel_.
 - **Reactions:** hovering over a message shows quick reactions and the full picker (with

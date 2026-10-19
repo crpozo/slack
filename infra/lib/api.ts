@@ -227,6 +227,9 @@ export class Api extends Construct {
     // Deleting a channel or DM removes its messages too.
     messages.grant(handlers.channel, "dynamodb:Query", "dynamodb:BatchWriteItem");
     users.grant(handlers.channel, "dynamodb:BatchGetItem"); // invitees must exist
+    // Project channels: link a board the caller can see (GetItem) or create one in
+    // the same transaction as the channel (PutItem on the board and member rows).
+    data.boards.grant(handlers.channel, "dynamodb:GetItem", "dynamodb:PutItem");
     // user: the directory (Scan), your display name and pinned chats (GetItem/UpdateItem);
     // for a guest, the boards they're on decide whose names they get (Query + BatchGetItem).
     users.grant(handlers.user, "dynamodb:Scan", "dynamodb:GetItem", "dynamodb:UpdateItem");

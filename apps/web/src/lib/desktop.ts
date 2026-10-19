@@ -2,6 +2,7 @@ import {
   findMentions,
   mentionHandle,
   PUSH_PREVIEW_LENGTH,
+  SECRET_PREVIEW,
   type Channel,
   type Message,
 } from "@mindfultech/shared";
@@ -107,7 +108,10 @@ export function shouldNotify(
 }
 
 /** One line of the message, like the push preview. */
-export function notificationBody(message: Pick<Message, "text" | "attachments">): string {
+export function notificationBody(
+  message: Pick<Message, "text" | "attachments" | "isSecret">,
+): string {
+  if (message.isSecret) return `${SECRET_PREVIEW} sent`;
   const text = message.text.replace(/\s+/g, " ").trim();
   if (!text) {
     if (message.attachments.some((a) => a.contentType.startsWith("audio/")))

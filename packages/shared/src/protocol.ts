@@ -72,6 +72,16 @@ export type Attachment = z.infer<typeof AttachmentSchema>;
 /** Longest quoted text kept with a reply. */
 export const REPLY_PREVIEW_LENGTH = 140;
 
+/** Secret messages (passwords, API keys) are deleted by DynamoDB a week after they're sent. */
+export const SECRET_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** What a secret looks like anywhere but its own body: previews, quotes, notifications. */
+export const SECRET_PREVIEW = "🔒 Secret";
+
+/** Gone (or about to be): DynamoDB deletes expired rows within a few days, so don't wait for it. */
+export function isExpired(message: Pick<Message, "expiresAt">, now = Date.now()): boolean {
+  return message.expiresAt !== undefined && message.expiresAt * 1000 <= now;
+}
+
 /** The quoted text of a reply: whitespace collapsed, cut at `REPLY_PREVIEW_LENGTH` with "…". */
 export function replyPreview(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -115,6 +125,10 @@ export interface Channel {
   topic?: string;
   /** What the channel is for ("" or absent: none). */
   description?: string;
+  /** A project channel: its work is tracked on `linkedBoardId` (Task Manager). */
+  isProject?: boolean;
+  /** The Kanban board of a project channel (`/app/tasks/<boardId>`). */
+  linkedBoardId?: string;
   /**
    * Read watermarks: per user, the newest message `sk` they have seen (and
    * when). One row per channel, however many messages: a message is read by
@@ -166,6 +180,13 @@ export interface Message {
    * recognized, and a reloaded history settles a "failed" optimistic copy).
    */
   clientId?: string;
+  /**
+   * A password or API key: shown masked until the reader reveals it, never
+   * quoted or previewed, can't be edited, and deleted after `SECRET_TTL_MS`.
+   */
+  isSecret?: true;
+  /** DynamoDB TTL (epoch **seconds**): set by the server on secret messages only. */
+  expiresAt?: number;
 }
 
 export interface UserProfile {
@@ -274,6 +295,8 @@ export const MessageActionSchema = z.object({
   text: z.string().max(MAX_TEXT_LENGTH),
   attachments: z.array(AttachmentSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
   clientId: z.string().min(1).max(64),
+  /** A secret (text only): stored with a 7-day TTL and shown masked. */
+  isSecret: z.boolean().optional(),
   /** Answers this message of the same channel (the server copies a snapshot of it). */
   replyTo: z
     .object({ messageId: z.string().min(1).max(64), sk: z.string().min(1).max(128) })
@@ -303,6 +326,17 @@ export const ChannelNameSchema = z
     "channel name needs at least one letter or number",
   );
 
+/**
+ * The board of a project channel: link one the caller can see, or have the
+ * server create one named after the channel (in the same transaction as the
+ * channel, so neither exists without the other).
+ */
+export const ProjectBoardSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("link"), boardId: z.string().min(1).max(128) }),
+  z.object({ mode: z.literal("create") }),
+]);
+export type ProjectBoard = z.infer<typeof ProjectBoardSchema>;
+
 export const ChannelCreateActionSchema = z.object({
   action: z.literal("channel"),
   op: z.literal("create"),
@@ -310,6 +344,9 @@ export const ChannelCreateActionSchema = z.object({
   name: ChannelNameSchema,
   /** Defaults to `private`: only the creator (and later invitees) can see it. */
   visibility: z.enum(["public", "private"]).default("private"),
+  /** Marks the channel as a project; `board` says which board (required then). */
+  isProject: z.boolean().default(false),
+  board: ProjectBoardSchema.optional(),
 });
 
 export const ChannelDmActionSchema = z.object({
@@ -375,9 +412,17 @@ export const ChannelUpdateActionSchema = z
       // Line breaks are fine; other control characters are not.
       .refine((v) => !/[^\P{Cc}\n]/u.test(v), "description cannot contain control characters")
       .optional(),
+    /** `true` needs `board` (unless the channel already has one); `false` unlinks the board. */
+    isProject: z.boolean().optional(),
+    board: ProjectBoardSchema.optional(),
   })
   .refine(
-    (a) => a.name !== undefined || a.topic !== undefined || a.description !== undefined,
+    (a) =>
+      a.name !== undefined ||
+      a.topic !== undefined ||
+      a.description !== undefined ||
+      a.isProject !== undefined ||
+      a.board !== undefined,
     "nothing to update",
   );
 
@@ -634,6 +679,7 @@ export type ErrorCode =
   | "RATE_LIMITED"
   | "MESSAGE_NOT_FOUND"
   | "FILE_NOT_FOUND"
+  | "BOARD_NOT_FOUND"
   | "INTERNAL_ERROR";
 
 export interface MessageNewEvent {

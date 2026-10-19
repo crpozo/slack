@@ -25,7 +25,9 @@ async function applyEdit(
         TableName: tables.messages,
         Key: key,
         UpdateExpression: "SET #text = :text, isEdited = :yes, editedAt = :at",
-        ConditionExpression: "attribute_exists(sk) AND userId = :me",
+        // A secret can't be edited: that would keep a credential past its week.
+        ConditionExpression:
+          "attribute_exists(sk) AND userId = :me AND attribute_not_exists(isSecret)",
         ExpressionAttributeNames: { "#text": "text" },
         ExpressionAttributeValues: { ":text": text, ":yes": true, ":at": editedAt, ":me": userId },
         ReturnValues: "ALL_NEW",
