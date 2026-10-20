@@ -125,7 +125,7 @@ export class Api extends Construct {
         VAPID_PARAMETER: vapidParameterName(stage),
       }),
       history: fn("history"),
-      channel: fn("channel", { CANVASES_TABLE: data.canvases.tableName }),
+      channel: fn("channel"),
       presign: fn("presign"),
       typing: fn("typing"),
       user: fn("user"),
@@ -226,9 +226,8 @@ export class Api extends Construct {
       "dynamodb:UpdateItem",
       "dynamodb:DeleteItem",
     );
-    // Deleting a channel or DM removes its messages and its canvas too.
+    // Deleting a channel or DM removes its messages too.
     messages.grant(handlers.channel, "dynamodb:Query", "dynamodb:BatchWriteItem");
-    data.canvases.grant(handlers.channel, "dynamodb:DeleteItem");
     users.grant(handlers.channel, "dynamodb:BatchGetItem"); // invitees must exist
     // Project channels: link a board the caller can see (GetItem) or create one in
     // the same transaction as the channel (PutItem on the board and member rows).

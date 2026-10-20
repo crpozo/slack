@@ -413,6 +413,7 @@ function Column({
   onDragStart,
   onOpen,
   onAdd,
+  compact = false,
 }: Readonly<{
   column: (typeof COLUMNS)[number];
   tasks: Task[];
@@ -424,6 +425,8 @@ function Column({
   onDragStart: (id: string) => void;
   onOpen: (id: string) => void;
   onAdd: () => void;
+  /** In a narrow pane: fixed-width columns in a scrolling strip, whatever the viewport. */
+  compact?: boolean;
 }>) {
   const moveTask = useTasks((s) => s.moveTask);
   const [over, setOver] = useState(false);
@@ -449,9 +452,11 @@ function Column({
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
       }}
       onDrop={handleDrop}
-      className={`flex h-full min-h-[12rem] w-[calc(100vw-3rem)] max-w-[22rem] shrink-0 snap-center flex-col rounded-2xl border bg-surface-sidebar p-3 transition-colors md:w-auto md:min-w-0 md:max-w-none ${
-        over ? "border-primary bg-primary/10" : "border-line"
-      }`}
+      className={`flex h-full min-h-[12rem] shrink-0 flex-col rounded-2xl border bg-surface-sidebar p-3 transition-colors ${
+        compact
+          ? "w-64 snap-start"
+          : "w-[calc(100vw-3rem)] max-w-[22rem] snap-center md:w-auto md:min-w-0 md:max-w-none"
+      } ${over ? "border-primary bg-primary/10" : "border-line"}`}
     >
       <header className="mb-3 flex items-center gap-2 px-1">
         <span className={`h-2.5 w-2.5 rounded-full ${column.accent}`} aria-hidden="true" />
@@ -654,7 +659,15 @@ function DeleteBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: 
   );
 }
 
-function BoardView({ board }: Readonly<{ board: Board }>) {
+/**
+ * One board: its header (name, members, sharing) and the three columns.
+ * Self-contained (loads its own tasks, never navigates), so it also renders
+ * beside a project channel's chat (`compact`: columns in a scrolling strip).
+ */
+export function BoardView({
+  board,
+  compact = false,
+}: Readonly<{ board: Board; compact?: boolean }>) {
   const myUserId = useChat((s) => s.me?.userId);
   const nameOf = useNameOf();
   const tasks = useTasks((s) => s.tasksByBoard[board.boardId]);
@@ -689,7 +702,11 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 sm:px-6">
+      <div
+        className={`flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 ${
+          compact ? "" : "sm:px-6"
+        }`}
+      >
         <BoardTitle board={board} editable={isOwner} editing={renaming} setEditing={setRenaming} />
         {isOwner && !renaming && (
           <BoardMenu
@@ -721,11 +738,19 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
       </div>
 
       <div
-        className="min-h-0 w-full flex-1 snap-x snap-mandatory overflow-auto overscroll-x-contain p-4 sm:p-6 md:snap-none"
+        className={`min-h-0 w-full flex-1 snap-x snap-mandatory overflow-auto overscroll-x-contain p-4 ${
+          compact ? "" : "sm:p-6 md:snap-none"
+        }`}
         aria-busy={loading && !tasks}
       >
-        {/* Phones: one column per screen, swiped with snapping. md+: three equal columns spanning the area. */}
-        <div className="flex min-h-full w-max gap-3 md:grid md:w-full md:min-w-[42rem] md:grid-cols-3 md:items-stretch md:gap-4">
+        {/* Phones and the side pane: columns in a strip, swiped with snapping. md+: three equal columns spanning the area. */}
+        <div
+          className={
+            compact
+              ? "flex min-h-full w-max gap-3"
+              : "flex min-h-full w-max gap-3 md:grid md:w-full md:min-w-[42rem] md:grid-cols-3 md:items-stretch md:gap-4"
+          }
+        >
           {COLUMNS.map((column) => (
             <Column
               key={column.status}
@@ -740,6 +765,7 @@ function BoardView({ board }: Readonly<{ board: Board }>) {
               onDragStart={setDraggingId}
               onOpen={setOpenTaskId}
               onAdd={() => setCreating(true)}
+              compact={compact}
             />
           ))}
         </div>

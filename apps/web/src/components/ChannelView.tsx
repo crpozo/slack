@@ -4,7 +4,7 @@ import {
   isDmChannel,
   type Channel,
 } from "@mindfultech/shared";
-import { lazy, Suspense, useRef, useState, type DragEvent } from "react";
+import { useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { calls, useCall } from "../lib/call";
 import { channelLabel, dmPeer } from "../lib/channels";
@@ -17,7 +17,6 @@ import { EditChannelModal, InviteModal } from "./ChannelModals";
 import {
   ArchiveIcon,
   ArrowDownIcon,
-  FileTextIcon,
   HashIcon,
   LockIcon,
   MenuIcon,
@@ -26,10 +25,8 @@ import {
   VideoIcon,
 } from "./icons";
 import { ThreadPanel } from "./ThreadPanel";
-import { useCanvas } from "../store/canvas";
-
-// The editor (TipTap) only loads once a canvas is opened.
-const CanvasPane = lazy(() => import("./CanvasPane").then((m) => ({ default: m.CanvasPane })));
+import { ChannelBoardPane } from "./ChannelBoardPane";
+import { useBoardPane } from "../store/boardPane";
 import { DESKTOP_QUERY, useMediaQuery } from "../lib/hooks";
 import { MessageList } from "./MessageList";
 import { UnreadAlertsDot } from "./NotificationBell";
@@ -71,16 +68,36 @@ function PeerPresence({ peer, myUserId }: Readonly<{ peer: string; myUserId: str
   );
 }
 
-/** Project channels: straight to their board in the Task Manager. */
-function BoardShortcut({ boardId }: Readonly<{ boardId: string }>) {
+/**
+ * Project channels: their board. On desktop it toggles the board beside the
+ * chat (the 50/50 pane); on phones it opens the Task Manager full screen.
+ */
+function BoardShortcut({ channelId, boardId }: Readonly<{ channelId: string; boardId: string }>) {
   const navigate = useNavigate();
+  const desktop = useMediaQuery(DESKTOP_QUERY);
+  const open = useBoardPane((s) => !!s.open[channelId]);
+  const setOpen = useBoardPane((s) => s.setOpen);
+  const showing = desktop && open;
   return (
     <button
       type="button"
-      onClick={() => navigate(`/app/tasks/${encodeURIComponent(boardId)}`)}
-      className="ml-1 flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/15 px-2.5 py-1 text-xs font-semibold text-ink hover:bg-primary/25"
-      title="Open this project's board"
-      aria-label="Open board"
+      onClick={() =>
+        desktop ? setOpen(channelId, !open) : navigate(`/app/tasks/${encodeURIComponent(boardId)}`)
+      }
+      aria-pressed={desktop ? showing : undefined}
+      className={`ml-1 flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold text-ink ${
+        showing
+          ? "border-primary bg-primary/30 hover:bg-primary/40"
+          : "border-primary/40 bg-primary/15 hover:bg-primary/25"
+      }`}
+      title={
+        desktop
+          ? showing
+            ? "Hide the board"
+            : "Show this project's board beside the chat"
+          : "Open this project's board"
+      }
+      aria-label={desktop ? (showing ? "Hide board" : "Show board") : "Open board"}
     >
       <span aria-hidden="true">📊</span> Board
     </button>
@@ -138,8 +155,6 @@ function ChannelHeader({
   onOpenSidebar,
   onInvite,
   onDetails,
-  canvasOpen,
-  onToggleCanvas,
 }: Readonly<{
   channelId: string;
   channel: Channel | undefined;
@@ -151,9 +166,6 @@ function ChannelHeader({
   onInvite: () => void;
   /** Opens the channel's details (editable by its creator or an admin). */
   onDetails: () => void;
-  /** The canvas beside the chat: shown, and the toggle. */
-  canvasOpen: boolean;
-  onToggleCanvas: () => void;
 }>) {
   const { dm, isPrivate, peer } = access;
   const KindIcon = isPrivate ? LockIcon : HashIcon;
@@ -200,26 +212,10 @@ function ChannelHeader({
       {peer && <PeerPresence peer={peer} myUserId={myUserId} />}
       {isPrivate && channel && <MemberCount channel={channel} />}
       {channel?.isProject && channel.linkedBoardId && (
-        <BoardShortcut boardId={channel.linkedBoardId} />
+        <BoardShortcut channelId={channelId} boardId={channel.linkedBoardId} />
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {access.canCall && peer && <CallButtons channelId={channelId} peer={peer} label={label} />}
-        {channel && (
-          <button
-            type="button"
-            onClick={onToggleCanvas}
-            aria-pressed={canvasOpen}
-            title={canvasOpen ? "Hide the canvas" : "Open the canvas beside the chat"}
-            className={`flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm ${
-              canvasOpen
-                ? "bg-primary/20 text-ink"
-                : "text-ink-secondary hover:bg-surface-hover hover:text-ink"
-            }`}
-          >
-            <FileTextIcon />
-            <span className="hidden sm:inline">Canvas</span>
-          </button>
-        )}
         {access.canInvite && (
           <button
             type="button"
@@ -277,17 +273,17 @@ export function ChannelView({
     threadId ? s.messagesByChannel[channelId]?.find((m) => m.messageId === threadId) : undefined,
   );
   const desktop = useMediaQuery(DESKTOP_QUERY);
-  const canvasOpen = useCanvas((s) => !!s.open[channelId]);
-  const setCanvasOpen = useCanvas((s) => s.setOpen);
+  const boardOpen = useBoardPane((s) => !!s.open[channelId]);
+  const setBoardOpen = useBoardPane((s) => s.setOpen);
 
   if (!me) return null;
   const archived = !!channel?.archived;
+  // The right pane on desktop: a thread while one is open, else the project's
+  // board when it's toggled on (phones open the Task Manager instead).
+  const boardId = channel?.isProject ? channel.linkedBoardId : undefined;
+  const showBoard = desktop && boardOpen && !!boardId && !threadParent;
   // Phones: the thread takes the whole screen, header included.
   const mobileThread = !!threadParent && !desktop;
-  // The right pane: a thread when one is open, else the canvas when it's on.
-  // Phones show the canvas instead of the conversation (the header stays).
-  const showCanvas = canvasOpen && !threadParent && !!channel;
-  const mobileCanvas = showCanvas && !desktop;
   const access = channelAccess(channelId, channel, me.userId, channelsLoaded);
   const label = channelLabel(channelId, channel, me.userId, (id) => nameOf(id));
   const title = access.dm ? label : `#${label}`;
@@ -313,7 +309,7 @@ export function ChannelView({
       }}
       onDrop={handleDrop}
     >
-      {!mobileThread && !mobileCanvas && (
+      {!mobileThread && (
         <ChannelHeader
           channelId={channelId}
           channel={channel}
@@ -324,11 +320,9 @@ export function ChannelView({
           onBack={onBack}
           onInvite={() => setInviting(true)}
           onDetails={() => setDetails(true)}
-          canvasOpen={canvasOpen}
-          onToggleCanvas={() => setCanvasOpen(channelId, !canvasOpen)}
         />
       )}
-      {archived && !mobileThread && !mobileCanvas && (
+      {archived && !mobileThread && (
         <div
           className="flex items-center justify-center gap-2 border-b border-line bg-warning/15 px-4 py-1.5 text-xs font-medium text-ink"
           role="status"
@@ -350,7 +344,7 @@ export function ChannelView({
             {/* Phones show the thread instead of the conversation; desktop beside it. */}
             <div
               className={`flex min-h-0 min-w-0 flex-1 flex-col ${
-                (threadParent || showCanvas) && !desktop ? "hidden" : ""
+                threadParent && !desktop ? "hidden" : ""
               }`}
             >
               <MessageList channelId={channelId} title={title} onOpenThread={onOpenThread} />
@@ -374,21 +368,15 @@ export function ChannelView({
                 />
               </div>
             )}
-            {showCanvas && (
+            {showBoard && boardId && (
               <div
-                className="flex min-h-0 w-full flex-col md:w-1/2 md:shrink-0 md:border-l md:border-line"
-                data-canvas-pane
+                className="flex min-h-0 w-1/2 shrink-0 flex-col border-l border-line"
+                data-board-pane
               >
-                <Suspense
-                  fallback={<div className="flex-1" aria-busy="true" aria-label="Loading canvas" />}
-                >
-                  <CanvasPane
-                    channelId={channelId}
-                    title={title}
-                    readOnly={archived}
-                    onClose={() => setCanvasOpen(channelId, false)}
-                  />
-                </Suspense>
+                <ChannelBoardPane
+                  boardId={boardId}
+                  onClose={() => setBoardOpen(channelId, false)}
+                />
               </div>
             )}
           </div>

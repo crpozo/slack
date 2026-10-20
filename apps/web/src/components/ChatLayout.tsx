@@ -29,7 +29,6 @@ import { forgetPersisted, startPersistence } from "../lib/persist";
 import { saveSessionSnapshot } from "../lib/session";
 import { ActivityScreen, AppsRow, BottomTabs, MobileScreen, SearchScreen } from "./MobileScreens";
 import { useCalendar } from "../store/calendar";
-import { useCanvas } from "../store/canvas";
 import { CreateChannelModal, NewDmModal } from "./ChannelModals";
 import { CallLayer } from "./CallLayer";
 import { PushPrompt } from "./PushPrompt";
@@ -162,7 +161,6 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     chat.stop();
     useTasks.getState().reset();
     useCalendar.getState().reset();
-    useCanvas.getState().reset();
     const userId = useChat.getState().me?.userId;
     if (userId) await forgetPersisted(userId);
     saveSessionSnapshot(null);

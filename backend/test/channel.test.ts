@@ -449,12 +449,10 @@ describe("channel delete", () => {
     expect(batches[0]?.RequestItems?.["slack-test-messages"]?.[0]).toEqual({
       DeleteRequest: { Key: { channelId: "ch_pub", sk: "0#x" } },
     });
-    // The canvas goes first, then the row itself.
-    const deletes = ddbMock.commandCalls(DeleteCommand).map((c) => c.args[0].input);
-    expect(deletes).toEqual([
-      { TableName: "slack-test-canvases", Key: { channelId: "ch_pub" } },
-      { TableName: "slack-test-channels", Key: { channelId: "ch_pub" } },
-    ]);
+    expect(ddbMock.commandCalls(DeleteCommand)[0]?.args[0].input).toEqual({
+      TableName: "slack-test-channels",
+      Key: { channelId: "ch_pub" },
+    });
     // Public: everyone hears about it.
     expect(sentEvents().map(([id]) => id)).toEqual(["conn-alice", "conn-bob", "conn-carol"]);
     expect(sentEvents()[0]?.[1]).toEqual({
@@ -497,7 +495,7 @@ describe("channel delete", () => {
     const result = await remove(dm.channelId, BOB);
 
     expect(result.statusCode).toBe(200);
-    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(2); // canvas + row
+    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(1);
     expect(sentEvents().map(([id, e]) => [id, e.type])).toEqual([
       ["conn-alice", "channel.deleted"],
       ["conn-bob", "channel.deleted"],
@@ -516,7 +514,7 @@ describe("channel delete", () => {
     );
     expect((await remove("ch_old", BOB)).statusCode).toBe(200);
     expect((await remove("ch_orphan", BOB)).statusCode).toBe(200);
-    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(4); // canvas + row, twice
+    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(2);
   });
 
   it("lets any member delete a channel whose creator no longer exists", async () => {

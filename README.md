@@ -131,10 +131,11 @@ The UI:
   the Light / Dark / System theme (light by default).
 - **Priority chats:** channels and DMs are ordered by their latest message (`#general` stays on
   top; pinned DMs stay first), and a new message moves its conversation up at once.
-- **Canvas:** _Canvas_ in a conversation's header opens a shared document beside the chat
-  (50/50; full screen on phones) that everyone in the channel can edit: headings, lists,
-  checklists, quotes, code and links, saved automatically. If two people save at once the later
-  one is reloaded with the other's version and told so. Archived channels' canvases are read-only.
+- **Board beside the chat:** in a project channel, the **📊 Board** pill opens the channel's
+  Kanban board in a 50/50 pane next to the conversation (the same live board as the Task Manager:
+  columns, drag and drop, task details, sharing), so you can read and write while moving tasks.
+  An open thread takes the pane until it closes; _Open full view_ goes to the Task Manager. On
+  phones the pill opens the Task Manager full screen.
 - **Calls (DMs only):** the 📞 and 🎥 buttons in a DM's header start a voice or video call.
   The other person gets a ringing card (Accept / Decline). The call shows as a panel above the
   messages of that DM, Discord-style, so the sidebar and the composer stay usable; in other

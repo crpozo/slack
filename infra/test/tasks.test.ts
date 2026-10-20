@@ -96,7 +96,6 @@ describe("task manager API", () => {
       "GET /boards/{id}/tasks",
       "GET /calendar/balances",
       "GET /calendar/events",
-      "GET /channels/{id}/canvas",
       "GET /push/key",
       "POST /boards",
       "POST /boards/{id}/invites",
@@ -108,7 +107,6 @@ describe("task manager API", () => {
       "PUT /calendar/balances/{userId}/{year}",
       "PUT /calendar/events/{id}",
       "PUT /calendar/vacations/{id}/status",
-      "PUT /channels/{id}/canvas",
       "PUT /tasks/{taskId}",
     ]);
     expect(routes.every((r) => r.AuthorizationType === "JWT")).toBe(true);
