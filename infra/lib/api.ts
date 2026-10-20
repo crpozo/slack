@@ -203,6 +203,8 @@ export class Api extends Construct {
     }
     // read: the caller's watermark lives on the channel row (one conditional UpdateItem).
     channels.grant(handlers.read, "dynamodb:UpdateItem");
+    // message: the channel's `lastMessageAt`, which orders the sidebar (conditional UpdateItem).
+    channels.grant(handlers.message, "dynamodb:UpdateItem");
     // edit: SET text on the caller's own message (conditional UpdateItem).
     messages.grant(handlers.edit, "dynamodb:UpdateItem");
     // Board files (`attachments/<boardId>/…`) are gated by board membership.

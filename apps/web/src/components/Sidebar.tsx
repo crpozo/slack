@@ -2,7 +2,6 @@ import {
   canDeleteChannel,
   canEditChannel,
   dmChannelId,
-  GENERAL_CHANNEL_ID,
   MAX_UNREAD_COUNT,
   type Channel,
 } from "@mindfultech/shared";
@@ -10,7 +9,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
-import { dmEntries, pinnedFirst, type DmEntry } from "../lib/channels";
+import { dmEntries, orderChannels, orderDms, type DmEntry } from "../lib/channels";
 import type { WsStatus } from "../lib/ws";
 import { selectUnread, useChat, useNameOf } from "../store";
 import { Avatar, PresenceDot } from "./Avatar";
@@ -156,13 +155,6 @@ function RowMenu({ label, items }: Readonly<{ label: string; items: RowMenuItem[
   );
 }
 
-/** `#general` first, then alphabetical. */
-function generalFirst(a: Channel, b: Channel): number {
-  if (a.channelId === GENERAL_CHANNEL_ID) return -1;
-  if (b.channelId === GENERAL_CHANNEL_ID) return 1;
-  return a.name.localeCompare(b.name);
-}
-
 function dmTitle(dm: DmEntry, compact: boolean): string {
   if (!dm.userId) return "This person hasn't signed in yet";
   return compact ? dm.name : dm.email;
@@ -296,20 +288,23 @@ export function Sidebar({
   );
   const mentioned = useChat((s) => s.mentioned);
 
+  // `#general` on top, then whoever wrote last: a new message moves its
+  // conversation up at once (the store bumps `lastMessageAt` on `message.new`).
   const namedChannels = useMemo(
-    () => channels.filter((c) => c.type !== "dm" && !c.archived).sort(generalFirst),
+    () => orderChannels(channels.filter((c) => c.type !== "dm" && !c.archived)),
     [channels],
   );
   const archivedChannels = useMemo(
-    () => channels.filter((c) => c.type !== "dm" && c.archived).sort(generalFirst),
+    () => orderChannels(channels.filter((c) => c.type !== "dm" && c.archived)),
     [channels],
   );
   const [showArchived, setShowArchived] = useState(false);
   const dms = useMemo(
     () =>
       me
-        ? pinnedFirst(
+        ? orderDms(
             dmEntries(team, channels, me, directory, (id) => dmChannelId(me.userId, id), users),
+            channels,
             pinned,
           )
         : [],

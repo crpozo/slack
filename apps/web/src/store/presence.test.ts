@@ -137,6 +137,37 @@ describe("read marks, typing and edits", () => {
     expect(useChat.getState().editing.dm_a_b).toBeUndefined();
   });
 
+  it("bumps the conversation's lastMessageAt on a new message, never backwards", () => {
+    useChat.setState({ channels: [channel("dm_a_b"), channel("ch_other")] });
+    const before = useChat.getState().channels;
+    useChat.getState().receiveMessage({
+      messageId: "m-new",
+      channelId: "dm_a_b",
+      sk: "500#m-new",
+      userId: "u-b",
+      userEmail: "b@mt.ec",
+      text: "hey",
+      attachments: [],
+      createdAt: 500,
+    });
+    const after = useChat.getState().channels;
+    expect(after).not.toBe(before);
+    expect(after.find((c) => c.channelId === "dm_a_b")?.lastMessageAt).toBe(500);
+    expect(after.find((c) => c.channelId === "ch_other")).toBe(before[1]); // untouched row kept
+    // An older message (a late push, a reloaded page) doesn't move it back.
+    useChat.getState().receiveMessage({
+      messageId: "m-old",
+      channelId: "dm_a_b",
+      sk: "400#m-old",
+      userId: "u-b",
+      userEmail: "b@mt.ec",
+      text: "earlier",
+      attachments: [],
+      createdAt: 400,
+    });
+    expect(useChat.getState().channels).toBe(after);
+  });
+
   it("replaces a meeting card (the calendar edited the meeting) without an edit mark", () => {
     const card = {
       eventId: "ev_1",

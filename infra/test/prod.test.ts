@@ -348,6 +348,11 @@ describe("phase 5.1 resources", () => {
     expect(actionsOn("presign", "DataBoards")).toEqual(["dynamodb:GetItem"]); // board attachments
     // Push (Phase 8): sender's display name and @mention lookup.
     expect(actionsOn("message", "DataUsers")).toEqual(["dynamodb:GetItem", "dynamodb:Scan"]);
+    // Phase 24: access check, then `lastMessageAt` for the sidebar's order.
+    expect(actionsOn("message", "DataChannels")).toEqual([
+      "dynamodb:GetItem",
+      "dynamodb:UpdateItem",
+    ]);
     expect(actionsOn("message", "DataPushSubscriptions")).toEqual([
       "dynamodb:DeleteItem",
       "dynamodb:Query",

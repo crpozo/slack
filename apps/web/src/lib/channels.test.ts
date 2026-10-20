@@ -1,6 +1,13 @@
 import { dmChannelId, type Channel, compareIds } from "@mindfultech/shared";
 import { describe, expect, it } from "vitest";
-import { channelLabel, dmEntries, formatDay } from "./channels";
+import {
+  channelLabel,
+  dmEntries,
+  type DmEntry,
+  formatDay,
+  orderChannels,
+  orderDms,
+} from "./channels";
 import { parseUsers, resolveConfig } from "./config";
 
 const me = { userId: "u-me", email: "me@mt.ec" };
@@ -179,5 +186,55 @@ describe("pinnedFirst", () => {
       "Cy",
     ]);
     expect(pinnedFirst(entries, [])).toEqual(entries);
+  });
+});
+
+describe("priority chats", () => {
+  const ch = (channelId: string, extra: Partial<Channel> = {}): Channel => ({
+    channelId,
+    name: channelId,
+    type: "public",
+    createdBy: "u-a",
+    createdAt: 10,
+    archived: false,
+    ...extra,
+  });
+
+  it("orders channels by their latest message, #general always first", () => {
+    const ordered = orderChannels([
+      ch("quiet", { createdAt: 5 }),
+      ch("design", { lastMessageAt: 200 }),
+      ch("ch_general", { name: "general", lastMessageAt: 50 }),
+      ch("random", { lastMessageAt: 300 }),
+      ch("newer-quiet", { createdAt: 8 }),
+    ]);
+    expect(ordered.map((c) => c.channelId)).toEqual([
+      "ch_general",
+      "random",
+      "design",
+      "newer-quiet",
+      "quiet",
+    ]);
+  });
+
+  it("orders DMs: pinned, then by activity, then people never written to", () => {
+    const entries: DmEntry[] = [
+      { email: "ana@x", name: "Ana", userId: "ana", channelId: "dm_ana" },
+      { email: "bob@x", name: "Bob", userId: "bob", channelId: "dm_bob" },
+      { email: "cy@x", name: "Cy", userId: "cy" },
+      { email: "dan@x", name: "Dan", userId: "dan", channelId: "dm_dan" },
+    ];
+    const channels = [
+      ch("dm_ana", { type: "dm", lastMessageAt: 100 }),
+      ch("dm_bob", { type: "dm", lastMessageAt: 900 }),
+      ch("dm_dan", { type: "dm", lastMessageAt: 500 }),
+    ];
+    expect(orderDms(entries, channels, ["dm_ana"]).map((e) => e.name)).toEqual([
+      "Ana",
+      "Bob",
+      "Dan",
+      "Cy",
+    ]);
+    expect(orderDms(entries, channels, []).map((e) => e.name)).toEqual(["Bob", "Dan", "Ana", "Cy"]);
   });
 });

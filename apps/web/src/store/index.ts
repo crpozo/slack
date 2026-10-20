@@ -195,6 +195,19 @@ export function parentSkOf(sk: string): string | null {
 }
 
 /** Patches the message with `sk` wherever it lives: the channel list or a thread. */
+/**
+ * `channelId`'s `lastMessageAt` moved to `at` (only forward): the same array
+ * when nothing changes, so the sidebar doesn't re-sort for nothing.
+ */
+function touchChannel(channels: Channel[], channelId: string, at: number): Channel[] {
+  const i = channels.findIndex((c) => c.channelId === channelId);
+  const channel = channels[i];
+  if (!channel || (channel.lastMessageAt ?? 0) >= at) return channels;
+  const next = [...channels];
+  next[i] = { ...channel, lastMessageAt: at };
+  return next;
+}
+
 function patchMessage(
   s: Pick<ChatState, "messagesByChannel" | "threads">,
   channelId: string,
@@ -300,18 +313,22 @@ export const useChat = create<ChatState>()((set, get) => ({
 
   receiveMessage: (message, clientId) =>
     set((s) => {
+      // The conversation jumps to the top of the sidebar at once (replies count too).
+      const channels = touchChannel(s.channels, message.channelId, message.createdAt);
       const parentSk = message.parentSk ?? parentSkOf(message.sk);
       if (parentSk) {
         // A reply: into its thread (only if that thread is loaded; the parent's
         // counters, pushed separately, tell everyone else about it).
         const replies = s.threads[parentSk];
-        if (!replies) return { directory: learnAuthors(s.directory, [message]) };
+        if (!replies) return { channels, directory: learnAuthors(s.directory, [message]) };
         return {
+          channels,
           threads: { ...s.threads, [parentSk]: mergeMessages(replies, [{ ...message, clientId }]) },
           directory: learnAuthors(s.directory, [message]),
         };
       }
       return {
+        channels,
         messagesByChannel: {
           ...s.messagesByChannel,
           [message.channelId]: mergeMessages(s.messagesByChannel[message.channelId] ?? [], [
@@ -324,8 +341,10 @@ export const useChat = create<ChatState>()((set, get) => ({
 
   addPending: (message) =>
     set((s) => {
+      const channels = touchChannel(s.channels, message.channelId, message.createdAt);
       if (message.parentSk) {
         return {
+          channels,
           threads: {
             ...s.threads,
             [message.parentSk]: mergeMessages(s.threads[message.parentSk] ?? [], [message]),
@@ -333,6 +352,7 @@ export const useChat = create<ChatState>()((set, get) => ({
         };
       }
       return {
+        channels,
         messagesByChannel: {
           ...s.messagesByChannel,
           [message.channelId]: mergeMessages(s.messagesByChannel[message.channelId] ?? [], [

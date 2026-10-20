@@ -164,6 +164,12 @@ export interface Channel {
   createdBy: string;
   /** Epoch milliseconds. */
   createdAt: number;
+  /**
+   * Epoch ms of the newest message or reply (Phase 24): the sidebar orders
+   * conversations by it. Kept by the server; clients bump it on `message.new`.
+   * Absent on a conversation nobody has written in.
+   */
+  lastMessageAt?: number;
   archived: boolean;
   /** `private` and `dm` channels: user ids allowed to see the channel. */
   members?: string[];

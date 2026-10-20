@@ -18,7 +18,7 @@ import {
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
 import { activeUserIds, deliver, listConnections } from "../lib/broadcast";
-import { channelAudience, getAccessibleChannel } from "../lib/channels";
+import { channelAudience, getAccessibleChannel, touchChannel } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import { wsHandler } from "../lib/handler";
 import { errorFields, log } from "../lib/logger";
@@ -268,6 +268,8 @@ export const handler = wsHandler(async (event, caller) => {
     userId: caller.userId,
     ...(thread && { parentId: thread.messageId }),
   });
+  // The conversation moves to the top of everyone's sidebar (replies count too).
+  await touchChannel(channelId, now);
 
   // Stored without URLs; sent with them (see `signAttachments`).
   const newMessage: MessageNewEvent = {
