@@ -3,6 +3,7 @@ import { compareIds, GENERAL_CHANNEL_ID } from "./ids";
 import type { Role } from "./roles";
 import type { Board, Task, TaskStatus } from "./tasks";
 import type { CalendarPushEvent } from "./calendar";
+import type { CanvasUpdatedEvent } from "./canvas";
 
 // ---------------------------------------------------------------------------
 // Limits & constants
@@ -164,6 +165,12 @@ export interface Channel {
   createdBy: string;
   /** Epoch milliseconds. */
   createdAt: number;
+  /**
+   * Epoch ms of the newest message or reply (Phase 24): the sidebar orders
+   * conversations by it. Kept by the server; clients bump it on `message.new`.
+   * Absent on a conversation nobody has written in.
+   */
+  lastMessageAt?: number;
   archived: boolean;
   /** `private` and `dm` channels: user ids allowed to see the channel. */
   members?: string[];
@@ -267,7 +274,7 @@ export interface Message {
    * A meeting scheduled from this conversation (Phase 21): the calendar event
    * as it stands, written by the server (the `message` action never accepts
    * it) and rewritten whenever the organizer edits the meeting, announced as
-   * `message.updated` (Phase 24). The event itself is the source of truth;
+   * `message.updated` (Phase 23.1). The event itself is the source of truth;
    * the card's button opens it. Cards can't be edited by hand.
    */
   meeting?: MeetingCard;
@@ -1020,6 +1027,7 @@ export type ServerEvent =
   | CallEvent
   | BoardEvent
   | CalendarPushEvent
+  | CanvasUpdatedEvent
   | ErrorEvent;
 
 export type ServerEventType = ServerEvent["type"];

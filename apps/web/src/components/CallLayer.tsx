@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { create } from "zustand";
 import { calls, useCall, type CallView } from "../lib/call";
+import {
+  createPipController,
+  detectPipEnv,
+  documentPipAdapter,
+  pipStrategies,
+  registerPipVideo,
+  usePip,
+  usePoppedOut,
+  videoPipAdapter,
+  type PipController,
+} from "../lib/pip";
+import { createTauriPipAdapter } from "../lib/pipTauri";
 import {
   clampToViewport,
   cornerAfterKey,
@@ -12,8 +25,9 @@ import {
   type Corner,
 } from "../lib/floating";
 import { listInputDevices, loadMediaPrefs, supportsScreenShare } from "../lib/media";
-import { useNameOf } from "../store";
+import { selectName, useChat, useNameOf } from "../store";
 import { Avatar } from "./Avatar";
+import { PipCallView } from "./PipCallView";
 import {
   CheckIcon,
   ChevronUpIcon,
@@ -30,6 +44,103 @@ import {
 } from "./icons";
 import { Popover } from "./Popover";
 import { StreamMedia } from "./StreamMedia";
+
+// --- Picture-in-picture outside the window (Phase 24) ------------------------------
+
+const PIP_ENV = detectPipEnv();
+/** Whether this environment can show the call outside the window at all. */
+export const PIP_AVAILABLE = pipStrategies(PIP_ENV).length > 0;
+let pipController: PipController | null = null;
+/** The one controller (its adapters hold windows and peer connections). */
+function pip(): PipController {
+  pipController ??= createPipController(
+    {
+      tauri: createTauriPipAdapter((id) => selectName(useChat.getState(), id)),
+      document: documentPipAdapter,
+      video: videoPipAdapter,
+    },
+    PIP_ENV,
+  );
+  return pipController;
+}
+
+/** The "Pop out" / "Bring back" control of the call views. */
+function PopOutButton() {
+  const poppedOut = usePoppedOut();
+  if (!PIP_AVAILABLE) return null;
+  return (
+    <ControlButton
+      label={poppedOut ? "Bring the call back" : "Pop out (stays visible over other windows)"}
+      highlight={poppedOut}
+      onClick={() => void (poppedOut ? pip().popIn() : pip().popOut("user"))}
+    >
+      <PictureInPictureIcon />
+    </ControlButton>
+  );
+}
+
+/** What the in-app views show while the call is in a window of its own. */
+function PoppedOutNotice() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-white/70">
+      <PictureInPictureIcon className="text-2xl" />
+      <p>The call is in its own window.</p>
+      <button
+        type="button"
+        onClick={() => void pip().popIn()}
+        className="rounded-full bg-white/15 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/25"
+      >
+        Bring it back
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The peer's video, on screen but invisible, for HTML5 picture-in-picture
+ * (which needs a playing `<video>` to lift out).
+ */
+function PipVideoSource({ call }: Readonly<{ call: CallView }>) {
+  const connected = call.phase === "connected";
+  const stream =
+    connected && call.peer.sharing && call.remoteScreen ? call.remoteScreen : call.remoteStream;
+  return (
+    <div
+      className="pointer-events-none fixed bottom-0 right-0 h-px w-px overflow-hidden opacity-0"
+      aria-hidden="true"
+    >
+      <StreamMedia kind="video" stream={stream} muted onVideo={registerPipVideo} />
+    </div>
+  );
+}
+
+/** The call rendered into the browser's Document Picture-in-Picture window (same page, same streams). */
+function DocumentPipCall({ call }: Readonly<{ call: CallView }>) {
+  const nameOf = useNameOf();
+  const connected = call.phase === "connected";
+  return (
+    <PipCallView
+      name={nameOf(call.peerId)}
+      phase={call.phase}
+      media={call.media}
+      connectedAt={call.connectedAt}
+      micOn={call.micOn}
+      camOn={call.camOn}
+      peerMicOn={connected && call.peer.micOn}
+      peerCamOn={connected && call.peer.camOn && !!call.remoteStream}
+      peerSharing={connected && call.peer.sharing && !!call.remoteScreen}
+      camera={call.remoteStream}
+      screen={call.remoteScreen}
+      onMic={() => calls.toggleMic()}
+      onCamera={() => void calls.toggleCamera()}
+      onHangUp={() => calls.hangUp()}
+      onBack={() => {
+        window.focus();
+        void pip().popIn();
+      }}
+    />
+  );
+}
 
 /**
  * Call view size in the chat column: `split` (chat visible below) or expanded to
@@ -396,6 +507,7 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
   const canShare = supportsScreenShare() && call.canShare;
   const expanded = useCallLayout((s) => s.expanded);
   const setExpanded = useCallLayout((s) => s.setExpanded);
+  const poppedOut = usePoppedOut();
   // Every call starts in the split view; leaving it (hang up, other channel) resets it.
   useEffect(() => () => setExpanded(false), [setExpanded]);
 
@@ -426,7 +538,7 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
       </header>
 
       <div className="min-h-0 flex-1">
-        <Stage call={call} name={name} connected={connected} />
+        {poppedOut ? <PoppedOutNotice /> : <Stage call={call} name={name} connected={connected} />}
       </div>
 
       <footer className="flex items-center justify-center gap-3 px-4 py-2.5">
@@ -460,6 +572,7 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
             <ScreenShareIcon />
           </ControlButton>
         )}
+        <PopOutButton />
         <ControlButton label="Hang up" danger onClick={() => calls.hangUp()}>
           <PhoneOffIcon />
         </ControlButton>
@@ -467,12 +580,6 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
     </section>
   );
 }
-
-/** Native picture-in-picture (Chrome, Edge, Safari, the Windows desktop app). */
-const pipSupported = () =>
-  typeof document !== "undefined" &&
-  "pictureInPictureEnabled" in document &&
-  document.pictureInPictureEnabled;
 
 /**
  * The call while you're elsewhere in the app (another channel, a board):
@@ -500,8 +607,6 @@ function FloatingCall({ call }: Readonly<{ call: CallView }>) {
   }));
   const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
   const grab = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
-  const [video, setVideo] = useState<HTMLVideoElement | null>(null);
-  const [inPip, setInPip] = useState(false);
 
   useEffect(() => {
     const onResize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -517,18 +622,6 @@ function FloatingCall({ call }: Readonly<{ call: CallView }>) {
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  useEffect(() => {
-    if (!video) return;
-    const on = () => setInPip(true);
-    const off = () => setInPip(false);
-    video.addEventListener("enterpictureinpicture", on);
-    video.addEventListener("leavepictureinpicture", off);
-    return () => {
-      video.removeEventListener("enterpictureinpicture", on);
-      video.removeEventListener("leavepictureinpicture", off);
-    };
-  }, [video]);
-
   const moveTo = (next: Corner) => {
     setCorner(next);
     saveCorner(next);
@@ -564,15 +657,6 @@ function FloatingCall({ call }: Readonly<{ call: CallView }>) {
     moveTo(next);
   }
 
-  async function togglePip() {
-    try {
-      if (document.pictureInPictureElement) await document.exitPictureInPicture();
-      else await video?.requestPictureInPicture();
-    } catch {
-      // Refused (no user gesture, or no video frames yet): the floating window stays.
-    }
-  }
-
   const back = () => navigate(`/app/${call.channelId}`);
   let stage: ReactNode;
   if (peerSharing || peerCamOn) {
@@ -583,7 +667,6 @@ function FloatingCall({ call }: Readonly<{ call: CallView }>) {
         muted
         label={peerSharing ? `Screen from ${name}` : `Video from ${name}`}
         className={`h-full w-full ${peerSharing ? "object-contain" : "object-cover"}`}
-        onVideo={setVideo}
       />
     );
   } else {
@@ -615,11 +698,6 @@ function FloatingCall({ call }: Readonly<{ call: CallView }>) {
     >
       <div className="relative aspect-video bg-black">
         {stage}
-        {inPip && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-xs text-white/80">
-            Playing in picture-in-picture
-          </div>
-        )}
         {call.localCamera && (
           <div className="absolute bottom-1.5 right-1.5 w-20 overflow-hidden rounded-lg border border-white/20 shadow-lg">
             <StreamMedia
@@ -655,15 +733,7 @@ function FloatingCall({ call }: Readonly<{ call: CallView }>) {
         >
           {call.camOn ? <VideoIcon /> : <VideoOffIcon />}
         </ControlButton>
-        {pipSupported() && video && (
-          <ControlButton
-            label={inPip ? "Close picture-in-picture" : "Pop out (picture-in-picture)"}
-            highlight={inPip}
-            onClick={() => void togglePip()}
-          >
-            <PictureInPictureIcon />
-          </ControlButton>
-        )}
+        <PopOutButton />
         <ControlButton label="Back to the call" onClick={back}>
           <MaximizeIcon />
         </ControlButton>
@@ -690,13 +760,22 @@ export function CallPanel({ channelId }: Readonly<{ channelId: string }>) {
 export function CallLayer() {
   const call = useCall((s) => s.call);
   const { pathname } = useLocation();
+  const active = usePip((s) => s.active);
+  const pipWindow = usePip((s) => s.pipWindow);
+  // Follows the call and the window: closes the pop-out when the call ends,
+  // opens the desktop app's one when its window goes to the background.
+  useEffect(() => (PIP_AVAILABLE ? pip().start() : undefined), []);
   if (!call) return null;
   if (call.phase === "incoming") return <IncomingCall call={call} />;
   const inCallChannel = pathname === `/app/${call.channelId}`;
   return (
     <>
       <StreamMedia kind="audio" stream={call.remoteStream} />
-      {!inCallChannel && <FloatingCall call={call} />}
+      {PIP_ENV.videoPip && <PipVideoSource call={call} />}
+      {active === "document" &&
+        pipWindow &&
+        createPortal(<DocumentPipCall call={call} />, pipWindow.document.body)}
+      {!inCallChannel && !active && <FloatingCall call={call} />}
     </>
   );
 }

@@ -6,6 +6,7 @@ import {
   QueryCommand,
   ScanCommand,
   TransactWriteCommand,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { dmChannelId, GENERAL_CHANNEL_ID, compareIds, type Attachment } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -67,6 +68,27 @@ describe("message", () => {
     for (const [, event] of sent) {
       expect(event).toEqual({ type: "message.new", message: stored?.Item, clientId: "c1" });
     }
+    // The channel's activity moved forward (one conditional UpdateItem, never backwards).
+    const touched = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(touched).toMatchObject({
+      TableName: "slack-test-channels",
+      Key: { channelId: GENERAL_CHANNEL_ID },
+      UpdateExpression: "SET lastMessageAt = :at",
+      ExpressionAttributeValues: { ":at": stored?.Item?.createdAt },
+    });
+    expect(touched?.ConditionExpression).toContain("lastMessageAt < :at");
+  });
+
+  it("still delivers the message when recording the channel's activity fails", async () => {
+    ddbMock.on(UpdateCommand).rejects(new Error("throttled"));
+    const result = await send({
+      action: "message",
+      channelId: GENERAL_CHANNEL_ID,
+      text: "hola",
+      clientId: "c2",
+    });
+    expect(result.statusCode).toBe(200);
+    expect(sentEvents().map(([, e]) => e.type)).toEqual(["message.new", "message.new"]);
   });
 
   it("stores a secret with a 7-day TTL (epoch seconds) and refuses one with files", async () => {

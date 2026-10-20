@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the production site may call in the desktop app: its window's focus (to notify only in the background) and native notifications. Everything listed is also in the 0.1.0 grants, so the web fix works without reinstalling.",
-  "windows": ["main"],
+  "description": "What the production site may call in the desktop app: its window's focus (to notify only in the background), native notifications, and the small always-on-top call window (Phase 24): creating and closing it, placing it, and the events the two windows exchange.",
+  "windows": ["main", "call-pip"],
   "remote": {
     "urls": ["https://slack.mindfultech.ec/*"]
   },
@@ -10,8 +10,20 @@
     "core:default",
     "core:window:allow-is-focused",
     "core:window:allow-is-minimized",
+    "core:window:allow-set-focus",
+    "core:window:allow-unminimize",
+    "core:window:allow-close",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-start-dragging",
+    "core:window:allow-get-all-windows",
+    "core:webview:allow-create-webview-window",
+    "core:webview:allow-get-all-webviews",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
+    "core:event:allow-emit",
+    "core:event:allow-emit-to",
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",
     "notification:allow-notify"

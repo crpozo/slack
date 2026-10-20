@@ -665,7 +665,7 @@ Uploads already go straight to S3 with a presigned **PUT** whose signature pins 
 
 ---
 
-### Phase 24 — Living meeting cards
+### Phase 23.1 — Living meeting cards
 
 **Branch:** `feature/f23-threads-and-chat-ux` (follow-up)
 
@@ -674,7 +674,19 @@ Uploads already go straight to S3 with a presigned **PUT** whose signature pins 
 3. **Push:** after the `calendar.event_updated` pushes, the DM's audience gets `message.updated` carrying `meeting` (and the refreshed fallback `text`) with no edit mark; the `MessageUpdatedEvent` contract makes `isEdited`/`editedAt` optional and adds `meeting`.
 4. **Web:** the store's `updateMeetingCard` patches the message wherever it lives (`message.updated` with `meeting` routes there; a text edit still goes to `applyEdit`), and `MeetingCard` reads the live event from the calendar store when it has one, so a `calendar.event_updated` that arrives first, or an open calendar, already shows the new time.
 
-**Phase 24 acceptance criteria:** moving a DM meeting in the calendar changes the card in both people's chats without a reload; the card never shows an edit mark; deleting the card's message doesn't block editing the meeting; a stale edit is refused with a 409.
+**Phase 23.1 acceptance criteria:** moving a DM meeting in the calendar changes the card in both people's chats without a reload; the card never shows an edit mark; deleting the card's message doesn't block editing the meeting; a stale edit is refused with a 409.
+
+---
+
+### Phase 24 — Pro workspace UX: priority chats, channel canvas, OS-level picture-in-picture
+
+**Branch:** `feature/f24-pro-workspace-ux`
+
+1. **Priority chats:** `Channel.lastMessageAt` is written by the `message` Lambda after every message or reply (`touchChannel`: one conditional `UpdateItem`, `lastMessageAt < :at`, so it never moves backwards; best effort). The store bumps it on `message.new` and on your own sends (`touchChannel` in `receiveMessage`/`addPending`, same array when nothing changes), so the conversation moves at once. `orderChannels` keeps `#general` first then sorts by `lastMessageAt ?? createdAt` descending; `orderDms` keeps pinned chats first, then conversations by activity, then people never written to (alphabetical).
+2. **Channel canvas:** a `Canvases` table (PK `channelId`; `content`, `version`, `updatedAt`, `updatedBy`) and a `canvas` Lambda with `GET`/`PUT /channels/{id}/canvas` on the HTTP API. A save carries the version it was based on (`attribute_not_exists` for the first, `version = :was` after) and answers 409 with the current canvas when stale; content is sanitized server-side to the editor's own tags (`sanitize-html`, http/https/mailto links, checkboxes only) and capped at 200 KB; members get `canvas.updated` (version, who; never the content) and refetch if they show it. Web: `store/canvas.ts` (load, save with conflict, `open` per channel in localStorage), `CanvasPane` (TipTap StarterKit + task list, lazy chunk) in a `md:w-1/2` pane beside the chat; a thread takes the pane while open; phones show the canvas full screen; archived channels are read-only; deleting a channel deletes its canvas.
+3. **OS-level picture-in-picture:** `lib/pip.ts` picks strategies by feature detection (`tauri` → `document` → `video`) and runs one controller: `popOut(reason)` tries each in order (a `background` reason, no gesture, may only use the native window), `popIn()` closes, `start()` follows the call (ends → close), the desktop window's focus (blur → open, focus → close) and the browser (`enterpictureinpicture` media-session action for Chromium's auto PiP; back in the tab → close). Document PiP renders `PipCallView` into the browser's window through a portal with the page's styles adopted; video PiP lifts an invisible on-screen `<video>` of the peer. The desktop app (`lib/pipTauri.ts`) opens a `call-pip` `WebviewWindow` (always on top, frameless, skip taskbar) on `/call/pip`, a page `main.tsx` renders before loading any config; since a second webview can't share `MediaStream`s, the main window forwards the peer's camera and screen tracks over a loopback `RTCPeerConnection` (two send-only transceivers, `replaceTrack` as the call changes) signalled with Tauri events (`call-pip:signal`), pushes the call state (`call-pip:state`) and applies the small window's buttons (`call-pip:command`: mic, camera, hangup, focus). The capability file lists both windows and the window/event permissions; the desktop app needs a new release for it, older builds fall through to the browser strategies.
+
+**Phase 24 acceptance criteria:** a new message moves its conversation to the top of the sidebar for everyone, `#general` staying first; the order survives a reload; the Canvas toggle splits the conversation 50/50 with an editor whose changes appear for the other members within seconds and whose stale save is reloaded with a notice; a popped-out call stays visible while the browser is minimized or another app is in front, and comes back when the call ends or the person returns.
 ---
 
 ### PHASE 7 (optional) — Desktop app with Tauri

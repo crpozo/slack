@@ -1,4 +1,4 @@
-import { dmMembers, type Channel, type UserProfile } from "@mindfultech/shared";
+import { dmMembers, GENERAL_CHANNEL_ID, type Channel, type UserProfile } from "@mindfultech/shared";
 import type { DirectoryUser } from "./config";
 
 /** Local part of an email, used as display name. */
@@ -147,4 +147,48 @@ export function pinnedFirst<T extends { channelId?: string }>(entries: T[], pinn
     .filter(isPinned)
     .sort((a, b) => (rank.get(a.channelId ?? "") ?? 0) - (rank.get(b.channelId ?? "") ?? 0));
   return [...top, ...entries.filter((e) => !isPinned(e))];
+}
+
+// ---------------------------------------------------------------------------
+// Priority chats (Phase 24): conversations ordered by their latest message.
+// ---------------------------------------------------------------------------
+
+/** When a conversation last moved: its newest message, else its creation. */
+export const activityOf = (c: Pick<Channel, "lastMessageAt" | "createdAt">): number =>
+  c.lastMessageAt ?? c.createdAt;
+
+/** Most recent activity first; ties by name, so the order is stable. */
+function byActivity(a: Channel, b: Channel): number {
+  return activityOf(b) - activityOf(a) || a.name.localeCompare(b.name);
+}
+
+/** `#general` pinned on top, then the rest by recent activity. Pure: a new array. */
+export function orderChannels(channels: Channel[]): Channel[] {
+  return [...channels].sort((a, b) => {
+    if (a.channelId === GENERAL_CHANNEL_ID) return -1;
+    if (b.channelId === GENERAL_CHANNEL_ID) return 1;
+    return byActivity(a, b);
+  });
+}
+
+/**
+ * The DM list: pinned chats first (in pin order), then conversations by
+ * recent activity, then the people you've never written to, in the
+ * alphabetical order `entries` came in.
+ */
+export function orderDms(entries: DmEntry[], channels: Channel[], pinned: string[]): DmEntry[] {
+  const at = new Map(channels.map((c) => [c.channelId, activityOf(c)]));
+  const rank = new Map(pinned.map((id, i) => [id, i]));
+  const pinnedRank = (e: DmEntry) =>
+    e.channelId === undefined ? undefined : rank.get(e.channelId);
+  const activity = (e: DmEntry) => (e.channelId === undefined ? undefined : at.get(e.channelId));
+  const top = entries
+    .filter((e) => pinnedRank(e) !== undefined)
+    .sort((a, b) => pinnedRank(a)! - pinnedRank(b)!);
+  const rest = entries.filter((e) => pinnedRank(e) === undefined);
+  const active = rest
+    .filter((e) => activity(e) !== undefined)
+    .sort((a, b) => activity(b)! - activity(a)!);
+  const quiet = rest.filter((e) => activity(e) === undefined);
+  return [...top, ...active, ...quiet];
 }

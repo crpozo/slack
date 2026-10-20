@@ -26,6 +26,7 @@ import { startHeartbeat } from "./heartbeat";
 import { playMessageSound } from "./sounds";
 import { useTasks } from "../store/tasks";
 import { useCalendar } from "../store/calendar";
+import { useCanvas } from "../store/canvas";
 import { WsClient, type DistributiveOmit } from "./ws";
 
 const ERROR_TEXT: Record<ErrorCode, string> = {
@@ -289,6 +290,11 @@ class ChatController {
       client.on("calendar.event_created", applyCalendarEvent),
       client.on("calendar.event_updated", applyCalendarEvent),
       client.on("calendar.event_deleted", applyCalendarEvent),
+      // The channel canvas: someone else's save is refetched if we show that canvas.
+      client.on("canvas.updated", (event) => {
+        const me = store().me;
+        if (me) useCanvas.getState().applyEvent(event, me.userId);
+      }),
       // Keep the connection alive (API Gateway drops idle sockets after 10 minutes)
       // and tell the server whether we're in front of the person: it pushes to
       // their devices only while none of them is active.

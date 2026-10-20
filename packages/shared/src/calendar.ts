@@ -216,7 +216,7 @@ export interface MeetingEvent extends CalendarEventBase {
   /**
    * Scheduled from a direct message (Phase 21): the conversation and the
    * "meeting scheduled" card posted there, so an edit of the meeting rewrites
-   * the card in the same transaction (Phase 24) and the chat never shows a
+   * the card in the same transaction (Phase 23.1) and the chat never shows a
    * stale time.
    */
   channelId?: string;

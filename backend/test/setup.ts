@@ -12,6 +12,7 @@ Object.assign(process.env, {
   PUSH_SUBSCRIPTIONS_TABLE: "slack-test-push",
   EVENTS_TABLE: "slack-test-events",
   VACATION_BALANCES_TABLE: "slack-test-vacation-balances",
+  CANVASES_TABLE: "slack-test-canvases",
   VAPID_PARAMETER: "/slack/test/vapid",
   ATTACHMENTS_BUCKET: "slack-test-attachments",
   WS_ENDPOINT: "https://abc123.execute-api.us-east-1.amazonaws.com/prod",

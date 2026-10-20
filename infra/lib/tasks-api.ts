@@ -51,6 +51,12 @@ export const CALENDAR_ROUTES: Array<{ method: HttpMethod; path: string }> = [
 ];
 
 /** Web Push subscriptions (Phase 8), served by their own small Lambda on the same API. */
+/** The channel canvas (Phase 24): one document per conversation, read and saved whole. */
+export const CANVAS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/channels/{id}/canvas" },
+  { method: HttpMethod.PUT, path: "/channels/{id}/canvas" },
+];
+
 export const PUSH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/push/key" },
   { method: HttpMethod.POST, path: "/push/subscribe" },
@@ -81,6 +87,7 @@ export class TasksApi extends Construct {
   readonly archiveHandler: NodejsFunction;
   /** `calendar`: meetings, vacation requests (with the ledger) and holidays. */
   readonly calendarHandler: NodejsFunction;
+  readonly canvasHandler: NodejsFunction;
   /** Base URL clients call, without a trailing slash. */
   readonly url: string;
   private readonly origins: string[];
@@ -149,6 +156,14 @@ export class TasksApi extends Construct {
       VAPID_PARAMETER: vapidParameterName(stage),
     });
 
+    this.canvasHandler = lambda("CanvasFn", "canvas", {
+      CANVASES_TABLE: data.canvases.tableName,
+      // Reading the canvas needs the channel (access check); a save tells its members.
+      CHANNELS_TABLE: data.channels.tableName,
+      CONNECTIONS_TABLE: data.connections.tableName,
+      WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+    });
+
     this.archiveHandler = lambda(
       "ArchiveFn",
       "archive-tasks",
@@ -199,6 +214,10 @@ export class TasksApi extends Construct {
     );
     for (const { method, path } of CALENDAR_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: calendarIntegration });
+    }
+    const canvasIntegration = new HttpLambdaIntegration("CanvasIntegration", this.canvasHandler);
+    for (const { method, path } of CANVAS_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: canvasIntegration });
     }
     this.url = this.httpApi.apiEndpoint;
 
@@ -289,6 +308,13 @@ export class TasksApi extends Construct {
     grantReadVapid(this.calendarHandler, stage);
     data.connections.grant(this.calendarHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.calendarHandler);
+
+    // canvas: the document row (GetItem, conditional UpdateItem), the channel for
+    // the access check (GetItem), and the members' connections for `canvas.updated`.
+    data.canvases.grant(this.canvasHandler, "dynamodb:GetItem", "dynamodb:UpdateItem");
+    data.channels.grant(this.canvasHandler, "dynamodb:GetItem");
+    data.connections.grant(this.canvasHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
+    wsApi.webSocketApi.grantManageConnections(this.canvasHandler);
 
     // archive-tasks: find done tasks (Scan) and flag them (UpdateItem). Nothing else.
     data.tasks.grant(this.archiveHandler, "dynamodb:Scan", "dynamodb:UpdateItem");

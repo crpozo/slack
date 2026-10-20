@@ -36,6 +36,9 @@ export const tables = {
   get vacationBalances() {
     return requireEnv("VACATION_BALANCES_TABLE");
   },
+  get canvases() {
+    return requireEnv("CANVASES_TABLE");
+  },
 };
 
 /** Row of the `connections` table. */
