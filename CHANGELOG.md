@@ -11,11 +11,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   `#general` always first. The server records `lastMessageAt` on the conversation and the app
   bumps it as `message.new` arrives, so whoever writes jumps to the top at once (pinned DMs keep
   their place; people you've never written to sit at the bottom, alphabetically).
-- **Channel canvas:** a _Canvas_ button in the conversation header splits the screen 50/50 with a
-  rich-text document (headings, lists, checklists, quotes, code, links) everyone in the channel
-  can edit, chat still in view. It saves itself after a pause in typing; a save over someone
-  else's is reloaded with a note. Stored sanitized in a new `canvases` table (one document per
-  conversation, 200 KB max); archived channels are read-only. Phones open it full screen.
+- **Board beside the chat:** on desktop, a project channel's **📊 Board** pill now opens its
+  Kanban board in a 50/50 pane next to the conversation instead of leaving it; the board is the
+  Task Manager's own (live, drag and drop, task details) in a compact column strip. A thread
+  takes the pane while open; _Open full view_ goes to `/app/tasks`. Phones keep opening the Task
+  Manager full screen.
 - **Picture-in-picture outside the app:** _Pop out_ on a call keeps it visible over other apps
   and windows. The desktop app opens a small always-on-top window on its own when you switch
   away and closes it when you come back; Chrome and Edge use Document Picture-in-Picture with the
@@ -36,6 +36,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **Archive channels** (admins): _Archive channel_ in a channel's details makes it read-only
   (banner instead of the composer) and moves it to a collapsed _Archived_ section of the sidebar;
   it stays searchable and can be restored. `#general` and DMs can't be archived.
+
+### Removed
+
+- **Channel canvas** (merged in #40, withdrawn): the rich-text document beside the chat, its
+  `canvas` Lambda and routes, the `canvases` table, the `canvas.updated` push and the TipTap and
+  `sanitize-html` dependencies. The split pane it introduced now shows project boards. In prod
+  the table is retained by its removal policy: delete `slack-prod-canvases` by hand once nothing
+  in it is needed.
 
 ### Changed
 

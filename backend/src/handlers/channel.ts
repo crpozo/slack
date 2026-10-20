@@ -362,7 +362,6 @@ async function deleteChannel(action: ActionOf<"delete">, caller: Caller) {
 
   // Messages first: if this fails half way the channel is still there to retry.
   const deleted = await deleteMessages(channel.channelId);
-  await deleteCanvas(channel.channelId);
   await ddb.send(
     new DeleteCommand({ TableName: tables.channels, Key: { channelId: channel.channelId } }),
   );
@@ -520,15 +519,6 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
     inAudience(connection) ? { type: "channel.updated", channel: updated } : null,
   );
   return ok();
-}
-
-/** The conversation's canvas goes with it; a failure is logged (the row would just linger). */
-async function deleteCanvas(channelId: string): Promise<void> {
-  try {
-    await ddb.send(new DeleteCommand({ TableName: tables.canvases, Key: { channelId } }));
-  } catch (err) {
-    log.warn("couldn't delete the channel's canvas", { channelId, ...errorFields(err) });
-  }
 }
 
 /** `channel`: list, create (private by default), open a DM, invite to a private channel, edit (rename, topic, description), or delete. */
