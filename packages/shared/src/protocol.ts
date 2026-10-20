@@ -274,7 +274,7 @@ export interface Message {
    * A meeting scheduled from this conversation (Phase 21): the calendar event
    * as it stands, written by the server (the `message` action never accepts
    * it) and rewritten whenever the organizer edits the meeting, announced as
-   * `message.updated` (Phase 24). The event itself is the source of truth;
+   * `message.updated` (Phase 23.1). The event itself is the source of truth;
    * the card's button opens it. Cards can't be edited by hand.
    */
   meeting?: MeetingCard;

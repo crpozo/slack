@@ -129,6 +129,12 @@ The UI:
   search). The chips under the message show the count; a click adds or removes yours.
 - **Settings** (click your name, bottom left): display name, which everyone else sees live, and
   the Light / Dark / System theme (light by default).
+- **Priority chats:** channels and DMs are ordered by their latest message (`#general` stays on
+  top; pinned DMs stay first), and a new message moves its conversation up at once.
+- **Canvas:** _Canvas_ in a conversation's header opens a shared document beside the chat
+  (50/50; full screen on phones) that everyone in the channel can edit: headings, lists,
+  checklists, quotes, code and links, saved automatically. If two people save at once the later
+  one is reloaded with the other's version and told so. Archived channels' canvases are read-only.
 - **Calls (DMs only):** the 📞 and 🎥 buttons in a DM's header start a voice or video call.
   The other person gets a ringing card (Accept / Decline). The call shows as a panel above the
   messages of that DM, Discord-style, so the sidebar and the composer stay usable; in other
@@ -139,7 +145,10 @@ The UI:
   STUN server but no TURN relay, so a call may fail to connect behind strict corporate or
   symmetric NATs. The chevrons next to the mic and camera buttons switch devices mid-call
   without dropping it. When a connected call ends, the caller's app posts one message to the DM,
-  e.g. `📹 Video call ended • 12:45`.
+  e.g. `📹 Video call ended • 12:45`. _Pop out_ keeps the call visible over other apps and
+  windows: the desktop app opens a small always-on-top window by itself whenever you switch away
+  (and closes it when you're back), Chrome and Edge use Document Picture-in-Picture with the full
+  controls, Safari the video's picture-in-picture, and elsewhere the in-app floating card remains.
 - **Sounds:** a soft ring while you call someone, a chime while a call comes in, and a short
   pop for a new message in a conversation you aren't looking at (never for your own messages).
   They are synthesized in the browser with Web Audio, so there is nothing to download. Browsers
@@ -440,7 +449,11 @@ shows the new icon from its next installer build.
 `apps/desktop` is a Tauri 2 window around `https://slack.mindfultech.ec` (1280×800): there is no
 second frontend, so every web deploy updates the desktop app too. It adds native notifications
 for DMs, private channels and `@mentions` while the window is in the background, camera and microphone for calls
-and voice messages, and opens outside links (downloads, URLs in messages) in your browser.
+and voice messages, opens outside links (downloads, URLs in messages) in your browser, and keeps a
+call visible in a small always-on-top window (`/call/pip`, fed by the main window over a local
+loopback WebRTC connection) whenever its window loses focus. That window needs the permissions in
+`src-tauri/capabilities/default.json` (added in this version), so builds before it fall back to
+the browser's picture-in-picture inside the webview.
 
 **Nothing to install locally.** GitHub Actions builds it (`.github/workflows/tauri-build.yml`):
 
