@@ -3,6 +3,7 @@ import { compareIds, GENERAL_CHANNEL_ID } from "./ids";
 import type { Role } from "./roles";
 import type { Board, Task, TaskStatus } from "./tasks";
 import type { CalendarPushEvent } from "./calendar";
+import type { CanvasUpdatedEvent } from "./canvas";
 
 // ---------------------------------------------------------------------------
 // Limits & constants
@@ -1026,6 +1027,7 @@ export type ServerEvent =
   | CallEvent
   | BoardEvent
   | CalendarPushEvent
+  | CanvasUpdatedEvent
   | ErrorEvent;
 
 export type ServerEventType = ServerEvent["type"];

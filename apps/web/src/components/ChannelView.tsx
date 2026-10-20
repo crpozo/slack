@@ -4,7 +4,7 @@ import {
   isDmChannel,
   type Channel,
 } from "@mindfultech/shared";
-import { useRef, useState, type DragEvent } from "react";
+import { lazy, Suspense, useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { calls, useCall } from "../lib/call";
 import { channelLabel, dmPeer } from "../lib/channels";
@@ -17,6 +17,7 @@ import { EditChannelModal, InviteModal } from "./ChannelModals";
 import {
   ArchiveIcon,
   ArrowDownIcon,
+  FileTextIcon,
   HashIcon,
   LockIcon,
   MenuIcon,
@@ -25,6 +26,10 @@ import {
   VideoIcon,
 } from "./icons";
 import { ThreadPanel } from "./ThreadPanel";
+import { useCanvas } from "../store/canvas";
+
+// The editor (TipTap) only loads once a canvas is opened.
+const CanvasPane = lazy(() => import("./CanvasPane").then((m) => ({ default: m.CanvasPane })));
 import { DESKTOP_QUERY, useMediaQuery } from "../lib/hooks";
 import { MessageList } from "./MessageList";
 import { UnreadAlertsDot } from "./NotificationBell";
@@ -133,6 +138,8 @@ function ChannelHeader({
   onOpenSidebar,
   onInvite,
   onDetails,
+  canvasOpen,
+  onToggleCanvas,
 }: Readonly<{
   channelId: string;
   channel: Channel | undefined;
@@ -144,6 +151,9 @@ function ChannelHeader({
   onInvite: () => void;
   /** Opens the channel's details (editable by its creator or an admin). */
   onDetails: () => void;
+  /** The canvas beside the chat: shown, and the toggle. */
+  canvasOpen: boolean;
+  onToggleCanvas: () => void;
 }>) {
   const { dm, isPrivate, peer } = access;
   const KindIcon = isPrivate ? LockIcon : HashIcon;
@@ -194,6 +204,22 @@ function ChannelHeader({
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {access.canCall && peer && <CallButtons channelId={channelId} peer={peer} label={label} />}
+        {channel && (
+          <button
+            type="button"
+            onClick={onToggleCanvas}
+            aria-pressed={canvasOpen}
+            title={canvasOpen ? "Hide the canvas" : "Open the canvas beside the chat"}
+            className={`flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm ${
+              canvasOpen
+                ? "bg-primary/20 text-ink"
+                : "text-ink-secondary hover:bg-surface-hover hover:text-ink"
+            }`}
+          >
+            <FileTextIcon />
+            <span className="hidden sm:inline">Canvas</span>
+          </button>
+        )}
         {access.canInvite && (
           <button
             type="button"
@@ -251,11 +277,17 @@ export function ChannelView({
     threadId ? s.messagesByChannel[channelId]?.find((m) => m.messageId === threadId) : undefined,
   );
   const desktop = useMediaQuery(DESKTOP_QUERY);
+  const canvasOpen = useCanvas((s) => !!s.open[channelId]);
+  const setCanvasOpen = useCanvas((s) => s.setOpen);
 
   if (!me) return null;
   const archived = !!channel?.archived;
   // Phones: the thread takes the whole screen, header included.
   const mobileThread = !!threadParent && !desktop;
+  // The right pane: a thread when one is open, else the canvas when it's on.
+  // Phones show the canvas instead of the conversation (the header stays).
+  const showCanvas = canvasOpen && !threadParent && !!channel;
+  const mobileCanvas = showCanvas && !desktop;
   const access = channelAccess(channelId, channel, me.userId, channelsLoaded);
   const label = channelLabel(channelId, channel, me.userId, (id) => nameOf(id));
   const title = access.dm ? label : `#${label}`;
@@ -281,7 +313,7 @@ export function ChannelView({
       }}
       onDrop={handleDrop}
     >
-      {!mobileThread && (
+      {!mobileThread && !mobileCanvas && (
         <ChannelHeader
           channelId={channelId}
           channel={channel}
@@ -292,9 +324,11 @@ export function ChannelView({
           onBack={onBack}
           onInvite={() => setInviting(true)}
           onDetails={() => setDetails(true)}
+          canvasOpen={canvasOpen}
+          onToggleCanvas={() => setCanvasOpen(channelId, !canvasOpen)}
         />
       )}
-      {archived && !mobileThread && (
+      {archived && !mobileThread && !mobileCanvas && (
         <div
           className="flex items-center justify-center gap-2 border-b border-line bg-warning/15 px-4 py-1.5 text-xs font-medium text-ink"
           role="status"
@@ -316,7 +350,7 @@ export function ChannelView({
             {/* Phones show the thread instead of the conversation; desktop beside it. */}
             <div
               className={`flex min-h-0 min-w-0 flex-1 flex-col ${
-                threadParent && !desktop ? "hidden" : ""
+                (threadParent || showCanvas) && !desktop ? "hidden" : ""
               }`}
             >
               <MessageList channelId={channelId} title={title} onOpenThread={onOpenThread} />
@@ -338,6 +372,23 @@ export function ChannelView({
                   onClose={onCloseThread}
                   readOnly={archived}
                 />
+              </div>
+            )}
+            {showCanvas && (
+              <div
+                className="flex min-h-0 w-full flex-col md:w-1/2 md:shrink-0 md:border-l md:border-line"
+                data-canvas-pane
+              >
+                <Suspense
+                  fallback={<div className="flex-1" aria-busy="true" aria-label="Loading canvas" />}
+                >
+                  <CanvasPane
+                    channelId={channelId}
+                    title={title}
+                    readOnly={archived}
+                    onClose={() => setCanvasOpen(channelId, false)}
+                  />
+                </Suspense>
               </div>
             )}
           </div>

@@ -16,6 +16,8 @@ export class Data extends Construct {
   readonly events: Table;
   /** Vacation ledger: one row per person and year (allowance, used, pending). */
   readonly vacationBalances: Table;
+  /** One rich-text document per conversation (Phase 24), keyed by channel. */
+  readonly canvases: Table;
 
   constructor(scope: Construct, id: string, props: { stage: Stage }) {
     super(scope, id);
@@ -107,6 +109,12 @@ export class Data extends Construct {
       sortKey: { name: "year", type: AttributeType.STRING },
     });
     // Admins' overview: everyone's balance for a year.
+    this.canvases = new Table(this, "Canvases", {
+      ...common,
+      tableName: `slack-${props.stage}-canvases`,
+      partitionKey: { name: "channelId", type: AttributeType.STRING },
+    });
+
     this.vacationBalances.addGlobalSecondaryIndex({
       indexName: "byYear",
       partitionKey: { name: "year", type: AttributeType.STRING },
