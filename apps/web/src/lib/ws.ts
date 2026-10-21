@@ -57,6 +57,9 @@ export interface WsClientOptions {
   random?: () => number;
 }
 
+/** How long a probed socket may stay silent before it is considered dead. */
+export const PROBE_TIMEOUT_MS = 10_000;
+
 /**
  * Single WebSocket to API Gateway: queues frames while offline, reconnects with
  * backoff and lets callers subscribe to server events by `type`.
@@ -74,6 +77,9 @@ export class WsClient {
   private hasConnected = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private stopped = true;
+  /** When the current socket last delivered anything (a `pong` counts). */
+  private lastFrameAt = 0;
+  private probeTimer: ReturnType<typeof setTimeout> | undefined;
 
   private readonly url: string;
 
@@ -90,6 +96,7 @@ export class WsClient {
   disconnect(): void {
     this.stopped = true;
     clearTimeout(this.timer);
+    clearTimeout(this.probeTimer);
     this.queue = [];
     const socket = this.socket;
     this.socket = undefined;
@@ -100,6 +107,46 @@ export class WsClient {
   /** Skips the remaining backoff (e.g. when the browser comes back online). */
   reconnectNow(): void {
     if (this.stopped || this.status !== "reconnecting" || this.socket) return;
+    clearTimeout(this.timer);
+    void this.open();
+  }
+
+  /**
+   * Heartbeat with proof of life (Phase 25): sends `ping` asking for a `pong`
+   * and, if the socket has delivered nothing at all within `timeoutMs`, treats
+   * it as dead and reconnects. A socket can stay "open" after the laptop
+   * sleeps or the network changes while nothing reaches it any more; without
+   * this, new messages silently stopped until a reload. Not open: a pending
+   * reconnect is started at once instead.
+   */
+  ping(payload: { active?: boolean } = {}, timeoutMs = PROBE_TIMEOUT_MS): void {
+    const socket = this.socket;
+    if (socket?.readyState !== 1) {
+      this.reconnectNow();
+      return;
+    }
+    const sentAt = Date.now();
+    socket.send(JSON.stringify({ action: "ping", ...payload, probe: true }));
+    clearTimeout(this.probeTimer);
+    this.probeTimer = setTimeout(() => {
+      if (this.socket !== socket || this.lastFrameAt >= sentAt) return;
+      this.dropDeadSocket(socket);
+    }, timeoutMs);
+  }
+
+  /** The socket stopped delivering: forget it and reconnect now (a catch-up follows). */
+  private dropDeadSocket(socket: WebSocket): void {
+    this.socket = undefined;
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onclose = null;
+    try {
+      socket.close();
+    } catch {
+      // Already gone.
+    }
+    if (this.stopped) return;
+    this.attempt = 0;
     clearTimeout(this.timer);
     void this.open();
   }
@@ -176,6 +223,7 @@ export class WsClient {
 
     socket.onopen = () => {
       if (this.socket !== socket) return;
+      this.lastFrameAt = Date.now();
       const reconnected = this.hasConnected;
       this.hasConnected = true;
       this.attempt = 0;
@@ -187,6 +235,8 @@ export class WsClient {
     };
 
     socket.onmessage = (message: MessageEvent) => {
+      if (this.socket !== socket) return;
+      this.lastFrameAt = Date.now();
       let event: ServerEvent;
       try {
         event = JSON.parse(String(message.data)) as ServerEvent;
@@ -198,6 +248,7 @@ export class WsClient {
 
     socket.onclose = () => {
       if (this.socket !== socket) return;
+      clearTimeout(this.probeTimer);
       this.socket = undefined;
       if (!this.stopped) this.scheduleReconnect();
     };

@@ -5,13 +5,16 @@ import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
 import { dmEntries } from "../lib/channels";
 import { useChat } from "../store";
-import { HashIcon, SearchIcon } from "./icons";
+import { ChannelIcon } from "./ChannelIcon";
+import { SearchIcon } from "./icons";
 import { useModalDialog } from "./Modal";
 
 export interface Item {
   key: string;
   label: string;
   kind: "channel" | "dm";
+  /** Channels: public or private (decides the icon). */
+  channelType?: "public" | "private";
   /** Extra searchable text (the email for people). */
   hint?: string;
   go: () => void;
@@ -46,6 +49,7 @@ export function useSwitcherItems(query: string, onDone: () => void): Item[] {
         key: c.channelId,
         label: c.archived ? `${c.name} (archived)` : c.name,
         kind: "channel",
+        channelType: c.type === "private" ? "private" : "public",
         go: go(`/app/${c.channelId}`),
       }));
     const dmItems: Item[] = dmEntries(
@@ -128,7 +132,7 @@ export function QuickSwitcher({ onClose }: Readonly<{ onClose: () => void }>) {
               }`}
             >
               {item.kind === "channel" ? (
-                <HashIcon />
+                <ChannelIcon channel={{ type: item.channelType ?? "public" }} className="" />
               ) : (
                 <span className="w-[1em] text-center">@</span>
               )}

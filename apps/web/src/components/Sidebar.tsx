@@ -13,6 +13,7 @@ import { dmEntries, orderChannels, orderDms, type DmEntry } from "../lib/channel
 import type { WsStatus } from "../lib/ws";
 import { selectUnread, useChat, useNameOf } from "../store";
 import { Avatar, PresenceDot } from "./Avatar";
+import { ChannelIcon } from "./ChannelIcon";
 import { DeleteChannelModal, EditChannelModal } from "./ChannelModals";
 import { NotificationBell } from "./NotificationBell";
 import { Popover } from "./Popover";
@@ -20,9 +21,7 @@ import {
   ArchiveIcon,
   ChevronDownIcon,
   CalendarIcon,
-  HashIcon,
   KanbanIcon,
-  LockIcon,
   LogOutIcon,
   MoreHorizontalIcon,
   PanelLeftCloseIcon,
@@ -228,17 +227,6 @@ function Section({
     </section>
   );
 }
-
-const channelIcon = (c: Channel) => {
-  if (c.isProject && c.linkedBoardId) {
-    return <KanbanIcon className="text-primary" aria-label="Project channel" />;
-  }
-  return c.type === "private" ? (
-    <LockIcon className="text-ink-secondary" aria-label="Private" />
-  ) : (
-    <HashIcon className="text-ink-secondary" />
-  );
-};
 
 interface SidebarProps {
   activeChannelId: string;
@@ -464,7 +452,7 @@ export function Sidebar({
                   key={c.channelId}
                   compact={compact}
                   label={c.name}
-                  icon={channelIcon(c)}
+                  icon={<ChannelIcon channel={c} />}
                   title={c.type === "private" ? `#${c.name} (private)` : undefined}
                   active={c.channelId === activeChannelId}
                   unread={c.channelId === activeChannelId ? 0 : (unread[c.channelId] ?? 0)}

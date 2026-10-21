@@ -192,8 +192,12 @@ class ChatController {
       client.on("channel.read", ({ channelId, userId, sk, at }) => {
         const s = store();
         s.setReadMark(channelId, userId, { sk, at });
-        // You read it on another device: this one's badge follows.
-        if (userId === s.me?.userId) s.recountUnread(channelId, sk);
+        // You read it on another device: this one's badge follows, and the
+        // bell too once nothing in it is unread any more.
+        if (userId === s.me?.userId) {
+          s.recountUnread(channelId, sk);
+          if (!store().unread[channelId]) useNotifications.getState().markChannelRead(channelId);
+        }
       }),
       client.on("user.typing", ({ channelId, userId }) => {
         const s = store();
@@ -261,7 +265,8 @@ class ChatController {
       client.on("call.end", (event) => calls.handle(event)),
     );
 
-    const onOnline = () => client.reconnectNow();
+    // Back online: a dead socket reconnects now, an "open" one must prove it's alive.
+    const onOnline = () => client.ping({ active: isAppActive() });
     window.addEventListener("online", onOnline);
 
     // Task Manager pushes (sent by the HTTP API's Lambda through this socket).
@@ -294,8 +299,14 @@ class ChatController {
       // their devices only while none of them is active.
       startHeartbeat(client, isAppActive),
       watchActivity((active) => {
-        if (client.status !== "open") return;
-        client.send("ping", { active });
+        // Back in front (woken laptop, unlocked phone, focused desktop app): the
+        // socket may have died silently meanwhile. The probe reconnects (and
+        // catches up) if it did; a reconnect in backoff starts at once.
+        if (client.status !== "open") {
+          if (active) client.reconnectNow();
+          return;
+        }
+        client.ping({ active });
         // Back in front after a while (the desktop app runs for days): refresh
         // names, so a display name changed elsewhere shows here too.
         if (active && Date.now() - this.usersFetchedAt > DIRECTORY_REFRESH_MS) {
@@ -549,6 +560,7 @@ class ChatController {
         title: dm || !("name" in channel) ? sender : `${sender} in #${channel.name}`,
         body: notificationBody(message),
         url: `/app/${encodeURIComponent(message.channelId)}`,
+        channelId: message.channelId,
       },
       { sound: false }, // the pop above already played
     );
@@ -561,6 +573,8 @@ class ChatController {
   viewed(channelId: string): void {
     const s = useChat.getState();
     s.markRead(channelId);
+    // The bell follows the badge: this conversation's alerts are read too.
+    useNotifications.getState().markChannelRead(channelId);
     this.sendReadMark(channelId);
   }
 

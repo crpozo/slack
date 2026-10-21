@@ -413,8 +413,14 @@ describe("phase 5.1 resources", () => {
       Action: string | string[];
       Resource: unknown;
     }>;
-    expect(statements.flatMap((st) => st.Action)).toEqual(["dynamodb:UpdateItem"]);
-    expect(JSON.stringify(statements[0]?.Resource)).toContain("DataConnections");
+    // Phase 25: it answers a probe with `pong` (@connections), nothing else.
+    expect(statements.flatMap((st) => st.Action).sort()).toEqual([
+      "dynamodb:UpdateItem",
+      "execute-api:ManageConnections",
+    ]);
+    expect(
+      JSON.stringify(statements.find((st) => st.Action === "dynamodb:UpdateItem")?.Resource),
+    ).toContain("DataConnections");
   });
 
   it("routes call signaling to a Lambda that only touches connections", () => {

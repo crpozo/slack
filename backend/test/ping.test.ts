@@ -1,8 +1,9 @@
+import { PostToConnectionCommand } from "@aws-sdk/client-apigatewaymanagementapi";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handler } from "../src/handlers/ping";
-import { apiMock, ddbMock, resetMocks, wsEvent } from "./helpers";
+import { apiMock, ddbMock, resetMocks, sentEvents, wsEvent } from "./helpers";
 
 const ping = (body: unknown) => handler(wsEvent("ping", body));
 
@@ -46,5 +47,19 @@ describe("ping", () => {
     expect(await ping({ action: "ping", active: true })).toEqual({ statusCode: 200 });
     ddbMock.on(UpdateCommand).rejects(new Error("throttled"));
     expect(await ping({ action: "ping", active: true })).toEqual({ statusCode: 200 });
+  });
+
+  it("answers a probe with pong, together with the activity it carries", async () => {
+    await ping({ action: "ping", active: true, probe: true });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
+    expect(sentEvents()).toEqual([["conn-alice", { type: "pong" }]]);
+    await ping({ action: "ping", probe: true });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1); // no activity: no write
+    expect(sentEvents()).toHaveLength(2);
+  });
+
+  it("never fails the frame when the pong can't be delivered", async () => {
+    apiMock.on(PostToConnectionCommand).rejects(new Error("throttled"));
+    expect(await ping({ action: "ping", probe: true })).toEqual({ statusCode: 200 });
   });
 });

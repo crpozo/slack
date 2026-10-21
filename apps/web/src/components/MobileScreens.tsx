@@ -5,6 +5,7 @@ import { getThemePreference, setThemePreference, type ThemePreference } from "..
 import { selectUnread, useChat, useNameOf } from "../store";
 import { useNotifications, useUnreadAlerts, type AppAlert } from "../store/notifications";
 import { Avatar } from "./Avatar";
+import { ChannelIcon } from "./ChannelIcon";
 import {
   BellIcon,
   CalendarIcon,
@@ -321,7 +322,7 @@ export function SearchScreen() {
               className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-ink active:bg-surface-hover"
             >
               {item.kind === "channel" ? (
-                <HashIcon className="text-ink-secondary" />
+                <ChannelIcon channel={{ type: item.channelType ?? "public" }} />
               ) : (
                 <span className="w-[1em] text-center text-ink-secondary">@</span>
               )}

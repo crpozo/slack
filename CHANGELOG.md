@@ -7,6 +7,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Resizable side pane:** a draggable divider between the conversation and the thread or board
+  pane (30% to 70%, keyboard accessible, remembered per pane kind); phones keep full-screen views.
 - **Priority chats:** the sidebar orders channels and direct messages by their latest message,
   `#general` always first. The server records `lastMessageAt` on the conversation and the app
   bumps it as `message.new` arrives, so whoever writes jumps to the top at once (pinned DMs keep
@@ -54,6 +56,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   it only marks it stale. Secrets and unsent messages are never cached; sign-out wipes the cache.
 
 ### Fixed
+
+- **New messages stopped arriving until a reload.** A WebSocket can stay "open" after the
+  laptop sleeps or the network changes while nothing reaches it any more. The heartbeat's
+  `ping` never got an answer, so the app couldn't tell a dead socket from a quiet one and kept
+  waiting. `ping` now asks for a `pong`; if nothing comes back within 10 seconds the app
+  reconnects and reloads the open conversation. The probe also runs when the app comes back to
+  the front and when the browser goes back online.
+- **The bell kept alerts of conversations you had read.** Opening a channel or DM (or reading it
+  on another device) now marks its alerts in the Activity bell as read, like its unread badge.
+- **Channel icons:** a private channel always shows the padlock and a public one the hash; a
+  project channel no longer replaces either (its header keeps the 📊 Board pill).
 
 - **Living meeting cards:** a meeting scheduled from a direct message used to leave a snapshot
   in the chat, so moving the meeting in the calendar left the card showing the old time. The
