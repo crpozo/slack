@@ -1,11 +1,28 @@
 import type { Attachment as AttachmentData } from "@mindfultech/shared";
 import { useEffect, useRef, useState } from "react";
+import { isDesktopApp } from "../lib/desktop";
+import { openExternal } from "../lib/external";
 import { formatBytes, getDownloadUrl, isUsableUrl, rememberDownloadUrl } from "../lib/upload";
 import { formatDuration } from "../lib/voice";
 import { useChat } from "../store";
 import { DownloadIcon, FileIcon, MicIcon } from "./icons";
 import { Lightbox } from "./Lightbox";
 import { PdfViewer } from "./PdfViewer";
+
+/**
+ * Image previews are compact and standard, like Slack's: never wider than
+ * `PREVIEW_MAX_WIDTH` nor taller than `PREVIEW_MAX_HEIGHT` (the `attachment`
+ * height token), aspect kept, whatever the monitor. The original opens in
+ * the lightbox.
+ */
+export const PREVIEW_MAX_WIDTH = 384; // Tailwind `max-w-sm`
+export const PREVIEW_MAX_HEIGHT = 300;
+
+/** The preview's box for an image of `width`×`height`: scaled down to fit, never up. */
+export function previewBox(width: number, height: number): { width: number; height: number } {
+  const scale = Math.min(1, PREVIEW_MAX_WIDTH / width, PREVIEW_MAX_HEIGHT / height);
+  return { width: Math.round(width * scale), height: Math.round(height * scale) };
+}
 
 /** The preview's box: the thumbnail's size, capped by the usual max height/width via CSS. */
 function previewSize(a: AttachmentData): { width: number; height: number } | null {
@@ -50,14 +67,16 @@ function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
   }
 
   const size = previewSize(attachment);
+  const box = size ? previewBox(size.width, size.height) : null;
   if (failed) return <FileAttachment attachment={attachment} />;
   if (!url) {
+    // Reserves the preview's final box, so nothing jumps when it loads.
     return (
       <div
         className="max-w-full animate-pulse rounded-lg bg-surface-hover"
         style={
-          size
-            ? { aspectRatio: `${size.width} / ${size.height}`, width: size.width, maxHeight: 320 }
+          box
+            ? { aspectRatio: `${box.width} / ${box.height}`, width: box.width }
             : { width: 240, height: 160 }
         }
         aria-hidden="true"
@@ -70,7 +89,7 @@ function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
       <button
         type="button"
         onClick={() => void view()}
-        className="inline-block max-w-full cursor-zoom-in rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+        className="inline-block max-w-full cursor-zoom-in rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:max-w-sm"
         aria-label={`View ${attachment.name}`}
       >
         <img
@@ -78,9 +97,9 @@ function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
           alt={attachment.name}
           loading="lazy"
           decoding="async"
-          width={size?.width}
-          height={size?.height}
-          className="max-h-attachment h-auto max-w-full rounded-lg border border-line object-contain"
+          width={box?.width}
+          height={box?.height}
+          className="block h-auto max-h-attachment w-auto max-w-full rounded-lg border border-line bg-surface-sidebar object-contain sm:max-w-sm"
           onError={() => setFailed(true)}
         />
       </button>
@@ -134,6 +153,18 @@ function FileAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>
   const [busy, setBusy] = useState(false);
 
   async function download() {
+    if (isDesktopApp()) {
+      // The desktop app hands it to the OS's browser (a tab here would trap it).
+      setBusy(true);
+      try {
+        await openExternal(await getDownloadUrl(attachment.key), { notify: showToast });
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Couldn't download the file.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     // Open the tab synchronously so the popup blocker allows it.
     const tab = window.open("about:blank", "_blank");
     setBusy(true);

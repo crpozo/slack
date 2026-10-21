@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Right-click menu on messages (desktop):** quick reactions, _Copy text_ (or _Copy selection_
+  when part of the message is selected), _Open link_ / _Copy link_ on a link, then _Reply_,
+  _Reply in thread_ and _Edit message_ (your own). Arrow keys, Enter and Esc work; a click
+  elsewhere, scrolling or leaving the window closes it. Images keep the browser's own menu, and
+  touch screens keep the long-press toolbar.
 - **Resizable side pane:** a draggable divider between the conversation and the thread or board
   pane (30% to 70%, keyboard accessible, remembered per pane kind); phones keep full-screen views.
 - **Priority chats:** the sidebar orders channels and direct messages by their latest message,
@@ -56,6 +61,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   it only marks it stale. Secrets and unsent messages are never cached; sign-out wipes the cache.
 
 ### Fixed
+
+- **Links no longer trap you in the desktop app:** every link to another site (messages, the
+  image viewer, the PDF viewer, file downloads, task files) opens in the computer's default
+  browser through Tauri's opener plugin. The web keeps opening them in a new tab. Desktop builds
+  without the new permission fall back to the app's own browser routing, then to copying the link.
+- **Compact image previews:** images in messages are at most 384×300 (aspect kept, never
+  stretched), like Slack, instead of spanning wide monitors; the viewer still opens the original.
 
 - **New messages stopped arriving until a reload.** A WebSocket can stay "open" after the
   laptop sleeps or the network changes while nothing reaches it any more. The heartbeat's

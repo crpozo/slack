@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the production site may call in the desktop app: its window's focus (to notify only in the background), native notifications, and the small always-on-top call window (Phase 24): creating and closing it, placing it, and the events the two windows exchange.",
+  "description": "What the production site may call in the desktop app: its window's focus (to notify only in the background), native notifications, and the small always-on-top call window (Phase 24): creating and closing it, placing it, and the events the two windows exchange; and opening external links in the OS's default browser (opener plugin: http/https/mailto/tel only; Phase 26).",
   "windows": ["main", "call-pip"],
   "remote": {
     "urls": ["https://slack.mindfultech.ec/*"]
@@ -26,6 +26,7 @@
     "core:event:allow-emit-to",
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",
-    "notification:allow-notify"
+    "notification:allow-notify",
+    "opener:default"
   ]
 }

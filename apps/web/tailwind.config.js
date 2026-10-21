@@ -58,7 +58,8 @@ export default {
         ],
       },
       maxHeight: {
-        attachment: "320px",
+        /** Image previews in the chat: a compact, Slack-like box, whatever the monitor. */
+        attachment: "300px",
       },
     },
   },

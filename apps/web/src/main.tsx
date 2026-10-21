@@ -9,6 +9,8 @@ import { loadConfig } from "./lib/config";
 import { installAudioUnlock } from "./lib/sounds";
 import { configureTasksApi } from "./lib/tasksApi";
 import { applyTheme, watchSystemTheme } from "./lib/theme";
+import { installExternalLinks } from "./lib/external";
+import { useChat } from "./store";
 import "./styles.css";
 
 // index.html already applied the saved theme before paint; keep it in sync with the OS.
@@ -16,6 +18,8 @@ applyTheme();
 watchSystemTheme();
 // Browsers block audio until a user gesture: arm notification sounds on the first one.
 installAudioUnlock();
+// Desktop app: links to other sites open in the OS's browser, never inside the app.
+installExternalLinks((message) => useChat.getState().showToast(message));
 
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("#root not found");

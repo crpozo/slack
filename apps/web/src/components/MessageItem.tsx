@@ -6,16 +6,18 @@ import {
   SECRET_TTL_MS,
   type ReplySnapshot,
 } from "@mindfultech/shared";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { chat } from "../lib/chat";
 import { formatDay, formatTime, seenByLine } from "../lib/channels";
 import { QUICK_REACTIONS } from "../lib/emoji";
+import type { MenuContext } from "../lib/contextMenu";
 import { useMessageGestures } from "../lib/gestures";
 import { renderMarkdown } from "../lib/markdown";
 import { selectName, useChat, useNameOf, type ChatMessage } from "../store";
 import { Attachment } from "./Attachment";
 import { MeetingCard } from "./MeetingCard";
+import { MessageContextMenu } from "./MessageContextMenu";
 import { Avatar } from "./Avatar";
 import {
   CheckCheckIcon,
@@ -429,12 +431,42 @@ export const MessageItem = memo(function MessageItem({
     onLongPress: () => setPressed(message.messageId),
     onSwipeRight: () => setReplyTo(message.channelId, snapshotOf(message)),
   });
+  const setEditing = useChat((s) => s.setEditing);
+  const [menu, setMenu] = useState<{ x: number; y: number; context: MenuContext } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+
+  // Right-click (or the context-menu key): our menu instead of the browser's.
+  // Touch screens keep the long-press toolbar; images, media and fields keep
+  // the browser's own menu (save image, spelling…).
+  function onContextMenu(e: React.MouseEvent<HTMLDivElement>) {
+    if (!window.matchMedia("(hover: hover)").matches) return;
+    const target = e.target as Element;
+    if (target.closest("img, video, audio, input, textarea, [data-message-menu]")) return;
+    e.preventDefault();
+    const el = e.currentTarget;
+    const selected = window.getSelection();
+    const selection =
+      selected && !selected.isCollapsed && el.contains(selected.anchorNode)
+        ? selected.toString()
+        : "";
+    const anchor = target.closest("a[href]");
+    const link = anchor ? new URL(anchor.getAttribute("href") ?? "", location.href).href : null;
+    // From the keyboard there's no pointer: open at the message instead.
+    const keyboard = e.clientX === 0 && e.clientY === 0;
+    const box = el.getBoundingClientRect();
+    setMenu({
+      x: keyboard ? box.left + 48 : e.clientX,
+      y: keyboard ? box.top + 8 : e.clientY,
+      context: { mine, canThread: !!onOpenThread, selection, link },
+    });
+  }
 
   return (
     <div
       ref={ref}
       data-message-id={message.messageId}
       {...handlers}
+      onContextMenu={onContextMenu}
       className={`group relative flex gap-3 px-4 transition-colors [touch-action:pan-y] [@media(hover:hover)]:hover:bg-surface-sidebar/70 [@media(hover:none)]:select-none [@media(hover:none)]:[-webkit-touch-callout:none] ${
         pressed ? "bg-surface-sidebar" : ""
       } ${grouped ? "py-0.5" : "pt-3 pb-0.5"} ${message.status === "pending" ? "opacity-60" : ""}`}
@@ -546,6 +578,24 @@ export const MessageItem = memo(function MessageItem({
           pressed={pressed}
           mine={mine}
           onOpenThread={onOpenThread}
+        />
+      )}
+      {menu && (
+        <MessageContextMenu
+          message={message}
+          x={menu.x}
+          y={menu.y}
+          context={menu.context}
+          onClose={closeMenu}
+          onReply={() => setReplyTo(message.channelId, snapshotOf(message))}
+          onThread={() => onOpenThread?.(message)}
+          onEdit={() =>
+            setEditing(message.channelId, {
+              sk: message.sk,
+              messageId: message.messageId,
+              text: message.text,
+            })
+          }
         />
       )}
     </div>

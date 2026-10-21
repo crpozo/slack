@@ -14,6 +14,7 @@ import {
   type InputHTMLAttributes,
   type ReactNode,
 } from "react";
+import { openExternal } from "../lib/external";
 import { formatBytes, getDownloadUrl, MAX_SIZE_LABEL, uploadFile } from "../lib/upload";
 import { useChat, useNameOf } from "../store";
 import { useTasks } from "../store/tasks";
@@ -212,7 +213,7 @@ function AttachmentRow({
     setOpening(true);
     try {
       const url = await getDownloadUrl(attachment.key);
-      window.open(url, "_blank", "noopener");
+      await openExternal(url, { notify: showToast });
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Couldn't download the file.");
     } finally {
