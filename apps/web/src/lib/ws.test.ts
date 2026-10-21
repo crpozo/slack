@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { assertWebSocketUrl, backoffDelay, WsClient } from "./ws";
+import { assertWebSocketUrl, backoffDelay, PROBE_TIMEOUT_MS, WsClient } from "./ws";
 
 class FakeSocket {
   static instances: FakeSocket[] = [];
@@ -183,5 +183,56 @@ describe("WsClient", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(FakeSocket.instances).toHaveLength(1);
     expect(ws.status).toBe("closed");
+  });
+
+  it("a probed socket that answers stays; one that stays silent is replaced and caught up", async () => {
+    vi.useFakeTimers();
+    const ws = client();
+    const opens: boolean[] = [];
+    const received: string[] = [];
+    ws.onOpen(({ reconnected }) => opens.push(reconnected));
+    ws.on("message.new", (e) => received.push(e.message.messageId));
+    ws.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    const first = FakeSocket.instances[0]!;
+    first.open();
+
+    // Alive: the pong (any frame) arrives in time.
+    ws.ping({ active: true });
+    expect(JSON.parse(first.sent.at(-1)!)).toEqual({ action: "ping", active: true, probe: true });
+    first.onmessage?.({ data: JSON.stringify({ type: "pong" }) });
+    await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS);
+    expect(FakeSocket.instances).toHaveLength(1);
+
+    // Dead: still "open", but nothing comes back. Replaced at once, as a reconnection.
+    ws.ping({});
+    await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS);
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(first.readyState).toBe(3);
+    const second = FakeSocket.instances[1]!;
+    second.open();
+    expect(opens).toEqual([false, true]);
+    expect(ws.status).toBe("open");
+
+    // A late frame from the dead socket is ignored; the new one delivers.
+    const event = (id: string) => ({
+      data: JSON.stringify({ type: "message.new", message: { messageId: id } }),
+    });
+    first.onmessage?.(event("ghost"));
+    second.onmessage?.(event("m1"));
+    expect(received).toEqual(["m1"]);
+  });
+
+  it("a ping while not open starts the pending reconnect instead", async () => {
+    vi.useFakeTimers();
+    const ws = client();
+    ws.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    FakeSocket.instances[0]!.open();
+    FakeSocket.instances[0]!.drop();
+    expect(ws.status).toBe("reconnecting");
+    ws.ping({ active: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(FakeSocket.instances).toHaveLength(2);
   });
 });

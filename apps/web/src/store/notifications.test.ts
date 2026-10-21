@@ -50,6 +50,38 @@ describe("notifications (the bell)", () => {
     expect(store["slack.alerts.u1"]).toBe("[]");
   });
 
+  it("reading a conversation clears its message alerts only, older saved ones by url", async () => {
+    const { useNotifications } = await import("./notifications");
+    const s = () => useNotifications.getState();
+    s().load("u1");
+    const msg = (title: string, channelId: string, withId = true) =>
+      ({
+        kind: "message",
+        title,
+        body: "b",
+        url: `/app/${channelId}`,
+        ...(withId && { channelId }),
+      }) as const;
+    s().add(msg("ana 1", "dm_ana_me"));
+    s().add(msg("ana old", "dm_ana_me", false)); // saved before channelId existed
+    s().add(msg("design", "ch_design"));
+    s().add(alert("task"));
+    const before = s().alerts;
+    s().markChannelRead("dm_ana_me");
+    expect(s().alerts.map((a) => [a.title, a.read])).toEqual([
+      ["task", false],
+      ["design", false],
+      ["ana old", true],
+      ["ana 1", true],
+    ]);
+    expect(JSON.parse(store["slack.alerts.u1"] ?? "[]")[2].read).toBe(true);
+    // Nothing left to clear: no new list, no write.
+    const after = s().alerts;
+    s().markChannelRead("dm_ana_me");
+    expect(s().alerts).toBe(after);
+    expect(after).not.toBe(before);
+  });
+
   it("survives corrupt or missing storage", async () => {
     store["slack.alerts.u1"] = "{nope";
     const { useNotifications } = await import("./notifications");

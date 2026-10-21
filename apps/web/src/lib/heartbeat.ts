@@ -6,11 +6,13 @@ export const HEARTBEAT_INTERVAL_MS = 3 * 60_000;
 interface HeartbeatClient {
   status: WsStatus;
   onStatus: (handler: (status: WsStatus) => void) => () => void;
-  send: (action: "ping", payload: { active?: boolean }) => void;
+  /** A probing ping: the client reconnects if nothing comes back (see `WsClient.ping`). */
+  ping: (payload: { active?: boolean }) => void;
 }
 
 /**
- * Sends `{ action: "ping" }` every `intervalMs` while the socket is open.
+ * Sends a probing `ping` every `intervalMs` while the socket is open (a socket
+ * that stops answering is replaced; see `WsClient.ping`).
  * Nothing is sent while connecting or reconnecting (a queued ping would be
  * pointless), and the timer restarts on every (re)connection.
  *
@@ -30,7 +32,7 @@ export function startHeartbeat(
     clearInterval(timer);
     timer = undefined;
   };
-  const ping = () => client.send("ping", isActive ? { active: isActive() } : {});
+  const ping = () => client.ping(isActive ? { active: isActive() } : {});
   const start = () => {
     stop();
     if (isActive) ping();

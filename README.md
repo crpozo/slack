@@ -132,10 +132,14 @@ The UI:
 - **Priority chats:** channels and DMs are ordered by their latest message (`#general` stays on
   top; pinned DMs stay first), and a new message moves its conversation up at once.
 - **Board beside the chat:** in a project channel, the **📊 Board** pill opens the channel's
-  Kanban board in a 50/50 pane next to the conversation (the same live board as the Task Manager:
+  Kanban board in a pane next to the conversation (the same live board as the Task Manager:
   columns, drag and drop, task details, sharing), so you can read and write while moving tasks.
   An open thread takes the pane until it closes; _Open full view_ goes to the Task Manager. On
   phones the pill opens the Task Manager full screen.
+- **Resizable side pane:** drag the divider between the conversation and the thread or board
+  (30% to 70% of the width; arrow keys, Home/End and PageUp/PageDown work when it's focused,
+  double-click resets). Each kind of pane remembers its width on the device; phones keep the
+  full-screen views.
 - **Calls (DMs only):** the 📞 and 🎥 buttons in a DM's header start a voice or video call.
   The other person gets a ringing card (Accept / Decline). The call shows as a panel above the
   messages of that DM, Discord-style, so the sidebar and the composer stay usable; in other
@@ -425,8 +429,12 @@ Since every merge to `main` reaches production, test each change on `SlackDev` b
 the PR.
 
 The web app sends a `ping` frame every 3 minutes while connected, because API Gateway closes
-WebSockets that stay idle for 10 minutes; the `ping` Lambda only records whether the app is in
-front of you (`active`), which decides pushes.
+WebSockets that stay idle for 10 minutes; the `ping` Lambda records whether the app is in front
+of you (`active`), which decides pushes, and answers `pong` (the ping carries `probe: true`). If
+nothing at all comes back within 10 seconds the socket is considered dead (it can stay "open"
+after the laptop sleeps or the network changes while nothing reaches it) and the app reconnects
+and reloads the open conversation. The same probe runs when the app comes back to the front and
+when the browser goes back online.
 
 ## App logo and icons
 

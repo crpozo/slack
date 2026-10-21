@@ -718,6 +718,12 @@ export type CallSignal = CallAction["signal"];
 export const PingActionSchema = z.object({
   action: z.literal("ping"),
   active: z.boolean().optional(),
+  /**
+   * Asks for a `pong` back: the client's proof that the socket still reaches
+   * the server (a socket can stay "open" after sleep or a network change while
+   * nothing flows; Phase 25).
+   */
+  probe: z.boolean().optional(),
 });
 
 export type ReadAction = z.infer<typeof ReadActionSchema>;
@@ -821,6 +827,11 @@ export interface PresignResultEvent {
   url: string;
   key: string;
   requestId: string;
+}
+
+/** The answer to a `ping` with `probe: true`: the socket is alive end to end. */
+export interface PongEvent {
+  type: "pong";
 }
 
 export interface ErrorEvent {
@@ -1026,6 +1037,7 @@ export type ServerEvent =
   | CallEvent
   | BoardEvent
   | CalendarPushEvent
+  | PongEvent
   | ErrorEvent;
 
 export type ServerEventType = ServerEvent["type"];

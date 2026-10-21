@@ -16,6 +16,8 @@ export interface AppAlert {
   body: string;
   /** App path to open, e.g. `/app/<channelId>` or `/app/tasks/<boardId>`. */
   url: string;
+  /** Message alerts: the conversation, so reading it clears them (Phase 25). */
+  channelId?: string;
   /** Epoch milliseconds. */
   at: number;
   read: boolean;
@@ -31,8 +33,17 @@ interface NotificationsState {
   /** `read`: already seen (e.g. it happened on the screen you're looking at). */
   add: (alert: Omit<AppAlert, "id" | "at" | "read">, read?: boolean) => void;
   markAllRead: () => void;
+  /**
+   * The conversation was read (opened here, or read on another device): its
+   * message alerts stop counting in the bell.
+   */
+  markChannelRead: (channelId: string) => void;
   clear: () => void;
 }
+
+/** Whether `alert` is about `channelId` (alerts saved before `channelId` existed: by their url). */
+export const alertIsFor = (alert: AppAlert, channelId: string): boolean =>
+  alert.channelId === channelId || alert.url === `/app/${encodeURIComponent(channelId)}`;
 
 const storageKey = (userId: string) => `slack.alerts.${userId}`;
 
@@ -73,6 +84,11 @@ export const useNotifications = create<NotificationsState>((set, get) => {
     markAllRead: () => {
       if (get().alerts.some((a) => !a.read))
         update(get().alerts.map((a) => ({ ...a, read: true })));
+    },
+    markChannelRead: (channelId) => {
+      const alerts = get().alerts;
+      if (!alerts.some((a) => !a.read && alertIsFor(a, channelId))) return;
+      update(alerts.map((a) => (!a.read && alertIsFor(a, channelId) ? { ...a, read: true } : a)));
     },
     clear: () => update([]),
   };

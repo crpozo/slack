@@ -6,7 +6,7 @@ function fakeClient(status: WsStatus = "idle") {
   const handlers = new Set<(status: WsStatus) => void>();
   return {
     status,
-    send: vi.fn(),
+    ping: vi.fn(),
     onStatus(handler: (status: WsStatus) => void) {
       handlers.add(handler);
       return () => handlers.delete(handler);
@@ -31,11 +31,11 @@ describe("startHeartbeat", () => {
 
     expect(HEARTBEAT_INTERVAL_MS).toBe(180_000);
     vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS - 1);
-    expect(client.send).not.toHaveBeenCalled();
+    expect(client.ping).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
-    expect(client.send).toHaveBeenCalledWith("ping", {});
+    expect(client.ping).toHaveBeenCalledWith({});
     vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS * 2);
-    expect(client.send).toHaveBeenCalledTimes(3);
+    expect(client.ping).toHaveBeenCalledTimes(3);
   });
 
   it("sends nothing while connecting or reconnecting, and restarts on reconnect", () => {
@@ -43,34 +43,34 @@ describe("startHeartbeat", () => {
     startHeartbeat(client, undefined, 1000);
 
     vi.advanceTimersByTime(5000);
-    expect(client.send).not.toHaveBeenCalled();
+    expect(client.ping).not.toHaveBeenCalled();
 
     client.setStatus("open");
     vi.advanceTimersByTime(2500);
-    expect(client.send).toHaveBeenCalledTimes(2);
+    expect(client.ping).toHaveBeenCalledTimes(2);
 
     client.setStatus("reconnecting");
     vi.advanceTimersByTime(5000);
-    expect(client.send).toHaveBeenCalledTimes(2); // nothing queued while offline
+    expect(client.ping).toHaveBeenCalledTimes(2); // nothing queued while offline
 
     client.setStatus("open");
     vi.advanceTimersByTime(999);
-    expect(client.send).toHaveBeenCalledTimes(2); // the interval restarted from zero
+    expect(client.ping).toHaveBeenCalledTimes(2); // the interval restarted from zero
     vi.advanceTimersByTime(1);
-    expect(client.send).toHaveBeenCalledTimes(3);
+    expect(client.ping).toHaveBeenCalledTimes(3);
   });
 
   it("stops and unsubscribes when told to", () => {
     const client = fakeClient("open");
     const stop = startHeartbeat(client, undefined, 1000);
     vi.advanceTimersByTime(1000);
-    expect(client.send).toHaveBeenCalledTimes(1);
+    expect(client.ping).toHaveBeenCalledTimes(1);
 
     stop();
     vi.advanceTimersByTime(10_000);
     client.setStatus("open");
     vi.advanceTimersByTime(10_000);
-    expect(client.send).toHaveBeenCalledTimes(1);
+    expect(client.ping).toHaveBeenCalledTimes(1);
     expect(client.listeners).toBe(0);
   });
 
@@ -78,12 +78,12 @@ describe("startHeartbeat", () => {
     const client = fakeClient("open");
     let active = true;
     startHeartbeat(client, () => active, 1000);
-    expect(client.send).toHaveBeenLastCalledWith("ping", { active: true });
+    expect(client.ping).toHaveBeenLastCalledWith({ active: true });
     active = false;
     vi.advanceTimersByTime(1000);
-    expect(client.send).toHaveBeenLastCalledWith("ping", { active: false });
+    expect(client.ping).toHaveBeenLastCalledWith({ active: false });
     client.setStatus("reconnecting");
     client.setStatus("open");
-    expect(client.send).toHaveBeenCalledTimes(3);
+    expect(client.ping).toHaveBeenCalledTimes(3);
   });
 });

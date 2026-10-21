@@ -26,6 +26,7 @@ import {
 } from "./icons";
 import { ThreadPanel } from "./ThreadPanel";
 import { ChannelBoardPane } from "./ChannelBoardPane";
+import { PaneResizer, usePaneSplit } from "./PaneResizer";
 import { useBoardPane } from "../store/boardPane";
 import { DESKTOP_QUERY, useMediaQuery } from "../lib/hooks";
 import { MessageList } from "./MessageList";
@@ -274,6 +275,10 @@ export function ChannelView({
   );
   const desktop = useMediaQuery(DESKTOP_QUERY);
   const boardOpen = useBoardPane((s) => !!s.open[channelId]);
+  // The right pane's width (desktop): dragged on the divider, remembered per kind.
+  const rowRef = useRef<HTMLDivElement>(null);
+  const threadSplit = usePaneSplit("thread");
+  const boardSplit = usePaneSplit("board");
   const setBoardOpen = useBoardPane((s) => s.setOpen);
 
   if (!me) return null;
@@ -340,7 +345,7 @@ export function ChannelView({
       ) : (
         <>
           <CallPanel channelId={channelId} />
-          <div className={callExpanded ? "hidden" : "flex min-h-0 flex-1"}>
+          <div ref={rowRef} className={callExpanded ? "hidden" : "flex min-h-0 flex-1"}>
             {/* Phones show the thread instead of the conversation; desktop beside it. */}
             <div
               className={`flex min-h-0 min-w-0 flex-1 flex-col ${
@@ -358,8 +363,22 @@ export function ChannelView({
                 placeholder={channel ? `Message ${title}` : "Opening conversation…"}
               />
             </div>
+            {threadParent && onCloseThread && desktop && (
+              <PaneResizer
+                rowRef={rowRef}
+                percent={threadSplit.percent}
+                onChange={threadSplit.set}
+                onCommit={threadSplit.commit}
+                onReset={threadSplit.reset}
+                label="Resize the thread"
+              />
+            )}
             {threadParent && onCloseThread && (
-              <div className="flex min-h-0 w-full flex-col md:w-96 md:shrink-0 md:border-l md:border-line">
+              <div
+                className="flex min-h-0 w-full flex-col md:shrink-0"
+                style={desktop ? { width: `${threadSplit.percent}%` } : undefined}
+                data-thread-pane
+              >
                 <ThreadPanel
                   channelId={channelId}
                   parent={threadParent}
@@ -369,8 +388,19 @@ export function ChannelView({
               </div>
             )}
             {showBoard && boardId && (
+              <PaneResizer
+                rowRef={rowRef}
+                percent={boardSplit.percent}
+                onChange={boardSplit.set}
+                onCommit={boardSplit.commit}
+                onReset={boardSplit.reset}
+                label="Resize the board"
+              />
+            )}
+            {showBoard && boardId && (
               <div
-                className="flex min-h-0 w-1/2 shrink-0 flex-col border-l border-line"
+                className="flex min-h-0 shrink-0 flex-col"
+                style={{ width: `${boardSplit.percent}%` }}
                 data-board-pane
               >
                 <ChannelBoardPane
