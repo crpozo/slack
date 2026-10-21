@@ -458,7 +458,9 @@ shows the new icon from its next installer build.
 `apps/desktop` is a Tauri 2 window around `https://slack.mindfultech.ec` (1280×800): there is no
 second frontend, so every web deploy updates the desktop app too. It adds native notifications
 for DMs, private channels and `@mentions` while the window is in the background, camera and microphone for calls
-and voice messages, opens outside links (downloads, URLs in messages) in your browser, and keeps a
+and voice messages, opens outside links (downloads, URLs in messages, the viewers) in your default
+browser (the web app calls the opener plugin, `plugin:opener|open_url`, allowed by `opener:default`
+in the capability file), and keeps a
 call visible in a small always-on-top window (`/call/pip`, fed by the main window over a local
 loopback WebRTC connection) whenever its window loses focus. That window needs the permissions in
 `src-tauri/capabilities/default.json` (added in this version), so builds before it fall back to

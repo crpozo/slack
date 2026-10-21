@@ -700,6 +700,18 @@ Uploads already go straight to S3 with a presigned **PUT** whose signature pins 
 4. **Channel icon:** one `ChannelIcon` (private → padlock, public → hash, nothing else decides) used by the sidebar, the quick switcher and the phones' search.
 
 **Phase 25 acceptance criteria:** after closing the laptop lid (or switching networks) and coming back, new messages appear without a reload and anything missed meanwhile is fetched; the divider resizes the thread and board panes between 30% and 70% and remembers it; opening a conversation clears its alerts in the bell; a private project channel shows a padlock.
+
+---
+
+### Phase 26 — Desktop UX and media: compact images, external links, message context menu
+
+**Branch:** `feature/f26-desktop-ux-and-media`
+
+1. **Compact image previews:** `ImageAttachment` renders at most 384 px wide (`sm:max-w-sm`; full width only on phones narrower than that) and 300 px tall (the `attachment` height token), `w-auto h-auto object-contain`, rounded with a border. `previewBox(width, height)` scales the stored thumbnail size down (never up) so the placeholder reserves the final box and nothing jumps when it loads.
+2. **External links:** `lib/external.ts`. `isExternalUrl` (other origins, `mailto:`, `tel:`); `openExternal(url)` calls `plugin:opener|open_url` through `window.__TAURI__.core.invoke` in the desktop app, falls back to `window.open` (the Rust `on_new_window` routes it to the browser) and finally copies the link with a toast; on the web it opens a `noopener,noreferrer` tab. `installExternalLinks` (desktop only, installed in `main.tsx`) intercepts left and middle clicks on external `<a href>` anywhere, skipping links whose own handler called `preventDefault` and `download` links; file downloads and task files call `openExternal` directly. Markdown links keep `target="_blank" rel="noopener noreferrer"` for the web. The capability adds `opener:default` (http, https, mailto, tel), so the desktop app needs a new release; older builds take the fallbacks.
+3. **Message context menu:** `MessageItem` handles `contextmenu` on pointer devices (`(hover: hover)`), except on images, media and fields, and opens `MessageContextMenu` at the pointer (or at the message for the keyboard's context-menu key), portalled and kept on screen by `placeMenu`. `menuActions` decides the items: copy selection / copy text (never for secrets), open / copy link, reply, reply in thread, edit (your own plain messages); unsent messages only copy. Quick reactions sit on top. `role="menu"` with arrow keys, Home/End, Enter and Esc; it closes on an outside click, scroll, resize or window blur. Deleting messages isn't offered because the app has no message deletion.
+
+**Phase 26 acceptance criteria:** an image never renders wider than 384 px or taller than 300 px on any monitor; in the desktop app a link in a message opens in the default browser and the app stays where it was; right-clicking a message offers Copy text first and copies it; the menu closes on Esc or a click elsewhere.
 ---
 
 ### PHASE 7 (optional) — Desktop app with Tauri
