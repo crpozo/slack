@@ -89,6 +89,10 @@ export default function App({ config }: Readonly<{ config: AppConfig }>) {
           path="/app/calendar"
           element={me ? <ChatLayout wsUrl={config.wsUrl} /> : <Navigate to="/login" replace />}
         />
+        <Route
+          path="/app/notes"
+          element={me ? <ChatLayout wsUrl={config.wsUrl} /> : <Navigate to="/login" replace />}
+        />
         {["/app/home", "/app/dms", "/app/activity", "/app/search"].map((path) => (
           <Route
             key={path}

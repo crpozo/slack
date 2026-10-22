@@ -1,12 +1,16 @@
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
-import { PutCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchGetCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import {
   aiNotesText,
   dmMembers,
   newMessageSk,
+  NOTES_PAGE_SIZE,
   SummarizeCallSchema,
   type AiNotes,
+  type Channel,
+  type MeetingNoteIndexItem,
   type Message,
+  type NotesPage,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
 import { deliver, listConnections } from "../lib/broadcast";
@@ -25,7 +29,7 @@ import {
   type HttpResult,
 } from "../lib/http";
 import { errorFields, log } from "../lib/logger";
-import { findSentMessage } from "../lib/messages";
+import { findSentMessage, toWireMessage } from "../lib/messages";
 
 /** Async invocations carry at most 256 KB; the job stays well under it. */
 const MAX_JOB_BYTES = 240_000;
@@ -100,11 +104,27 @@ async function summarizeCall(event: HttpEvent, caller: HttpCaller): Promise<Http
     throw new HttpError(413, "The transcript is too long to summarize");
   }
 
+  // The card and its pointers in the AI Notes hub of each person (Phase 29),
+  // together: neither exists without the other.
+  const pointers: MeetingNoteIndexItem[] = participants.map((userId) => ({
+    userId,
+    sk: message.sk,
+    channelId: message.channelId,
+    callId: input.callId,
+    endedAt: input.endedAt,
+  }));
   await ddb.send(
-    new PutCommand({
-      TableName: tables.messages,
-      Item: message,
-      ConditionExpression: "attribute_not_exists(sk)",
+    new TransactWriteCommand({
+      TransactItems: [
+        {
+          Put: {
+            TableName: tables.messages,
+            Item: message,
+            ConditionExpression: "attribute_not_exists(sk)",
+          },
+        },
+        ...pointers.map((Item) => ({ Put: { TableName: tables.meetingNotes, Item } })),
+      ],
     }),
   );
   log.info("notes card posted", {
@@ -142,8 +162,92 @@ async function summarizeCall(event: HttpEvent, caller: HttpCaller): Promise<Http
   return json(202, { message });
 }
 
+// --- The AI Notes hub (Phase 29) -------------------------------------------------
+
+/** The cursor is the last pointer's sort key; the user part of the key is always the caller. */
+const encodeCursor = (sk: string) => Buffer.from(JSON.stringify({ sk })).toString("base64url");
+
+function decodeCursor(cursor: string): string {
+  try {
+    const value: unknown = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    const sk = (value as { sk?: unknown } | null)?.sk;
+    if (typeof sk === "string" && sk.length > 0 && sk.length <= 128) return sk;
+  } catch {
+    // Not ours: below.
+  }
+  throw new HttpError(400, "cursor: not a cursor from this endpoint");
+}
+
+/** BatchGetItem, re-asking for what DynamoDB left unprocessed (throttling) a few times. */
+async function getMessages(keys: Array<{ channelId: string; sk: string }>) {
+  const found: Record<string, unknown>[] = [];
+  let pending: Record<string, unknown>[] = keys;
+  for (let attempt = 0; pending.length > 0 && attempt < 4; attempt++) {
+    const { Responses, UnprocessedKeys } = await ddb.send(
+      new BatchGetCommand({ RequestItems: { [tables.messages]: { Keys: pending } } }),
+    );
+    found.push(...(Responses?.[tables.messages] ?? []));
+    pending = (UnprocessedKeys?.[tables.messages]?.Keys ?? []) as Record<string, unknown>[];
+  }
+  if (pending.length > 0) throw new HttpError(503, "Couldn't load the notes, try again");
+  return found;
+}
+
+/**
+ * `GET /notes?cursor=` (Phase 29): your notes cards from every conversation,
+ * newest first. One query on your pointers in `meeting-notes`, one batch get
+ * of the cards themselves (the messages stay the single source of truth:
+ * status, summary, "sent to board"). Access is checked again on read; a
+ * pointer whose card or conversation is gone is skipped.
+ */
+async function listNotes(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const cursor = event.queryStringParameters?.cursor;
+  const { Items, LastEvaluatedKey } = await ddb.send(
+    new QueryCommand({
+      TableName: tables.meetingNotes,
+      KeyConditionExpression: "userId = :me",
+      ExpressionAttributeValues: { ":me": caller.userId },
+      ScanIndexForward: false,
+      Limit: NOTES_PAGE_SIZE,
+      ...(cursor && { ExclusiveStartKey: { userId: caller.userId, sk: decodeCursor(cursor) } }),
+    }),
+  );
+  const pointers = (Items ?? []) as MeetingNoteIndexItem[];
+  const cards =
+    pointers.length === 0
+      ? []
+      : await getMessages(pointers.map(({ channelId, sk }) => ({ channelId, sk })));
+  const byKey = new Map(cards.map((c) => [`${String(c.channelId)}|${String(c.sk)}`, c]));
+
+  // DMs never change members; anything else is checked against the channel now.
+  const channels = new Map<string, Promise<Channel | null>>();
+  const mayRead = async (channelId: string) => {
+    const dm = dmMembers(channelId);
+    if (dm) return dm.includes(caller.userId);
+    if (!channels.has(channelId)) {
+      channels.set(
+        channelId,
+        getAccessibleChannel(channelId, caller.userId, { allowArchived: true }),
+      );
+    }
+    return (await channels.get(channelId)!) !== null;
+  };
+  const notes: Message[] = [];
+  for (const pointer of pointers) {
+    const card = byKey.get(`${pointer.channelId}|${pointer.sk}`);
+    if (card?.kind !== "ai_notes" || !(await mayRead(pointer.channelId))) continue;
+    notes.push(toWireMessage(card));
+  }
+  const page: NotesPage = {
+    notes,
+    nextCursor: LastEvaluatedKey ? encodeCursor(String(LastEvaluatedKey.sk)) : null,
+  };
+  return json(200, page);
+}
+
 const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<HttpResult>> = {
   "POST /calls/summary": summarizeCall,
+  "GET /notes": listNotes,
 };
 
 export const handler = httpHandler(async (event, caller) => {

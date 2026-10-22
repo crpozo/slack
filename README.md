@@ -459,6 +459,18 @@ to the API, to the worker and to Bedrock, and is never stored. Only the summary 
 card's message. Each call is one request of a few thousand tokens to Haiku, which costs cents a
 month at this team's volume.
 
+**AI Notes hub (Phase 29), once per stage after deploying it:** the hub (`/app/notes`) lists
+notes through a per-person index table (`slack-<stage>-meeting-notes`) that new cards fill as
+they are posted. Cards posted before the deploy need their entries written once:
+
+```bash
+pnpm --filter infra backfill-notes prod            # dry run: counts the cards, writes nothing
+pnpm --filter infra backfill-notes prod --apply    # writes the hub's entries (safe to repeat)
+```
+
+It scans the messages table once (only notes cards come back) with your AWS credentials, which
+need `dynamodb:Scan` on the messages table and `dynamodb:BatchWriteItem` on the new one.
+
 ## App logo and icons
 
 The official logo lives at `apps/web/public/logo.webp` (square, ideally 1024×1024). Every icon

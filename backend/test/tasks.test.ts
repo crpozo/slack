@@ -9,6 +9,7 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { handler } from "../src/handlers/tasks";
 import type { HttpEvent } from "../src/lib/http";
@@ -653,5 +654,150 @@ describe("board permissions", () => {
     const result = (await handler(event)) as { statusCode: number };
     expect(result.statusCode).toBe(401);
     expect((await call("GET /nothing")).status).toBe(404);
+  });
+});
+
+describe("POST /boards/{id}/tasks/from-notes", () => {
+  const DM = "dm_user-alice_user-bob";
+  const MESSAGES = "slack-test-messages";
+  const ENDED = Date.UTC(2026, 9, 22, 15, 12, 34);
+  const notesCard = (patch: Record<string, unknown> = {}) => ({
+    messageId: "m-notes",
+    channelId: DM,
+    sk: "100#m-notes",
+    userId: ALICE.userId,
+    text: "✨ AI call notes: done",
+    kind: "ai_notes",
+    aiNotes: {
+      callId: "c1",
+      status: "ready",
+      summary: "## Action Items\n- one",
+      startedAt: ENDED - 754_000,
+      endedAt: ENDED,
+      participants: [ALICE.userId, BOB.userId],
+      ...patch,
+    },
+  });
+  const send = (body: Record<string, unknown> = {}, user = ALICE) =>
+    call("POST /boards/{id}/tasks/from-notes", {
+      user,
+      params: { id: BOARD_ID },
+      body: {
+        channelId: DM,
+        sk: "100#m-notes",
+        tasks: [
+          { title: "Send the release notes", assigneeId: ALICE.userId },
+          { title: "Review the budget", description: "check hosting · confirm with finance" },
+        ],
+        ...body,
+      },
+    });
+
+  beforeEach(() => {
+    ddbMock.on(GetCommand, { TableName: "slack-test-channels" }).resolves({
+      Item: { channelId: DM, type: "dm", members: [ALICE.userId, BOB.userId], name: DM },
+    });
+    ddbMock.on(GetCommand, { TableName: MESSAGES }).resolves({ Item: notesCard() });
+    ddbMock
+      .on(GetCommand, { TableName: "slack-test-users", Key: { userId: BOB.userId } })
+      .resolves({ Item: { userId: BOB.userId, displayName: "Bob B." } });
+  });
+
+  it("claims the card and creates every task in one transaction, in the notes' order", async () => {
+    const { status, body } = await send();
+    expect(status).toBe(201);
+    const items = ddbMock.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+    expect(items).toHaveLength(3);
+    expect(items[0]!.Update).toMatchObject({
+      TableName: MESSAGES,
+      Key: { channelId: DM, sk: "100#m-notes" },
+      ConditionExpression:
+        "kind = :kind AND aiNotes.#status = :ready AND attribute_not_exists(aiNotes.sentToBoard)",
+      ExpressionAttributeValues: {
+        ":sent": { boardId: BOARD_ID, boardName: "Launch", count: 2, by: ALICE.userId },
+      },
+    });
+    const [first, second] = items.slice(1).map((i) => i.Put!.Item as Record<string, unknown>);
+    expect(first).toMatchObject({
+      boardId: BOARD_ID,
+      title: "Send the release notes",
+      status: "TODO",
+      assigneeId: ALICE.userId,
+      createdBy: ALICE.userId,
+      notes: "From ✨ AI call notes: call with Bob B. on 2026-10-22 (12:34).",
+    });
+    expect(second).toMatchObject({
+      assigneeId: null,
+      description: "check hosting · confirm with finance",
+    });
+    expect(Number(second!.createdAt)).toBe(Number(first!.createdAt) + 1);
+    expect(body.notes.sentToBoard).toMatchObject({ boardId: BOARD_ID, count: 2 });
+    expect(body.tasks).toHaveLength(2);
+  });
+
+  it("updates the board task by task, the card for both people, and pushes once", async () => {
+    await send();
+    const events = sentEvents();
+    const created = events.filter(([, e]) => e.type === "board.task_created");
+    // Alice and Bob are on the board; two tasks each, marked as one batch.
+    expect(created.map(([id, e]) => [id, (e as { batch?: unknown }).batch])).toEqual([
+      ["conn-alice", { index: 0, size: 2 }],
+      ["conn-bob", { index: 0, size: 2 }],
+      ["conn-alice", { index: 1, size: 2 }],
+      ["conn-bob", { index: 1, size: 2 }],
+    ]);
+    const cardUpdates = events.filter(([, e]) => e.type === "message.updated");
+    expect(cardUpdates.map(([id]) => id)).toEqual(["conn-alice", "conn-bob"]);
+    expect(cardUpdates[0]![1]).toMatchObject({
+      channelId: DM,
+      sk: "100#m-notes",
+      text: "✨ AI call notes: done",
+      aiNotes: { sentToBoard: { boardName: "Launch", count: 2 } },
+    });
+    expect(sendPush).toHaveBeenCalledTimes(1);
+    expect(sendPush.mock.calls[0]![1]).toMatchObject({
+      title: "Launch",
+      body: "alice added 2 tasks from ✨ AI call notes to To Do",
+    });
+  });
+
+  it("refuses a second send (409), including one that loses the race in the transaction", async () => {
+    ddbMock.on(GetCommand, { TableName: MESSAGES }).resolves({
+      Item: notesCard({ sentToBoard: { boardId: BOARD_ID, boardName: "Launch", count: 1 } }),
+    });
+    const already = await send();
+    expect(already.status).toBe(409);
+    expect(already.body.message).toBe("Already sent to Launch");
+
+    ddbMock.on(GetCommand, { TableName: MESSAGES }).resolves({ Item: notesCard() });
+    ddbMock.on(TransactWriteCommand).rejects(
+      new TransactionCanceledException({
+        message: "cancelled",
+        $metadata: {},
+        CancellationReasons: [{ Code: "ConditionalCheckFailed" }, { Code: "None" }],
+      }),
+    );
+    const raced = await send({}, BOB);
+    expect(raced.status).toBe(409);
+    expect(sentEvents()).toEqual([]);
+    expect(sendPush).not.toHaveBeenCalled();
+  });
+
+  it("only for ready notes you can see, on a board you're on, with members as assignees", async () => {
+    ddbMock.on(GetCommand, { TableName: MESSAGES }).resolves({
+      Item: notesCard({ status: "pending" }),
+    });
+    expect((await send()).status).toBe(409);
+    ddbMock
+      .on(GetCommand, { TableName: MESSAGES })
+      .resolves({ Item: { ...notesCard(), kind: undefined } });
+    expect((await send()).status).toBe(404);
+    ddbMock.on(GetCommand, { TableName: MESSAGES }).resolves({ Item: notesCard() });
+    expect((await send({}, CAROL)).status).toBe(404); // not on the board
+    expect((await send({ tasks: [{ title: "x", assigneeId: CAROL.userId }] })).status).toBe(400);
+    expect((await send({ tasks: [] })).status).toBe(400);
+    ddbMock.on(GetCommand, { TableName: "slack-test-channels" }).resolves({});
+    expect((await send()).status).toBe(404); // not in the conversation
+    expect(ddbMock.commandCalls(TransactWriteCommand)).toHaveLength(0);
   });
 });

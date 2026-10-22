@@ -758,6 +758,50 @@ Uploads already go straight to S3 with a presigned **PUT** whose signature pins 
    - Edits to cards are refused (client menu and server condition, as with meeting cards).
 
 **Phase 28 acceptance criteria:** with notes off nothing is transcribed and nothing is sent; switching them on in a DM call shows both people who did it and the badge; muting pauses your transcription; after hanging up, a pending ✨ card appears at once in the DM and fills in with a summary paragraph and a bulleted action-item list within seconds; HTML or `javascript:` links in the model's output render as text.
+
+---
+
+### Phase 29 — AI notes to boards, and the AI Notes hub
+
+**Branch:** `feature/f29-ai-board-and-hub`
+
+Calls (and so notes cards) live in DMs while boards belong to project channels, so sending is a picker, not a fixed board.
+
+1. **Parser** (`packages/shared/src/actionItems.ts`). `extractActionItems(markdown)` is a line pass.
+   - **Section start:** a heading whose normalized text (lowercase, no accents, emoji or numbering) is or starts with an action keyword. English: action items, next steps, to do, tasks, follow ups… Spanish: tareas, acciones (a tomar), elementos/puntos de acción, próximos/siguientes pasos, pendientes, compromisos…
+   - **Heading forms:** `#`–`######`, a bold-only line, or a short `Label:` line.
+   - **Section end:** a heading of its level or above, a known other section at any depth (summary/resumen, decisions/decisiones, acuerdos, riesgos…), or a rule.
+   - **Grouping by person:** deeper headings and short bold labels inside the section are read as a person's group.
+   - **Items:** top-level bullets (`-` `*` `+` `•` `1.` `1)`) become items. Nested bullets and wrapped lines become details. `[x]` items are skipped. Code fences are ignored. Repeats are dropped.
+   - **Owner hints:** `**Name**: …`, `Name: …`, `… (Responsable: Name)`, `… [@Name]`, and a dash read both ways.
+   - **Drafts:** `taskDraftOf` assigns the first hint that names exactly one board member (full name, first name or email local part, accents ignored) and removes the name from the title.
+     - It clips titles at a word boundary to 200 characters, keeping the full text in the description.
+     - It joins details with " · ", because task fields reject control characters, newlines included.
+2. **`POST /boards/{id}/tasks/from-notes`** (tasks Lambda) takes `{ channelId, sk, tasks[1..25] }`.
+   - **Checks:** board access and assignee membership, as for single tasks. The card must be one you can read, `kind: "ai_notes"`, `ready`, and not sent yet (otherwise 409).
+   - **Write:** one `TransactWriteItems` holds the card's conditional `SET aiNotes.sentToBoard` (`attribute_not_exists`) plus a `Put` per task. Tasks go to To Do, a millisecond apart so the board keeps the notes' order. The task's `notes` field records "From ✨ AI call notes: call with Ana on <date> (mm:ss)". A lost race is a 409.
+   - **After the write:** a `board.task_created` per task carrying `batch {index, size}`; clients raise one bell alert, on index 0. Then one `describeTasksFromNotes` push to the board, and `message.updated` with `sentToBoard` to the DM.
+3. **Send to Board UI.** `AiNotesCard` loads your boards once per session.
+   - **Button:** shown on a ready card when you're on a board (and not a guest). It's disabled with "No action items found" when the parser finds no section.
+   - **After sending:** the button becomes "N tasks sent to <Board> by <name>", linking to the board.
+   - **Dialog:** `SendToBoardModal` shows the board select and the items as checkboxes with their resolved assignee.
+     - `preferredBoard` preselects the board of a non-archived project channel both people are in (a public one counts); otherwise the last board used on this device, then the first.
+     - The submit button reads "Add N tasks"; on success the toast says "N tasks added to the <Board> board".
+4. **Hub storage:** table `slack-<stage>-meeting-notes`, keyed `userId` + the card's message `sk`.
+   - **Rows:** `{ channelId, callId, endedAt }`, pointers only, one per participant. They are written in the same transaction as the pending card in `POST /calls/summary`.
+   - **Reading:** `GET /notes?cursor=` runs one newest-first `Query` (20 per page) and one `BatchGetItem` of the cards, retrying unprocessed keys. The messages stay the single source of truth, so status, summary and "sent" are always live, and the worker never touches the index.
+   - **Access:** DMs are checked from their id; any other channel is re-checked on read. A missing card is skipped.
+   - **Cursor:** base64url `{sk}`; the user part of the key is always the caller.
+   - **Backfill:** `pnpm --filter infra backfill-notes <stage> [--apply]` scans `messages` once for `kind = ai_notes` and batch-writes the pointers. It's idempotent.
+5. **Hub UI:** route `/app/notes` (`NotesHub`, lazy). Entry points: "AI Notes" in the sidebar's Apps section and in the phones' More sheet.
+   - **Data:** the `useNotesHub` store keeps pages, with infinite scroll by IntersectionObserver plus a "Load older notes" button.
+   - **Live updates:** `message.new` and `message.updated` are applied while the hub is loaded.
+   - **Layout:** day groups and a filter by person. Each entry shows "Call with X · time", the same card (Send to Board included) and _Open conversation_.
+6. **IAM:**
+   - The tasks Lambda gets `messages:GetItem/UpdateItem` and `channels:GetItem`.
+   - The call-notes Lambda gets `meeting-notes:PutItem/Query` and `messages:BatchGetItem`.
+
+**Phase 29 acceptance criteria:** a ready notes card whose summary has an "Action Items" or "Tareas" section offers Send to Board; the dialog preselects the shared project's board and lists the items with owners resolved; unticking one and confirming creates the rest in To Do in order, shows "N tasks added to the <Board> board", and both people's cards then say where they went; a second send (any device, either person) is refused; board members get one alert, not one per task; `/app/notes` lists every notes card newest first across DMs, pages older ones and shows new ones live; after the backfill, notes from before the deploy are there too.
 ---
 
 ### PHASE 7 (optional) — Desktop app with Tauri

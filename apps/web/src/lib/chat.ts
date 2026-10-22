@@ -28,6 +28,7 @@ import { playMessageSound } from "./sounds";
 import { TasksApiError } from "./tasksApi";
 import { useTasks } from "../store/tasks";
 import { useCalendar } from "../store/calendar";
+import { useNotesHub } from "../store/notesHub";
 import { WsClient, type DistributiveOmit } from "./ws";
 
 const ERROR_TEXT: Record<ErrorCode, string> = {
@@ -136,6 +137,7 @@ class ChatController {
           (m) => m.messageId === message.messageId,
         );
         s.receiveMessage(message, clientId);
+        useNotesHub.getState().upsert(message);
         if (!s.channels.some((c) => c.channelId === message.channelId)) {
           client.send("channel", { op: "list" }); // e.g. someone just opened a DM with us
         }
@@ -188,8 +190,10 @@ class ChatController {
       ),
       client.on("message.updated", ({ channelId, sk, text, editedAt, meeting, aiNotes }) => {
         if (meeting) store().updateMeetingCard(channelId, sk, meeting, text);
-        else if (aiNotes) store().updateAiNotes(channelId, sk, aiNotes, text);
-        else store().applyEdit(channelId, sk, text, editedAt ?? Date.now());
+        else if (aiNotes) {
+          store().updateAiNotes(channelId, sk, aiNotes, text);
+          useNotesHub.getState().update(channelId, sk, aiNotes, text);
+        } else store().applyEdit(channelId, sk, text, editedAt ?? Date.now());
       }),
       client.on("channel.read", ({ channelId, userId, sk, at }) => {
         const s = store();

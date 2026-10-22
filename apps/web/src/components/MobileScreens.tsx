@@ -19,6 +19,7 @@ import {
   MoreHorizontalIcon,
   SearchIcon,
   SettingsIcon,
+  SparklesIcon,
   SunIcon,
 } from "./icons";
 import { Modal } from "./Modal";
@@ -113,6 +114,10 @@ export function BottomTabs({
       {moreOpen && (
         <MoreSheet
           onClose={() => setMoreOpen(false)}
+          onOpenNotes={() => {
+            setMoreOpen(false);
+            void navigate("/app/notes");
+          }}
           onOpenSettings={() => {
             setMoreOpen(false);
             onOpenSettings();
@@ -130,12 +135,18 @@ const THEMES: Array<{ value: ThemePreference; label: string; Icon: typeof SunIco
   { value: "system", label: "System", Icon: MonitorIcon },
 ];
 
-/** The More tab's sheet: who you are, the theme, settings and sign out. */
+/** The More tab's sheet: who you are, the theme, AI Notes, settings and sign out. */
 function MoreSheet({
   onClose,
+  onOpenNotes,
   onOpenSettings,
   onSignOut,
-}: Readonly<{ onClose: () => void; onOpenSettings: () => void; onSignOut: () => void }>) {
+}: Readonly<{
+  onClose: () => void;
+  onOpenNotes: () => void;
+  onOpenSettings: () => void;
+  onSignOut: () => void;
+}>) {
   const me = useChat((s) => s.me);
   const nameOf = useNameOf();
   const [theme, setTheme] = useState<ThemePreference>(getThemePreference);
@@ -181,6 +192,12 @@ function MoreSheet({
             ))}
           </div>
         </div>
+        <button type="button" onClick={onOpenNotes} className={row}>
+          <SparklesIcon className="text-primary" />
+          <span className="flex-1">AI Notes</span>
+          <span className="text-xs text-ink-secondary">Summaries of your calls</span>
+          <ChevronRightIcon className="text-ink-secondary" aria-hidden="true" />
+        </button>
         <button type="button" onClick={onOpenSettings} className={row}>
           <SettingsIcon className="text-ink-secondary" />
           <span className="flex-1">Settings</span>

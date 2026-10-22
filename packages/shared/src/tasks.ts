@@ -41,6 +41,19 @@ export function describeTaskActivity(change: {
   return { title, body };
 }
 
+/** The one notification for tasks added together from AI call notes (Phase 29). */
+export function describeTasksFromNotes(change: {
+  actorName: string;
+  boardName: string;
+  count: number;
+}): { title: string; body: string } {
+  const what = change.count === 1 ? "a task" : `${change.count} tasks`;
+  return {
+    title: change.boardName,
+    body: `${change.actorName} added ${what} from ✨ AI call notes to To Do`,
+  };
+}
+
 export const MAX_BOARD_NAME_LENGTH = 60;
 export const MAX_TASK_TITLE_LENGTH = 200;
 export const MAX_TASK_DESCRIPTION_LENGTH = 2000;

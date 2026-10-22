@@ -96,11 +96,13 @@ describe("task manager API", () => {
       "GET /boards/{id}/tasks",
       "GET /calendar/balances",
       "GET /calendar/events",
+      "GET /notes",
       "GET /push/key",
       "POST /boards",
       "POST /boards/{id}/invites",
       "POST /boards/{id}/members",
       "POST /boards/{id}/tasks",
+      "POST /boards/{id}/tasks/from-notes",
       "POST /calendar/events",
       "POST /calls/summary",
       "POST /push/subscribe",
@@ -168,7 +170,10 @@ describe("task manager API", () => {
       "dynamodb:GetItem",
       "dynamodb:UpdateItem", // an invited person's directory row
     ]);
-    expect(actionsOn("DataMessages")).toEqual([]);
+    // Tasks from AI notes: read the card, claim it (with the tasks, one transaction).
+    expect(actionsOn("DataMessages")).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);
+    expect(actionsOn("DataChannels")).toEqual(["dynamodb:GetItem"]);
+    expect(actionsOn("DataMeetingNotes")).toEqual([]);
     // Board pushes: members' devices, dropping expired ones; the VAPID parameter.
     expect(actionsOn("DataPushSubscriptions")).toEqual(["dynamodb:DeleteItem", "dynamodb:Query"]);
     expect(statements.some((st) => [st.Action].flat().includes("ssm:GetParameter"))).toBe(true);

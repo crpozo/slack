@@ -31,6 +31,19 @@ export interface AiNotes {
   participants: string[];
   /** `failed`: what to tell the reader. */
   error?: string;
+  /** Its action items were added to a board (Phase 29): once per notes card. */
+  sentToBoard?: NotesSentToBoard;
+}
+
+export interface NotesSentToBoard {
+  boardId: string;
+  /** As it was named then (the card shows it without loading the board). */
+  boardName: string;
+  /** How many tasks were created. */
+  count: number;
+  /** Who sent them, and when (epoch ms). */
+  by: string;
+  at: number;
 }
 
 /** The longest phrase accepted (one recognition result is a sentence or two). */

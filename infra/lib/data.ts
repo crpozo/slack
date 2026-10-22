@@ -16,6 +16,12 @@ export class Data extends Construct {
   readonly events: Table;
   /** Vacation ledger: one row per person and year (allowance, used, pending). */
   readonly vacationBalances: Table;
+  /**
+   * AI Notes hub (Phase 29): one pointer per person to each AI notes card
+   * (`userId` + the card's message `sk`, which orders by time), so "all my
+   * notes, newest first" is one query; the cards stay in `messages`.
+   */
+  readonly meetingNotes: Table;
 
   constructor(scope: Construct, id: string, props: { stage: Stage }) {
     super(scope, id);
@@ -112,6 +118,13 @@ export class Data extends Construct {
       partitionKey: { name: "year", type: AttributeType.STRING },
       sortKey: { name: "userId", type: AttributeType.STRING },
       projectionType: ProjectionType.ALL,
+    });
+
+    this.meetingNotes = new Table(this, "MeetingNotes", {
+      ...common,
+      tableName: `slack-${props.stage}-meeting-notes`,
+      partitionKey: { name: "userId", type: AttributeType.STRING },
+      sortKey: { name: "sk", type: AttributeType.STRING },
     });
   }
 }
