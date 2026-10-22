@@ -88,6 +88,42 @@
   .md pre code {
     @apply bg-transparent p-0;
   }
+
+  /* Block markdown of AI call notes (see renderNotesMarkdown). */
+  .md-notes > * + * {
+    @apply mt-2;
+  }
+  .md-notes h3 {
+    @apply text-sm font-bold text-ink;
+  }
+  .md-notes h4 {
+    @apply text-sm font-semibold text-ink;
+  }
+  .md-notes ul {
+    @apply list-disc space-y-1 pl-5;
+  }
+  .md-notes ol {
+    @apply list-decimal space-y-1 pl-5;
+  }
+  .md-notes li > ul,
+  .md-notes li > ol {
+    @apply mt-1;
+  }
+  .md-notes li::marker {
+    @apply text-primary;
+  }
+  .md-notes li.task {
+    @apply list-none;
+  }
+  .md-notes li.task .check {
+    @apply -ml-5 inline-block w-4 text-primary;
+  }
+  .md-notes blockquote {
+    @apply border-l-2 border-primary/60 pl-3 text-ink-secondary;
+  }
+  .md-notes hr {
+    @apply border-line;
+  }
 }
 
 /* FullCalendar (company calendar), on the design tokens so it follows the theme. */

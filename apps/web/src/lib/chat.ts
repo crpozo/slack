@@ -23,7 +23,9 @@ import { isAppActive, watchActivity } from "./activity";
 import { boardActivity, calendarActivity, raiseAlert } from "./alerts";
 import { notificationBody, prepareDesktopNotifications, shouldNotify } from "./desktop";
 import { startHeartbeat } from "./heartbeat";
+import { notesApi } from "./notesApi";
 import { playMessageSound } from "./sounds";
+import { TasksApiError } from "./tasksApi";
 import { useTasks } from "../store/tasks";
 import { useCalendar } from "../store/calendar";
 import { WsClient, type DistributiveOmit } from "./ws";
@@ -184,11 +186,11 @@ class ChatController {
       client.on("message.reaction", ({ channelId, sk, reactions }) =>
         store().setReactions(channelId, sk, reactions),
       ),
-      client.on("message.updated", ({ channelId, sk, text, editedAt, meeting }) =>
-        meeting
-          ? store().updateMeetingCard(channelId, sk, meeting, text)
-          : store().applyEdit(channelId, sk, text, editedAt ?? Date.now()),
-      ),
+      client.on("message.updated", ({ channelId, sk, text, editedAt, meeting, aiNotes }) => {
+        if (meeting) store().updateMeetingCard(channelId, sk, meeting, text);
+        else if (aiNotes) store().updateAiNotes(channelId, sk, aiNotes, text);
+        else store().applyEdit(channelId, sk, text, editedAt ?? Date.now());
+      }),
       client.on("channel.read", ({ channelId, userId, sk, at }) => {
         const s = store();
         s.setReadMark(channelId, userId, { sk, at });
@@ -256,6 +258,13 @@ class ChatController {
       myUserId: () => store().me?.userId ?? null,
       nameOf: (userId) => selectName(store(), userId),
       notify: (text) => store().showToast(text),
+      submitNotes: (input) => {
+        // The ✨ card itself arrives over the socket (`message.new`, then `message.updated`).
+        notesApi.summarizeCall(input).catch((err: unknown) => {
+          const why = err instanceof TasksApiError ? ` ${err.message}` : "";
+          store().showToast(`✨ The AI notes couldn't be requested.${why}`);
+        });
+      },
     });
     this.cleanups.push(
       client.on("call.offer", (event) => calls.handle(event)),

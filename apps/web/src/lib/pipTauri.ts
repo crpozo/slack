@@ -39,6 +39,8 @@ export interface PipCallState {
   peerMicOn: boolean;
   peerCamOn: boolean;
   peerSharing: boolean;
+  /** AI call notes are on: the small window says so too. */
+  notesOn: boolean;
 }
 
 export function pipStateOf(call: CallView, name: string): PipCallState {
@@ -53,6 +55,7 @@ export function pipStateOf(call: CallView, name: string): PipCallState {
     peerMicOn: connected && call.peer.micOn,
     peerCamOn: connected && call.peer.camOn && !!call.remoteStream,
     peerSharing: connected && call.peer.sharing && !!call.remoteScreen,
+    notesOn: call.notes.on,
   };
 }
 

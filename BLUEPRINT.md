@@ -712,6 +712,52 @@ Uploads already go straight to S3 with a presigned **PUT** whose signature pins 
 3. **Message context menu:** `MessageItem` handles `contextmenu` on pointer devices (`(hover: hover)`), except on images, media and fields, and opens `MessageContextMenu` at the pointer (or at the message for the keyboard's context-menu key), portalled and kept on screen by `placeMenu`. `menuActions` decides the items: copy selection / copy text (never for secrets), open / copy link, reply, reply in thread, edit (your own plain messages); unsent messages only copy. Quick reactions sit on top. `role="menu"` with arrow keys, Home/End, Enter and Esc; it closes on an outside click, scroll, resize or window blur. Deleting messages isn't offered because the app has no message deletion.
 
 **Phase 26 acceptance criteria:** an image never renders wider than 384 px or taller than 300 px on any monitor; in the desktop app a link in a message opens in the default browser and the app stays where it was; right-clicking a message offers Copy text first and copies it; the menu closes on Esc or a click elsewhere.
+
+---
+
+### Phase 28 — AI call notes (local transcription, Claude Haiku 5.5 on Bedrock)
+
+**Branch:** `feature/f28-ai-call-notes`
+
+1. **Consent:** notes are off by default.
+   - `CallManager.toggleNotes()` (the ✨ button, enabled once connected) sends `{type:"notes", on, at}` over the call's `control` data channel. The later `at` wins when two toggles cross.
+   - Both sides show a toast naming who switched it and a "✨ AI notes" badge (call header, floating card, Document PiP, desktop PiP window via `PipCallState.notesOn`).
+   - Older clients ignore the message (`parsePeerState` rejects it).
+2. **Transcription:** `lib/transcriber.ts`.
+   - `Transcriber` drives `SpeechRecognition ?? webkitSpeechRecognition` with `continuous` and `interimResults`. The interim results date each phrase from when it started; only final phrases are kept.
+   - Browsers end sessions on their own, so `onend` restarts: at once after a healthy session (speech heard or ≥ 5 s, or a deliberate restart on a new microphone), with exponential backoff from 250 ms to 10 s after sessions that die young, and never after `not-allowed`, `service-not-allowed`, `audio-capture` or `language-not-supported`.
+   - It listens only while notes are on, the call is connected and the mic is unmuted. Recognition opens its own capture, so muting must stop it.
+   - `start(track)` passes the call's microphone where supported.
+   - `processLocally` (on-device) is used when `SpeechRecognition.available({processLocally:true})` says so. Otherwise the browser's speech service does the work, and the badge says which.
+3. **One timeline:** each side transcribes only its own voice and sends `{type:"transcript", text, at}` per phrase. The receiver clamps the peer's `at` into `[connectedAt, now]` against clock skew.
+   - Limits come from `@mindfultech/shared`: 2,000 characters per phrase, 6,000 phrases, 120,000 characters per call. Past them the transcript is marked full, with a toast; it is never silently cut on the server.
+   - The caller submits on `finish()` (the same rule as the duration message), with `keepalive` when the body is under 60 KB, so it survives closing the tab.
+4. **Endpoint:** `POST /calls/summary` (`call-notes` Lambda, JWT).
+   - Validates `SummarizeCallSchema`. The channel must be a DM you belong to, and every speaker one of its two people.
+   - Idempotent per call: clientId `ai-notes:<callId>`.
+   - Posts a pending `kind:"ai_notes"` message (`aiNotes: {callId, status:"pending", …}`; `text` is the plain fallback from `aiNotesText`), pushes `message.new`, and invokes the worker with `InvocationType: "Event"` (payload ≤ 240 KB, else 413).
+   - Answers `202 {message}`. A failed invoke settles the card as failed (502).
+5. **Worker:** `call-notes-worker` Lambda (2 min, async retries 0, max event age 1 h).
+   - `AnthropicBedrockMantle` from `@anthropic-ai/bedrock-sdk` (SigV4 with the Lambda's role, Mantle endpoint of its region), model `anthropic.claude-haiku-5-5`, `max_tokens` 4096, `output_config.effort: "low"`, no sampling parameters.
+   - The system prompt treats the transcript as content only. The user turn is the requested instruction ("Summarize the following meeting transcript. Provide a brief summary paragraph and a bulleted list of Action Items. Output in markdown.") followed by `<transcript>` with `[mm:ss] Name: text` lines.
+   - `stop_reason` `refusal` or `max_tokens` mark the card as failed.
+   - `settleNotesCard` updates the message only while it is still pending (conditional update) and pushes `message.updated` with `aiNotes`. Errors never throw: they become a failed card with a reason.
+   - The transcript is never written anywhere; only the summary is stored.
+6. **IAM (CDK grants only, no models provisioned):** the worker gets `bedrock-mantle:CreateInference`; the endpoint gets `lambda:InvokeFunction` on the worker.
+   - The resource is `*` for now (`NOTES_MODEL_RESOURCES` in `infra/lib/tasks-api.ts`); narrow it once the Mantle ARN format is confirmed for the account.
+   - Model access to Claude Haiku 5.5 is enabled once in the Bedrock console.
+7. **Card:** `AiNotesCard`.
+   - Header "✨ AI Call Notes", the two people and the duration.
+   - Pending shows a skeleton; past 5 minutes it says it may not arrive. Failed shows the reason. Ready shows the notes, a copy-as-markdown button and an "AI-written, check details" line.
+   - `renderNotesMarkdown` (`lib/markdown.ts`) handles block markdown:
+     - headings → h3/h4;
+     - `-` `*` `+` `•` and `1.`/`1)` lists, nested by indentation (capped at 4 levels, every list closed) and loose (blank lines between items);
+     - `[ ]`/`[x]` items as marks, `---` rules, quotes and code fences;
+     - inline `*italic*`, and `[label](https://…)` links (http(s) only).
+   - Every text run is HTML-escaped before any tag is added, so no model output becomes markup.
+   - Edits to cards are refused (client menu and server condition, as with meeting cards).
+
+**Phase 28 acceptance criteria:** with notes off nothing is transcribed and nothing is sent; switching them on in a DM call shows both people who did it and the badge; muting pauses your transcription; after hanging up, a pending ✨ card appears at once in the DM and fills in with a summary paragraph and a bulleted action-item list within seconds; HTML or `javascript:` links in the model's output render as text.
 ---
 
 ### PHASE 7 (optional) — Desktop app with Tauri

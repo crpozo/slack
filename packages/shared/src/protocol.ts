@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AiNotes } from "./callNotes";
 import { compareIds, GENERAL_CHANNEL_ID } from "./ids";
 import type { Role } from "./roles";
 import type { Board, Task, TaskStatus } from "./tasks";
@@ -206,7 +207,7 @@ export function readBy(message: Pick<Message, "sk" | "userId">, reads: Channel["
     .sort(compareIds);
 }
 
-export const MESSAGE_KINDS = ["meeting"] as const;
+export const MESSAGE_KINDS = ["meeting", "ai_notes"] as const;
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
 
 /** What a "meeting scheduled" message carries (see `Message.meeting`). */
@@ -279,6 +280,12 @@ export interface Message {
    * the card's button opens it. Cards can't be edited by hand.
    */
   meeting?: MeetingCard;
+  /**
+   * AI notes of a call in this conversation (Phase 28): written by the server
+   * (pending at once, then the summary), never accepted from the `message`
+   * action, never editable by hand.
+   */
+  aiNotes?: AiNotes;
   /** DynamoDB TTL (epoch **seconds**): set by the server on secret messages only. */
   expiresAt?: number;
 }
@@ -893,6 +900,8 @@ export interface MessageUpdatedEvent {
   isEdited?: true;
   editedAt?: number;
   meeting?: MeetingCard;
+  /** An AI notes card the worker filled in (or gave up on). */
+  aiNotes?: AiNotes;
 }
 
 /** `userId` has read `channelId` up to `sk` (their watermark moved forward). */

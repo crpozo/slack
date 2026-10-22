@@ -50,6 +50,23 @@ export const CALENDAR_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.PUT, path: "/calendar/balances/{userId}/{year}" },
 ];
 
+/** AI call notes (Phase 28): the caller's app submits a call's transcript; a worker summarizes it. */
+export const CALL_NOTES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.POST, path: "/calls/summary" },
+];
+
+/** The notes model: Claude Haiku 5.5 on Claude in Amazon Bedrock (the Mantle endpoint). */
+export const NOTES_MODEL_ID = "anthropic.claude-haiku-5-5";
+
+/**
+ * What `bedrock-mantle:CreateInference` is granted on. The model-scoped ARN
+ * format for Claude in Amazon Bedrock wasn't verifiable when this was written
+ * (the AWS service authorization reference lists it), so the action is
+ * granted on all resources: the worker only ever names `NOTES_MODEL_ID`.
+ * Narrow this to the Haiku 5.5 model ARN once confirmed.
+ */
+export const NOTES_MODEL_RESOURCES = ["*"];
+
 /** Web Push subscriptions (Phase 8), served by their own small Lambda on the same API. */
 export const PUSH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/push/key" },
@@ -81,6 +98,8 @@ export class TasksApi extends Construct {
   readonly archiveHandler: NodejsFunction;
   /** `calendar`: meetings, vacation requests (with the ledger) and holidays. */
   readonly calendarHandler: NodejsFunction;
+  readonly callNotesHandler: NodejsFunction;
+  readonly callNotesWorker: NodejsFunction;
   /** Base URL clients call, without a trailing slash. */
   readonly url: string;
   private readonly origins: string[];
@@ -149,6 +168,29 @@ export class TasksApi extends Construct {
       VAPID_PARAMETER: vapidParameterName(stage),
     });
 
+    // AI call notes: the endpoint answers at once (202) and hands the
+    // transcript to the worker, which may take longer than API Gateway's 30 s.
+    this.callNotesWorker = lambda(
+      "CallNotesWorkerFn",
+      "call-notes-worker",
+      {
+        MESSAGES_TABLE: data.messages.tableName,
+        USERS_TABLE: data.users.tableName,
+        CONNECTIONS_TABLE: data.connections.tableName,
+        WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+      },
+      Duration.minutes(2),
+    );
+    // Errors become a failed card inside the worker; an async retry would only repeat them.
+    this.callNotesWorker.configureAsyncInvoke({ retryAttempts: 0, maxEventAge: Duration.hours(1) });
+    this.callNotesHandler = lambda("CallNotesFn", "call-notes", {
+      MESSAGES_TABLE: data.messages.tableName,
+      CHANNELS_TABLE: data.channels.tableName,
+      CONNECTIONS_TABLE: data.connections.tableName,
+      WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+      NOTES_WORKER_FUNCTION: this.callNotesWorker.functionName,
+    });
+
     this.archiveHandler = lambda(
       "ArchiveFn",
       "archive-tasks",
@@ -192,6 +234,13 @@ export class TasksApi extends Construct {
     const pushIntegration = new HttpLambdaIntegration("PushIntegration", this.pushHandler);
     for (const { method, path } of PUSH_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: pushIntegration });
+    }
+    const callNotesIntegration = new HttpLambdaIntegration(
+      "CallNotesIntegration",
+      this.callNotesHandler,
+    );
+    for (const { method, path } of CALL_NOTES_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: callNotesIntegration });
     }
     const calendarIntegration = new HttpLambdaIntegration(
       "CalendarIntegration",
@@ -289,6 +338,31 @@ export class TasksApi extends Construct {
     grantReadVapid(this.calendarHandler, stage);
     data.connections.grant(this.calendarHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.calendarHandler);
+
+    // call-notes: the DM (GetItem), a retried request's card (Query), the pending
+    // card (PutItem) and marking it failed (UpdateItem); its push; starting the worker.
+    data.channels.grant(this.callNotesHandler, "dynamodb:GetItem");
+    data.messages.grant(
+      this.callNotesHandler,
+      "dynamodb:PutItem",
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+    );
+    data.connections.grant(this.callNotesHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
+    wsApi.webSocketApi.grantManageConnections(this.callNotesHandler);
+    this.callNotesWorker.grantInvoke(this.callNotesHandler);
+    // call-notes-worker: speakers' names (GetItem), settling the card (UpdateItem),
+    // its push, and the model on Claude in Amazon Bedrock. No model is provisioned here.
+    data.users.grant(this.callNotesWorker, "dynamodb:GetItem");
+    data.messages.grant(this.callNotesWorker, "dynamodb:UpdateItem");
+    data.connections.grant(this.callNotesWorker, "dynamodb:Scan", "dynamodb:DeleteItem");
+    wsApi.webSocketApi.grantManageConnections(this.callNotesWorker);
+    this.callNotesWorker.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["bedrock-mantle:CreateInference"],
+        resources: NOTES_MODEL_RESOURCES,
+      }),
+    );
 
     // archive-tasks: find done tasks (Scan) and flag them (UpdateItem). Nothing else.
     data.tasks.grant(this.archiveHandler, "dynamodb:Scan", "dynamodb:UpdateItem");
