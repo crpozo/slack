@@ -64,6 +64,24 @@ describe("call", () => {
     expect(sentEvents()[0]?.[1]).toMatchObject({ type: "call.ice_candidate", candidate });
   });
 
+  it("fans a batch of ICE candidates out as one call.ice_candidate event each", async () => {
+    const candidates = [
+      { candidate: "candidate:1 1 udp 1 1.2.3.4 5 typ host", sdpMid: "0" },
+      { candidate: "candidate:2 1 udp 1 5.6.7.8 9 typ srflx", sdpMid: "0" },
+    ];
+    await call({ signal: "ice_candidates", candidates });
+
+    expect(recipients()).toEqual(["conn-bob", "conn-bob", "conn-bob-2", "conn-bob-2"]);
+    const relayed = sentEvents()
+      .filter(([id]) => id === "conn-bob")
+      .map(([, event]) => event);
+    expect(relayed).toEqual(
+      candidates.map((candidate) =>
+        expect.objectContaining({ type: "call.ice_candidate", from: ALICE.userId, candidate }),
+      ),
+    );
+  });
+
   it("also tells the sender's other tabs when the call is answered, declined or ended", async () => {
     await call({ signal: "answer", sdp: "v=0 answer", to: ALICE.userId }, BOB, "conn-bob");
     expect(recipients()).toEqual(["conn-alice", "conn-alice-2", "conn-bob-2"]);

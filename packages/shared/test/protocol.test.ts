@@ -9,6 +9,7 @@ import {
   isChannelMember,
   isExpired,
   MAX_ATTACHMENT_SIZE,
+  MAX_ICE_CANDIDATES_PER_SIGNAL,
   MAX_SDP_LENGTH,
   MAX_TEXT_LENGTH,
   MessageActionSchema,
@@ -142,6 +143,11 @@ describe("phase 5.1 contract", () => {
           },
         },
         { ...base, signal: "ice_candidate", candidate: { candidate: "" } }, // end of candidates
+        {
+          ...base,
+          signal: "ice_candidates",
+          candidates: [{ candidate: "candidate:1 1 udp 1 1.2.3.4 5 typ host", sdpMid: "0" }],
+        },
         { ...base, signal: "end", reason: "no_answer" },
         { ...base, signal: "decline", reason: "busy" },
       ];
@@ -166,6 +172,14 @@ describe("phase 5.1 contract", () => {
         { ...base, signal: "decline", reason: "no_answer" },
         { ...base, to: "u_2", signal: "end" },
         { ...base, callId: "", signal: "end" },
+        { ...base, signal: "ice_candidates", candidates: [] },
+        {
+          ...base,
+          signal: "ice_candidates",
+          candidates: Array.from({ length: MAX_ICE_CANDIDATES_PER_SIGNAL + 1 }, () => ({
+            candidate: "candidate:1 1 udp 1 1.2.3.4 5 typ host",
+          })),
+        },
       ];
       for (const action of bad) {
         expect(CallActionSchema.safeParse(action).success, JSON.stringify(action)).toBe(false);

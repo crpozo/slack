@@ -1,4 +1,11 @@
-import type { CallEndReason, CallEvent, CallMedia, ClientActionInput } from "@mindfultech/shared";
+import {
+  MAX_ICE_CANDIDATES_PER_SIGNAL,
+  type CallEndReason,
+  type CallEvent,
+  type CallMedia,
+  type ClientActionInput,
+  type IceCandidate,
+} from "@mindfultech/shared";
 import { ulid } from "ulid";
 import { create } from "zustand";
 import {
@@ -66,6 +73,12 @@ async function traceSelectedPair(pc: RTCPeerConnection): Promise<void> {
 const RING_TIMEOUT_MS = 45_000;
 const INCOMING_TIMEOUT_MS = 50_000;
 const DISCONNECT_GRACE_MS = 10_000;
+/**
+ * Local candidates are held this long and sent together: one message per
+ * candidate made each one its own Lambda invocation, and a gathering burst
+ * hit the account's concurrency limit, so throttled candidates never arrived.
+ */
+const ICE_BATCH_MS = 150;
 
 export type CallPhase = "outgoing" | "incoming" | "connecting" | "connected";
 
@@ -121,6 +134,8 @@ interface Session {
   offerSdp: string | null;
   /** Remote candidates that arrived before the remote description. */
   pendingIce: RTCIceCandidateInit[];
+  /** Local candidates waiting to go out in the next `ice_candidates` batch. */
+  outgoingIce: IceCandidate[];
   mic: MediaStreamTrack | null;
   camera: MediaStreamTrack | null;
   screen: MediaStreamTrack | null;
@@ -589,6 +604,7 @@ export class CallManager {
       control: null,
       offerSdp: null,
       pendingIce: [],
+      outgoingIce: [],
       mic: null,
       camera: null,
       screen: null,
@@ -656,18 +672,22 @@ export class CallManager {
     });
 
     pc.addEventListener("icecandidate", ({ candidate }) => {
-      if (candidate?.candidate) {
-        trace("local candidate", { type: candidate.type, protocol: candidate.protocol });
-        this.signal(session, {
-          signal: "ice_candidate",
-          candidate: {
-            candidate: candidate.candidate,
-            sdpMid: candidate.sdpMid,
-            sdpMLineIndex: candidate.sdpMLineIndex,
-            usernameFragment: candidate.usernameFragment,
-          },
-        });
+      if (!candidate?.candidate) {
+        // Gathering is complete: nothing more to wait for.
+        this.sendQueuedIce(session);
+        return;
       }
+      trace("local candidate", { type: candidate.type, protocol: candidate.protocol });
+      if (session.outgoingIce.length === 0) {
+        this.later(session, ICE_BATCH_MS, () => this.sendQueuedIce(session));
+      }
+      session.outgoingIce.push({
+        candidate: candidate.candidate,
+        sdpMid: candidate.sdpMid,
+        sdpMLineIndex: candidate.sdpMLineIndex,
+        usernameFragment: candidate.usernameFragment,
+      });
+      if (session.outgoingIce.length >= MAX_ICE_CANDIDATES_PER_SIGNAL) this.sendQueuedIce(session);
     });
 
     pc.addEventListener("track", ({ track, transceiver }) => {
@@ -749,6 +769,14 @@ export class CallManager {
       sharing: !!session.screen,
     };
     session.control.send(JSON.stringify(state));
+  }
+
+  /** Sends the buffered local candidates in one `ice_candidates` signal. */
+  private sendQueuedIce(session: Session): void {
+    if (!this.isCurrent(session) || session.outgoingIce.length === 0) return;
+    const candidates = session.outgoingIce;
+    session.outgoingIce = [];
+    this.signal(session, { signal: "ice_candidates", candidates });
   }
 
   private signal(session: Session, payload: SignalPayload): void {
