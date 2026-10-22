@@ -102,6 +102,7 @@ describe("task manager API", () => {
       "POST /boards/{id}/members",
       "POST /boards/{id}/tasks",
       "POST /calendar/events",
+      "POST /calls/summary",
       "POST /push/subscribe",
       "PUT /boards/{id}",
       "PUT /calendar/balances/{userId}/{year}",

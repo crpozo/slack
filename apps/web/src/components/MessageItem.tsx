@@ -17,6 +17,7 @@ import { renderMarkdown } from "../lib/markdown";
 import { selectName, useChat, useNameOf, type ChatMessage } from "../store";
 import { Attachment } from "./Attachment";
 import { MeetingCard } from "./MeetingCard";
+import { AiNotesCard } from "./AiNotesCard";
 import { MessageContextMenu } from "./MessageContextMenu";
 import { Avatar } from "./Avatar";
 import {
@@ -518,6 +519,10 @@ export const MessageItem = memo(function MessageItem({
           {message.replyTo && <ReplyQuote reply={message.replyTo} />}
 
           {message.isSecret && <SecretBody message={message} mine={mine} />}
+
+          {message.kind === "ai_notes" && message.aiNotes && (
+            <AiNotesCard notes={message.aiNotes} mine={mine} />
+          )}
 
           {message.kind === "meeting" && message.meeting && (
             <MeetingCard

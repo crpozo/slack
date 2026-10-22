@@ -2,7 +2,15 @@ import type { CallMedia } from "@mindfultech/shared";
 import { useEffect, useState, type ReactNode } from "react";
 import { formatCallDuration } from "../lib/call";
 import { Avatar } from "./Avatar";
-import { MaximizeIcon, MicIcon, MicOffIcon, PhoneOffIcon, VideoIcon, VideoOffIcon } from "./icons";
+import {
+  MaximizeIcon,
+  MicIcon,
+  MicOffIcon,
+  PhoneOffIcon,
+  SparklesIcon,
+  VideoIcon,
+  VideoOffIcon,
+} from "./icons";
 import { StreamMedia } from "./StreamMedia";
 
 /** What the popped-out call shows; the same view serves the browser's window and the desktop app's. */
@@ -16,6 +24,8 @@ export interface PipCallProps {
   peerMicOn: boolean;
   peerCamOn: boolean;
   peerSharing: boolean;
+  /** AI call notes are on (both sides are being transcribed). */
+  notesOn?: boolean;
   /** The peer's camera and shared screen, when flowing. */
   camera: MediaStream | null;
   screen: MediaStream | null;
@@ -97,6 +107,15 @@ export function PipCallView(props: Readonly<PipCallProps>) {
           aria-hidden="true"
         />
         <p className="min-w-0 flex-1 truncate font-semibold">{name}</p>
+        {props.notesOn && (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/35 px-1.5 py-0.5 font-semibold"
+            title="AI notes are on: this call is being transcribed."
+          >
+            <SparklesIcon aria-hidden="true" />
+            <span className="sr-only">AI notes are on</span>
+          </span>
+        )}
         <p className="shrink-0 tabular-nums text-white/70" aria-live="polite">
           {status}
         </p>

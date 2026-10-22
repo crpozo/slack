@@ -31,6 +31,14 @@ const call = (phase: CallView["phase"] = "connected"): CallView =>
     connectedAt: phase === "connected" ? 1 : null,
     micDeviceId: null,
     cameraDeviceId: null,
+    notes: {
+      on: false,
+      changedBy: null,
+      local: { kind: "off" },
+      onDevice: false,
+      phrases: 0,
+      full: false,
+    },
   }) as CallView;
 
 const ALL: PipEnv = { desktopApp: true, documentPip: true, videoPip: true };

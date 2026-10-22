@@ -436,6 +436,29 @@ after the laptop sleeps or the network changes while nothing reaches it) and the
 and reloads the open conversation. The same probe runs when the app comes back to the front and
 when the browser goes back online.
 
+### 7. AI call notes (Amazon Bedrock, once per account)
+
+The ✨ notes of DM calls are written by **Claude Haiku 5.5** on Amazon Bedrock. The stack only
+grants the worker Lambda `bedrock-mantle:CreateInference`; it provisions nothing. Before the
+first use, in the account and region of the stack:
+
+1. _Bedrock console → Model access_: enable **Claude Haiku 5.5** (Anthropic's use-case form,
+   once per account).
+2. Deploy as usual. The `call-notes-worker` Lambda calls the Mantle endpoint of its own region
+   (`bedrock-mantle.<region>.api.aws`), signed with its role.
+
+The grant is on resource `*` for now (`NOTES_MODEL_RESOURCES` in `infra/lib/tasks-api.ts`).
+Narrow it to the model's ARN once its format is confirmed for the account. If access isn't
+enabled, cards end with "Something went wrong writing the notes" and the worker's CloudWatch log
+shows the Bedrock error.
+
+What leaves the browser: speech recognition runs on the device when Chrome has the language pack
+(`SpeechRecognition.available` with `processLocally`). Otherwise the browser's speech service
+(Google's servers, in Chrome) hears your own microphone while notes are on. The transcript goes
+to the API, to the worker and to Bedrock, and is never stored. Only the summary is kept, as the
+card's message. Each call is one request of a few thousand tokens to Haiku, which costs cents a
+month at this team's volume.
+
 ## App logo and icons
 
 The official logo lives at `apps/web/public/logo.webp` (square, ideally 1024×1024). Every icon
@@ -534,4 +557,4 @@ For the monitor to see the spend, activate the tag once in _Billing → Cost all
 
 Threads · rename and archive channels · edit and delete messages · search ·
 "typing…" · system notifications and `@` mentions · TURN relay for calls · code-signed desktop builds ·
-integration and E2E tests · AI agent with Bedrock.
+integration and E2E tests · AI agent with Bedrock (AI call notes shipped in Phase 28).

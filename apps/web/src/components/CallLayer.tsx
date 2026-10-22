@@ -39,6 +39,7 @@ import {
   PhoneOffIcon,
   PictureInPictureIcon,
   ScreenShareIcon,
+  SparklesIcon,
   VideoIcon,
   VideoOffIcon,
 } from "./icons";
@@ -129,6 +130,7 @@ function DocumentPipCall({ call }: Readonly<{ call: CallView }>) {
       peerMicOn={connected && call.peer.micOn}
       peerCamOn={connected && call.peer.camOn && !!call.remoteStream}
       peerSharing={connected && call.peer.sharing && !!call.remoteScreen}
+      notesOn={call.notes.on}
       camera={call.remoteStream}
       screen={call.remoteScreen}
       onMic={() => calls.toggleMic()}
@@ -215,6 +217,55 @@ function ControlButton({
     >
       {children}
     </button>
+  );
+}
+
+// --- AI call notes (Phase 28) ---------------------------------------------------
+
+/** What the ✨ badge says about notes right now (its tooltip and screen-reader text). */
+export function notesStatusText(notes: CallView["notes"], micOn: boolean): string {
+  if (notes.full) return "AI notes: the transcript is full; later speech isn't included.";
+  const local = notes.local;
+  if (local.kind === "unavailable") return `AI notes are on. ${local.reason}`;
+  if (!micOn) return "AI notes are on. You're muted, so you aren't being transcribed.";
+  const where = notes.onDevice
+    ? "Your voice is transcribed on this device."
+    : "Your voice is transcribed by your browser's speech service.";
+  return `AI notes are on. ${where} A summary is posted to the chat when the call ends.`;
+}
+
+/** ✨ toggle: notes on or off for both sides (the other side is told). */
+function NotesButton({ call }: Readonly<{ call: CallView }>) {
+  const on = call.notes.on;
+  return (
+    <ControlButton
+      label={on ? "Turn off AI notes" : "Turn on AI notes (transcribes both of you)"}
+      highlight={on}
+      disabled={call.phase !== "connected"}
+      onClick={() => void calls.toggleNotes()}
+    >
+      <SparklesIcon />
+    </ControlButton>
+  );
+}
+
+/** "✨ AI notes" pill shown to both sides while notes are on, so nobody is transcribed unawares. */
+function NotesBadge({ call }: Readonly<{ call: CallView }>) {
+  if (!call.notes.on) return null;
+  const text = notesStatusText(call.notes, call.micOn);
+  const warn = call.notes.full || call.notes.local.kind === "unavailable";
+  return (
+    <span
+      role="status"
+      title={text}
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+        warn ? "bg-warning/25 text-white" : "bg-primary/35 text-white"
+      }`}
+    >
+      <SparklesIcon aria-hidden="true" />
+      AI notes
+      <span className="sr-only">{text}</span>
+    </span>
   );
 }
 
@@ -530,6 +581,7 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
           {expanded ? <MinimizeIcon /> : <MaximizeIcon />}
         </button>
         <p className="truncate font-semibold">{name}</p>
+        <NotesBadge call={call} />
         <p className="truncate text-white/70" aria-live="polite">
           {statusText(call, elapsed)}
           {connected && !call.peer.micOn && " · Muted"}
@@ -572,6 +624,7 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
             <ScreenShareIcon />
           </ControlButton>
         )}
+        <NotesButton call={call} />
         <PopOutButton />
         <ControlButton label="Hang up" danger onClick={() => calls.hangUp()}>
           <PhoneOffIcon />
@@ -713,6 +766,7 @@ function FloatingCall({ call }: Readonly<{ call: CallView }>) {
       <div className="flex items-center gap-2 px-3 pt-2 text-sm">
         <span className="h-2 w-2 shrink-0 rounded-full bg-success" aria-hidden="true" />
         <p className="min-w-0 flex-1 truncate font-semibold">{name}</p>
+        <NotesBadge call={call} />
         <p className="shrink-0 text-xs tabular-nums text-white/70" aria-live="polite">
           {statusText(call, elapsed)}
           {connected && !call.peer.micOn && " · Muted"}

@@ -1,10 +1,17 @@
 import {
   MAX_ICE_CANDIDATES_PER_SIGNAL,
+  MAX_SEGMENT_CHARS,
+  MAX_SEGMENTS,
+  MAX_TRANSCRIPT_CHARS,
+  parseNotesPeerMessage,
   type CallEndReason,
   type CallEvent,
   type CallMedia,
   type ClientActionInput,
   type IceCandidate,
+  type NotesPeerMessage,
+  type SummarizeCallInput,
+  type TranscriptSegment,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
 import { create } from "zustand";
@@ -16,6 +23,13 @@ import {
   saveMediaPrefs,
 } from "./media";
 import { startRinging, stopRinging } from "./sounds";
+import {
+  canTranscribeOnDevice,
+  speechLang,
+  speechRecognitionCtor,
+  Transcriber,
+  type TranscriberState,
+} from "./transcriber";
 import type { DistributiveOmit } from "./ws";
 
 /**
@@ -28,6 +42,11 @@ import type { DistributiveOmit } from "./ws";
  * camera and screen are sent at the same time. A negotiated data channel
  * carries each side's mic, camera and screen state so the other side can show
  * an avatar instead of black video.
+ *
+ * AI call notes (Phase 28) ride the same data channel: either side can switch
+ * them on for both (the other side is told at once), each side transcribes
+ * only its own voice and sends each finished phrase across, and the caller
+ * submits the merged timeline when the call ends.
  */
 
 /**
@@ -88,6 +107,22 @@ export interface PeerMediaState {
   sharing: boolean;
 }
 
+/** AI call notes as the call UI shows them. */
+export interface CallNotesView {
+  /** Switched on for the call (by either side). */
+  on: boolean;
+  /** Who switched them on or off last. */
+  changedBy: string | null;
+  /** Your own transcription: off while muted, `unavailable` without browser support. */
+  local: TranscriberState;
+  /** Recognized on this device rather than by the browser's speech service. */
+  onDevice: boolean;
+  /** Phrases captured so far, from both of you. */
+  phrases: number;
+  /** The transcript reached its size limit: later speech isn't kept. */
+  full: boolean;
+}
+
 /** What the call UI renders; `null` when there is no call. */
 export interface CallView {
   callId: string;
@@ -113,6 +148,7 @@ export interface CallView {
   /** Devices currently captured (`null` while that input is off). */
   micDeviceId: string | null;
   cameraDeviceId: string | null;
+  notes: CallNotesView;
 }
 
 export const useCall = create<{ call: CallView | null }>(() => ({ call: null }));
@@ -151,6 +187,23 @@ interface Session {
   connectedAt: number | null;
   timers: Set<ReturnType<typeof setTimeout>>;
   graceTimer: ReturnType<typeof setTimeout> | undefined;
+  notes: NotesSession;
+}
+
+interface NotesSession {
+  on: boolean;
+  /** Notes were on at some point, so the transcript is worth submitting. */
+  used: boolean;
+  /** When `on` last changed (epoch ms): the later of two crossing toggles wins. */
+  changedAt: number;
+  changedBy: string | null;
+  /** Both voices, in arrival order (sorted when formatted). */
+  segments: TranscriptSegment[];
+  chars: number;
+  full: boolean;
+  transcriber: Transcriber | null;
+  local: TranscriberState;
+  onDevice: boolean;
 }
 
 export interface CallDeps {
@@ -160,6 +213,8 @@ export interface CallDeps {
   myUserId: () => string | null;
   nameOf: (userId: string) => string;
   notify: (text: string) => void;
+  /** Sends a finished call's transcript for AI notes (caller only, see `postsCallSummary`). */
+  submitNotes: (input: SummarizeCallInput) => void;
 }
 
 /** Toast shown when the other side ends or declines; `null` for none. */
@@ -358,8 +413,28 @@ export class CallManager {
     const session = this.session;
     if (!session?.mic) return;
     session.mic.enabled = !session.mic.enabled;
+    this.syncTranscriber(session); // muted means not transcribed, too
     this.publish();
     this.sendMediaState(session);
+  }
+
+  /**
+   * Switches AI notes on or off for both sides. The other side is told over
+   * the data channel (and shown who did it), so nobody is transcribed without
+   * knowing.
+   */
+  async toggleNotes(): Promise<void> {
+    const session = this.session;
+    const me = this.deps?.myUserId();
+    if (!session || !me || session.phase !== "connected") return;
+    if (session.control?.readyState !== "open") {
+      this.deps?.notify("AI notes need the call to be fully connected.");
+      return;
+    }
+    const on = !session.notes.on;
+    const at = Date.now();
+    this.sendNotesMessage(session, { type: "notes", on, at });
+    await this.applyNotes(session, on, at, me);
   }
 
   async toggleCamera(): Promise<void> {
@@ -464,6 +539,7 @@ export class CallManager {
       track.enabled = current.enabled; // keep muted calls muted
       await session.audioSender?.replaceTrack(track);
       session.mic = track;
+      this.syncTranscriber(session); // listen on the new microphone
     } else {
       await session.videoSender?.replaceTrack(track);
       session.camera = track;
@@ -620,6 +696,18 @@ export class CallManager {
       connectedAt: null,
       timers: new Set(),
       graceTimer: undefined,
+      notes: {
+        on: false,
+        used: false,
+        changedAt: 0,
+        changedBy: null,
+        segments: [],
+        chars: 0,
+        full: false,
+        transcriber: null,
+        local: { kind: "off" },
+        onDevice: false,
+      },
     };
     this.session = session;
     return session;
@@ -730,8 +818,14 @@ export class CallManager {
     session.control = control;
     control.addEventListener("open", () => this.sendMediaState(session));
     control.addEventListener("message", ({ data }) => {
+      if (!this.isCurrent(session)) return;
+      const notes = parseNotesPeerMessage(data);
+      if (notes) {
+        this.receiveNotesMessage(session, notes);
+        return;
+      }
       const state = parsePeerState(data);
-      if (state && this.isCurrent(session)) {
+      if (state) {
         session.peer = state;
         this.publish();
       }
@@ -800,9 +894,15 @@ export class CallManager {
   private finish(session: Session, notice: string | null): void {
     if (!this.isCurrent(session)) return;
     this.session = null;
+    session.notes.transcriber?.dispose();
     if (postsCallSummary(session.role, session.connectedAt)) {
-      const duration = Date.now() - (session.connectedAt ?? Date.now());
-      this.deps?.postMessage(session.channelId, callSummaryText(session.media, duration));
+      const endedAt = Date.now();
+      const startedAt = session.connectedAt ?? endedAt;
+      this.deps?.postMessage(
+        session.channelId,
+        callSummaryText(session.media, endedAt - startedAt),
+      );
+      this.submitNotes(session, startedAt, endedAt);
     }
     stopRinging();
     session.timers.forEach((t) => clearTimeout(t));
@@ -812,6 +912,137 @@ export class CallManager {
     session.pc?.close();
     useCall.setState({ call: null });
     if (notice) this.deps?.notify(notice);
+  }
+
+  // ---------------------------------------------------------------------------
+  // AI call notes
+  // ---------------------------------------------------------------------------
+
+  private sendNotesMessage(session: Session, message: NotesPeerMessage): void {
+    if (session.control?.readyState !== "open") return;
+    try {
+      session.control.send(JSON.stringify(message));
+    } catch {
+      // The channel closed meanwhile: the call is ending.
+    }
+  }
+
+  private receiveNotesMessage(session: Session, message: NotesPeerMessage): void {
+    if (message.type === "notes") {
+      void this.applyNotes(session, message.on, message.at, session.peerId);
+      return;
+    }
+    // The peer's clock may be a little off: keep its phrase inside the call.
+    const at = Math.min(Math.max(message.at, session.connectedAt ?? 0), Date.now());
+    if (session.notes.on) this.addSegment(session, session.peerId, message.text, at);
+  }
+
+  /** Turns notes on or off for this call, whoever asked (`by`). */
+  private async applyNotes(session: Session, on: boolean, at: number, by: string): Promise<void> {
+    const notes = session.notes;
+    if (at < notes.changedAt) return; // an older toggle crossing a newer one
+    notes.changedAt = at;
+    if (notes.on === on) return;
+    notes.on = on;
+    notes.changedBy = by;
+    if (on) notes.used = true;
+
+    const deps = this.deps;
+    const mine = by === deps?.myUserId();
+    const name = deps?.nameOf(by) ?? "";
+    if (on) {
+      deps?.notify(
+        mine
+          ? "✨ AI notes are on. What you both say is transcribed for a summary when the call ends."
+          : `✨ ${name} turned on AI notes. What you say is transcribed for a summary when the call ends.`,
+      );
+    } else {
+      deps?.notify(mine ? "AI notes are off." : `${name} turned off AI notes.`);
+    }
+
+    if (on && !notes.transcriber) {
+      const Recognition = speechRecognitionCtor();
+      if (!Recognition) {
+        notes.local = {
+          kind: "unavailable",
+          reason: "This browser can't transcribe speech, so only the other side is in the notes.",
+        };
+      } else {
+        const lang = speechLang();
+        // Prefer on-device recognition (Chrome, with the language pack): the
+        // audio then never leaves this computer.
+        notes.onDevice = await canTranscribeOnDevice(lang);
+        if (!this.isCurrent(session)) return;
+        const onDevice = notes.onDevice;
+        notes.transcriber ??= new Transcriber({
+          create: () => {
+            const rec = new Recognition();
+            if (onDevice) rec.processLocally = true;
+            return rec;
+          },
+          lang,
+          onPhrase: (text, phraseAt) => this.ownPhrase(session, text, phraseAt),
+          onState: (state) => {
+            if (!this.isCurrent(session)) return;
+            notes.local = state;
+            this.publish();
+          },
+        });
+      }
+    }
+    this.syncTranscriber(session);
+    this.publish();
+  }
+
+  /** Listens exactly while notes are on, the call is connected and you aren't muted. */
+  private syncTranscriber(session: Session): void {
+    const { notes } = session;
+    if (!notes.transcriber) return;
+    const wanted =
+      notes.on && !notes.full && session.phase === "connected" && !!session.mic?.enabled;
+    notes.transcriber.setWanted(wanted, session.mic);
+  }
+
+  private ownPhrase(session: Session, text: string, at: number): void {
+    const me = this.deps?.myUserId();
+    if (!me || !this.isCurrent(session) || !session.notes.on) return;
+    const clipped = text.slice(0, MAX_SEGMENT_CHARS);
+    if (!this.addSegment(session, me, clipped, at)) return;
+    this.sendNotesMessage(session, { type: "transcript", text: clipped, at });
+  }
+
+  /** Adds a phrase to the timeline unless that would pass the size limits. */
+  private addSegment(session: Session, userId: string, text: string, at: number): boolean {
+    const { notes } = session;
+    if (notes.full) return false;
+    if (notes.segments.length >= MAX_SEGMENTS || notes.chars + text.length > MAX_TRANSCRIPT_CHARS) {
+      notes.full = true;
+      this.syncTranscriber(session);
+      this.deps?.notify("✨ The AI notes transcript is full: the rest of the call won't be in it.");
+      this.publish();
+      return false;
+    }
+    notes.segments.push({ userId, text, at });
+    notes.chars += text.length;
+    this.publish();
+    return true;
+  }
+
+  /** On hang-up, the caller sends the merged transcript (if notes were ever on). */
+  private submitNotes(session: Session, startedAt: number, endedAt: number): void {
+    const { notes } = session;
+    if (!notes.used) return;
+    if (notes.segments.length === 0) {
+      this.deps?.notify("✨ Nothing was transcribed, so there are no AI notes for this call.");
+      return;
+    }
+    this.deps?.submitNotes({
+      callId: session.callId,
+      channelId: session.channelId,
+      startedAt,
+      endedAt,
+      segments: notes.segments.map((s) => ({ ...s, at: Math.round(s.at) })),
+    });
   }
 
   private publish(): void {
@@ -845,6 +1076,14 @@ export class CallManager {
         connectedAt: s.connectedAt,
         micDeviceId: s.mic?.getSettings().deviceId ?? null,
         cameraDeviceId: s.camera?.getSettings().deviceId ?? null,
+        notes: {
+          on: s.notes.on,
+          changedBy: s.notes.changedBy,
+          local: s.notes.local,
+          onDevice: s.notes.onDevice,
+          phrases: s.notes.segments.length,
+          full: s.notes.full,
+        },
       },
     });
   }

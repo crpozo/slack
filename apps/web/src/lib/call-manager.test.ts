@@ -65,6 +65,72 @@ interface FakeTransceiver {
   direction: string;
 }
 
+class FakeDataChannel {
+  readyState = "connecting";
+  readonly sent: string[] = [];
+  private readonly listeners: Record<string, Array<(e: unknown) => void>> = {};
+  addEventListener(type: string, fn: (e: unknown) => void) {
+    (this.listeners[type] ??= []).push(fn);
+  }
+  send(data: string) {
+    this.sent.push(data);
+  }
+  close() {
+    this.readyState = "closed";
+  }
+  open() {
+    this.readyState = "open";
+    this.listeners.open?.forEach((fn) => fn({}));
+  }
+  /** A message from the peer. */
+  deliver(data: unknown) {
+    this.listeners.message?.forEach((fn) => fn({ data: JSON.stringify(data) }));
+  }
+  /** The notes messages sent so far (media state left out). */
+  notes() {
+    return this.sent
+      .map((d) => JSON.parse(d) as { type?: string })
+      .filter((m) => m.type !== undefined);
+  }
+}
+
+/** The browser's speech recognition (only what `Transcriber` drives). */
+class FakeRecognition {
+  static all: FakeRecognition[] = [];
+  lang = "";
+  continuous = false;
+  interimResults = false;
+  maxAlternatives = 1;
+  processLocally?: boolean;
+  running = false;
+  track: unknown = null;
+  onresult: ((e: unknown) => void) | null = null;
+  onerror: ((e: unknown) => void) | null = null;
+  onend: (() => void) | null = null;
+  onspeechstart: (() => void) | null = null;
+  constructor() {
+    FakeRecognition.all.push(this);
+  }
+  start(track?: unknown) {
+    this.running = true;
+    this.track = track ?? null;
+  }
+  stop() {
+    this.running = false;
+    this.onend?.();
+  }
+  abort() {
+    this.running = false;
+  }
+  /** One finished phrase. */
+  say(text: string) {
+    this.onresult?.({
+      resultIndex: 0,
+      results: { length: 1, 0: { isFinal: true, length: 1, 0: { transcript: text } } },
+    });
+  }
+}
+
 class FakePeerConnection {
   static last: FakePeerConnection;
   connectionState = "new";
@@ -118,8 +184,10 @@ class FakePeerConnection {
     this.remoteDescription = d;
   };
   addIceCandidate = async () => {};
+  channel: FakeDataChannel | null = null;
   createDataChannel() {
-    return { readyState: "connecting", addEventListener() {}, send() {}, close() {} };
+    this.channel = new FakeDataChannel();
+    return this.channel;
   }
   close() {}
 }
@@ -144,6 +212,7 @@ function setup() {
     myUserId: () => ME,
     nameOf: (id: string) => id.replace("u-", ""),
     notify: vi.fn(),
+    submitNotes: vi.fn(),
   } satisfies CallDeps;
   const manager = new CallManager();
   manager.attach(deps);
@@ -299,6 +368,163 @@ describe("call duration message", () => {
       expect(h.deps.postMessage).not.toHaveBeenCalled();
     }
     expect(unanswered.signals().at(-1)).toBe("end");
+  });
+});
+
+describe("AI call notes", () => {
+  /** A connected call with its data channel open and speech recognition available. */
+  async function notesCall(role: "caller" | "callee" = "caller", speech = true) {
+    FakeRecognition.all = [];
+    vi.stubGlobal("window", {
+      addEventListener() {},
+      removeEventListener() {},
+      ...(speech ? { webkitSpeechRecognition: FakeRecognition } : {}),
+    });
+    let h: ReturnType<typeof setup> & { pc: FakePeerConnection };
+    if (role === "caller") {
+      h = await connectedCall("audio");
+    } else {
+      const base = setup();
+      base.manager.handle(offerFromPeer("audio"));
+      await base.manager.accept();
+      FakePeerConnection.last.setState("connected");
+      h = { ...base, pc: FakePeerConnection.last };
+    }
+    const channel = h.pc.channel!;
+    channel.open();
+    const rec = () => FakeRecognition.all.at(-1)!;
+    return { ...h, channel, rec, notes: () => useCall.getState().call?.notes };
+  }
+
+  it("is off by default, and nothing is submitted for a call without notes", async () => {
+    const { manager, deps, notes } = await notesCall();
+    expect(notes()).toMatchObject({ on: false, phrases: 0 });
+    expect(FakeRecognition.all).toHaveLength(0); // nobody is listening
+    manager.hangUp();
+    expect(deps.submitNotes).not.toHaveBeenCalled();
+  });
+
+  it("switching on tells the peer, listens to your microphone and shares each phrase", async () => {
+    const { manager, deps, channel, rec, notes } = await notesCall();
+    await manager.toggleNotes();
+
+    expect(channel.notes()).toEqual([{ type: "notes", on: true, at: Date.now() }]);
+    expect(deps.notify).toHaveBeenCalledWith(expect.stringContaining("AI notes are on"));
+    expect(rec().running).toBe(true);
+    expect((rec().track as FakeTrack).kind).toBe("audio"); // the call's own microphone
+    expect(rec().continuous && rec().interimResults).toBe(true);
+    expect(notes()).toMatchObject({ on: true, changedBy: ME, local: { kind: "listening" } });
+
+    rec().say("  hola,   ¿cómo vas?  ");
+    expect(channel.notes().at(-1)).toEqual({
+      type: "transcript",
+      text: "hola, ¿cómo vas?",
+      at: Date.now(),
+    });
+    expect(notes()?.phrases).toBe(1);
+  });
+
+  it("the caller submits one merged timeline of both voices on hang-up", async () => {
+    const { manager, deps, channel, rec } = await notesCall();
+    const connectedAt = Date.now();
+    await manager.toggleNotes();
+    vi.setSystemTime(connectedAt + 4_000);
+    rec().say("Let's ship on Friday.");
+    vi.setSystemTime(connectedAt + 9_000);
+    channel.deliver({ type: "transcript", text: "I'll write the release notes.", at: Date.now() });
+    // A peer clock running ahead can't put a phrase in the future.
+    channel.deliver({ type: "transcript", text: "Done.", at: Date.now() + 60_000 });
+    vi.setSystemTime(connectedAt + 12_000);
+    manager.hangUp();
+
+    expect(deps.submitNotes).toHaveBeenCalledTimes(1);
+    expect(deps.submitNotes).toHaveBeenCalledWith({
+      callId: expect.any(String),
+      channelId: DM,
+      startedAt: connectedAt,
+      endedAt: connectedAt + 12_000,
+      segments: [
+        { userId: ME, text: "Let's ship on Friday.", at: connectedAt + 4_000 },
+        { userId: PEER, text: "I'll write the release notes.", at: connectedAt + 9_000 },
+        { userId: PEER, text: "Done.", at: connectedAt + 9_000 },
+      ],
+    });
+    expect(rec().running).toBe(false);
+  });
+
+  it("the peer switching notes on starts your transcription and tells you who did", async () => {
+    const { deps, channel, rec, notes } = await notesCall("callee");
+    channel.deliver({ type: "notes", on: true, at: Date.now() });
+    await vi.waitFor(() => expect(notes()?.on).toBe(true));
+
+    expect(deps.notify).toHaveBeenCalledWith(expect.stringContaining("bob turned on AI notes"));
+    expect(rec().running).toBe(true);
+    expect(notes()?.changedBy).toBe(PEER);
+
+    channel.deliver({ type: "notes", on: false, at: Date.now() });
+    await vi.waitFor(() => expect(notes()?.on).toBe(false));
+    expect(deps.notify).toHaveBeenCalledWith("bob turned off AI notes.");
+    expect(rec().running).toBe(false);
+  });
+
+  it("the callee never submits", async () => {
+    const { manager, deps, channel, rec } = await notesCall("callee");
+    channel.deliver({ type: "notes", on: true, at: Date.now() });
+    await vi.waitFor(() => expect(rec().running).toBe(true));
+    rec().say("hello");
+    manager.hangUp();
+    expect(deps.submitNotes).not.toHaveBeenCalled();
+  });
+
+  it("muting stops the transcription and unmuting resumes it", async () => {
+    const { manager, rec, notes } = await notesCall();
+    await manager.toggleNotes();
+    manager.toggleMic();
+    expect(rec().running).toBe(false);
+    expect(notes()?.local.kind).toBe("off");
+    manager.toggleMic();
+    vi.advanceTimersByTime(0);
+    expect(rec().running).toBe(true);
+  });
+
+  it("phrases while notes are off are not kept, and an older toggle loses to a newer one", async () => {
+    const { manager, channel, notes } = await notesCall();
+    channel.deliver({ type: "transcript", text: "off the record", at: Date.now() });
+    expect(notes()?.phrases).toBe(0);
+
+    vi.setSystemTime(Date.now() + 1_000);
+    await manager.toggleNotes(); // on, at t+1s
+    channel.deliver({ type: "notes", on: false, at: Date.now() - 500 }); // crossed in flight
+    await vi.waitFor(() => expect(notes()?.on).toBe(true));
+  });
+
+  it("without speech recognition your side is unavailable, but the peer's voice is kept", async () => {
+    const { manager, deps, channel, notes } = await notesCall("caller", false);
+    await manager.toggleNotes();
+    expect(notes()?.local).toMatchObject({ kind: "unavailable" });
+    channel.deliver({ type: "transcript", text: "Hi there", at: Date.now() });
+    manager.hangUp();
+    expect(deps.submitNotes).toHaveBeenCalledWith(
+      expect.objectContaining({ segments: [expect.objectContaining({ userId: PEER })] }),
+    );
+  });
+
+  it("notes that heard nothing tell the caller instead of submitting an empty transcript", async () => {
+    const { manager, deps } = await notesCall();
+    await manager.toggleNotes();
+    manager.hangUp();
+    expect(deps.submitNotes).not.toHaveBeenCalled();
+    expect(deps.notify).toHaveBeenLastCalledWith(
+      expect.stringContaining("Nothing was transcribed"),
+    );
+  });
+
+  it("can't be switched on before the call connects", async () => {
+    const { manager, deps } = setup();
+    await manager.startCall(DM, PEER, "audio");
+    await manager.toggleNotes();
+    expect(useCall.getState().call?.notes.on).toBe(false);
+    expect(deps.send.mock.calls.every(([p]) => p.signal !== "notes")).toBe(true);
   });
 });
 

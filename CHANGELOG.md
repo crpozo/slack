@@ -7,6 +7,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **✨ AI call notes:** during a DM call, the ✨ button (off by default) switches notes on for
+  both people. The other person is told who turned them on, and a "✨ AI notes" badge stays on
+  the call, the floating card and the popped-out window. Each side transcribes only its own
+  voice with the browser's speech recognition: on-device in Chrome when the language pack is
+  installed, otherwise the browser's speech service. Recognition pauses while muted, and
+  finished phrases cross the call's data channel, so both sides hold one timeline. When the call
+  ends, the caller sends it to `POST /calls/summary`, which answers `202` and posts a pending
+  ✨ _AI Call Notes_ card at once. A worker Lambda then asks Claude Haiku 5.5 on Amazon Bedrock
+  for a summary and the action items, and the card fills in live (`message.updated`). The
+  transcript is never stored. The model's markdown (headings, `-`/`*`/`•`/numbered bullets,
+  nesting, checkboxes, links) renders through an escape-first block renderer, so HTML a
+  transcript coaxes out of the model shows as text.
+
 - **Right-click menu on messages (desktop):** quick reactions, _Copy text_ (or _Copy selection_
   when part of the message is selected), _Open link_ / _Copy link_ on a link, then _Reply_,
   _Reply in thread_ and _Edit message_ (your own). Arrow keys, Enter and Esc work; a click

@@ -28,7 +28,12 @@ export function configureTasksApi(url: string | null): void {
 export const tasksApiConfigured = () => baseUrl !== null;
 
 /** One authenticated call to the HTTP API (shared with the calendar client). */
-export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  options: { keepalive?: boolean } = {},
+): Promise<T> {
   if (!baseUrl) throw new TasksApiError(0, "The Task Manager isn't configured on this deployment.");
   const token = await getIdToken();
   let response: Response;
@@ -40,6 +45,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
         ...(body === undefined ? {} : { "content-type": "application/json" }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
+      keepalive: options.keepalive,
     });
   } catch {
     throw new TasksApiError(0, "Couldn't reach the server. Check your connection.");

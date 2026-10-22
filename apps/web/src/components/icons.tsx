@@ -319,3 +319,10 @@ export const LinkIcon = (p: IconProps) => (
     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
   </Icon>
 );
+/** AI call notes (Phase 28). */
+export const SparklesIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10 3.5 11.6 8a2 2 0 0 0 1.3 1.3l4.6 1.6-4.6 1.6a2 2 0 0 0-1.3 1.3L10 18.5l-1.6-4.6a2 2 0 0 0-1.3-1.3l-4.6-1.7 4.6-1.6A2 2 0 0 0 8.4 8z" />
+    <path d="M19 3v4M17 5h4M18 17v3M16.5 18.5h3" />
+  </Icon>
+);

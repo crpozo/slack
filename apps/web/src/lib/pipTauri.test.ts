@@ -21,6 +21,14 @@ const call = (patch: Partial<CallView> = {}): CallView =>
     connectedAt: 5,
     micDeviceId: null,
     cameraDeviceId: null,
+    notes: {
+      on: false,
+      changedBy: null,
+      local: { kind: "off" },
+      onDevice: false,
+      phrases: 0,
+      full: false,
+    },
     ...patch,
   }) as CallView;
 
@@ -36,6 +44,7 @@ describe("the desktop call window's bridge", () => {
       peerMicOn: false,
       peerCamOn: true,
       peerSharing: true,
+      notesOn: false,
     });
     expect(pipStateOf(call({ phase: "connecting", connectedAt: null }), "Ana")).toMatchObject({
       phase: "connecting",
