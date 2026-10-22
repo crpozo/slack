@@ -49,6 +49,8 @@ export const MAX_INVITES_PER_REQUEST = 50;
 /** SDP offers/answers are a few KB; API Gateway frames cap at 32 KB. */
 export const MAX_SDP_LENGTH = 20_000;
 export const MAX_ICE_CANDIDATE_LENGTH = 2048;
+/** Keeps a batched `ice_candidates` signal under API Gateway's 32 KB frame. */
+export const MAX_ICE_CANDIDATES_PER_SIGNAL = 10;
 
 /** Route keys of the WebSocket API (`$request.body.action`). */
 export const CLIENT_ACTIONS = [
@@ -686,6 +688,20 @@ export const CallIceCandidateSchema = z.object({
   candidate: IceCandidateSchema,
 });
 
+/**
+ * Several candidates in one message. ICE gathering yields a burst of 10–20
+ * candidates within ~100 ms; sent one per message, each is its own Lambda
+ * invocation and the burst alone can exhaust the account's concurrency, so
+ * throttled candidates are silently lost and the call fails to connect.
+ * The server relays each as a `call.ice_candidate` event, so receivers are
+ * unchanged.
+ */
+export const CallIceCandidatesSchema = z.object({
+  ...callBase,
+  signal: z.literal("ice_candidates"),
+  candidates: z.array(IceCandidateSchema).min(1).max(MAX_ICE_CANDIDATES_PER_SIGNAL),
+});
+
 export const CallEndSchema = z.object({
   ...callBase,
   signal: z.literal("end"),
@@ -702,6 +718,7 @@ export const CallActionSchema = z.discriminatedUnion("signal", [
   CallOfferSchema,
   CallAnswerSchema,
   CallIceCandidateSchema,
+  CallIceCandidatesSchema,
   CallEndSchema,
   CallDeclineSchema,
 ]);

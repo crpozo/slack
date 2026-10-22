@@ -10,20 +10,29 @@ import { wsHandler } from "../lib/handler";
 import { log } from "../lib/logger";
 import { badRequest, ok, reply, replyError } from "../lib/response";
 
-/** Server event for a signal: the action's fields plus the verified sender. */
-function toEvent(action: CallAction, from: string): CallEvent {
+/**
+ * Server events for a signal: the action's fields plus the verified sender.
+ * A batch of ICE candidates fans out to one `call.ice_candidate` each.
+ */
+function toEvents(action: CallAction, from: string): CallEvent[] {
   const base = { callId: action.callId, channelId: action.channelId, from };
   switch (action.signal) {
     case "offer":
-      return { ...base, type: "call.offer", media: action.media, sdp: action.sdp };
+      return [{ ...base, type: "call.offer", media: action.media, sdp: action.sdp }];
     case "answer":
-      return { ...base, type: "call.answer", sdp: action.sdp };
+      return [{ ...base, type: "call.answer", sdp: action.sdp }];
     case "ice_candidate":
-      return { ...base, type: "call.ice_candidate", candidate: action.candidate };
+      return [{ ...base, type: "call.ice_candidate", candidate: action.candidate }];
+    case "ice_candidates":
+      return action.candidates.map((candidate) => ({
+        ...base,
+        type: "call.ice_candidate" as const,
+        candidate,
+      }));
     case "end":
-      return { ...base, type: "call.end", reason: action.reason };
+      return [{ ...base, type: "call.end", reason: action.reason }];
     case "decline":
-      return { ...base, type: "call.decline", reason: action.reason };
+      return [{ ...base, type: "call.decline", reason: action.reason }];
   }
 }
 
@@ -54,7 +63,7 @@ export const handler = wsHandler(async (event, caller) => {
     return replyError(caller.connectionId, "FORBIDDEN", "You can only call the other DM member");
   }
 
-  const signal = toEvent(action, caller.userId);
+  const signals = toEvents(action, caller.userId);
   const connections = await listConnections();
   const toPeer = connections.filter((c) => c.userId === action.to);
   const toMyOtherTabs = SETTLING.has(action.signal)
@@ -63,13 +72,16 @@ export const handler = wsHandler(async (event, caller) => {
       )
     : [];
 
-  const [reachedPeer] = await Promise.all([
-    deliver(toPeer, () => signal),
-    deliver(toMyOtherTabs, () => signal),
+  const [peerCounts] = await Promise.all([
+    Promise.all(signals.map((signal) => deliver(toPeer, () => signal))),
+    Promise.all(signals.map((signal) => deliver(toMyOtherTabs, () => signal))),
   ]);
+  const reachedPeer = Math.max(0, ...peerCounts);
   log.info("call signal", {
     callId: action.callId,
     signal: action.signal,
+    ...(signals.length > 1 && { count: signals.length }),
+    ...((action.signal === "end" || action.signal === "decline") && { reason: action.reason }),
     userId: caller.userId,
     reachedPeer,
   });
