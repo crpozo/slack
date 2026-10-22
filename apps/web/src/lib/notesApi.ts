@@ -1,4 +1,4 @@
-import type { Message, SummarizeCallInput } from "@mindfultech/shared";
+import type { Message, NotesPage, SummarizeCallInput } from "@mindfultech/shared";
 import { request } from "./tasksApi";
 
 /**
@@ -17,4 +17,9 @@ export const notesApi = {
       keepalive: bytes <= KEEPALIVE_MAX_BYTES,
     }).then((r) => r.message);
   },
+  /** The AI Notes hub (Phase 29): your notes cards from every conversation, newest first. */
+  list: (cursor: string | null) =>
+    request<NotesPage>("GET", cursor ? `/notes?cursor=${encodeURIComponent(cursor)}` : "/notes"),
 };
+
+export type NotesApi = typeof notesApi;

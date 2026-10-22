@@ -1,6 +1,7 @@
 import {
   describeEventWhen,
   describeTaskActivity,
+  describeTasksFromNotes,
   vacationOwner,
   type BoardEvent,
   type CalendarPushEvent,
@@ -46,13 +47,25 @@ export function boardActivity(event: BoardEvent, myUserId: string): AlertInput |
     event.boardName ??
     useTasks.getState().boards.find((b) => b.boardId === event.boardId)?.name ??
     "Board";
+  const url = `/app/tasks/${encodeURIComponent(event.boardId)}`;
+  // Tasks added together from AI call notes: one entry for the batch, on its first task.
+  const batch = event.type === "board.task_created" ? event.batch : undefined;
+  if (batch) {
+    if (batch.index !== 0) return null;
+    const summary = describeTasksFromNotes({
+      actorName: selectName(s, event.by),
+      boardName,
+      count: batch.size,
+    });
+    return { kind: "task", ...summary, url };
+  }
   const { title, body } = describeTaskActivity({
     actorName: selectName(s, event.by),
     boardName,
     task: event.task,
     previousStatus,
   });
-  return { kind: "task", title, body, url: `/app/tasks/${encodeURIComponent(event.boardId)}` };
+  return { kind: "task", title, body, url };
 }
 
 /**

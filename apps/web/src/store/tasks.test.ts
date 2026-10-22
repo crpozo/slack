@@ -1,4 +1,4 @@
-import type { Board, Task } from "@mindfultech/shared";
+import type { AiNotes, Board, Task } from "@mindfultech/shared";
 import { describe, expect, it, vi } from "vitest";
 import type { TasksApi } from "../lib/tasksApi";
 import { createTasksStore, splitBoards } from "./tasks";
@@ -44,6 +44,7 @@ function fakeApi() {
     createTask: vi.fn(() => next<Task>()),
     updateTask: vi.fn(() => next<Task>()),
     deleteTask: vi.fn(() => next<void>()),
+    createFromNotes: vi.fn(() => next<{ tasks: Task[]; notes: AiNotes }>()),
     invite: vi.fn(() =>
       next<{ board: Board; invited: { userId: string; role: "guest"; created: boolean } }>(),
     ),

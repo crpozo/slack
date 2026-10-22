@@ -1010,6 +1010,11 @@ export interface BoardTaskCreatedEvent {
   by?: string;
   /** For the notification text. */
   boardName?: string;
+  /**
+   * One of several tasks created together from AI call notes (Phase 29):
+   * clients raise a single alert for the batch (on `index` 0), not one each.
+   */
+  batch?: { index: number; size: number };
 }
 export interface BoardTaskUpdatedEvent {
   type: "board.task_updated";

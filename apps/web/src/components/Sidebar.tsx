@@ -32,6 +32,7 @@ import {
   PlusIcon,
   SearchIcon,
   SettingsIcon,
+  SparklesIcon,
   TrashIcon,
 } from "./icons";
 import { Logo } from "./LoginPage";
@@ -572,6 +573,14 @@ export function Sidebar({
                 active={activeChannelId === "calendar"}
                 unread={0}
                 onClick={() => navigate("/app/calendar")}
+              />
+              <NavItem
+                compact={compact}
+                label="AI Notes"
+                icon={<SparklesIcon className="text-ink-secondary" />}
+                active={activeChannelId === "notes"}
+                unread={0}
+                onClick={() => navigate("/app/notes")}
               />
             </ul>
           </Section>

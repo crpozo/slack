@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "vapid": "tsx scripts/vapid.ts",
-    "migrate-dev-to-prod": "tsx scripts/migrate-dev-to-prod.ts"
+    "migrate-dev-to-prod": "tsx scripts/migrate-dev-to-prod.ts",
+    "backfill-notes": "tsx scripts/backfill-notes.ts"
   },
   "dependencies": {
     "@mindfultech/shared": "workspace:*",

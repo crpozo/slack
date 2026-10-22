@@ -7,6 +7,30 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **✨ Send to Board:** a ready AI notes card has a _Send to Board_ button that turns its action
+  items into tasks in To Do. The parser reads the "Action Items" section in English or Spanish
+  (Action Items, Next steps, To-do, Tareas, Próximos pasos, Pendientes, Compromisos…), whether
+  written as `#` headings, **bold** lines or `Label:` lines. Top-level bullets become tasks;
+  nested bullets become the task's details; `[x]` items are skipped. An owner written as
+  `**Ana**: …`, `(Responsable: Ana)` or under an `### Ana` heading becomes the assignee when they
+  are on the board.
+  - **Review first:** a dialog shows the items before anything is created. It preselects the
+    board of a project channel both people are in, else the last board used, and anything wrong
+    can be unticked.
+  - **Atomic and once only:** `POST /boards/{id}/tasks/from-notes` writes every task and marks
+    the card in one DynamoDB transaction, so a card reaches a board once, whole or not at all,
+    from either person.
+  - **One notification:** the board's members get a single alert and push ("Carlos added 3
+    tasks from ✨ AI call notes"), and both people see "3 tasks sent to Website" on the card.
+- **✨ AI Notes hub** (`/app/notes`): every notes card from your conversations, newest first,
+  grouped by day, with a filter by person and _Open conversation_.
+  - It's in the sidebar's Apps section and in the phones' More sheet.
+  - Older pages load as you scroll, and new cards and their updates appear live.
+  - `GET /notes` reads a per-person index table (`meeting-notes`: one entry per participant,
+    written in the same transaction as the card) plus one batch get of the cards. There is no
+    scan or GSI over the messages table.
+  - `pnpm --filter infra backfill-notes <stage> --apply` adds the entries for earlier cards.
+
 - **✨ AI call notes:** during a DM call, the ✨ button (off by default) switches notes on for
   both people. The other person is told who turned them on, and a "✨ AI notes" badge stays on
   the call, the floating card and the popped-out window. Each side transcribes only its own

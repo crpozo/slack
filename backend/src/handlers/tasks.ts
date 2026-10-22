@@ -6,6 +6,7 @@ import {
   TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import {
   AddBoardMembersSchema,
   attachmentPrefixFor,
@@ -14,10 +15,15 @@ import {
   CreateTaskSchema,
   InviteToBoardSchema,
   MAX_BOARD_MEMBERS,
+  taskProvenance,
+  TasksFromNotesSchema,
   UpdateBoardSchema,
   UpdateTaskSchema,
+  type AiNotes,
   type Attachment,
   type Board,
+  type MessageUpdatedEvent,
+  type NotesSentToBoard,
   type ServerEvent,
   type Task,
 } from "@mindfultech/shared";
@@ -31,6 +37,8 @@ import {
   memberSk,
 } from "../lib/boards";
 import { activeUserIds, deliver, listConnections, type LiveConnection } from "../lib/broadcast";
+import { speakerNames } from "../lib/callNotes";
+import { channelAudience, getAccessibleChannel } from "../lib/channels";
 import { batchDelete, ddb, tables } from "../lib/ddb";
 import {
   forbidden,
@@ -46,7 +54,7 @@ import {
 } from "../lib/http";
 import { errorFields, log } from "../lib/logger";
 import { findOrInviteGuest } from "../lib/cognito";
-import { notifyTaskActivity } from "../lib/notify";
+import { notifyTaskActivity, notifyTasksFromNotes } from "../lib/notify";
 import { defaultDisplayName, unknownUsers } from "../lib/users";
 
 /**
@@ -376,6 +384,139 @@ async function createTask(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
   return json(201, { task });
 }
 
+/**
+ * `POST /boards/{id}/tasks/from-notes` (Phase 29): the action items of an AI
+ * notes card, reviewed by the person, become tasks in To Do. One transaction
+ * writes every task and stamps the card `sentToBoard` (only if it isn't
+ * already), so a notes card reaches a board once, whole or not at all, from
+ * either person and any device. The board updates live task by task; its
+ * members get one notification for the batch; the card shows where its
+ * items went (`message.updated`).
+ */
+async function createTasksFromNotes(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const boardId = pathParam(event, "id");
+  const board = await accessibleBoard(boardId, caller);
+  const input = parseBody(TasksFromNotesSchema, event);
+  for (const draft of input.tasks) validateTaskFields(board, draft);
+
+  const channel = await getAccessibleChannel(input.channelId, caller.userId, {
+    allowArchived: true,
+  });
+  const { Item } = channel
+    ? await ddb.send(
+        new GetCommand({
+          TableName: tables.messages,
+          Key: { channelId: input.channelId, sk: input.sk },
+        }),
+      )
+    : { Item: undefined };
+  const notes = Item?.kind === "ai_notes" ? (Item.aiNotes as AiNotes | undefined) : undefined;
+  if (!channel || !Item || !notes) throw notFound("Notes not found");
+  if (notes.status !== "ready") throw new HttpError(409, "These notes aren't ready yet");
+  if (notes.sentToBoard) {
+    throw new HttpError(409, `Already sent to ${notes.sentToBoard.boardName}`);
+  }
+
+  const peer = notes.participants.find((id) => id !== caller.userId) ?? caller.userId;
+  const peerName = (await speakerNames([peer]))[peer] ?? "someone";
+  const provenance = taskProvenance(peerName, notes.startedAt, notes.endedAt);
+  const now = Date.now();
+  const tasks: Task[] = input.tasks.map((draft, i) => ({
+    taskId: `t_${ulid(now)}`,
+    boardId,
+    title: draft.title,
+    description: draft.description,
+    status: "TODO",
+    assigneeId: draft.assigneeId,
+    project: "",
+    notes: provenance,
+    attachments: [],
+    createdBy: caller.userId,
+    // A millisecond apart: the board lists them in the notes' order.
+    createdAt: now + i,
+    updatedAt: now + i,
+    doneAt: null,
+    isArchived: false,
+  }));
+  const sent: NotesSentToBoard = {
+    boardId,
+    boardName: board.name,
+    count: tasks.length,
+    by: caller.userId,
+    at: now,
+  };
+  try {
+    await ddb.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          {
+            Update: {
+              TableName: tables.messages,
+              Key: { channelId: input.channelId, sk: input.sk },
+              UpdateExpression: "SET aiNotes.sentToBoard = :sent",
+              ConditionExpression:
+                "kind = :kind AND aiNotes.#status = :ready AND attribute_not_exists(aiNotes.sentToBoard)",
+              ExpressionAttributeNames: { "#status": "status" },
+              ExpressionAttributeValues: { ":sent": sent, ":kind": "ai_notes", ":ready": "ready" },
+            },
+          },
+          ...tasks.map((task) => ({
+            Put: {
+              TableName: tables.tasks,
+              Item: task,
+              ConditionExpression: "attribute_not_exists(taskId)",
+            },
+          })),
+        ],
+      }),
+    );
+  } catch (err) {
+    const claim = err instanceof TransactionCanceledException ? err.CancellationReasons?.[0] : null;
+    if (claim?.Code === "ConditionalCheckFailed") {
+      // Sent from the other person's app (or another tab) a moment ago.
+      throw new HttpError(409, "These action items were already sent to a board");
+    }
+    throw err;
+  }
+  log.info("tasks created from notes", {
+    boardId,
+    channelId: input.channelId,
+    count: tasks.length,
+    userId: caller.userId,
+  });
+
+  const updated: AiNotes = { ...notes, sentToBoard: sent };
+  let connections: LiveConnection[] = [];
+  try {
+    connections = await listConnections();
+    const toBoard = connections.filter(boardAudience(board));
+    for (const [index, task] of tasks.entries()) {
+      await deliver(toBoard, () => ({
+        type: "board.task_created",
+        boardId,
+        task,
+        by: caller.userId,
+        boardName: board.name,
+        batch: { index, size: tasks.length },
+      }));
+    }
+    const inConversation = channelAudience(channel);
+    const cardUpdate: MessageUpdatedEvent = {
+      type: "message.updated",
+      channelId: input.channelId,
+      sk: input.sk,
+      messageId: String(Item.messageId),
+      text: String(Item.text),
+      aiNotes: updated,
+    };
+    await deliver(connections.filter(inConversation), () => cardUpdate);
+  } catch (err) {
+    log.error("tasks-from-notes broadcast failed", { boardId, ...errorFields(err) });
+  }
+  await notifyTasksFromNotes(board, caller, tasks.length, activeUserIds(connections));
+  return json(201, { tasks, notes: updated });
+}
+
 /** The task and its board if the board is accessible to `caller`; a 404 otherwise. */
 async function accessibleTask(
   taskId: string,
@@ -461,6 +602,7 @@ const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<H
   "POST /boards/{id}/invites": inviteToBoard,
   "GET /boards/{id}/tasks": listTasks,
   "POST /boards/{id}/tasks": createTask,
+  "POST /boards/{id}/tasks/from-notes": createTasksFromNotes,
   "PUT /tasks/{taskId}": updateTask,
   "DELETE /tasks/{taskId}": deleteTask,
 };

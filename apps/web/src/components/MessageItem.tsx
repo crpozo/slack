@@ -521,7 +521,7 @@ export const MessageItem = memo(function MessageItem({
           {message.isSecret && <SecretBody message={message} mine={mine} />}
 
           {message.kind === "ai_notes" && message.aiNotes && (
-            <AiNotesCard notes={message.aiNotes} mine={mine} />
+            <AiNotesCard message={message} mine={mine} />
           )}
 
           {message.kind === "meeting" && message.meeting && (

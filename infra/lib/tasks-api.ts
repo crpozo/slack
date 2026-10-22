@@ -35,6 +35,8 @@ export const TASKS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/boards/{id}/invites" },
   { method: HttpMethod.GET, path: "/boards/{id}/tasks" },
   { method: HttpMethod.POST, path: "/boards/{id}/tasks" },
+  // Phase 29: an AI notes card's action items, all at once.
+  { method: HttpMethod.POST, path: "/boards/{id}/tasks/from-notes" },
   { method: HttpMethod.PUT, path: "/tasks/{taskId}" },
   { method: HttpMethod.DELETE, path: "/tasks/{taskId}" },
 ];
@@ -50,9 +52,13 @@ export const CALENDAR_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.PUT, path: "/calendar/balances/{userId}/{year}" },
 ];
 
-/** AI call notes (Phase 28): the caller's app submits a call's transcript; a worker summarizes it. */
+/**
+ * AI call notes (Phase 28): the caller's app submits a call's transcript; a
+ * worker summarizes it. The AI Notes hub (Phase 29) lists them.
+ */
 export const CALL_NOTES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/calls/summary" },
+  { method: HttpMethod.GET, path: "/notes" },
 ];
 
 /** The notes model: Claude Haiku 5.5 on Claude in Amazon Bedrock (the Mantle endpoint). */
@@ -147,6 +153,9 @@ export class TasksApi extends Construct {
       // Web Push to members away from the app (new tasks, column moves).
       PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
       VAPID_PARAMETER: vapidParameterName(stage),
+      // Action items from AI notes (Phase 29): the notes card and its conversation.
+      MESSAGES_TABLE: data.messages.tableName,
+      CHANNELS_TABLE: data.channels.tableName,
     });
     this.pushHandler = lambda("PushFn", "push", {
       PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
@@ -189,6 +198,7 @@ export class TasksApi extends Construct {
       CONNECTIONS_TABLE: data.connections.tableName,
       WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
       NOTES_WORKER_FUNCTION: this.callNotesWorker.functionName,
+      MEETING_NOTES_TABLE: data.meetingNotes.tableName,
     });
 
     this.archiveHandler = lambda(
@@ -299,6 +309,10 @@ export class TasksApi extends Construct {
     // Real-time pushes: list live connections, post to members', drop stale ones (410).
     data.connections.grant(this.handler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.handler);
+    // Tasks from AI notes: the conversation (GetItem), the notes card (GetItem) and
+    // claiming it as sent (UpdateItem, in the same transaction as the tasks' PutItem).
+    data.channels.grant(this.handler, "dynamodb:GetItem");
+    data.messages.grant(this.handler, "dynamodb:GetItem", "dynamodb:UpdateItem");
 
     // calendar: events by id and by year; the ledger by person/year and by year (admins).
     data.events.grant(
@@ -341,13 +355,17 @@ export class TasksApi extends Construct {
 
     // call-notes: the DM (GetItem), a retried request's card (Query), the pending
     // card (PutItem) and marking it failed (UpdateItem); its push; starting the worker.
+    // The hub: each person's pointer (PutItem, with the card), listing them (Query)
+    // and loading the cards they point to (BatchGetItem).
     data.channels.grant(this.callNotesHandler, "dynamodb:GetItem");
     data.messages.grant(
       this.callNotesHandler,
       "dynamodb:PutItem",
       "dynamodb:Query",
       "dynamodb:UpdateItem",
+      "dynamodb:BatchGetItem",
     );
+    data.meetingNotes.grant(this.callNotesHandler, "dynamodb:PutItem", "dynamodb:Query");
     data.connections.grant(this.callNotesHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.callNotesHandler);
     this.callNotesWorker.grantInvoke(this.callNotesHandler);

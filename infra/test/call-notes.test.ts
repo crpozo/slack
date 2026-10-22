@@ -34,6 +34,25 @@ const actionsOn = (statements: ReturnType<typeof statementsOf>, table: string) =
     .sort((a, b) => a.localeCompare(b));
 
 describe("AI call notes", () => {
+  it("keeps the hub's pointers in their own table: userId + the card's sort key", () => {
+    template.hasResourceProperties("AWS::DynamoDB::Table", {
+      TableName: "slack-dev-meeting-notes",
+      BillingMode: "PAY_PER_REQUEST",
+      KeySchema: [
+        { AttributeName: "userId", KeyType: "HASH" },
+        { AttributeName: "sk", KeyType: "RANGE" },
+      ],
+    });
+    // GET /notes is served by the same Lambda as POST /calls/summary.
+    const route = Object.values(
+      template.findResources("AWS::ApiGatewayV2::Route", {
+        Properties: { RouteKey: "GET /notes" },
+      }),
+    )[0]?.Properties as { AuthorizationType: string; Target: unknown };
+    expect(route.AuthorizationType).toBe("JWT");
+    expect(JSON.stringify(route.Target)).toMatch(/CallNotesIntegration/);
+  });
+
   it("serves POST /calls/summary behind the JWT authorizer from its own Lambda", () => {
     const routes = Object.values(
       template.findResources("AWS::ApiGatewayV2::Route", {
@@ -51,6 +70,7 @@ describe("AI call notes", () => {
       "CHANNELS_TABLE",
       "CONNECTIONS_TABLE",
       "LOG_LEVEL",
+      "MEETING_NOTES_TABLE",
       "MESSAGES_TABLE",
       "NOTES_WORKER_FUNCTION",
       "STAGE",
@@ -72,11 +92,13 @@ describe("AI call notes", () => {
   it("grants the endpoint only what it calls, including starting the worker", () => {
     const st = statementsOf("TasksApiCallNotesFnServiceRoleDefaultPolicy");
     expect(actionsOn(st, "DataMessages")).toEqual([
+      "dynamodb:BatchGetItem", // the hub's cards
       "dynamodb:PutItem",
       "dynamodb:Query",
       "dynamodb:UpdateItem",
     ]);
     expect(actionsOn(st, "DataChannels")).toEqual(["dynamodb:GetItem"]);
+    expect(actionsOn(st, "DataMeetingNotes")).toEqual(["dynamodb:PutItem", "dynamodb:Query"]);
     const invoke = st.filter((s) => [s.Action].flat().includes("lambda:InvokeFunction"));
     expect(invoke).toHaveLength(1);
     expect(JSON.stringify(invoke[0]?.Resource)).toMatch(/CallNotesWorkerFn/);

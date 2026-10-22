@@ -1,13 +1,99 @@
-import type { AiNotes } from "@mindfultech/shared";
-import { useMemo, useState } from "react";
+import { extractActionItems, type AiNotes, type Message } from "@mindfultech/shared";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { formatCallDuration } from "../lib/call";
 import { useNow } from "../lib/hooks";
 import { renderNotesMarkdown } from "../lib/markdown";
+import { tasksApiConfigured } from "../lib/tasksApi";
 import { useChat, useNameOf } from "../store";
-import { CheckIcon, CopyIcon, SparklesIcon } from "./icons";
+import { useTasks } from "../store/tasks";
+import { CheckIcon, CopyIcon, KanbanIcon, SparklesIcon } from "./icons";
+
+const SendToBoardModal = lazy(() =>
+  import("./SendToBoardModal").then((m) => ({ default: m.SendToBoardModal })),
+);
 
 /** A card still pending this long after the call is presumed lost (the worker gives up well before). */
 export const NOTES_STALE_MS = 5 * 60_000;
+
+/** Every card wants to know your boards; ask the server once per session. */
+let boardsRequested = false;
+function useMyBoards() {
+  const boards = useTasks((s) => s.boards);
+  const loaded = useTasks((s) => s.boardsLoaded);
+  useEffect(() => {
+    if (loaded || boardsRequested || !tasksApiConfigured()) return;
+    boardsRequested = true;
+    void useTasks
+      .getState()
+      .loadBoards()
+      .finally(() => {
+        boardsRequested = false;
+      });
+  }, [loaded]);
+  return boards;
+}
+
+/**
+ * "Send to Board" under a ready card (Phase 29): shown when you're on a
+ * board; disabled when the notes have no action-item section; replaced by
+ * where the items went once anyone sent them.
+ */
+function BoardAction({ message }: Readonly<{ message: Message }>) {
+  const notes = message.aiNotes!;
+  const boards = useMyBoards();
+  const guest = useChat((s) => s.me?.role === "guest");
+  const nameOf = useNameOf();
+  const [open, setOpen] = useState(false);
+  const count = useMemo(() => extractActionItems(notes.summary).length, [notes.summary]);
+  const sent = notes.sentToBoard;
+  if (sent) {
+    const what = sent.count === 1 ? "1 task" : `${sent.count} tasks`;
+    return (
+      <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-ink-secondary">
+        <CheckIcon className="text-success" aria-hidden="true" />
+        <span>
+          {what} sent to{" "}
+          <Link
+            to={`/app/tasks/${encodeURIComponent(sent.boardId)}`}
+            className="font-semibold text-ink underline decoration-primary decoration-2 underline-offset-2"
+          >
+            {sent.boardName}
+          </Link>{" "}
+          by {nameOf(sent.by)}
+        </span>
+      </p>
+    );
+  }
+  if (guest || boards.length === 0) return null;
+  const label = count === 0 ? "No action items found" : "Send to Board";
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        disabled={count === 0}
+        title={
+          count === 0
+            ? "These notes have no Action Items (or Tareas) section"
+            : `Add ${count === 1 ? "its action item" : `its ${count} action items`} to a board`
+        }
+        className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-primary/60 bg-surface px-3 py-1.5 text-sm font-semibold text-ink transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:border-line disabled:text-ink-secondary disabled:hover:bg-surface"
+      >
+        <KanbanIcon className="text-primary" aria-hidden="true" />
+        {label}
+        {count > 0 && (
+          <span className="rounded-full bg-primary/20 px-1.5 text-xs tabular-nums">{count}</span>
+        )}
+      </button>
+      {open && (
+        <Suspense fallback={null}>
+          <SendToBoardModal message={message} onClose={() => setOpen(false)} />
+        </Suspense>
+      )}
+    </>
+  );
+}
 
 /**
  * An `ai_notes` message (Phase 28): the summary and action items Claude
@@ -16,7 +102,8 @@ export const NOTES_STALE_MS = 5 * 60_000;
  * or marks it failed. The model's markdown goes through
  * `renderNotesMarkdown`, which escapes everything before adding its own tags.
  */
-export function AiNotesCard({ notes, mine }: Readonly<{ notes: AiNotes; mine: boolean }>) {
+export function AiNotesCard({ message, mine }: Readonly<{ message: Message; mine: boolean }>) {
+  const notes: AiNotes = message.aiNotes!;
   const nameOf = useNameOf();
   const showToast = useChat((s) => s.showToast);
   const now = useNow();
@@ -90,6 +177,7 @@ export function AiNotesCard({ notes, mine }: Readonly<{ notes: AiNotes; mine: bo
               // Safe: renderNotesMarkdown escapes all text before adding its own tags.
               dangerouslySetInnerHTML={{ __html: html }}
             />
+            <BoardAction message={message} />
             <p className="mt-2 border-t border-line/70 pt-2 text-[11px] text-ink-secondary">
               Written by AI from the call&apos;s transcript: check names, dates and figures.
             </p>

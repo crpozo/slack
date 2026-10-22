@@ -1,5 +1,12 @@
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
-import { PutCommand, QueryCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  BatchGetCommand,
+  GetCommand,
+  QueryCommand,
+  ScanCommand,
+  TransactWriteCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { dmChannelId, GENERAL_CHANNEL_ID } from "@mindfultech/shared";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -62,7 +69,7 @@ describe("POST /calls/summary", () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     mockChannels(GENERAL, dmRow(ALICE.userId, BOB.userId));
     ddbMock.on(QueryCommand, { TableName: MESSAGES }).resolves({ Items: [] });
-    ddbMock.on(PutCommand).resolves({});
+    ddbMock.on(TransactWriteCommand).resolves({});
     ddbMock.on(UpdateCommand).resolves({});
     ddbMock.on(ScanCommand, { TableName: "slack-test-connections" }).resolves({
       Items: [
@@ -91,14 +98,31 @@ describe("POST /calls/summary", () => {
         participants: [ALICE.userId, BOB.userId],
       },
     });
-    const put = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
-    expect(put).toMatchObject({
+    const [cardPut, ...pointerPuts] = ddbMock
+      .commandCalls(TransactWriteCommand)[0]!
+      .args[0].input.TransactItems!.map((i) => i.Put!);
+    expect(cardPut).toMatchObject({
       TableName: MESSAGES,
       ConditionExpression: "attribute_not_exists(sk)",
       Item: { kind: "ai_notes" },
     });
-    // The transcript itself is never stored on the message.
-    expect(JSON.stringify(put.Item)).not.toContain("review the contract");
+    // The transcript itself is never stored, on the card or anywhere else.
+    expect(JSON.stringify(ddbMock.calls().map((c) => c.args[0].input))).not.toContain(
+      "review the contract",
+    );
+    // A pointer in each person's AI Notes hub, in the same transaction.
+    expect(pointerPuts).toEqual(
+      [ALICE.userId, BOB.userId].map((userId) => ({
+        TableName: "slack-test-meeting-notes",
+        Item: {
+          userId,
+          sk: body.message.sk,
+          channelId: DM,
+          callId: "01CALLCALLCALLCALLCALLCALL",
+          endedAt: NOW,
+        },
+      })),
+    );
 
     expect(sentEvents().map(([id, e]) => `${id}:${e.type}`)).toEqual([
       "conn-alice:message.new",
@@ -137,7 +161,7 @@ describe("POST /calls/summary", () => {
     const { status, body } = await call(summary());
     expect(status).toBe(202);
     expect(body.message.messageId).toBe("m1");
-    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    expect(ddbMock.commandCalls(TransactWriteCommand)).toHaveLength(0);
     expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(0);
   });
 
@@ -151,7 +175,7 @@ describe("POST /calls/summary", () => {
     expect(stranger.body.message).toContain("isn't part of this conversation");
     expect((await call(summary({ segments: [] }))).status).toBe(400);
     expect((await call({ ...summary(), callId: undefined })).status).toBe(400);
-    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    expect(ddbMock.commandCalls(TransactWriteCommand)).toHaveLength(0);
     expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(0);
   });
 
@@ -164,7 +188,7 @@ describe("POST /calls/summary", () => {
     }));
     const { status } = await call(summary({ segments }));
     expect(status).toBe(413);
-    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    expect(ddbMock.commandCalls(TransactWriteCommand)).toHaveLength(0);
   });
 
   it("marks the card failed and answers 502 when the worker can't be started", async () => {
@@ -176,5 +200,114 @@ describe("POST /calls/summary", () => {
       status: "failed",
       error: "The notes couldn't be started.",
     });
+  });
+});
+
+describe("GET /notes (AI Notes hub)", () => {
+  const NOTES_TABLE = "slack-test-meeting-notes";
+  const GROUP = "ch_project";
+  const card = (channelId: string, sk: string, patch: Record<string, unknown> = {}) => ({
+    messageId: `m-${sk}`,
+    channelId,
+    sk,
+    userId: ALICE.userId,
+    text: "✨ AI call notes",
+    attachments: [],
+    createdAt: 1,
+    reactions: { "👍": new Set([BOB.userId]) },
+    kind: "ai_notes",
+    aiNotes: { status: "ready", summary: "Hi" },
+    ...patch,
+  });
+  const list = async (user = ALICE, cursor?: string) => {
+    const event = {
+      ...request({}, user),
+      routeKey: "GET /notes",
+      rawPath: "/notes",
+      body: undefined,
+      queryStringParameters: cursor === undefined ? undefined : { cursor },
+    } as unknown as HttpEvent;
+    const result = (await handler(event)) as { statusCode: number; body: string };
+    return { status: result.statusCode, body: JSON.parse(result.body) };
+  };
+
+  beforeEach(() => {
+    resetMocks();
+    mockChannels(GENERAL, dmRow(ALICE.userId, BOB.userId));
+  });
+
+  it("pages through your pointers newest first and returns the live cards, in that order", async () => {
+    ddbMock.on(QueryCommand, { TableName: NOTES_TABLE }).resolves({
+      Items: [
+        { userId: ALICE.userId, sk: "3#c", channelId: DM, callId: "c", endedAt: 3 },
+        { userId: ALICE.userId, sk: "2#b", channelId: DM, callId: "b", endedAt: 2 },
+      ],
+      LastEvaluatedKey: { userId: ALICE.userId, sk: "2#b" },
+    });
+    ddbMock.on(BatchGetCommand).resolves({
+      Responses: { [MESSAGES]: [card(DM, "2#b"), card(DM, "3#c")] },
+    });
+    const { status, body } = await list();
+    expect(status).toBe(200);
+    expect(body.notes.map((m: { sk: string }) => m.sk)).toEqual(["3#c", "2#b"]);
+    expect(body.notes[0].reactions).toEqual({ "👍": [BOB.userId] });
+    const query = ddbMock.commandCalls(QueryCommand, { TableName: NOTES_TABLE })[0]!.args[0].input;
+    expect(query).toMatchObject({
+      KeyConditionExpression: "userId = :me",
+      ExpressionAttributeValues: { ":me": ALICE.userId },
+      ScanIndexForward: false,
+      Limit: 20,
+    });
+
+    // The cursor resumes after the last pointer, always within the caller's own rows.
+    ddbMock.on(QueryCommand, { TableName: NOTES_TABLE }).resolves({ Items: [] });
+    const next = await list(ALICE, body.nextCursor);
+    expect(next.body).toEqual({ notes: [], nextCursor: null });
+    const resumed = ddbMock.commandCalls(QueryCommand, { TableName: NOTES_TABLE }).at(-1)!.args[0]
+      .input;
+    expect(resumed.ExclusiveStartKey).toEqual({ userId: ALICE.userId, sk: "2#b" });
+    expect(ddbMock.commandCalls(BatchGetCommand)).toHaveLength(1); // nothing to fetch
+  });
+
+  it("skips pointers whose card is gone, isn't a notes card, or whose channel you left", async () => {
+    ddbMock.on(QueryCommand, { TableName: NOTES_TABLE }).resolves({
+      Items: [
+        { userId: ALICE.userId, sk: "4#d", channelId: GROUP, callId: "d", endedAt: 4 },
+        { userId: ALICE.userId, sk: "3#c", channelId: DM, callId: "c", endedAt: 3 },
+        { userId: ALICE.userId, sk: "2#b", channelId: DM, callId: "b", endedAt: 2 },
+      ],
+    });
+    ddbMock
+      .on(GetCommand, { TableName: "slack-test-channels", Key: { channelId: GROUP } })
+      .resolves({
+        Item: { channelId: GROUP, type: "private", members: [BOB.userId], name: "p" },
+      });
+    ddbMock.on(BatchGetCommand).resolves({
+      Responses: { [MESSAGES]: [card(GROUP, "4#d"), card(DM, "3#c", { kind: undefined })] },
+    });
+    const { body } = await list();
+    expect(body.notes).toEqual([]);
+  });
+
+  it("re-asks for keys DynamoDB left unprocessed", async () => {
+    ddbMock.on(QueryCommand, { TableName: NOTES_TABLE }).resolves({
+      Items: [{ userId: ALICE.userId, sk: "3#c", channelId: DM, callId: "c", endedAt: 3 }],
+    });
+    ddbMock
+      .on(BatchGetCommand)
+      .resolvesOnce({
+        Responses: { [MESSAGES]: [] },
+        UnprocessedKeys: { [MESSAGES]: { Keys: [{ channelId: DM, sk: "3#c" }] } },
+      })
+      .resolves({ Responses: { [MESSAGES]: [card(DM, "3#c")] } });
+    const { body } = await list();
+    expect(body.notes).toHaveLength(1);
+    expect(ddbMock.commandCalls(BatchGetCommand)).toHaveLength(2);
+  });
+
+  it("refuses a forged cursor", async () => {
+    expect((await list(ALICE, "not-a-cursor")).status).toBe(400);
+    const forged = Buffer.from(JSON.stringify({ sk: 7 })).toString("base64url");
+    expect((await list(ALICE, forged)).status).toBe(400);
   });
 });

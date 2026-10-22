@@ -1,6 +1,7 @@
 import { GetCommand, paginateScan } from "@aws-sdk/lib-dynamodb";
 import {
   describeTaskActivity,
+  describeTasksFromNotes,
   findMentions,
   isChannelMember,
   mentionHandle,
@@ -118,6 +119,38 @@ export async function notifyOffline(
  * board's members other than `actor` who aren't in front of the app right now.
  * Best effort, like `notifyOffline`.
  */
+/** One push for a batch of tasks added from AI call notes (Phase 29), not one per task. */
+export async function notifyTasksFromNotes(
+  board: Board,
+  actor: { userId: string; email: string },
+  count: number,
+  activeUserIds: Set<string>,
+): Promise<void> {
+  try {
+    const recipients = [...new Set([board.ownerId, ...board.members])].filter(
+      (id) => id !== actor.userId && !activeUserIds.has(id),
+    );
+    if (recipients.length === 0) return;
+    const actorName = await displayNameOf(actor.userId, actor.email);
+    const { title, body } = describeTasksFromNotes({ actorName, boardName: board.name, count });
+    const sent = await sendPush(recipients, {
+      title,
+      body,
+      url: `/app/tasks/${encodeURIComponent(board.boardId)}`,
+      tag: `tasks-from-notes:${board.boardId}`,
+      sound: "default",
+    });
+    log.info("board members notified of tasks from notes", {
+      boardId: board.boardId,
+      count,
+      recipients: recipients.length,
+      sent,
+    });
+  } catch (err) {
+    log.error("board notification failed", { boardId: board.boardId, ...errorFields(err) });
+  }
+}
+
 export async function notifyTaskActivity(
   board: Board,
   actor: { userId: string; email: string },

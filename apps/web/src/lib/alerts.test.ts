@@ -70,6 +70,25 @@ describe("boardActivity", async () => {
     );
   });
 
+  it("tasks added together from AI notes raise one alert for the batch", () => {
+    const batch = (index: number): BoardEvent => ({
+      type: "board.task_created",
+      boardId: "b_1",
+      task: { ...task, status: "TODO" },
+      by: "u_ana",
+      boardName: "Website",
+      batch: { index, size: 3 },
+    });
+    expect(boardActivity(batch(0), "u_me")).toEqual({
+      kind: "task",
+      title: "Website",
+      body: "Ana added 3 tasks from ✨ AI call notes to To Do",
+      url: "/app/tasks/b_1",
+    });
+    expect(boardActivity(batch(1), "u_me")).toBeNull();
+    expect(boardActivity(batch(2), "u_me")).toBeNull();
+  });
+
   it("stays quiet for your own changes, plain edits, deletions and old servers", () => {
     const mine: BoardEvent = { type: "board.task_created", boardId: "b_1", task, by: "u_me" };
     expect(boardActivity(mine, "u_me")).toBeNull();

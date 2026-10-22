@@ -33,6 +33,10 @@ export const tables = {
   get events() {
     return requireEnv("EVENTS_TABLE");
   },
+  /** Phase 29: one pointer per person to each notes card (`userId` + the card's `sk`). */
+  get meetingNotes() {
+    return requireEnv("MEETING_NOTES_TABLE");
+  },
   get vacationBalances() {
     return requireEnv("VACATION_BALANCES_TABLE");
   },

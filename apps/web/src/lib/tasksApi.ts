@@ -1,9 +1,11 @@
 import type {
+  AiNotes,
   Board,
   CreateTaskInput,
   PushSubscriptionJSON,
   Role,
   Task,
+  TasksFromNotesInput,
   UpdateTaskInput,
 } from "@mindfultech/shared";
 import { getIdToken } from "./auth";
@@ -105,6 +107,13 @@ export const tasksApi = {
       (r) => r.task,
     ),
   deleteTask: (taskId: string) => request<void>("DELETE", `/tasks/${encodeURIComponent(taskId)}`),
+  /** An AI notes card's reviewed action items, all at once; 409 if the card was already sent. */
+  createFromNotes: (boardId: string, input: TasksFromNotesInput) =>
+    request<{ tasks: Task[]; notes: AiNotes }>(
+      "POST",
+      `/boards/${encodeURIComponent(boardId)}/tasks/from-notes`,
+      input,
+    ),
 };
 
 export type TasksApi = typeof tasksApi;
