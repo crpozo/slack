@@ -6,25 +6,36 @@ import { signOutPush, syncPush } from "../lib/push";
 import { getThemePreference, resolveTheme, setThemePreference } from "../lib/theme";
 import { useChat } from "../store";
 import { useTasks } from "../store/tasks";
-import { LogOutIcon, MoonIcon, SunIcon } from "./icons";
+import { LockIcon, LogOutIcon, MoonIcon, SunIcon } from "./icons";
 import { Logo } from "./LoginPage";
 import { NotificationBell } from "./NotificationBell";
 import { PushPrompt } from "./PushPrompt";
 import { Toast } from "./Toast";
 
 const TaskManager = lazy(() => import("./TaskManager").then((m) => ({ default: m.TaskManager })));
+const PasswordModal = lazy(() =>
+  Promise.all([import("./Modal"), import("./ChangePasswordForm")]).then(([m, f]) => ({
+    default: ({ onClose }: Readonly<{ onClose: () => void }>) => (
+      <m.Modal title="Change password" onClose={onClose}>
+        <f.ChangePasswordForm />
+      </m.Modal>
+    ),
+  })),
+);
 
 const iconButton = "rounded-md p-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink";
 
 /**
  * What a guest (an external client) sees: the boards they were invited to,
- * and nothing of the team's chat — no channels, DMs, calls or settings. The
+ * and nothing of the team's chat — no channels, DMs, calls or settings
+ * (except their own password). The
  * server enforces the same (route guards and the delivery filter); this is
  * only the matching UI.
  */
 export function GuestLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const boardId = useMatch("/app/tasks/:boardId?")?.params.boardId;
   const me = useChat((s) => s.me);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [dark, setDark] = useState(
     () =>
       resolveTheme(getThemePreference(), matchMedia("(prefers-color-scheme: dark)").matches) ===
@@ -81,6 +92,15 @@ export function GuestLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         </button>
         <button
           type="button"
+          onClick={() => setPasswordOpen(true)}
+          className={iconButton}
+          aria-label="Change password"
+          title="Change password"
+        >
+          <LockIcon />
+        </button>
+        <button
+          type="button"
           onClick={() => void handleSignOut()}
           className={iconButton}
           aria-label="Sign out"
@@ -97,6 +117,11 @@ export function GuestLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           <TaskManager boardId={boardId} />
         </Suspense>
       </main>
+      {passwordOpen && (
+        <Suspense fallback={null}>
+          <PasswordModal onClose={() => setPasswordOpen(false)} />
+        </Suspense>
+      )}
       <Toast />
     </div>
   );

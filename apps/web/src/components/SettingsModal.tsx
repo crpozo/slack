@@ -25,6 +25,7 @@ import { getThemePreference, setThemePreference, type ThemePreference } from "..
 import { useChat, useNameOf } from "../store";
 import { Avatar } from "./Avatar";
 import { CameraPreview } from "./CameraPreview";
+import { ChangePasswordForm } from "./ChangePasswordForm";
 import { MonitorIcon, MoonIcon, SunIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 
@@ -308,7 +309,28 @@ function VolumeSettings() {
   );
 }
 
-/** Profile (display name), appearance (theme) and call devices. */
+/** "Change password", folded away until asked for (its own form: Save doesn't touch it). */
+function PasswordSettings() {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="mt-6 space-y-2">
+      <h3 className="text-sm font-semibold text-ink">Password</h3>
+      {open ? (
+        <ChangePasswordForm />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="rounded-lg border border-line px-3 py-2 text-sm font-medium text-ink hover:bg-surface-hover"
+        >
+          Change password
+        </button>
+      )}
+    </section>
+  );
+}
+
+/** Profile (display name), appearance (theme), notifications, call devices and password. */
 export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
   const me = useChat((s) => s.me);
   const nameOf = useNameOf();
@@ -429,6 +451,7 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
           <DeviceSettings />
         </section>
       </form>
+      <PasswordSettings />
     </Modal>
   );
 }

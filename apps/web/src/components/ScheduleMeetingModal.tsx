@@ -5,6 +5,7 @@ import {
   MAX_EVENT_TITLE_LENGTH,
   type CalendarEvent,
   type Message,
+  type Recurrence,
 } from "@mindfultech/shared";
 import { useState, type FormEvent } from "react";
 import { ulid } from "ulid";
@@ -16,6 +17,7 @@ import { Avatar } from "./Avatar";
 import { ErrorNote } from "./CalendarModals";
 import { CalendarIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
+import { RepeatFields } from "./RepeatFields";
 
 /** The next round half hour from now, as the form's default start. */
 function nextSlot(now = Date.now()): { date: string; time: string } {
@@ -27,7 +29,8 @@ function nextSlot(now = Date.now()): { date: string; time: string } {
  * "Schedule meeting" from a direct message: title, date, time and details.
  * The participants are the two people of the conversation, shown but not
  * editable; the server infers them from the channel. One request creates
- * the calendar event and posts the card in the chat together.
+ * the calendar event and posts the card in the chat together. It may repeat
+ * (Phase 34): one card for the whole series, showing its next meeting.
  */
 export function ScheduleMeetingModal({
   channelId,
@@ -45,9 +48,12 @@ export function ScheduleMeetingModal({
   const [date, setDate] = useState(slot.date);
   const [startTime, setStartTime] = useState(slot.time);
   const [endTime, setEndTime] = useState(addMinutes(slot.time, 30));
+  const [recurrence, setRecurrence] = useState<Recurrence | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const today = dateInZone(Date.now());
+  const firstStart = joinLocal(date, startTime);
+  const firstDate = firstStart === null ? date : dateInZone(firstStart);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -69,6 +75,7 @@ export function ScheduleMeetingModal({
         endAt,
         channelId,
         clientId,
+        ...(recurrence && { recurrence }),
       })) as { event: CalendarEvent; message?: Message };
       // The server's own pushes bring both too; applying the reply makes the
       // card and the calendar entry show even if a push is lost.
@@ -77,7 +84,9 @@ export function ScheduleMeetingModal({
         .applyEvent({ type: "calendar.event_created", event, by: me.userId }, me);
       if (message) useChat.getState().receiveMessage(message, clientId);
       showToast(
-        `Meeting scheduled with ${peers.map((id) => nameOf(id)).join(", ") || "yourself"}.`,
+        `${recurrence ? "Repeating meeting" : "Meeting"} scheduled with ${
+          peers.map((id) => nameOf(id)).join(", ") || "yourself"
+        }.`,
       );
       onClose();
     } catch (err) {
@@ -187,6 +196,13 @@ export function ScheduleMeetingModal({
             />
           </div>
         </div>
+
+        <RepeatFields
+          first={firstDate}
+          value={recurrence}
+          onChange={setRecurrence}
+          disabled={busy}
+        />
 
         <div className="space-y-1.5">
           <label htmlFor="meeting-description" className="block text-sm font-medium text-ink">

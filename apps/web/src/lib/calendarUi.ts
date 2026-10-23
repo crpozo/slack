@@ -2,6 +2,7 @@ import {
   addDays,
   dateInZone,
   eachDate,
+  occurrenceKey,
   vacationOwner,
   type CalendarEvent,
   type VacationStatus,
@@ -28,8 +29,9 @@ export const VACATION_STATUS_LABEL: Record<VacationStatus, string> = {
   rejected: "Rejected",
 };
 
-/** The event's label on the calendar; vacations are named after the person. */
+/** The event's label on the calendar; vacations are named after the person, series get a ↻. */
 export function eventLabel(event: CalendarEvent, nameOf: (userId: string) => string): string {
+  if (event.type === "meeting" && event.recurrence) return `↻ ${event.title}`;
   if (event.type !== "vacation") return event.title;
   const who = nameOf(vacationOwner(event));
   return event.status === "pending" ? `${who} · Vacation (pending)` : `${who} · Vacation`;
@@ -39,14 +41,20 @@ export function toCalendarInput(
   event: CalendarEvent,
   nameOf: (userId: string) => string,
 ): CalendarEventInput {
-  const base = { id: event.eventId, title: eventLabel(event, nameOf), extendedProps: { event } };
+  // A series' meetings each get their own id (`<eventId>@<date>`).
+  const base = {
+    id: occurrenceKey(event),
+    title: eventLabel(event, nameOf),
+    extendedProps: { event },
+  };
+  const series = event.type === "meeting" && event.recurrence ? ["ev-series"] : [];
   if (event.type === "meeting" && !event.allDay) {
     return {
       ...base,
       allDay: false,
       start: new Date(event.startAt),
       end: new Date(event.endAt),
-      classNames: ["ev-meeting"],
+      classNames: ["ev-meeting", ...series],
       rank: 2,
     };
   }
@@ -58,7 +66,7 @@ export function toCalendarInput(
       ? ["ev-holiday"]
       : event.type === "vacation"
         ? ["ev-vacation", ...(event.status === "pending" ? ["ev-pending"] : [])]
-        : ["ev-meeting"];
+        : ["ev-meeting", ...series];
   return {
     ...base,
     allDay: true,

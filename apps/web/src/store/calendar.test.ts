@@ -1,7 +1,13 @@
-import type { CalendarEvent, VacationBalance, VacationEvent } from "@mindfultech/shared";
+import {
+  zonedMidnight,
+  type CalendarEvent,
+  type MeetingEvent,
+  type VacationBalance,
+  type VacationEvent,
+} from "@mindfultech/shared";
 import { describe, expect, it, vi } from "vitest";
 import type { CalendarApi } from "../lib/calendarApi";
-import { createCalendarStore, drawableEvents, visibleRange } from "./calendar";
+import { createCalendarStore, drawableEvents, loadedSpan, visibleRange } from "./calendar";
 
 const ME = { userId: "me" };
 const ADMIN = { userId: "boss", role: "admin" };
@@ -52,6 +58,10 @@ function fakeApi(overrides: Partial<CalendarApi> = {}): CalendarApi {
     createEvent: vi.fn(async () => ({ event: meeting("ev_new", ["me"]) })),
     updateEvent: vi.fn(async () => meeting("ev_1", ["me"])),
     deleteEvent: vi.fn(async () => undefined),
+    cancelOccurrence: vi.fn(async (eventId: string, date: string) => ({
+      ...meeting(eventId, ["me"]),
+      exceptions: [date],
+    })),
     decideVacation: vi.fn(async () => vacation("ev_v", "approved")),
     listBalances: vi.fn(async (year: string) => ({ year, mine: balance({ year }), balances: [] })),
     setAllowance: vi.fn(async (userId, year, allowance) => balance({ userId, year, allowance })),
@@ -165,5 +175,35 @@ describe("calendar store", () => {
         c: meeting("c", ["me"]),
       }).map((e) => e.eventId),
     ).toEqual(["b", "c"]);
+  });
+
+  it("expands series within what's loaded, and cancels one of their meetings", async () => {
+    const start = zonedMidnight("2026-11-02") + 10 * 3_600_000; // a Monday
+    const series: MeetingEvent = {
+      ...(meeting("ev_s", ["me"]) as MeetingEvent),
+      startAt: start,
+      endAt: start + 1_800_000,
+      recurrence: { freq: "weekly", interval: 1, byWeekday: [1, 3] },
+    };
+    // Before anything is loaded, a series has nowhere to be drawn.
+    expect(drawableEvents({ s: series })).toEqual([]);
+    const span = loadedSpan([
+      { from: "2026-11-01", to: "2026-11-07" },
+      { from: "2026-11-08", to: "2026-11-14" },
+    ]);
+    expect(span).toEqual({ from: "2026-11-01", to: "2026-11-14" });
+    const drawn = drawableEvents({ s: series }, span) as MeetingEvent[];
+    expect(drawn.map((e) => e.occurrence)).toEqual([
+      "2026-11-02",
+      "2026-11-04",
+      "2026-11-09",
+      "2026-11-11",
+    ]);
+
+    const api = fakeApi();
+    const store = createCalendarStore(api);
+    await store.getState().cancelOccurrence("ev_s", "2026-11-04");
+    expect(api.cancelOccurrence).toHaveBeenCalledWith("ev_s", "2026-11-04");
+    expect((store.getState().events.ev_s as MeetingEvent).exceptions).toEqual(["2026-11-04"]);
   });
 });

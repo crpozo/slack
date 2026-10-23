@@ -4,6 +4,7 @@ import { compareIds, GENERAL_CHANNEL_ID } from "./ids";
 import type { Role } from "./roles";
 import type { Board, Task, TaskStatus } from "./tasks";
 import type { CalendarPushEvent } from "./calendar";
+import type { Recurrence } from "./recurrence";
 
 // ---------------------------------------------------------------------------
 // Limits & constants
@@ -233,6 +234,12 @@ export interface MeetingCard {
   endDate?: string;
   /** Both people of the DM (and anyone invited since), sorted. */
   participants: string[];
+  /** Phase 34: a series; the app shows its next meeting. */
+  recurrence?: Recurrence;
+  /** Cancelled dates of the series. */
+  exceptions?: string[];
+  /** The meeting was deleted (Phase 34): the card stays, marked cancelled. */
+  cancelled?: boolean;
 }
 
 export interface Message {
@@ -765,6 +772,25 @@ export const CallDeclineSchema = z.object({
   reason: z.enum(["declined", "busy"]).default("declined"),
 });
 
+/**
+ * Phase 34: renegotiating a connected call to restart ICE after the network
+ * dropped (`RTCPeerConnection.restartIce`). Not an `offer`, so the server
+ * never treats it as a new call (no ringing, no "unavailable"). `restart`
+ * numbers the sender's attempts: an answer echoes the offer's number, a
+ * re-sent offer keeps it (a lost answer is simply sent again), and offers
+ * older than one already applied are ignored. Its SDP carries every local
+ * candidate gathered so far, so candidates trickled while the other side
+ * was offline aren't lost.
+ */
+export const MAX_ICE_RESTARTS = 10_000;
+export const CallRenegotiateSchema = z.object({
+  ...callBase,
+  signal: z.literal("renegotiate"),
+  kind: z.enum(["offer", "answer"]),
+  sdp,
+  restart: z.number().int().min(1).max(MAX_ICE_RESTARTS),
+});
+
 export const CallActionSchema = z.discriminatedUnion("signal", [
   CallOfferSchema,
   CallAnswerSchema,
@@ -772,6 +798,7 @@ export const CallActionSchema = z.discriminatedUnion("signal", [
   CallIceCandidatesSchema,
   CallEndSchema,
   CallDeclineSchema,
+  CallRenegotiateSchema,
 ]);
 export type CallAction = z.infer<typeof CallActionSchema>;
 export type CallSignal = CallAction["signal"];
@@ -1062,8 +1089,21 @@ export interface CallDeclineEvent extends CallEventBase {
   reason: "declined" | "busy";
 }
 
+/** Phase 34: an ICE-restart offer or answer for a call already connected. */
+export interface CallRenegotiateEvent extends CallEventBase {
+  type: "call.renegotiate";
+  kind: "offer" | "answer";
+  sdp: string;
+  restart: number;
+}
+
 export type CallEvent =
-  CallOfferEvent | CallAnswerEvent | CallIceCandidateEvent | CallEndEvent | CallDeclineEvent;
+  | CallOfferEvent
+  | CallAnswerEvent
+  | CallIceCandidateEvent
+  | CallEndEvent
+  | CallDeclineEvent
+  | CallRenegotiateEvent;
 
 /** Task Manager pushes (Phase 6.1): sent to the board's members after an HTTP write. */
 export interface BoardTaskCreatedEvent {

@@ -873,6 +873,54 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
 - A YouTube link in a message shows its thumbnail with a play button, and plays in place when clicked.
 ---
 
+### Phase 34 — Passwords, recurring meetings with DM cards, calls that survive network drops
+
+**Branch:** `feature/f34-customers-calendar-reconnect`
+
+1. **Passwords (Cognito):** the "New password required" challenge already worked; its screen and the flows around it are new.
+   - **Shared form:** `NewPasswordFields` (new + confirm, one show/hide toggle, the pool's rules ticked off live: 8+ characters, no space at either end, both match) is used by the first sign-in, the reset and Settings. `passwordProblem` checks the same rules before Cognito is asked.
+   - **Expired challenge:** Cognito's session lasts 3 minutes; Amplify's `SignInException` or Cognito's "session is expired" become `ChallengeExpiredError`, and the screen goes back to sign-in saying so.
+   - **Expired invitation:** "Temporary password has expired" (after 7 days) says to ask for a new invitation (the invite flow re-sends the email for guests still in `FORCE_CHANGE_PASSWORD`).
+   - **Forgot password:** `resetPassword` emails a code (the pool already recovers by email; `preventUserExistenceErrors` keeps unknown emails indistinguishable), then `confirmResetPassword` and an automatic sign-in. A never-used invitation can't be reset: it says to use the temporary password.
+   - **Change password:** `updatePassword` with the current one, in Settings (folded away under its own form) and behind a lock button in the guest header.
+   - **Error messages:** `authErrorMessage(err, action)` reads the same Cognito error by what the user was doing (`NotAuthorizedException` is "incorrect email or password" at sign-in, "your current password is incorrect" when changing it).
+2. **Recurring meetings (V1):** a series is one meeting row with `recurrence` (`freq` daily/weekly/monthly, `interval`, weekly `byWeekday`, `until` or `count`) and `exceptions` (cancelled dates). `packages/shared/src/recurrence.ts` is the only place the rule is expanded (server and app agree): dates in the company timezone, same wall-clock time and length as the first meeting, monthly skips months without that day, cancelled dates still count towards `count`.
+   - **Validation:** the first meeting must be one of the series' dates (a weekly series repeats on its own weekday), `until` at most ten years out, `count` 2–365, repeating all-day meetings last one day.
+   - **Storage:** series rows live in the `series` partition of the `byYear` index with `seriesEndAt` (their last meeting's end, or `MAX_SAFE_INTEGER`). Every listing also queries that partition (`startAt < to`, `seriesEndAt > from`) and returns the series once; the client expands it (`expandEvents`, `occurrencesOf`). No table or index change.
+   - **API:** `POST`/`PUT /calendar/events` take `recurrence` (`null` on an edit makes it a single meeting again); `DELETE /calendar/events/{id}?occurrence=YYYY-MM-DD` cancels one meeting of a series (organizer or admin); a plain `DELETE` removes the whole series. Edits apply to the whole series and drop cancelled dates the new rule no longer has.
+   - **UI:** a "Repeat" menu (daily, every weekday, weekly on the start's day, monthly on its date, custom: every N days/weeks/months, weekdays, ends never/on/after N) in New meeting, Edit series and Schedule meeting (DMs). The calendar draws each meeting with ↻; its details offer **Cancel this meeting**, **Edit series** and **Delete series**; `?event=<id>` opens a series on its next meeting.
+3. **Meeting cards in each invitee's DM:** every invitee of a meeting gets a card in their DM with the organizer, wherever it was made (`lib/meetingCards.ts`).
+   - **Creating:** the event lists its cards (`cards: MeetingCardRef[]`) before they're posted. A DM that doesn't exist yet is created like `openDm` does; the new card's `message.new` makes clients reload their channel list.
+   - **Editing:** rewrites every card in one transaction with the event (`saveWithCards`: a card whose message was deleted is left out and the rest retried). People dropped from the meeting see their card cancelled; newcomers get one.
+   - **Deleting:** the whole meeting or series marks every card cancelled (it stays in the chat, struck through, without a button).
+   - **Series cards:** a series' card shows the rule and its next meeting, and Join opens for each meeting. Join calls the other person of that DM, not the first participant.
+   - **Infra:** the calendar Lambda gained `PutItem` and `UpdateItem` on `channels`.
+4. **Calls that survive network drops (ICE restarts):** the call no longer hangs up when ICE goes `disconnected`.
+   - **Signal:** `renegotiate` (`kind` offer/answer, `sdp`, `restart` number) is relayed like the other call signals. It never rings, never answers "unavailable" and isn't settling.
+   - **Reconnecting:** at once on `disconnected`/`failed`, with "Reconnecting…" and a countdown over the call, the floating window and both pop-outs. The 30-second limit (`RECONNECT_TIMEOUT_MS`) counts from the drop; the call keeps its phase, timer, tracks, data channel and AI notes meanwhile.
+   - **Restarts:** the caller restarts after 2 seconds (`disconnected` often heals by itself) or at once on `failed` or when its network or socket comes back: `restartIce()`, then `createOffer({ iceRestart: true })`.
+   - **Re-sending:** an unanswered offer is re-sent (2, 4, 8 s) with its current SDP, which carries every candidate gathered so far, so candidates trickled while the other socket was down aren't lost. Queued restart signals replace each other while offline (`ws.send` key). A restart not back within 8 s is made again with fresh candidates.
+   - **The callee** answers every restart offer (a re-sent offer gets the answer again, older ones are ignored) and makes one of its own when its own network or socket comes back.
+   - **Both offering at once:** perfect negotiation settles it. The callee is polite and rolls back, the caller ignores the crossing offer.
+   - **Recovery:** when a path still works, Chrome keeps ICE `connected` through a restart without an event, so the state is read once the restart is applied.
+   - **Before the call ever connected,** a drop still fails after the 10-second grace period.
+   - **No TURN yet:** a network that blocks direct connections (some carriers, strict firewalls) can't be restored, and the call ends after 30 s as before.
+
+**Phase 34 acceptance criteria:**
+- An invited guest signs in with the emailed temporary password, chooses their own on a screen that shows the rules and catches typos, and is in. A forgotten password can be reset by email, and Settings can change it.
+- A weekly standup created in the calendar for three people shows on every weekday, puts a "Repeating meeting" card in each invitee's DM with Join on each standup, can have one standup cancelled without touching the rest, and deleting it marks the cards cancelled.
+- Switching Wi-Fi off and on during a call shows "Reconnecting…" and the call comes back on its own. Staying offline for more than 30 seconds ends it.
+
+### Phase 35 (planned) — Customer channels (guest access to shared channels)
+
+Deferred from Phase 34: it moves the guest security boundary, so it gets its own phase and tests. Today guests are boards-only. They're blocked from every WebSocket action but `ping`, `presign` and `user` (`GUEST_ROUTES`), receive only `board.*` events (`guestMayReceive`), and see only board co-members. Needed:
+1. **Data:** a "shared with customers" flag on channels, guest membership rows, and an invite flow from channel settings.
+2. **Fix first:** `isChannelMember` treats public channels as open to anyone, which must exclude guests.
+3. **Server:** the channel actions guests may use (send, edit, delete, react, typing, history, threads), each checked against membership. Event delivery, uploads (`presign`), search, notifications and pushes scoped to the guest's channels.
+4. **UI:** a guest view with only their shared channels and boards, and an "External" badge on guests' messages.
+
+---
+
 ### PHASE 7 (optional) — Desktop app with Tauri
 
 **Branch:** `feature/f7-tauri` (starts from `main` after v0.2.0).

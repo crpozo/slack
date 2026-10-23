@@ -33,6 +33,16 @@ function toEvents(action: CallAction, from: string): CallEvent[] {
       return [{ ...base, type: "call.end", reason: action.reason }];
     case "decline":
       return [{ ...base, type: "call.decline", reason: action.reason }];
+    case "renegotiate":
+      return [
+        {
+          ...base,
+          type: "call.renegotiate",
+          kind: action.kind,
+          sdp: action.sdp,
+          restart: action.restart,
+        },
+      ];
   }
 }
 
@@ -44,8 +54,9 @@ const SETTLING = new Set<CallAction["signal"]>(["answer", "decline", "end"]);
 
 /**
  * `call`: relays WebRTC signaling (offer, answer, ICE candidates, end,
- * decline) between the two members of a DM. Only JSON goes through AWS;
- * media flows peer to peer. Nothing is stored.
+ * decline, and the ICE restarts of a call that lost its network) between
+ * the two members of a DM. Only JSON goes through AWS; media flows peer to
+ * peer. Nothing is stored.
  */
 export const handler = wsHandler(async (event, caller) => {
   const parsed = parseAction(CallActionSchema, event.body);
@@ -82,6 +93,7 @@ export const handler = wsHandler(async (event, caller) => {
     signal: action.signal,
     ...(signals.length > 1 && { count: signals.length }),
     ...((action.signal === "end" || action.signal === "decline") && { reason: action.reason }),
+    ...(action.signal === "renegotiate" && { kind: action.kind, restart: action.restart }),
     userId: caller.userId,
     reachedPeer,
   });

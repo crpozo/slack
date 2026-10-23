@@ -41,6 +41,8 @@ export interface PipCallState {
   peerSharing: boolean;
   /** AI call notes are on: the small window says so too. */
   notesOn: boolean;
+  /** Phase 34: being reconnected until then (epoch ms), `null` while connected. */
+  reconnectingUntil: number | null;
 }
 
 export function pipStateOf(call: CallView, name: string): PipCallState {
@@ -56,6 +58,7 @@ export function pipStateOf(call: CallView, name: string): PipCallState {
     peerCamOn: connected && call.peer.camOn && !!call.remoteStream,
     peerSharing: connected && call.peer.sharing && !!call.remoteScreen,
     notesOn: call.notes.on,
+    reconnectingUntil: call.reconnecting?.deadline ?? null,
   };
 }
 

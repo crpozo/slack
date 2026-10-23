@@ -12,6 +12,7 @@ import {
   VideoIcon,
   VideoOffIcon,
 } from "./icons";
+import { ReconnectingOverlay } from "./Reconnecting";
 import { StreamMedia } from "./StreamMedia";
 
 /** What the popped-out call shows; the same view serves the browser's window and the desktop app's. */
@@ -27,6 +28,8 @@ export interface PipCallProps {
   peerSharing: boolean;
   /** AI call notes are on (both sides are being transcribed). */
   notesOn?: boolean;
+  /** Phase 34: the connection is being restored until then (epoch ms); `null` when connected. */
+  reconnectingUntil?: number | null;
   /** The peer's camera and shared screen, when flowing. */
   camera: MediaStream | null;
   screen: MediaStream | null;
@@ -94,10 +97,12 @@ export function PipCallView(props: Readonly<PipCallProps>) {
   const connected = phase === "connected";
   const showScreen = props.peerSharing && !!screen;
   const showCamera = props.peerCamOn && !!camera;
+  const reconnecting = props.reconnectingUntil ?? null;
   let status = elapsed;
   if (phase === "outgoing") status = "Calling…";
   else if (phase === "connecting") status = "Connecting…";
-  if (connected && !props.peerMicOn) status += " · Muted";
+  if (reconnecting !== null) status = "Reconnecting…";
+  else if (connected && !props.peerMicOn) status += " · Muted";
 
   return (
     <div
@@ -109,7 +114,9 @@ export function PipCallView(props: Readonly<PipCallProps>) {
         onPointerDown={props.onDragStart}
       >
         <span
-          className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-success" : "bg-warning"}`}
+          className={`h-2 w-2 shrink-0 rounded-full ${
+            connected && reconnecting === null ? "bg-success" : "bg-warning"
+          }`}
           aria-hidden="true"
         />
         <p className="min-w-0 flex-1 truncate font-semibold">{name}</p>
@@ -156,6 +163,7 @@ export function PipCallView(props: Readonly<PipCallProps>) {
             </p>
           </div>
         )}
+        {reconnecting !== null && <ReconnectingOverlay deadline={reconnecting} compact />}
       </div>
       <div className="flex shrink-0 items-center justify-center gap-2 px-3 py-2">
         <Control

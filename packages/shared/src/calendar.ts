@@ -1,5 +1,39 @@
 import { z } from "zod";
+import {
+  addDays,
+  COMPANY_TIMEZONE,
+  DATE_RE,
+  dateInZone,
+  daysBetween,
+  eachDate,
+  isDateString,
+  isWeekend,
+  zonedMidnight,
+} from "./dates";
 import { UserIdSchema, type MeetingCard } from "./protocol";
+import {
+  describeRecurrence,
+  ExceptionsSchema,
+  lastSeriesDate,
+  nextSeriesDate,
+  occurrenceDates,
+  recurrenceProblem,
+  RecurrenceSchema,
+  type Recurrence,
+} from "./recurrence";
+
+export {
+  addDays,
+  COMPANY_TIMEZONE,
+  dateInZone,
+  dayOfWeek,
+  daysBetween,
+  eachDate,
+  isDateString,
+  isWeekend,
+  yearOf,
+  zonedMidnight,
+} from "./dates";
 
 // ---------------------------------------------------------------------------
 // Company calendar (Phase 19): meetings between members, vacation requests
@@ -12,13 +46,6 @@ export type CalendarEventType = (typeof CALENDAR_EVENT_TYPES)[number];
 
 export const VACATION_STATUSES = ["pending", "approved", "rejected"] as const;
 export type VacationStatus = (typeof VACATION_STATUSES)[number];
-
-/**
- * All-day events (vacations, holidays) are dates in the company's timezone:
- * a holiday on 2026-08-10 is that whole day in Ecuador, whatever the browser's
- * timezone. Timed meetings are instants (epoch ms) and show in local time.
- */
-export const COMPANY_TIMEZONE = "America/Guayaquil";
 
 /** Statutory yearly vacation allowance (days), the default of every ledger row. */
 export const VACATION_DAYS_PER_YEAR = 15;
@@ -44,104 +71,6 @@ export const MAX_MEETING_MS = 24 * 60 * 60 * 1000;
 
 /** Event ids are `ev_<ulid>`. */
 export const isCalendarEventId = (id: string) => /^ev_[0-9A-Z]{26}$/.test(id);
-
-// --- Dates in the company timezone --------------------------------------------------
-
-const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-/** `YYYY-MM-DD` that names a real date. */
-export function isDateString(value: string): boolean {
-  const m = DATE_RE.exec(value);
-  if (!m) return false;
-  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const date = new Date(Date.UTC(y, mo - 1, d));
-  return date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d;
-}
-
-const pad = (n: number) => String(n).padStart(2, "0");
-
-/** The date `n` days after `date` (negative `n` goes back). Pure calendar arithmetic. */
-export function addDays(date: string, n: number): string {
-  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
-  const t = new Date(Date.UTC(y, m - 1, d + n));
-  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
-}
-
-/** Days from `a` to `b` (`b - a`); negative when `b` is earlier. */
-export function daysBetween(a: string, b: string): number {
-  const ms = (s: string) => {
-    const [y, m, d] = s.split("-").map(Number) as [number, number, number];
-    return Date.UTC(y, m - 1, d);
-  };
-  return Math.round((ms(b) - ms(a)) / 86_400_000);
-}
-
-/** 0 = Sunday … 6 = Saturday. */
-export function dayOfWeek(date: string): number {
-  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
-  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-}
-
-export const isWeekend = (date: string) => {
-  const dow = dayOfWeek(date);
-  return dow === 0 || dow === 6;
-};
-
-export const yearOf = (date: string) => date.slice(0, 4);
-
-/** Every date from `start` to `end`, both inclusive (empty when `end` is earlier). */
-export function eachDate(start: string, end: string): string[] {
-  const out: string[] = [];
-  for (let d = start; d <= end; d = addDays(d, 1)) out.push(d);
-  return out;
-}
-
-const formatters = new Map<string, Intl.DateTimeFormat>();
-function partsIn(timeZone: string, at: number): Record<string, number> {
-  let fmt = formatters.get(timeZone);
-  if (!fmt) {
-    fmt = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      hourCycle: "h23",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-    formatters.set(timeZone, fmt);
-  }
-  const parts: Record<string, number> = {};
-  for (const p of fmt.formatToParts(new Date(at))) {
-    if (p.type !== "literal") parts[p.type] = Number(p.value);
-  }
-  return parts;
-}
-
-/** The calendar date of instant `at` (epoch ms) in `timeZone`. */
-export function dateInZone(at: number, timeZone = COMPANY_TIMEZONE): string {
-  const p = partsIn(timeZone, at);
-  return `${p.year}-${pad(p.month!)}-${pad(p.day!)}`;
-}
-
-/**
- * Epoch ms of midnight at the start of `date` in `timeZone`. Works for any
- * offset (DST included): the guess is UTC midnight, corrected by the zone's
- * offset at that instant, then checked once more.
- */
-export function zonedMidnight(date: string, timeZone = COMPANY_TIMEZONE): number {
-  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
-  let guess = Date.UTC(y, m - 1, d);
-  for (let i = 0; i < 2; i++) {
-    const p = partsIn(timeZone, guess);
-    const asUtc = Date.UTC(p.year!, p.month! - 1, p.day!, p.hour!, p.minute!, p.second!);
-    const offset = asUtc - guess; // what the zone shows minus what UTC is
-    guess = Date.UTC(y, m - 1, d) - offset;
-    if (offset === 0) break;
-  }
-  return guess;
-}
 
 /** `[startAt, endAt)` in epoch ms of the inclusive date range, in the company timezone. */
 export function allDaySpan(startDate: string, endDate: string): { startAt: number; endAt: number } {
@@ -222,6 +151,32 @@ export interface MeetingEvent extends CalendarEventBase {
   channelId?: string;
   messageId?: string;
   messageSk?: string;
+  /**
+   * Phase 34: the cards posted for it in each invitee's DM with the
+   * organizer (a meeting made in the calendar, or people invited later), so
+   * edits rewrite them and a deletion marks them cancelled. A meeting
+   * scheduled from a DM keeps its first card in the fields above.
+   */
+  cards?: MeetingCardRef[];
+  /**
+   * Phase 34: a series. The span above is its first meeting; the rule says
+   * when it happens again (see `occurrencesOf`).
+   */
+  recurrence?: Recurrence;
+  /** Dates (company timezone) of the series' meetings that were cancelled. */
+  exceptions?: string[];
+  /**
+   * Only on one meeting of a series as expanded by `occurrencesOf` (never
+   * stored): the date it falls on. Its `eventId` is the series'.
+   */
+  occurrence?: string;
+}
+
+/** Where a meeting's card lives: a message in a DM. */
+export interface MeetingCardRef {
+  channelId: string;
+  messageId: string;
+  messageSk: string;
 }
 
 export interface VacationEvent extends CalendarEventBase {
@@ -328,8 +283,21 @@ export const CreateMeetingSchema = z
     participants: z.array(UserIdSchema).max(MAX_EVENT_PARTICIPANTS).default([]),
     channelId: z.string().min(1).max(128).optional(),
     clientId: z.string().min(1).max(64).optional(),
+    recurrence: RecurrenceSchema.optional(),
   })
   .superRefine((v, ctx) => {
+    if (v.recurrence) {
+      const first = v.allDay ? v.startDate : v.startAt && dateInZone(v.startAt);
+      if (v.allDay && v.startDate !== v.endDate) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["recurrence"],
+          message: "a repeating all-day meeting lasts one day",
+        });
+      }
+      const problem = first ? recurrenceProblem(v.recurrence, first) : null;
+      if (problem) ctx.addIssue({ code: "custom", path: ["recurrence"], message: problem });
+    }
     if (v.channelId !== undefined) {
       if (v.participants.length > 0) {
         ctx.addIssue({
@@ -410,8 +378,16 @@ export const UpdateEventSchema = z
     startDate: DateStringSchema.optional(),
     endDate: DateStringSchema.optional(),
     participants: z.array(UserIdSchema).max(MAX_EVENT_PARTICIPANTS).optional(),
+    /** Phase 34: a new rule for the whole series; `null` makes it a single meeting again. */
+    recurrence: RecurrenceSchema.nullable().optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), "nothing to update");
+
+/** `DELETE /calendar/events/{id}?occurrence=YYYY-MM-DD`: cancels one meeting of a series. */
+export const CancelOccurrenceSchema = z.object({ occurrence: DateStringSchema });
+
+/** Kept for the cancelled dates a series stores. */
+export { ExceptionsSchema };
 
 export const VacationDecisionSchema = z.object({
   status: z.enum(["approved", "rejected"]),
@@ -435,7 +411,9 @@ export type CreateMeetingInput = z.input<typeof CreateMeetingSchema>;
 export type CreateVacationInput = z.input<typeof CreateVacationSchema>;
 export type CreateHolidayInput = z.input<typeof CreateHolidaySchema>;
 export type CreateEventInput = z.input<typeof CreateEventSchema>;
-export type UpdateEventInput = z.infer<typeof UpdateEventSchema>;
+export type UpdateEventInput = z.input<typeof UpdateEventSchema>;
+/** An edit as the server reads it (defaults applied). */
+export type UpdateEventPatch = z.infer<typeof UpdateEventSchema>;
 export type VacationDecisionInput = z.input<typeof VacationDecisionSchema>;
 
 // --- Real-time pushes (over the chat WebSocket, like `board.*`) --------------------------
@@ -464,9 +442,16 @@ export type CalendarPushEvent =
 /** The plain-text fallback of a meeting card (notifications, previews, older clients). */
 export function meetingCardText(
   card: Pick<MeetingCard, "title" | "startAt" | "endAt"> &
-    Partial<Pick<MeetingCard, "allDay" | "startDate" | "endDate">>,
+    Partial<Pick<MeetingCard, "allDay" | "startDate" | "endDate" | "recurrence" | "cancelled">>,
 ): string {
-  const when = describeEventWhen({ ...card, allDay: card.allDay ?? false });
+  if (card.cancelled) return `📅 Meeting cancelled: ${card.title}`;
+  const allDay = card.allDay ?? false;
+  if (card.recurrence) {
+    const first = card.startDate ?? dateInZone(card.startAt);
+    const rule = describeRecurrence(card.recurrence, first);
+    return `📅 Meeting scheduled: ${card.title} · ${rule}${allDay ? "" : ` at ${timeInZone(card.startAt)}`}`;
+  }
+  const when = describeEventWhen({ ...card, allDay });
   return `📅 Meeting scheduled: ${card.title} · ${when}`;
 }
 
@@ -474,6 +459,7 @@ export function meetingCardText(
  * The card of a meeting as it stands now: what its DM's "meeting scheduled"
  * message shows. The server writes it when the meeting is scheduled and again
  * on every edit; the web app derives it from the live event when it has one.
+ * A series' card carries its rule: the app shows the next meeting.
  */
 export function meetingCardOf(event: MeetingEvent): MeetingCard {
   return {
@@ -485,7 +471,120 @@ export function meetingCardOf(event: MeetingEvent): MeetingCard {
     endAt: event.endAt,
     participants: event.participants,
     ...(event.allDay && { startDate: event.startDate, endDate: event.endDate }),
+    ...(event.recurrence && { recurrence: event.recurrence }),
+    ...(event.exceptions?.length && { exceptions: event.exceptions }),
   };
+}
+
+/** What a meeting's cards become once it's deleted. */
+export const cancelledCard = (card: MeetingCard): MeetingCard => ({ ...card, cancelled: true });
+
+/** Every card a meeting has: the DM it was scheduled from, then the invitees' DMs. */
+export function cardRefsOf(event: MeetingEvent): MeetingCardRef[] {
+  const refs: MeetingCardRef[] = [];
+  if (event.channelId && event.messageId && event.messageSk) {
+    refs.push({
+      channelId: event.channelId,
+      messageId: event.messageId,
+      messageSk: event.messageSk,
+    });
+  }
+  for (const ref of event.cards ?? []) {
+    if (!refs.some((r) => r.channelId === ref.channelId)) refs.push(ref);
+  }
+  return refs;
+}
+
+// --- Series (Phase 34) ------------------------------------------------------------------
+
+/** The date (company timezone) a meeting, or a series' first meeting, starts on. */
+export const meetingStartDate = (event: Pick<CalendarEvent, "startAt"> & { startDate?: string }) =>
+  event.startDate ?? dateInZone(event.startAt);
+
+/** The meeting of `series` that falls on `date` (one of its dates), at the series' time of day. */
+export function occurrenceAt(series: MeetingEvent, date: string): MeetingEvent {
+  if (series.allDay && series.startDate && series.endDate) {
+    const endDate = addDays(date, daysBetween(series.startDate, series.endDate));
+    return { ...series, startDate: date, endDate, ...allDaySpan(date, endDate), occurrence: date };
+  }
+  // Same wall-clock time in the company timezone (which has no daylight saving).
+  const offset = series.startAt - zonedMidnight(meetingStartDate(series));
+  const startAt = zonedMidnight(date) + offset;
+  return { ...series, startAt, endAt: startAt + (series.endAt - series.startAt), occurrence: date };
+}
+
+/**
+ * The meetings of `event` overlapping `from`..`to` (inclusive dates): a
+ * series' occurrences, cancelled ones left out; anything else as it is.
+ */
+export function occurrencesOf(event: CalendarEvent, from: string, to: string): CalendarEvent[] {
+  if (event.type !== "meeting" || !event.recurrence) return [event];
+  const fromMs = zonedMidnight(from);
+  const toMs = zonedMidnight(addDays(to, 1));
+  // A timed meeting may run past midnight: start looking a day early.
+  return occurrenceDates(
+    meetingStartDate(event),
+    event.recurrence,
+    addDays(from, -1),
+    to,
+    event.exceptions,
+  )
+    .map((date) => occurrenceAt(event, date))
+    .filter((o) => o.endAt > fromMs && o.startAt < toMs);
+}
+
+/** `events` with every series expanded into its meetings within `from`..`to`. */
+export function expandEvents(
+  events: Iterable<CalendarEvent>,
+  from: string,
+  to: string,
+): CalendarEvent[] {
+  return [...events].flatMap((e) => occurrencesOf(e, from, to));
+}
+
+/** A key unique to each drawn meeting: the event id, plus the date for a series' meetings. */
+export const occurrenceKey = (event: CalendarEvent) =>
+  event.type === "meeting" && event.occurrence
+    ? `${event.eventId}@${event.occurrence}`
+    : event.eventId;
+
+/** The event id inside an `occurrenceKey`. */
+export const eventIdOfKey = (key: string) => key.split("@")[0] ?? key;
+
+/**
+ * The meeting happening at `now`, or the next one: a series' current or next
+ * occurrence (`null` once it's over), a single meeting while it hasn't ended.
+ */
+export function nextOccurrence(event: MeetingEvent, now: number): MeetingEvent | null {
+  if (!event.recurrence) return event.endAt > now ? event : null;
+  const first = meetingStartDate(event);
+  let from = addDays(dateInZone(now), -1);
+  for (let i = 0; i < 4; i++) {
+    const date = nextSeriesDate(first, event.recurrence, from, event.exceptions);
+    if (date === null) return null;
+    const occurrence = occurrenceAt(event, date);
+    if (occurrence.endAt > now) return occurrence;
+    from = addDays(date, 1);
+  }
+  return null;
+}
+
+/** When a series' last meeting ends (an upper bound), `Number.MAX_SAFE_INTEGER` if never. */
+export function seriesEndAt(event: MeetingEvent): number {
+  if (!event.recurrence) return event.endAt;
+  const last = lastSeriesDate(meetingStartDate(event), event.recurrence);
+  return last === null ? Number.MAX_SAFE_INTEGER : occurrenceAt(event, last).endAt;
+}
+
+const timeFormatters = new Map<string, Intl.DateTimeFormat>();
+/** "10:30 AM" in `timeZone`. */
+function timeInZone(at: number, timeZone = COMPANY_TIMEZONE): string {
+  let fmt = timeFormatters.get(timeZone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" });
+    timeFormatters.set(timeZone, fmt);
+  }
+  return fmt.format(new Date(at));
 }
 
 /** Date and time of an event, for notification text; all-day events show the dates only. */

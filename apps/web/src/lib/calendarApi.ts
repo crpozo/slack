@@ -35,6 +35,12 @@ export const calendarApi = {
     ),
   /** Deletes a meeting/holiday, or cancels a vacation request (its days go back). */
   deleteEvent: (eventId: string) => request<void>("DELETE", `/calendar/events/${id(eventId)}`),
+  /** Cancels the meeting of a series on `date` (Phase 34); the rest of the series stays. */
+  cancelOccurrence: (eventId: string, date: string) =>
+    request<{ event: CalendarEvent }>(
+      "DELETE",
+      `/calendar/events/${id(eventId)}?occurrence=${id(date)}`,
+    ).then((r) => r.event),
   /** Admin: approve or reject a pending request. */
   decideVacation: (eventId: string, decision: VacationDecisionInput) =>
     request<{ event: VacationEvent }>(

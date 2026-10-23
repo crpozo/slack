@@ -6,7 +6,11 @@ import timeGridPlugin from "@fullcalendar/timegrid";
 import {
   addDays,
   dateInZone,
+  eventIdOfKey,
   MAX_VACATION_ALLOWANCE,
+  nextOccurrence,
+  occurrenceAt,
+  occurrenceKey,
   remainingDays,
   vacationOwner,
   type CalendarEvent,
@@ -21,7 +25,14 @@ import { formatDateRange, holidayDates, toCalendarInput } from "../lib/calendarU
 import { MOBILE_QUERY, useMediaQuery } from "../lib/hooks";
 import { tasksApiConfigured } from "../lib/tasksApi";
 import { useChat, useNameOf } from "../store";
-import { drawableEvents, localDate, thisYear, useCalendar, visibleRange } from "../store/calendar";
+import {
+  drawableEvents,
+  loadedSpan,
+  localDate,
+  thisYear,
+  useCalendar,
+  visibleRange,
+} from "../store/calendar";
 import { Avatar } from "./Avatar";
 import { EventDetailsModal, EventFormModal, StatusChip, type EventDraft } from "./CalendarModals";
 import {
@@ -71,9 +82,10 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
   const me = useChat((s) => s.me);
   const showToast = useChat((s) => s.showToast);
   const nameOf = useNameOf();
-  const { events, loading, error, loadRange, loadBalances, clearError } = useCalendar(
+  const { events, loadedRanges, loading, error, loadRange, loadBalances, clearError } = useCalendar(
     useShallow((s) => ({
       events: s.events,
+      loadedRanges: s.loadedRanges,
       loading: s.loading,
       error: s.error,
       loadRange: s.loadRange,
@@ -86,6 +98,7 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
   const [view, setView] = useState<ViewName>(savedView);
   const [draft, setDraft] = useState<EventDraft | null>(null);
   const [editing, setEditing] = useState<CalendarEvent | null>(null);
+  /** The `occurrenceKey` of the open event (a series' meeting: `<eventId>@<date>`). */
   const [selected, setSelected] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const configured = tasksApiConfigured();
@@ -99,11 +112,16 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
   const wanted = searchParams.get("event");
   useEffect(() => {
     if (!wanted || loading) return;
-    const event = events[wanted];
+    const stored = events[wanted];
+    // A series opens on its meeting happening now or next (its first, once it's over).
+    const event =
+      stored?.type === "meeting" && stored.recurrence
+        ? (nextOccurrence(stored, Date.now()) ?? stored)
+        : stored;
     if (event) {
       calendarRef.current?.getApi().gotoDate(new Date(event.startAt));
       setFocusDate(eventStartDate(event));
-      setSelected(wanted);
+      setSelected(occurrenceKey(event));
     } else if (Object.keys(events).length > 0) {
       showToast("That meeting is no longer on the calendar.");
     } else {
@@ -124,12 +142,14 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
     clearError();
   }, [error, showToast, clearError]);
 
+  // Series are drawn as their meetings over everything loaded so far.
+  const span = useMemo(() => loadedSpan(loadedRanges), [loadedRanges]);
+  const agendaEvents = useMemo(() => drawableEvents(events, span), [events, span]);
   const inputs = useMemo(
-    () => drawableEvents(events).map((e) => toCalendarInput(e, nameOf)),
-    [events, nameOf],
+    () => agendaEvents.map((e) => toCalendarInput(e, nameOf)),
+    [agendaEvents, nameOf],
   );
   const holidays = useMemo(() => holidayDates(Object.values(events)), [events]);
-  const agendaEvents = useMemo(() => drawableEvents(events), [events]);
 
   const onDatesSet = useCallback(
     (arg: DatesSetArg) => {
@@ -178,7 +198,7 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
     });
 
   if (!me) return null;
-  const selectedEvent = selected ? events[selected] : undefined;
+  const selectedEvent = selected ? eventOfKey(events, selected) : undefined;
 
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col">
@@ -393,6 +413,14 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
       )}
     </div>
   );
+}
+
+/** The event an `occurrenceKey` names: a series' meeting on its date, or the event itself. */
+function eventOfKey(events: Record<string, CalendarEvent>, key: string): CalendarEvent | undefined {
+  const event = events[eventIdOfKey(key)];
+  const date = key.split("@")[1];
+  if (event?.type === "meeting" && event.recurrence && date) return occurrenceAt(event, date);
+  return event;
 }
 
 /** Phones: the vacations panel lives behind one row above the day list. */

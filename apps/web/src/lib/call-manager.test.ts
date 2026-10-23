@@ -134,7 +134,14 @@ class FakeRecognition {
 class FakePeerConnection {
   static last: FakePeerConnection;
   connectionState = "new";
+  iceConnectionState = "new";
+  signalingState = "stable";
   remoteDescription: unknown = null;
+  localDescription: { type: string; sdp?: string } | null = null;
+  /** Every description set, in order (`local:offer`, `remote:answer`, `local:rollback`…). */
+  readonly descriptions: string[] = [];
+  restartIce = vi.fn();
+  private offers = 0;
   readonly transceivers: FakeTransceiver[] = [];
   private readonly listeners: Record<string, Array<(e: unknown) => void>> = {};
   constructor() {
@@ -146,6 +153,10 @@ class FakePeerConnection {
   setState(state: string) {
     this.connectionState = state;
     this.listeners.connectionstatechange?.forEach((fn) => fn({}));
+  }
+  setIce(state: string) {
+    this.iceConnectionState = state;
+    this.listeners.iceconnectionstatechange?.forEach((fn) => fn({}));
   }
   addTransceiver(trackOrKind: FakeTrack | string, init: { direction: string }) {
     const track = typeof trackOrKind === "string" ? null : trackOrKind;
@@ -177,13 +188,27 @@ class FakePeerConnection {
     const transceiver = this.transceivers[index];
     this.listeners.track?.forEach((fn) => fn({ track, transceiver }));
   }
-  createOffer = async () => ({ type: "offer", sdp: "offer-sdp" });
+  // The first offer is the call's; later ones are numbered ICE restarts.
+  createOffer = vi.fn(async (_options?: unknown) => {
+    const n = this.offers++;
+    return { type: "offer", sdp: n === 0 ? "offer-sdp" : `restart-offer-${n}` };
+  });
   createAnswer = async () => ({ type: "answer", sdp: "answer-sdp" });
-  setLocalDescription = async () => {};
-  setRemoteDescription = async (d: unknown) => {
+  setLocalDescription = vi.fn(async (d: { type: string; sdp?: string }) => {
+    this.descriptions.push(`local:${d.type}`);
+    if (d.type === "rollback") {
+      this.signalingState = "stable";
+      return;
+    }
+    this.localDescription = d;
+    this.signalingState = d.type === "offer" ? "have-local-offer" : "stable";
+  });
+  setRemoteDescription = vi.fn(async (d: { type: string; sdp?: string }) => {
+    this.descriptions.push(`remote:${d.type}`);
     this.remoteDescription = d;
-  };
-  addIceCandidate = async () => {};
+    this.signalingState = d.type === "offer" ? "have-remote-offer" : "stable";
+  });
+  addIceCandidate = vi.fn(async (_candidate?: { usernameFragment?: string }) => {});
   channel: FakeDataChannel | null = null;
   createDataChannel() {
     this.channel = new FakeDataChannel();
@@ -319,7 +344,10 @@ describe("call duration message", () => {
     const { deps, pc } = await connectedCall("video");
     vi.setSystemTime(Date.now() + 5_000);
     pc.setState("failed");
-    expect(deps.postMessage).toHaveBeenCalledWith(DM, "📹 Video call ended • 00:05");
+    // Phase 34: 30 seconds to get it back first.
+    expect(deps.postMessage).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(deps.postMessage).toHaveBeenCalledWith(DM, "📹 Video call ended • 00:35");
   });
 
   it("the callee never posts, whoever hangs up", async () => {
@@ -330,8 +358,10 @@ describe("call duration message", () => {
       FakePeerConnection.last.setState("connected");
       vi.setSystemTime(Date.now() + 60_000);
       if (ending === "callee hangs up") manager.hangUp();
-      else if (ending === "connection fails") FakePeerConnection.last.setState("failed");
-      else {
+      else if (ending === "connection fails") {
+        FakePeerConnection.last.setState("failed");
+        await vi.advanceTimersByTimeAsync(30_000);
+      } else {
         manager.handle({
           type: "call.end",
           callId: "call-1",
@@ -765,5 +795,244 @@ describe("ring sounds follow the call", () => {
       channelId: "dm_u-alice_u-carol",
     });
     expect(ring()).not.toHaveBeenCalled();
+  });
+});
+
+describe("reconnecting after a network drop (Phase 34)", () => {
+  const sent = (deps: { send: ReturnType<typeof vi.fn> }) =>
+    deps.send.mock.calls.map(
+      ([p, key]) => ({ ...(p as Record<string, unknown>), key }) as Record<string, unknown>,
+    );
+  const restarts = (deps: { send: ReturnType<typeof vi.fn> }) =>
+    sent(deps).filter((p) => p.signal === "renegotiate");
+
+  async function connectedCallee() {
+    const h = setup();
+    h.manager.handle(offerFromPeer("video"));
+    await h.manager.accept();
+    const pc = FakePeerConnection.last;
+    pc.setState("connected");
+    pc.setIce("connected");
+    return { ...h, pc };
+  }
+
+  const renegotiate = (
+    kind: "offer" | "answer",
+    restart: number,
+    callId = "call-1",
+  ): CallEvent => ({
+    type: "call.renegotiate",
+    callId,
+    channelId: DM,
+    from: PEER,
+    kind,
+    sdp: `${kind}-${restart}`,
+    restart,
+  });
+
+  it("shows Reconnecting… at once and restarts ICE once the blip outlasts 2 seconds", async () => {
+    const { deps, pc, signals } = await connectedCall("video");
+    const droppedAt = Date.now();
+    pc.setIce("disconnected");
+
+    expect(useCall.getState().call?.reconnecting).toEqual({
+      since: droppedAt,
+      deadline: droppedAt + 30_000,
+    });
+    expect(useCall.getState().call?.phase).toBe("connected"); // the timer and notes go on
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(pc.restartIce).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(pc.restartIce).toHaveBeenCalledTimes(1);
+    expect(pc.createOffer).toHaveBeenLastCalledWith({ iceRestart: true });
+    expect(restarts(deps)).toEqual([
+      expect.objectContaining({
+        signal: "renegotiate",
+        kind: "offer",
+        sdp: "restart-offer-1",
+        restart: 1,
+        to: PEER,
+        key: expect.stringMatching(/^call-restart-offer:/),
+      }),
+    ]);
+    expect(signals()).not.toContain("end");
+  });
+
+  it("a blip that heals by itself needs no restart", async () => {
+    const { pc } = await connectedCall("audio");
+    pc.setIce("disconnected");
+    await vi.advanceTimersByTimeAsync(1_000);
+    pc.setIce("connected");
+    expect(useCall.getState().call?.reconnecting).toBeNull();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(pc.restartIce).not.toHaveBeenCalled();
+    expect(useCall.getState().call).not.toBeNull();
+  });
+
+  it("applies the answer and clears everything once ICE is back", async () => {
+    const { manager, deps, pc, callId, signals } = await connectedCall("video");
+    pc.setIce("failed"); // worse than disconnected: restart right away
+    await vi.advanceTimersByTimeAsync(0);
+    expect(restarts(deps)).toHaveLength(1);
+
+    manager.handle(renegotiate("answer", 1, callId));
+    await vi.waitFor(() => expect(pc.descriptions.at(-1)).toBe("remote:answer"));
+    pc.setIce("checking");
+    pc.setIce("connected");
+
+    expect(useCall.getState().call?.reconnecting).toBeNull();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(restarts(deps)).toHaveLength(1); // no re-sends, no retries
+    expect(signals()).not.toContain("end");
+    expect(deps.notify).not.toHaveBeenCalled();
+  });
+
+  it("re-sends an unanswered offer, then restarts again with fresh candidates", async () => {
+    const { deps, pc } = await connectedCall("video");
+    pc.setIce("failed");
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2_000); // re-sent
+    await vi.advanceTimersByTimeAsync(4_000); // re-sent again
+    expect(restarts(deps).map((p) => p.restart)).toEqual([1, 1, 1]);
+
+    await vi.advanceTimersByTimeAsync(2_000); // 8 s: still nothing, a new restart
+    expect(pc.descriptions).toContain("local:rollback");
+    expect(restarts(deps).at(-1)).toMatchObject({ restart: 2, sdp: "restart-offer-2" });
+  });
+
+  it("ends the call 30 seconds after the drop if it never comes back", async () => {
+    const { deps, pc, signals } = await connectedCall("video");
+    pc.setIce("disconnected");
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(useCall.getState().call).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(useCall.getState().call).toBeNull();
+    expect(signals().at(-1)).toBe("end");
+    expect(sent(deps).at(-1)).toMatchObject({ reason: "failed" });
+    expect(deps.notify).toHaveBeenCalledWith(
+      "The connection to bob couldn't be restored, so the call ended.",
+    );
+  });
+
+  it("the callee waits for the caller's offer and answers it, again if re-sent", async () => {
+    const { manager, deps, pc } = await connectedCallee();
+    pc.setIce("disconnected");
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(pc.restartIce).not.toHaveBeenCalled(); // the caller drives
+    expect(useCall.getState().call?.reconnecting).not.toBeNull();
+
+    manager.handle(renegotiate("offer", 1));
+    await vi.waitFor(() => expect(restarts(deps)).toHaveLength(1));
+    expect(restarts(deps)[0]).toMatchObject({
+      kind: "answer",
+      restart: 1,
+      sdp: "answer-sdp",
+      key: expect.stringMatching(/^call-restart-answer:/),
+    });
+    expect(pc.descriptions.slice(-2)).toEqual(["remote:offer", "local:answer"]);
+
+    // The answer was lost: the same offer comes again and gets the answer again.
+    manager.handle(renegotiate("offer", 1));
+    await vi.waitFor(() => expect(restarts(deps)).toHaveLength(2));
+    // An older offer arriving late is ignored.
+    manager.handle(renegotiate("offer", 2));
+    await vi.waitFor(() => expect(restarts(deps)).toHaveLength(3));
+    manager.handle(renegotiate("offer", 1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(restarts(deps)).toHaveLength(3);
+  });
+
+  it("both offering at once: the callee rolls its own back, the caller keeps its own", async () => {
+    // Callee: its socket came back, so it restarts too, then the caller's offer crosses it.
+    const callee = await connectedCallee();
+    callee.pc.setIce("disconnected");
+    callee.manager.signalingReconnected();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(restarts(callee.deps)[0]).toMatchObject({ kind: "offer", restart: 1 });
+    expect(callee.pc.signalingState).toBe("have-local-offer");
+    callee.manager.handle(renegotiate("offer", 1));
+    await vi.waitFor(() => expect(restarts(callee.deps)).toHaveLength(2));
+    expect(callee.pc.descriptions.slice(-3)).toEqual([
+      "local:rollback",
+      "remote:offer",
+      "local:answer",
+    ]);
+    expect(restarts(callee.deps)[1]).toMatchObject({ kind: "answer", restart: 1 });
+
+    // Caller: its own offer is out, so the callee's is ignored.
+    const caller = await connectedCall("video");
+    caller.pc.setIce("failed");
+    await vi.advanceTimersByTimeAsync(0);
+    caller.manager.handle(renegotiate("offer", 1, caller.callId));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(restarts(caller.deps).map((p) => p.kind)).toEqual(["offer"]);
+    expect(caller.pc.descriptions).not.toContain("remote:offer");
+  });
+
+  it("ignores stale answers and offers before the call ever connected", async () => {
+    const { manager, pc, callId } = await connectedCall("video");
+    pc.setIce("failed");
+    await vi.advanceTimersByTimeAsync(0);
+    const before = pc.descriptions.length;
+    manager.handle(renegotiate("answer", 7, callId)); // not ours
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pc.descriptions.slice(before)).toEqual([]);
+    expect(pc.signalingState).toBe("have-local-offer");
+
+    // Still ringing: there's nothing to restart.
+    const ringing = setup();
+    ringing.manager.handle(offerFromPeer("audio"));
+    ringing.manager.handle(renegotiate("offer", 1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ringing.deps.send).not.toHaveBeenCalled();
+  });
+
+  it("a reconnected socket re-sends the pending offer at once", async () => {
+    const { manager, deps, pc } = await connectedCall("video");
+    pc.setIce("failed");
+    await vi.advanceTimersByTimeAsync(0);
+    manager.signalingReconnected();
+    expect(restarts(deps).map((p) => p.restart)).toEqual([1, 1]);
+  });
+
+  it("keeps the peer's new candidates until their description arrives", async () => {
+    const { manager, pc, callId } = await connectedCall("video");
+    pc.setIce("failed");
+    await vi.advanceTimersByTimeAsync(0);
+    const fresh = { candidate: "candidate:9 1 udp 1 9.9.9.9 9 typ srflx", usernameFragment: "new" };
+    pc.addIceCandidate.mockImplementation(async (c) => {
+      if (c?.usernameFragment === "new" && pc.signalingState !== "stable") {
+        throw new Error("unknown ufrag");
+      }
+    });
+    manager.handle({
+      type: "call.ice_candidate",
+      callId,
+      channelId: DM,
+      from: PEER,
+      candidate: fresh,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    manager.handle(renegotiate("answer", 1, callId));
+    await vi.waitFor(() =>
+      expect(pc.addIceCandidate).toHaveBeenLastCalledWith(expect.objectContaining(fresh)),
+    );
+    expect(pc.addIceCandidate).toHaveBeenCalledTimes(2); // refused once, then added
+  });
+
+  it("before the call ever connected, a drop still fails after the grace period", async () => {
+    const { manager, deps } = setup();
+    await manager.startCall(DM, PEER, "audio");
+    const callId = deps.send.mock.calls[0]![0].callId as string;
+    manager.handle({ type: "call.answer", callId, channelId: DM, from: PEER, sdp: "answer-sdp" });
+    await vi.waitFor(() => expect(FakePeerConnection.last.remoteDescription).not.toBeNull());
+    FakePeerConnection.last.setIce("disconnected");
+    FakePeerConnection.last.setState("disconnected");
+    expect(useCall.getState().call?.reconnecting).toBeNull();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(useCall.getState().call).toBeNull();
+    expect(FakePeerConnection.last.restartIce).not.toHaveBeenCalled();
   });
 });

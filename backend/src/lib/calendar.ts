@@ -6,6 +6,7 @@ import {
   dateInZone,
   defaultBalance,
   MAX_EVENT_DAYS,
+  seriesEndAt,
   VACATION_DAYS_PER_YEAR,
   yearOf,
   zonedMidnight,
@@ -21,15 +22,26 @@ import { ddb, tables } from "./ddb";
  * year of `startAt` (`year`, company timezone) as the partition key of the
  * `byYear` index so a month's events are one query per year. `participants`
  * is a DynamoDB string set.
+ *
+ * A recurring meeting (Phase 34) is one row in the `series` partition
+ * instead, with `seriesEndAt` (when its last meeting ends, or
+ * `Number.MAX_SAFE_INTEGER`): any month's listing also reads the series
+ * that started before the month ends and end after it begins, and the
+ * clients expand them.
  */
 export type EventItem = Omit<CalendarEvent, "participants"> & {
   year: string;
   participants?: Set<string> | string[];
+  seriesEndAt?: number;
 };
+
+/** The `byYear` partition of recurring meetings. */
+export const SERIES_PARTITION = "series";
 
 export function toEvent(item: Record<string, unknown>): CalendarEvent {
   const { participants, ...rest } = item as EventItem;
   delete (rest as { year?: string }).year;
+  delete rest.seriesEndAt;
   const list = [...(participants ?? [])].sort((a, b) => a.localeCompare(b));
   const event = { ...rest, description: rest.description ?? "" } as CalendarEvent;
   if (event.type === "holiday") return event;
@@ -39,9 +51,12 @@ export function toEvent(item: Record<string, unknown>): CalendarEvent {
 /** The row for `event`, ready to `Put`. */
 export function toItem(event: CalendarEvent): EventItem {
   const { participants, ...rest } = event as CalendarEvent & { participants?: string[] };
+  const series = event.type === "meeting" && event.recurrence ? event : null;
+  delete (rest as { occurrence?: string }).occurrence; // never stored
   return {
     ...rest,
-    year: yearOf(startDateOf(event)),
+    year: series ? SERIES_PARTITION : yearOf(startDateOf(event)),
+    ...(series && { seriesEndAt: seriesEndAt(series) }),
     ...(participants && participants.length > 0 && { participants: new Set(participants) }),
   };
 }
@@ -64,20 +79,27 @@ export function yearsCovering(from: string, to: string): string[] {
 /**
  * Every event overlapping the inclusive date range `from`..`to` (company
  * timezone), any type, any visibility. Callers filter with `canSeeEvent`.
+ * A recurring meeting comes back once, as its series row, when any of its
+ * meetings may fall in the range (`occurrencesOf` says which).
  */
 export async function eventsBetween(from: string, to: string): Promise<CalendarEvent[]> {
   const fromMs = zonedMidnight(from);
   const toMs = zonedMidnight(addDays(to, 1));
-  const pages = await Promise.all(yearsCovering(from, to).map((year) => queryYear(year, toMs)));
+  const pages = await Promise.all([
+    ...yearsCovering(from, to).map((year) => queryYear(year, toMs)),
+    queryYear(SERIES_PARTITION, toMs, fromMs),
+  ]);
   return pages
     .flat()
-    .filter((e) => e.endAt > fromMs)
+    .filter((e) => (e.type === "meeting" && e.recurrence ? seriesEndAt(e) : e.endAt) > fromMs)
     .sort((a, b) => a.startAt - b.startAt || a.eventId.localeCompare(b.eventId));
 }
 
 async function queryYear(
   year: string,
   before: number,
+  /** Series only: skip the ones over before this instant. */
+  seriesAfter?: number,
   startKey?: Record<string, unknown>,
 ): Promise<CalendarEvent[]> {
   const page = await ddb.send(
@@ -86,13 +108,21 @@ async function queryYear(
       IndexName: "byYear",
       KeyConditionExpression: "#year = :year AND startAt < :before",
       ExpressionAttributeNames: { "#year": "year" },
-      ExpressionAttributeValues: { ":year": year, ":before": before },
+      ExpressionAttributeValues: {
+        ":year": year,
+        ":before": before,
+        ...(seriesAfter !== undefined && { ":after": seriesAfter }),
+      },
+      ...(seriesAfter !== undefined && { FilterExpression: "seriesEndAt > :after" }),
       ExclusiveStartKey: startKey,
     }),
   );
-  const items = (page.Items ?? []).map(toEvent);
+  const items = (page.Items ?? [])
+    .map(toEvent)
+    // The series partition holds recurring meetings only.
+    .filter((e) => seriesAfter === undefined || (e.type === "meeting" && !!e.recurrence));
   if (!page.LastEvaluatedKey) return items;
-  return [...items, ...(await queryYear(year, before, page.LastEvaluatedKey))];
+  return [...items, ...(await queryYear(year, before, seriesAfter, page.LastEvaluatedKey))];
 }
 
 /** Dates of national holidays within `from`..`to`, for charging vacations. */

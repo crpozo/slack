@@ -393,8 +393,15 @@ export class TasksApi extends Construct {
     data.users.grant(this.calendarHandler, "dynamodb:BatchGetItem", "dynamodb:GetItem");
     // DM meetings: the conversation must be the caller's (GetItem); the card is
     // written with the event (PutItem), rewritten when the meeting is edited
-    // (UpdateItem) and a retried request finds it (Query).
-    data.channels.grant(this.calendarHandler, "dynamodb:GetItem");
+    // (UpdateItem) and a retried request finds it (Query). Phase 34: every
+    // invitee's card goes in their DM with the organizer, opened if they never
+    // talked (channels PutItem), and bumps that DM in the sidebar (UpdateItem).
+    data.channels.grant(
+      this.calendarHandler,
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+    );
     data.messages.grant(
       this.calendarHandler,
       "dynamodb:PutItem",

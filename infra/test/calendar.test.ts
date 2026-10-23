@@ -124,7 +124,12 @@ describe("company calendar", () => {
     expect(actionsOn("DataBoards")).toEqual([]);
     expect(actionsOn("DataTasks")).toEqual([]);
     // DM meetings: the conversation row, and the card written with the event (retries find it).
-    expect(actionsOn("DataChannels")).toEqual(["dynamodb:GetItem"]);
+    // Phase 34: invitees' DMs opened for their cards (PutItem) and bumped (UpdateItem).
+    expect(actionsOn("DataChannels")).toEqual([
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+    ]);
     expect(actionsOn("DataMessages")).toEqual([
       "dynamodb:PutItem",
       "dynamodb:Query",

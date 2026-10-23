@@ -174,7 +174,7 @@ describe("listing", () => {
     const years = ddbMock
       .commandCalls(QueryCommand)
       .map((c) => c.args[0].input.ExpressionAttributeValues?.[":year"]);
-    expect(years).toEqual(["2026"]);
+    expect(years).toEqual(["2026", "series"]);
   });
 
   it("looks back into the previous year for events still running in January", async () => {
@@ -182,7 +182,7 @@ describe("listing", () => {
     const years = ddbMock
       .commandCalls(QueryCommand)
       .map((c) => c.args[0].input.ExpressionAttributeValues?.[":year"]);
-    expect(years).toEqual(["2026", "2027"]);
+    expect(years).toEqual(["2026", "2027", "series"]);
   });
 
   it("admins see pending requests; guests and bad ranges are refused", async () => {
@@ -892,5 +892,345 @@ describe("meetings scheduled from a direct message", () => {
       expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
       expect(sentEvents()).toEqual([]);
     });
+  });
+});
+
+describe("cards in each invitee's DM (Phase 34)", () => {
+  const MESSAGES = "slack-test-messages";
+  const CHANNELS = "slack-test-channels";
+  const DM_BOB = dmChannelId(ALICE.userId, BOB.userId);
+  const DM_CAROL = dmChannelId(ALICE.userId, CAROL.userId);
+  const startAt = zonedMidnight("2026-11-04") + 15 * 3_600_000;
+
+  beforeEach(() => {
+    // Alice and Bob already talk; Alice and Carol never did.
+    mockChannels(dmRow(ALICE.userId, BOB.userId));
+  });
+
+  const messagePuts = () =>
+    ddbMock
+      .commandCalls(PutCommand)
+      .map((c) => c.args[0].input)
+      .filter((input) => input.TableName === MESSAGES);
+
+  it("a calendar meeting posts a card in each invitee's DM, opening the DM when needed", async () => {
+    const { status, body } = await call("POST /calendar/events", {
+      body: {
+        type: "meeting",
+        title: "Planning",
+        startAt,
+        endAt: startAt + 3_600_000,
+        participants: [BOB.userId, CAROL.userId],
+      },
+    });
+    expect(status).toBe(201);
+
+    // The event lists its cards before they're posted.
+    const eventPut = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
+    expect(eventPut.TableName).toBe(EVENTS);
+    const cards = eventPut.Item?.cards as Array<{ channelId: string; messageSk: string }>;
+    expect(cards.map((c) => c.channelId).sort()).toEqual([DM_BOB, DM_CAROL].sort());
+    expect(body.event.cards).toHaveLength(2);
+
+    // Carol's DM didn't exist: created like `openDm` does.
+    const dmPut = ddbMock
+      .commandCalls(PutCommand)
+      .map((c) => c.args[0].input)
+      .find((input) => input.TableName === CHANNELS);
+    expect(dmPut).toMatchObject({
+      Item: { channelId: DM_CAROL, type: "dm", members: [ALICE.userId, CAROL.userId].sort() },
+      ConditionExpression: "attribute_not_exists(channelId)",
+    });
+
+    // One card per DM, by the organizer, at the ids the event remembers.
+    const posted = messagePuts();
+    expect(posted).toHaveLength(2);
+    for (const put of posted) {
+      const ref = cards.find((c) => c.channelId === put.Item?.channelId)!;
+      expect(put.Item).toMatchObject({
+        kind: "meeting",
+        sk: ref.messageSk,
+        userId: ALICE.userId,
+        meeting: { eventId: body.event.eventId, title: "Planning" },
+      });
+      expect(put.Item?.text).toMatch(/^📅 Meeting scheduled: Planning/);
+    }
+
+    // Each DM's people hear about their card only.
+    const chat = sentEvents()
+      .filter(([, e]) => e.type === "message.new")
+      .map(([id, e]) => `${id}:${(e as { message: { channelId: string } }).message.channelId}`)
+      .sort();
+    expect(chat).toEqual(
+      [
+        `conn-alice:${DM_BOB}`,
+        `conn-alice:${DM_CAROL}`,
+        `conn-bob:${DM_BOB}`,
+        `conn-carol:${DM_CAROL}`,
+      ].sort(),
+    );
+  });
+
+  it("a meeting just for yourself posts no card", async () => {
+    await call("POST /calendar/events", {
+      body: { type: "meeting", title: "Focus", startAt, endAt: startAt + 3_600_000 },
+    });
+    expect(messagePuts()).toHaveLength(0);
+    expect(ddbMock.commandCalls(PutCommand)[0]!.args[0].input.Item?.cards).toBeUndefined();
+  });
+
+  describe("an existing meeting with cards", () => {
+    const cardedRow = {
+      ...meetingRow,
+      cards: [
+        { channelId: DM_BOB, messageId: "mb", messageSk: "1#mb" },
+        { channelId: DM_CAROL, messageId: "mc", messageSk: "1#mc" },
+      ],
+      participants: new Set([ALICE.userId, BOB.userId, CAROL.userId]),
+    };
+    const params = { id: cardedRow.eventId };
+
+    beforeEach(() => {
+      mockChannels(dmRow(ALICE.userId, BOB.userId), dmRow(ALICE.userId, CAROL.userId));
+      ddbMock
+        .on(GetCommand, { TableName: EVENTS, Key: { eventId: cardedRow.eventId } })
+        .resolves({ Item: cardedRow });
+    });
+
+    it("an edit rewrites every card with the event, in one transaction", async () => {
+      const { status } = await call("PUT /calendar/events/{id}", {
+        params,
+        body: { title: "Planning (moved)" },
+      });
+      expect(status).toBe(200);
+      const items = transactItems();
+      expect(items).toHaveLength(3);
+      expect(items.slice(1).map((i) => i.Update?.Key)).toEqual([
+        { channelId: DM_BOB, sk: "1#mb" },
+        { channelId: DM_CAROL, sk: "1#mc" },
+      ]);
+      const updates = sentEvents().filter(([, e]) => e.type === "message.updated");
+      expect(updates.map(([id]) => id).sort()).toEqual(
+        ["conn-alice", "conn-alice", "conn-bob", "conn-carol"].sort(),
+      );
+    });
+
+    it("dropping someone cancels their card; a newcomer gets one", async () => {
+      ddbMock.on(BatchGetCommand).resolves({
+        Responses: { [USERS]: [{ userId: BOB.userId }, { userId: ADMIN.userId }] },
+      });
+      const { status, body } = await call("PUT /calendar/events/{id}", {
+        params,
+        body: { participants: [BOB.userId, ADMIN.userId] },
+      });
+      expect(status).toBe(200);
+      // Bob's card is rewritten with the event; Carol's goes; the admin's is new.
+      expect(
+        transactItems()
+          .slice(1)
+          .map((i) => i.Update?.Key),
+      ).toEqual([{ channelId: DM_BOB, sk: "1#mb" }]);
+      const DM_ADMIN = dmChannelId(ALICE.userId, ADMIN.userId);
+      expect(body.event.cards.map((c: { channelId: string }) => c.channelId)).toEqual([
+        DM_BOB,
+        DM_ADMIN,
+      ]);
+      const cancel = ddbMock
+        .commandCalls(UpdateCommand)
+        .map((c) => c.args[0].input)
+        .find((input) => input.TableName === MESSAGES);
+      expect(cancel).toMatchObject({ Key: { channelId: DM_CAROL, sk: "1#mc" } });
+      expect(cancel?.ExpressionAttributeValues?.[":card"]).toMatchObject({ cancelled: true });
+      expect(cancel?.ExpressionAttributeValues?.[":text"]).toBe(
+        "📅 Meeting cancelled: Daily standup",
+      );
+      expect(messagePuts().map((p) => p.Item?.channelId)).toEqual([DM_ADMIN]);
+    });
+
+    it("deleting the meeting marks every card cancelled", async () => {
+      expect((await call("DELETE /calendar/events/{id}", { params })).status).toBe(204);
+      const cancels = ddbMock
+        .commandCalls(UpdateCommand)
+        .map((c) => c.args[0].input)
+        .filter((input) => input.TableName === MESSAGES);
+      expect(cancels.map((c) => c.Key)).toEqual([
+        { channelId: DM_BOB, sk: "1#mb" },
+        { channelId: DM_CAROL, sk: "1#mc" },
+      ]);
+      expect(cancels.every((c) => c.ExpressionAttributeValues?.[":card"].cancelled)).toBe(true);
+      const chat = sentEvents().filter(([, e]) => e.type === "message.updated");
+      expect(chat.map(([id]) => id).sort()).toEqual(
+        ["conn-alice", "conn-alice", "conn-bob", "conn-carol"].sort(),
+      );
+    });
+  });
+});
+
+describe("recurring meetings (Phase 34)", () => {
+  const startAt = zonedMidnight("2026-10-26") + 10 * 3_600_000; // a Monday, 10:00
+  const weekdays = { freq: "weekly", interval: 1, byWeekday: [1, 2, 3, 4, 5] };
+  const seriesRow = {
+    ...meetingRow,
+    eventId: "ev_01SERIES00000000000000000S",
+    title: "Standup",
+    startAt,
+    endAt: startAt + 1_800_000,
+    year: "series",
+    seriesEndAt: Number.MAX_SAFE_INTEGER,
+    recurrence: weekdays,
+  };
+  const params = { id: seriesRow.eventId };
+
+  beforeEach(() => {
+    mockChannels(dmRow(ALICE.userId, BOB.userId));
+    ddbMock
+      .on(GetCommand, { TableName: EVENTS, Key: { eventId: seriesRow.eventId } })
+      .resolves({ Item: seriesRow });
+  });
+
+  it("stores a series in its own partition with when it ends", async () => {
+    const { status, body } = await call("POST /calendar/events", {
+      body: {
+        type: "meeting",
+        title: "Standup",
+        startAt,
+        endAt: startAt + 1_800_000,
+        participants: [BOB.userId],
+        recurrence: { ...weekdays, count: 10 },
+      },
+    });
+    expect(status).toBe(201);
+    expect(body.event.recurrence).toEqual({ ...weekdays, count: 10 });
+    const put = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
+    expect(put.Item?.year).toBe("series");
+    // Ten weekdays from Mon Oct 26: the last is Fri Nov 6.
+    expect(put.Item?.seriesEndAt).toBe(zonedMidnight("2026-11-06") + 10.5 * 3_600_000);
+    const card = ddbMock
+      .commandCalls(PutCommand)
+      .map((c) => c.args[0].input)
+      .find((i) => i.TableName === "slack-test-messages");
+    expect(card?.Item?.text).toBe(
+      "📅 Meeting scheduled: Standup · Every weekday, 10 times at 10:00 AM",
+    );
+    expect(sendPush).toHaveBeenCalledWith(
+      [BOB.userId],
+      expect.objectContaining({ body: expect.stringMatching(/^Every weekday, 10 times · from /) }),
+    );
+  });
+
+  it("refuses a first date the rule doesn't have", async () => {
+    const { status } = await call("POST /calendar/events", {
+      body: {
+        type: "meeting",
+        title: "Standup",
+        startAt,
+        endAt: startAt + 1_800_000,
+        recurrence: { freq: "weekly", byWeekday: [2] },
+      },
+    });
+    expect(status).toBe(400);
+  });
+
+  it("lists running series once, skipping ones already over", async () => {
+    ddbMock.on(QueryCommand, { TableName: EVENTS }).callsFake((input) =>
+      input.ExpressionAttributeValues[":year"] === "series"
+        ? {
+            Items: [
+              seriesRow,
+              {
+                ...seriesRow,
+                eventId: "ev_01OVER000000000000000000O",
+                recurrence: { ...weekdays, count: 2 },
+                seriesEndAt: 1,
+              },
+            ],
+          }
+        : { Items: [] },
+    );
+    const { body } = await call("GET /calendar/events", {
+      query: { from: "2026-12-01", to: "2026-12-31" },
+    });
+    expect(body.events.map((e: { eventId: string }) => e.eventId)).toEqual([seriesRow.eventId]);
+    expect(body.events[0].seriesEndAt).toBeUndefined();
+    const seriesQuery = ddbMock
+      .commandCalls(QueryCommand)
+      .map((c) => c.args[0].input)
+      .find((i) => i.ExpressionAttributeValues?.[":year"] === "series");
+    expect(seriesQuery?.FilterExpression).toBe("seriesEndAt > :after");
+  });
+
+  it("cancels one meeting of the series, rewriting the card", async () => {
+    const carded = {
+      ...seriesRow,
+      channelId: dmChannelId(ALICE.userId, BOB.userId),
+      messageId: "m1",
+      messageSk: "1#m1",
+    };
+    ddbMock
+      .on(GetCommand, { TableName: EVENTS, Key: { eventId: seriesRow.eventId } })
+      .resolves({ Item: carded });
+    const { status, body } = await call("DELETE /calendar/events/{id}", {
+      params,
+      query: { occurrence: "2026-10-28" },
+    });
+    expect(status).toBe(200);
+    expect(body.event.exceptions).toEqual(["2026-10-28"]);
+    const [event, card] = transactItems();
+    expect(event!.Put?.Item).toMatchObject({ exceptions: ["2026-10-28"], year: "series" });
+    expect(card!.Update?.ExpressionAttributeValues?.[":card"].exceptions).toEqual(["2026-10-28"]);
+    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
+    const types = sentEvents()
+      .map(([id, e]) => `${id}:${e.type}`)
+      .sort();
+    expect(types).toContain("conn-bob:calendar.event_updated");
+    expect(types).toContain("conn-bob:message.updated");
+  });
+
+  it("refuses dates outside the series, single meetings and other people", async () => {
+    const at = (occurrence: string, user = ALICE) =>
+      call("DELETE /calendar/events/{id}", { user, params, query: { occurrence } });
+    expect((await at("2026-10-31")).status).toBe(400); // a Saturday
+    expect((await at("not-a-date")).status).toBe(400);
+    expect((await at("2026-10-28", BOB)).status).toBe(403);
+    ddbMock
+      .on(GetCommand, { TableName: EVENTS, Key: { eventId: meetingRow.eventId } })
+      .resolves({ Item: meetingRow });
+    expect(
+      (
+        await call("DELETE /calendar/events/{id}", {
+          params: { id: meetingRow.eventId },
+          query: { occurrence: "2026-11-03" },
+        })
+      ).status,
+    ).toBe(400);
+    expect(ddbMock.commandCalls(TransactWriteCommand)).toHaveLength(0);
+  });
+
+  it("an edit can stop the repeating, dropping its cancelled dates", async () => {
+    ddbMock
+      .on(GetCommand, { TableName: EVENTS, Key: { eventId: seriesRow.eventId } })
+      .resolves({ Item: { ...seriesRow, exceptions: ["2026-10-28"] } });
+    const { status, body } = await call("PUT /calendar/events/{id}", {
+      params,
+      body: { recurrence: null },
+    });
+    expect(status).toBe(200);
+    expect(body.event.recurrence).toBeUndefined();
+    expect(body.event.exceptions).toBeUndefined();
+    const put = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
+    expect(put.Item?.year).toBe("2026");
+    expect(put.Item?.seriesEndAt).toBeUndefined();
+  });
+
+  it("a new rule keeps only the cancelled dates it still has", async () => {
+    ddbMock
+      .on(GetCommand, { TableName: EVENTS, Key: { eventId: seriesRow.eventId } })
+      .resolves({ Item: { ...seriesRow, exceptions: ["2026-10-27", "2026-11-02"] } });
+    const { body } = await call("PUT /calendar/events/{id}", {
+      params,
+      body: { recurrence: { freq: "weekly", byWeekday: [1] } },
+    });
+    expect(body.event.recurrence).toEqual({ freq: "weekly", interval: 1, byWeekday: [1] });
+    expect(body.event.exceptions).toEqual(["2026-11-02"]);
   });
 });

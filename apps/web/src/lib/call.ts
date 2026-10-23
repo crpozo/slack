@@ -47,6 +47,19 @@ import type { DistributiveOmit } from "./ws";
  * them on for both (the other side is told at once), each side transcribes
  * only its own voice and sends each finished phrase across, and the caller
  * submits the merged timeline when the call ends.
+ *
+ * Network resilience (Phase 34): when a connected call's ICE goes
+ * `disconnected` (Wi-Fi to cellular, a dead access point, a laptop lid) the
+ * call doesn't hang up. It shows "Reconnecting…" and restarts ICE
+ * (`restartIce` and a fresh offer, sent as a `renegotiate` signal): the
+ * caller drives it, the callee also tries when its own network comes back
+ * (`online`, or its socket reconnecting). Both may offer at once: the
+ * "perfect negotiation" pattern settles it (the callee is polite and rolls
+ * its offer back, the caller ignores the callee's). Unanswered offers are
+ * re-sent (the other side's socket may be reconnecting) carrying every
+ * candidate gathered so far, and a restart that didn't bring ICE back is
+ * tried again with fresh candidates. 30 seconds after the drop, the call
+ * ends. Tracks, the data channel and the AI notes all survive a restart.
  */
 
 /**
@@ -91,7 +104,19 @@ async function traceSelectedPair(pc: RTCPeerConnection): Promise<void> {
 }
 const RING_TIMEOUT_MS = 45_000;
 const INCOMING_TIMEOUT_MS = 50_000;
+/** A call still connecting that loses ICE gets this long before it fails. */
 const DISCONNECT_GRACE_MS = 10_000;
+/** Phase 34: how long a connected call tries to get its connection back before it ends. */
+export const RECONNECT_TIMEOUT_MS = 30_000;
+/** `disconnected` often heals by itself within a second or two: restart ICE only after this. */
+export const RESTART_DELAY_MS = 2_000;
+/** An unanswered restart offer is sent again after this, doubling up to `RESEND_MAX_MS`. */
+export const RESEND_MS = 2_000;
+const RESEND_MAX_MS = 8_000;
+/** A restart that hasn't brought ICE back by then is made again, with fresh candidates. */
+export const RESTART_RETRY_MS = 8_000;
+/** Remote candidates kept for a description that hasn't arrived yet (a restart's new credentials). */
+const MAX_PENDING_ICE = 200;
 /**
  * Local candidates are held this long and sent together: one message per
  * candidate made each one its own Lambda invocation, and a gathering burst
@@ -149,13 +174,23 @@ export interface CallView {
   micDeviceId: string | null;
   cameraDeviceId: string | null;
   notes: CallNotesView;
+  /**
+   * Phase 34: the connection dropped and is being restored: since when, and
+   * when the call ends if it isn't (both epoch ms). `null` while connected.
+   */
+  reconnecting: { since: number; deadline: number } | null;
 }
 
 export const useCall = create<{ call: CallView | null }>(() => ({ call: null }));
 
 type CallInput = Extract<ClientActionInput, { action: "call" }>;
 type SignalPayload = DistributiveOmit<CallInput, "action" | "callId" | "channelId" | "to">;
-export type SendCallSignal = (payload: DistributiveOmit<CallInput, "action">) => void;
+/**
+ * Sends a signal over the socket. `key`: while the socket is offline, a
+ * queued signal with the same key is replaced (only the newest restart
+ * offer goes out when it's back).
+ */
+export type SendCallSignal = (payload: DistributiveOmit<CallInput, "action">, key?: string) => void;
 
 interface Session {
   callId: string;
@@ -188,6 +223,18 @@ interface Session {
   timers: Set<ReturnType<typeof setTimeout>>;
   graceTimer: ReturnType<typeof setTimeout> | undefined;
   notes: NotesSession;
+  /** Phase 34: when the connection dropped (epoch ms), while it's being restored. */
+  reconnectingSince: number | null;
+  /** The restore's timers (restart, re-send, the 30-second limit), cleared once it's back. */
+  reconnectTimers: Set<ReturnType<typeof setTimeout>>;
+  /** The next scheduled ICE restart. */
+  restartTimer: ReturnType<typeof setTimeout> | undefined;
+  /** My ICE restarts so far: the number of my latest restart offer. */
+  restarts: number;
+  /** The newest restart offer applied from the peer. */
+  peerRestart: number;
+  /** Creating an offer right now (perfect negotiation: a crossing offer is a collision). */
+  makingOffer: boolean;
 }
 
 interface NotesSession {
@@ -278,18 +325,31 @@ export class CallManager {
   private readonly onPageHide = () => {
     if (this.session) this.hangUp();
   };
+  /** This device's network is back: a call being restored restarts ICE now. */
+  private readonly onOnline = () => this.networkBack();
 
   /** Connects the manager to the signed-in chat session. */
   attach(deps: CallDeps): void {
     this.deps = deps;
     window.addEventListener("pagehide", this.onPageHide);
+    window.addEventListener("online", this.onOnline);
   }
 
   /** Ends any call (e.g. on sign-out) and stops listening. */
   detach(): void {
     if (this.session) this.hangUp();
     window.removeEventListener("pagehide", this.onPageHide);
+    window.removeEventListener("online", this.onOnline);
     this.deps = null;
+  }
+
+  /**
+   * The signaling socket reconnected (Phase 34): signals sent to us while it
+   * was down are lost, so a call being restored restarts (or re-sends) now
+   * rather than at its next timer.
+   */
+  signalingReconnected(): void {
+    this.networkBack();
   }
 
   get busy(): boolean {
@@ -585,6 +645,9 @@ export class CallManager {
       case "call.end":
         this.finish(session, endNotice(event.reason, deps.nameOf(session.peerId), session.phase));
         break;
+      case "call.renegotiate":
+        void this.receiveRenegotiate(session, event);
+        break;
     }
   }
 
@@ -654,6 +717,15 @@ export class CallManager {
       await pc.addIceCandidate(candidate);
     } catch {
       // A bad candidate only removes one path; the others may still connect.
+      // During an ICE restart it may belong to the peer's new credentials,
+      // whose description is still on its way: keep it for then.
+      if (
+        session.reconnectingSince !== null &&
+        candidate.usernameFragment &&
+        session.pendingIce.length < MAX_PENDING_ICE
+      ) {
+        session.pendingIce.push(candidate);
+      }
     }
   }
 
@@ -696,6 +768,12 @@ export class CallManager {
       connectedAt: null,
       timers: new Set(),
       graceTimer: undefined,
+      reconnectingSince: null,
+      reconnectTimers: new Set(),
+      restartTimer: undefined,
+      restarts: 0,
+      peerRestart: 0,
+      makingOffer: false,
       notes: {
         on: false,
         used: false,
@@ -751,9 +829,10 @@ export class CallManager {
     pc.addEventListener("icegatheringstatechange", () =>
       trace(`ice gathering ${pc.iceGatheringState}`, sinceStart()),
     );
-    pc.addEventListener("iceconnectionstatechange", () =>
-      trace(`ice connection ${pc.iceConnectionState}`, sinceStart()),
-    );
+    pc.addEventListener("iceconnectionstatechange", () => {
+      trace(`ice connection ${pc.iceConnectionState}`, sinceStart());
+      this.onIceState(session, pc.iceConnectionState);
+    });
     pc.addEventListener("icecandidateerror", (e) => {
       const { url, errorCode, errorText } = e as RTCPeerConnectionIceErrorEvent;
       trace("ice candidate error", { ...sinceStart(), url, errorCode, errorText });
@@ -799,14 +878,18 @@ export class CallManager {
             session.connectedAt ??= Date.now();
             this.publish();
           }
+          this.reconnected(session);
           break;
         case "disconnected":
-          // Often a network blip that ICE recovers from on its own.
+          // Once connected, the ICE state drives the restore (`onIceState`).
+          if (session.connectedAt !== null) break;
+          // Still connecting: often a blip that ICE recovers from on its own.
           clearTimeout(session.graceTimer);
           session.graceTimer = setTimeout(() => this.drop(session), DISCONNECT_GRACE_MS);
           break;
         case "failed":
-          this.drop(session);
+          if (session.connectedAt === null) this.drop(session);
+          else this.beginReconnect(session, 0);
           break;
         default:
           break;
@@ -834,10 +917,233 @@ export class CallManager {
   }
 
   /** Connection lost for good: tell the peer (if it can still hear us) and clean up. */
-  private drop(session: Session): void {
+  private drop(session: Session, notice?: string): void {
     if (!this.isCurrent(session)) return;
     this.signal(session, { signal: "end", reason: "failed" });
-    this.finish(session, endNotice("failed", this.deps?.nameOf(session.peerId) ?? "", null));
+    this.finish(
+      session,
+      notice ?? endNotice("failed", this.deps?.nameOf(session.peerId) ?? "", null),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reconnecting (Phase 34)
+  // ---------------------------------------------------------------------------
+
+  /** ICE state changes of a call: a connected call that loses its network is restored. */
+  private onIceState(session: Session, state: RTCIceConnectionState): void {
+    if (!this.isCurrent(session)) return;
+    switch (state) {
+      case "connected":
+      case "completed":
+        this.reconnected(session);
+        break;
+      case "disconnected":
+        // Still connecting: the connection-state grace period handles it.
+        if (session.connectedAt !== null) this.beginReconnect(session, RESTART_DELAY_MS);
+        break;
+      case "failed":
+        if (session.connectedAt !== null) this.beginReconnect(session, 0);
+        break;
+      default:
+        break;
+    }
+  }
+
+  /**
+   * The connection dropped: "Reconnecting…" from now, the call ends in
+   * `RECONNECT_TIMEOUT_MS` unless it's back, and the caller restarts ICE
+   * after `delay` (sooner if it gets worse).
+   */
+  private beginReconnect(session: Session, delay: number): void {
+    if (session.reconnectingSince === null) {
+      session.reconnectingSince = Date.now();
+      trace("reconnecting", { callId: session.callId, role: session.role });
+      this.reconnectLater(session, RECONNECT_TIMEOUT_MS, () => {
+        trace("reconnect timed out", { callId: session.callId, restarts: session.restarts });
+        const name = this.deps?.nameOf(session.peerId) ?? "";
+        this.drop(session, `The connection to ${name} couldn't be restored, so the call ended.`);
+      });
+      this.publish();
+    }
+    // The caller drives restarts; the callee waits for its offer (or its own network news).
+    if (session.role === "caller") this.scheduleRestart(session, delay);
+  }
+
+  /** The connection is back: everything about restoring it stops. */
+  private reconnected(session: Session): void {
+    if (session.reconnectingSince === null) return;
+    trace("reconnected", {
+      callId: session.callId,
+      afterMs: Date.now() - session.reconnectingSince,
+      restarts: session.restarts,
+    });
+    session.reconnectingSince = null;
+    this.clearReconnect(session);
+    this.publish();
+    this.sendMediaState(session);
+  }
+
+  private clearReconnect(session: Session): void {
+    session.reconnectTimers.forEach((t) => clearTimeout(t));
+    session.reconnectTimers.clear();
+    clearTimeout(session.restartTimer);
+    session.restartTimer = undefined;
+  }
+
+  /** `later`, but cancelled as soon as the connection is back. */
+  private reconnectLater(session: Session, ms: number, fn: () => void): void {
+    const timer = setTimeout(() => {
+      session.reconnectTimers.delete(timer);
+      if (this.isCurrent(session) && session.reconnectingSince !== null) fn();
+    }, ms);
+    session.reconnectTimers.add(timer);
+  }
+
+  /** (Re)schedules the next ICE restart (one at a time). */
+  private scheduleRestart(session: Session, delay: number): void {
+    clearTimeout(session.restartTimer);
+    session.restartTimer = setTimeout(() => {
+      session.restartTimer = undefined;
+      void this.restartIce(session);
+    }, delay);
+  }
+
+  /** The network came back here (or the socket did): restore now instead of at the next timer. */
+  private networkBack(): void {
+    const session = this.session;
+    if (!session || session.reconnectingSince === null || !session.pc) return;
+    trace("network back while reconnecting", { callId: session.callId, role: session.role });
+    // An offer of ours still unanswered is sent again (the peer may have missed it).
+    if (session.pc.signalingState === "have-local-offer") {
+      this.sendRestartOffer(session, session.restarts);
+    } else {
+      this.scheduleRestart(session, 0);
+    }
+  }
+
+  /**
+   * An ICE restart: new credentials, fresh candidates, a new offer for the
+   * peer. An offer of ours left unanswered is rolled back first; the peer's
+   * offer in progress is left to finish. The caller schedules another
+   * restart in case this one doesn't bring the connection back.
+   */
+  private async restartIce(session: Session): Promise<void> {
+    const pc = session.pc;
+    if (!this.isCurrent(session) || session.reconnectingSince === null || !pc) return;
+    // The caller keeps trying; the callee's restarts are one-offs on news of its network.
+    if (session.role === "caller") this.scheduleRestart(session, RESTART_RETRY_MS);
+    try {
+      if (pc.signalingState === "have-local-offer") {
+        await pc.setLocalDescription({ type: "rollback" });
+      }
+      if (pc.signalingState !== "stable") return; // the peer's offer is being answered
+      session.makingOffer = true;
+      const restart = session.restarts + 1;
+      pc.restartIce?.();
+      const offer = await pc.createOffer({ iceRestart: true });
+      // The peer's offer arrived meanwhile and won (or the call ended).
+      if (!this.isCurrent(session) || pc.signalingState !== "stable") return;
+      await pc.setLocalDescription(offer);
+      session.restarts = restart;
+      trace("ice restart", { callId: session.callId, restart });
+      this.sendRestartOffer(session, restart);
+    } catch (err) {
+      trace("ice restart failed", { callId: session.callId, error: String(err) });
+    } finally {
+      session.makingOffer = false;
+    }
+  }
+
+  /**
+   * Sends restart offer `restart` (its SDP as it stands: every candidate
+   * gathered so far), then again after `wait` until it's answered or
+   * superseded. The peer's socket may have been down the first time.
+   */
+  private sendRestartOffer(session: Session, restart: number, wait = RESEND_MS): void {
+    const pc = session.pc;
+    if (!pc || !this.isCurrent(session) || session.reconnectingSince === null) return;
+    if (pc.signalingState !== "have-local-offer" || session.restarts !== restart) return;
+    this.signal(
+      session,
+      { signal: "renegotiate", kind: "offer", sdp: pc.localDescription?.sdp ?? "", restart },
+      `call-restart-offer:${session.callId}`,
+    );
+    this.reconnectLater(session, wait, () =>
+      this.sendRestartOffer(session, restart, Math.min(wait * 2, RESEND_MAX_MS)),
+    );
+  }
+
+  /**
+   * The peer's restart offer (answered: by the caller unless its own offer
+   * is in flight, by the callee always, rolling its own back) or the
+   * answer to ours.
+   */
+  private async receiveRenegotiate(
+    session: Session,
+    event: Extract<CallEvent, { type: "call.renegotiate" }>,
+  ): Promise<void> {
+    const pc = session.pc;
+    if (!pc?.remoteDescription) return; // not connected yet: nothing to restart
+    if (event.kind === "answer") {
+      // Stale, superseded or a re-sent answer we already applied.
+      if (pc.signalingState !== "have-local-offer" || event.restart !== session.restarts) return;
+      try {
+        await pc.setRemoteDescription({ type: "answer", sdp: event.sdp });
+        trace("ice restart answered", { callId: session.callId, restart: event.restart });
+        await this.flushIce(session);
+      } catch (err) {
+        trace("ice restart answer failed", { callId: session.callId, error: String(err) });
+      }
+      this.checkRestored(session, pc);
+      return;
+    }
+
+    if (event.restart < session.peerRestart) return; // older than one already applied
+    const polite = session.role === "callee";
+    const collision = session.makingOffer || pc.signalingState !== "stable";
+    if (collision && !polite) {
+      trace("ice restart collision: keeping ours", { callId: session.callId });
+      return;
+    }
+    try {
+      if (pc.signalingState === "have-local-offer") {
+        await pc.setLocalDescription({ type: "rollback" });
+      }
+      await pc.setRemoteDescription({ type: "offer", sdp: event.sdp });
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+    } catch (err) {
+      trace("ice restart offer failed", { callId: session.callId, error: String(err) });
+      return;
+    }
+    if (!this.isCurrent(session)) return;
+    session.peerRestart = event.restart;
+    trace("ice restart offer answered", { callId: session.callId, restart: event.restart });
+    this.signal(
+      session,
+      {
+        signal: "renegotiate",
+        kind: "answer",
+        sdp: pc.localDescription?.sdp ?? "",
+        restart: event.restart,
+      },
+      `call-restart-answer:${session.callId}`,
+    );
+    await this.flushIce(session);
+    this.checkRestored(session, pc);
+  }
+
+  /**
+   * After a restart is applied: when a path still works, the browser keeps
+   * ICE `connected` through the restart and fires no state change, so the
+   * state is read here rather than waited for.
+   */
+  private checkRestored(session: Session, pc: RTCPeerConnection): void {
+    if (!this.isCurrent(session) || session.reconnectingSince === null) return;
+    if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+      this.reconnected(session);
+    }
   }
 
   private fail(session: Session, message: string): void {
@@ -873,13 +1179,11 @@ export class CallManager {
     this.signal(session, { signal: "ice_candidates", candidates });
   }
 
-  private signal(session: Session, payload: SignalPayload): void {
-    this.deps?.send({
-      ...payload,
-      callId: session.callId,
-      channelId: session.channelId,
-      to: session.peerId,
-    });
+  private signal(session: Session, payload: SignalPayload, key?: string): void {
+    this.deps?.send(
+      { ...payload, callId: session.callId, channelId: session.channelId, to: session.peerId },
+      key,
+    );
   }
 
   private later(session: Session, ms: number, fn: () => void): void {
@@ -907,6 +1211,7 @@ export class CallManager {
     stopRinging();
     session.timers.forEach((t) => clearTimeout(t));
     clearTimeout(session.graceTimer);
+    this.clearReconnect(session);
     for (const track of [session.mic, session.camera, session.screen]) track?.stop();
     session.control?.close();
     session.pc?.close();
@@ -1084,6 +1389,10 @@ export class CallManager {
           phrases: s.notes.segments.length,
           full: s.notes.full,
         },
+        reconnecting:
+          s.reconnectingSince === null
+            ? null
+            : { since: s.reconnectingSince, deadline: s.reconnectingSince + RECONNECT_TIMEOUT_MS },
       },
     });
   }
