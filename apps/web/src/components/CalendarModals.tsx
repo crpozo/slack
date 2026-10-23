@@ -2,16 +2,19 @@ import {
   addDays,
   countVacationDays,
   dateInZone,
+  describeRecurrence,
   MAX_EVENT_DAYS,
   MAX_EVENT_DESCRIPTION_LENGTH,
   MAX_EVENT_TITLE_LENGTH,
   MAX_VACATION_NOTE_LENGTH,
+  meetingStartDate,
   remainingDays,
   vacationOwner,
   yearOf,
   type CalendarEvent,
   type CalendarEventType,
   type CreateEventInput,
+  type Recurrence,
   type UpdateEventInput,
   type VacationEvent,
 } from "@mindfultech/shared";
@@ -28,8 +31,9 @@ import {
 import { useChat, useNameOf } from "../store";
 import { useCalendar } from "../store/calendar";
 import { Avatar } from "./Avatar";
-import { CalendarIcon, PencilIcon, TrashIcon } from "./icons";
+import { CalendarIcon, PencilIcon, RepeatIcon, TrashIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
+import { RepeatFields } from "./RepeatFields";
 import { UserPicker } from "./UserPicker";
 
 const TYPE_LABEL: Record<CalendarEventType, string> = {
@@ -131,6 +135,9 @@ export function EventFormModal({
   const [participants, setParticipants] = useState<string[]>(
     existing?.type === "meeting" ? existing.participants.filter((id) => id !== me?.userId) : [],
   );
+  // Phase 34: a series (editing one edits all of its meetings).
+  const series = existing?.type === "meeting" && existing.recurrence ? existing : null;
+  const [recurrence, setRecurrence] = useState<Recurrence | null>(series?.recurrence ?? null);
   // Vacation fields
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -152,15 +159,34 @@ export function EventFormModal({
   const vacationYear = yearOf(startDate || today);
   const left = mine && balanceYear === vacationYear ? remainingDays(mine) : null;
 
+  // The first meeting's date in the company timezone: what the series' rule counts from.
+  const firstStart = allDay ? null : joinLocal(date, startTime);
+  const firstDate = allDay ? startDate : firstStart !== null ? dateInZone(firstStart) : date;
+  // Repeating all-day meetings last one day.
+  const canRepeat = type === "meeting" && (!allDay || startDate === endDate);
+  const rule = canRepeat ? recurrence : null;
+
   function buildInput(): CreateEventInput {
     if (type === "vacation") return { type, startDate, endDate, note };
     if (type === "holiday") return { type, title, description, startDate, endDate };
-    if (allDay) return { type, title, description, allDay: true, startDate, endDate, participants };
+    const repeat = rule ? { recurrence: rule } : {};
+    if (allDay) {
+      return {
+        type,
+        title,
+        description,
+        allDay: true,
+        startDate,
+        endDate,
+        participants,
+        ...repeat,
+      };
+    }
     const startAt = joinLocal(date, startTime);
     const endAt = joinLocal(date, endTime);
     if (startAt === null || endAt === null) throw new Error("Pick a date and times");
     if (endAt <= startAt) throw new Error("The meeting must end after it starts");
-    return { type, title, description, allDay: false, startAt, endAt, participants };
+    return { type, title, description, allDay: false, startAt, endAt, participants, ...repeat };
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -172,8 +198,10 @@ export function EventFormModal({
       if (existing) {
         const patch: Record<string, unknown> = { ...input };
         delete patch.type;
+        // No rule any more: the series becomes its first meeting alone.
+        if (existing.type === "meeting" && !rule && existing.recurrence) patch.recurrence = null;
         await updateEvent(existing.eventId, patch as UpdateEventInput);
-        showToast("Event updated.");
+        showToast(series ? "Every meeting of the series was updated." : "Event updated.");
       } else {
         await createEvent(input);
         showToast(
@@ -181,7 +209,9 @@ export function EventFormModal({
             ? `Vacation requested: ${vacationDays} working ${vacationDays === 1 ? "day" : "days"}. An admin will review it.`
             : type === "holiday"
               ? "Holiday added to everyone's calendar."
-              : "Meeting created.",
+              : rule
+                ? "Repeating meeting created."
+                : "Meeting created.",
         );
       }
       onClose();
@@ -201,7 +231,9 @@ export function EventFormModal({
     ? ["meeting", "vacation", "holiday"]
     : ["meeting", "vacation"];
   const heading = editing
-    ? `Edit ${TYPE_LABEL[initialType].toLowerCase()}`
+    ? series
+      ? "Edit series"
+      : `Edit ${TYPE_LABEL[initialType].toLowerCase()}`
     : type === "vacation"
       ? "Request vacation"
       : `New ${TYPE_LABEL[type].toLowerCase()}`;
@@ -322,6 +354,23 @@ export function EventFormModal({
                   />
                 </Field>
               </div>
+            )}
+            {series && (
+              <p className="rounded-lg bg-surface-sidebar px-3 py-2 text-xs text-ink-secondary">
+                Changes apply to every meeting of the series. The date is its first meeting.
+              </p>
+            )}
+            {canRepeat ? (
+              <RepeatFields
+                first={firstDate}
+                value={recurrence}
+                onChange={setRecurrence}
+                disabled={busy}
+              />
+            ) : (
+              <p className="text-xs text-ink-secondary">
+                Only one-day all-day meetings can repeat.
+              </p>
             )}
             <div className="space-y-1.5">
               <span className="block text-sm font-medium text-ink">
@@ -484,13 +533,19 @@ export function EventDetailsModal({
   const me = useChat((s) => s.me);
   const nameOf = useNameOf();
   const showToast = useChat((s) => s.showToast);
-  const { deleteEvent, decideVacation } = useCalendar(
-    useShallow((s) => ({ deleteEvent: s.deleteEvent, decideVacation: s.decideVacation })),
+  const { deleteEvent, cancelOccurrence, decideVacation, stored } = useCalendar(
+    useShallow((s) => ({
+      deleteEvent: s.deleteEvent,
+      cancelOccurrence: s.cancelOccurrence,
+      decideVacation: s.decideVacation,
+      stored: s.events[event.eventId],
+    })),
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [decisionNote, setDecisionNote] = useState("");
-  const [confirming, setConfirming] = useState(false);
+  /** Which deletion awaits a "Sure?": the whole event (series), or this one meeting of it. */
+  const [confirming, setConfirming] = useState<"event" | "occurrence" | null>(null);
 
   if (!me) return null;
   const admin = me.role === "admin";
@@ -504,7 +559,12 @@ export function EventDetailsModal({
       : event.type === "holiday"
         ? admin
         : admin || (requester && event.status === "pending");
-  const deleteLabel = event.type === "vacation" ? "Cancel request" : "Delete";
+  // Phase 34: one meeting of a series (`event`) and the series it belongs to.
+  const series = event.type === "meeting" && event.recurrence ? event : null;
+  const seriesRow = series && stored?.type === "meeting" ? stored : series;
+  const occurrence = series?.occurrence;
+  const deleteLabel =
+    event.type === "vacation" ? "Cancel request" : series ? "Delete series" : "Delete";
 
   async function run(action: () => Promise<void>, done: string) {
     setBusy(true);
@@ -516,7 +576,7 @@ export function EventDetailsModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
       setBusy(false);
-      setConfirming(false);
+      setConfirming(null);
     }
   }
 
@@ -527,42 +587,71 @@ export function EventDetailsModal({
       footer={
         <>
           {canDelete && !confirming && (
-            <button
-              type="button"
-              onClick={() => setConfirming(true)}
-              disabled={busy}
-              className="mr-auto inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-error hover:bg-error/10 disabled:opacity-50"
-            >
-              <TrashIcon /> {deleteLabel}
-            </button>
+            <span className="mr-auto flex flex-wrap items-center gap-1">
+              {occurrence && (
+                <button
+                  type="button"
+                  onClick={() => setConfirming("occurrence")}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-error hover:bg-error/10 disabled:opacity-50"
+                >
+                  <TrashIcon /> Cancel this meeting
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setConfirming("event")}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-error hover:bg-error/10 disabled:opacity-50"
+              >
+                {!occurrence && <TrashIcon />} {deleteLabel}
+              </button>
+            </span>
           )}
           {confirming && (
             <span className="mr-auto flex items-center gap-2 text-sm">
-              <span className="text-ink-secondary">Sure?</span>
+              <span className="text-ink-secondary">
+                {confirming === "occurrence"
+                  ? "Cancel only this one?"
+                  : series
+                    ? "Delete every meeting?"
+                    : "Sure?"}
+              </span>
               <button
                 type="button"
                 disabled={busy}
                 onClick={() =>
-                  void run(
-                    () => deleteEvent(event.eventId),
-                    event.type === "vacation"
-                      ? "Request cancelled; the days are back."
-                      : "Deleted.",
-                  )
+                  void (confirming === "occurrence" && occurrence
+                    ? run(
+                        () => cancelOccurrence(event.eventId, occurrence),
+                        "That meeting was cancelled; the rest of the series stays.",
+                      )
+                    : run(
+                        () => deleteEvent(event.eventId),
+                        event.type === "vacation"
+                          ? "Request cancelled; the days are back."
+                          : series
+                            ? "Series deleted."
+                            : "Deleted.",
+                      ))
                 }
                 className="rounded-lg bg-error px-3 py-1.5 text-sm font-semibold text-on-accent disabled:opacity-50"
               >
-                {busy ? "…" : `Yes, ${deleteLabel.toLowerCase()}`}
+                {busy
+                  ? "…"
+                  : confirming === "occurrence"
+                    ? "Yes, cancel it"
+                    : `Yes, ${deleteLabel.toLowerCase()}`}
               </button>
-              <SecondaryButton onClick={() => setConfirming(false)} disabled={busy}>
+              <SecondaryButton onClick={() => setConfirming(null)} disabled={busy}>
                 No
               </SecondaryButton>
             </span>
           )}
           {canEdit && (
-            <SecondaryButton onClick={() => onEdit(event)} disabled={busy}>
-              <span className="inline-flex items-center gap-1.5">
-                <PencilIcon /> Edit
+            <SecondaryButton onClick={() => onEdit(seriesRow ?? event)} disabled={busy}>
+              <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                <PencilIcon /> {series ? "Edit series" : "Edit"}
               </span>
             </SecondaryButton>
           )}
@@ -578,6 +667,15 @@ export function EventDetailsModal({
           <p className="mt-1 flex items-center gap-2 text-sm text-ink-secondary">
             <CalendarIcon /> {formatWhen(event)}
           </p>
+          {seriesRow?.recurrence && (
+            <p className="mt-1 flex items-center gap-2 text-sm text-ink-secondary">
+              <RepeatIcon aria-hidden="true" />
+              <span>
+                {describeRecurrence(seriesRow.recurrence, meetingStartDate(seriesRow))}
+                {seriesRow.exceptions?.length ? ` · ${seriesRow.exceptions.length} cancelled` : ""}
+              </span>
+            </p>
+          )}
         </div>
 
         {event.type === "vacation" && (

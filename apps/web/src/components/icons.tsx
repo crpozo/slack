@@ -231,6 +231,15 @@ export const CalendarIcon = (p: IconProps) => (
     <path d="M16 3v4M8 3v4M3 11h18" />
   </Icon>
 );
+/** A repeating meeting (Phase 34). */
+export const RepeatIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m17 2 4 4-4 4" />
+    <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+    <path d="m7 22-4-4 4-4" />
+    <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+  </Icon>
+);
 export const KanbanIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M5 3v16M12 3v10M19 3v7" />

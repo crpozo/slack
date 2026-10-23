@@ -29,6 +29,7 @@ const call = (patch: Partial<CallView> = {}): CallView =>
       phrases: 0,
       full: false,
     },
+    reconnecting: null,
     ...patch,
   }) as CallView;
 
@@ -45,7 +46,13 @@ describe("the desktop call window's bridge", () => {
       peerCamOn: true,
       peerSharing: true,
       notesOn: false,
+      reconnectingUntil: null,
     });
+    // Phase 34: the small window counts down too.
+    expect(
+      pipStateOf(call({ reconnecting: { since: 1_000, deadline: 31_000 } }), "Ana")
+        .reconnectingUntil,
+    ).toBe(31_000);
     expect(pipStateOf(call({ phase: "connecting", connectedAt: null }), "Ana")).toMatchObject({
       phase: "connecting",
       peerCamOn: false,

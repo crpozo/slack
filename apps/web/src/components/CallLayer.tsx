@@ -44,6 +44,7 @@ import {
   VideoOffIcon,
 } from "./icons";
 import { Popover } from "./Popover";
+import { ReconnectingOverlay } from "./Reconnecting";
 import { StreamMedia } from "./StreamMedia";
 
 // --- Picture-in-picture outside the window (Phase 24) ------------------------------
@@ -134,6 +135,7 @@ function DocumentPipCall({ call }: Readonly<{ call: CallView }>) {
       peerCamOn={connected && call.peer.camOn && !!call.remoteStream}
       peerSharing={connected && call.peer.sharing && !!call.remoteScreen}
       notesOn={call.notes.on}
+      reconnectingUntil={call.reconnecting?.deadline ?? null}
       camera={call.remoteStream}
       screen={call.remoteScreen}
       onMic={() => calls.toggleMic()}
@@ -178,6 +180,7 @@ function useElapsed(since: number | null): string {
 }
 
 function statusText(call: CallView, elapsed: string): string {
+  if (call.reconnecting) return "Reconnecting…";
   switch (call.phase) {
     case "outgoing":
       return "Calling…";
@@ -593,8 +596,9 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
         </p>
       </header>
 
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
         {poppedOut ? <PoppedOutNotice /> : <Stage call={call} name={name} connected={connected} />}
+        {call.reconnecting && <ReconnectingOverlay deadline={call.reconnecting.deadline} />}
       </div>
 
       <footer className="flex items-center justify-center gap-3 px-4 py-2.5">
@@ -755,6 +759,7 @@ function FloatingCall({ call }: Readonly<{ call: CallView }>) {
     >
       <div className="relative aspect-video bg-black">
         {stage}
+        {call.reconnecting && <ReconnectingOverlay deadline={call.reconnecting.deadline} compact />}
         {call.localCamera && (
           <div className="absolute bottom-1.5 right-1.5 w-20 overflow-hidden rounded-lg border border-white/20 shadow-lg">
             <StreamMedia
@@ -768,7 +773,10 @@ function FloatingCall({ call }: Readonly<{ call: CallView }>) {
         )}
       </div>
       <div className="flex items-center gap-2 px-3 pt-2 text-sm">
-        <span className="h-2 w-2 shrink-0 rounded-full bg-success" aria-hidden="true" />
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${call.reconnecting ? "bg-warning" : "bg-success"}`}
+          aria-hidden="true"
+        />
         <p className="min-w-0 flex-1 truncate font-semibold">{name}</p>
         <NotesBadge call={call} />
         <p className="shrink-0 text-xs tabular-nums text-white/70" aria-live="polite">

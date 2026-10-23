@@ -1,4 +1,12 @@
-import { meetingCardOf, type MeetingCard as MeetingCardData } from "@mindfultech/shared";
+import {
+  describeRecurrence,
+  dmMembers,
+  meetingCardOf,
+  meetingStartDate,
+  nextOccurrence,
+  type MeetingCard as MeetingCardData,
+  type MeetingEvent,
+} from "@mindfultech/shared";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { joinState } from "../lib/agenda";
@@ -8,7 +16,7 @@ import { useNow } from "../lib/hooks";
 import { useChat, useNameOf } from "../store";
 import { useCalendar } from "../store/calendar";
 import { Avatar } from "./Avatar";
-import { CalendarIcon, ChevronRightIcon, VideoIcon } from "./icons";
+import { CalendarIcon, ChevronRightIcon, RepeatIcon, VideoIcon } from "./icons";
 
 /** Where the calendar opens this card's event. */
 export const calendarEventPath = (eventId: string) =>
@@ -26,6 +34,11 @@ export const calendarEventPath = (eventId: string) =>
  * is edited (`message.updated`), and when the calendar store already holds
  * the live event (the calendar was opened, or its push arrived first), the
  * card is drawn from that, so the two never disagree.
+ *
+ * Phase 34: a series' card shows its meeting happening now or next (Join
+ * opens for each one), and says how it repeats; a deleted meeting's card
+ * stays, marked cancelled. Cards of group meetings sit in each invitee's DM
+ * with the organizer: Join calls the other person of that DM.
  */
 export function MeetingCard({
   card: stored,
@@ -43,15 +56,32 @@ export function MeetingCard({
   const showToast = useChat((s) => s.showToast);
   const inCall = useCall((s) => s.call !== null);
   const live = useCalendar((s) => s.events[stored.eventId]);
+  // A cancelled card stays cancelled, whatever the calendar still holds.
   const card = useMemo(
-    () => (live?.type === "meeting" ? meetingCardOf(live) : stored),
+    () => (live?.type === "meeting" && !stored.cancelled ? meetingCardOf(live) : stored),
     [live, stored],
   );
   const now = useNow();
-  // An all-day meeting has no call to join.
-  const join = card.allDay ? "upcoming" : joinState(card, now);
-  // The other person of the DM (yourself in a self-DM).
-  const peerId = card.participants.find((id) => id !== myUserId) ?? myUserId;
+  // The meeting to show: a series' current or next one (`null` once it's over).
+  const shown = useMemo(
+    () => (card.recurrence ? nextOccurrence(asMeeting(card), now) : card),
+    [card, now],
+  );
+  const over = !!card.recurrence && shown === null;
+  const when = shown ?? card;
+  // An all-day or cancelled meeting has no call to join.
+  const join = card.allDay || card.cancelled || !shown ? "upcoming" : joinState(shown, now);
+  // The other person of this DM (yourself in a self-DM).
+  const dm = dmMembers(channelId);
+  const peerId =
+    dm?.find((id) => id !== myUserId) ??
+    card.participants.find((id) => id !== myUserId) ??
+    myUserId;
+  const heading = card.cancelled
+    ? "Meeting cancelled"
+    : card.recurrence
+      ? "Repeating meeting"
+      : "Meeting scheduled";
 
   function joinCall() {
     if (!peerId) return;
@@ -66,28 +96,55 @@ export function MeetingCard({
       }`}
       data-meeting-card={card.eventId}
       data-join={join}
+      data-cancelled={card.cancelled ? "true" : undefined}
     >
       <div className="flex items-center gap-2 border-b border-line/70 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-ink-secondary">
-        <CalendarIcon className="text-primary" aria-hidden="true" />
-        Meeting scheduled
+        {card.recurrence && !card.cancelled ? (
+          <RepeatIcon className="text-primary" aria-hidden="true" />
+        ) : (
+          <CalendarIcon
+            className={card.cancelled ? "text-ink-secondary" : "text-primary"}
+            aria-hidden="true"
+          />
+        )}
+        {heading}
         {join === "open" && (
           <span className="ml-auto flex items-center gap-1.5 normal-case tracking-normal text-success">
             <span className="relative flex h-2 w-2" aria-hidden="true">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
             </span>
-            {now >= card.startAt ? "Happening now" : "Starts soon"}
+            {now >= when.startAt ? "Happening now" : "Starts soon"}
           </span>
         )}
       </div>
       <div className="space-y-2 px-3 py-2.5">
-        <p className="text-base font-semibold leading-snug text-ink">{card.title}</p>
-        <p className="text-sm text-ink">
-          <time dateTime={new Date(card.startAt).toISOString()}>
-            {formatWhen({ ...card, type: "meeting" } as Parameters<typeof formatWhen>[0])}
-            {card.allDay && " (all day)"}
-          </time>
+        <p
+          className={`text-base font-semibold leading-snug ${
+            card.cancelled ? "text-ink-secondary line-through" : "text-ink"
+          }`}
+        >
+          {card.title}
         </p>
+        {card.recurrence && (
+          <p className="flex items-center gap-1.5 text-sm text-ink-secondary">
+            <RepeatIcon aria-hidden="true" />
+            {describeRecurrence(card.recurrence, meetingStartDate(card))}
+          </p>
+        )}
+        {over ? (
+          <p className="text-sm text-ink-secondary">This series has ended.</p>
+        ) : (
+          !card.cancelled && (
+            <p className="text-sm text-ink">
+              {card.recurrence && <span className="text-ink-secondary">Next: </span>}
+              <time dateTime={new Date(when.startAt).toISOString()}>
+                {formatWhen({ ...when, type: "meeting" } as Parameters<typeof formatWhen>[0])}
+                {card.allDay && " (all day)"}
+              </time>
+            </p>
+          )
+        )}
         {card.description && (
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-secondary">
             {card.description}
@@ -102,7 +159,7 @@ export function MeetingCard({
             ))}
           </span>
           <span className="truncate">
-            {card.participants.map((id) => (id === myUserId ? "You" : nameOf(id))).join(" and ")}
+            {listOf(card.participants.map((id) => (id === myUserId ? "You" : nameOf(id))))}
           </span>
         </div>
         {join === "open" && (
@@ -117,14 +174,31 @@ export function MeetingCard({
           </button>
         )}
       </div>
-      <button
-        type="button"
-        onClick={() => void navigate(calendarEventPath(card.eventId))}
-        className="flex w-full items-center justify-between border-t border-line/70 px-3 py-2 text-sm font-semibold text-ink hover:bg-surface-hover"
-      >
-        View in Calendar
-        <ChevronRightIcon className="text-ink-secondary" aria-hidden="true" />
-      </button>
+      {!card.cancelled && (
+        <button
+          type="button"
+          onClick={() => void navigate(calendarEventPath(card.eventId))}
+          className="flex w-full items-center justify-between border-t border-line/70 px-3 py-2 text-sm font-semibold text-ink hover:bg-surface-hover"
+        >
+          View in Calendar
+          <ChevronRightIcon className="text-ink-secondary" aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
+}
+
+/** A card's fields as the meeting they describe (what the series helpers read). */
+const asMeeting = (card: MeetingCardData): MeetingEvent => ({
+  ...card,
+  type: "meeting",
+  createdBy: "",
+  createdAt: 0,
+  updatedAt: 0,
+});
+
+/** "You", "You and Ana", "You, Ana and Luis". */
+function listOf(names: string[]): string {
+  if (names.length <= 2) return names.join(" and ");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }

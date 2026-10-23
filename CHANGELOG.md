@@ -7,6 +7,29 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Passwords:** the first sign-in with an emailed temporary password now has a proper
+  "Choose your password" screen.
+  - **The screen:** confirm field, show/hide, the rules ticked off as you type, and a way back.
+  - **Clear errors:** a password step left open over 3 minutes sends you back to sign in with a
+    clear note, and an expired invitation says to ask for a new one.
+  - **Forgot password?** emails a code to reset it, then signs you in.
+  - **Change password:** in Settings, and behind the lock button for guests.
+- **Recurring meetings:** a _Repeat_ menu (daily, every weekday, weekly, monthly, or custom:
+  every N days/weeks/months on chosen weekdays) that ends never, on a date or after N meetings.
+  - **In the calendar:** each meeting is drawn with ↻. A single meeting can be cancelled
+    (_Cancel this meeting_) without touching the rest; _Edit series_ and _Delete series_ change
+    or remove them all.
+  - **From a DM:** _Schedule meeting_ can repeat too.
+- **Meeting cards for everyone invited:** a meeting made in the calendar now puts a card in each
+  invitee's DM with the organizer (starting the DM if needed), so everyone has a lasting **Join
+  call** at the time.
+  - **Repeating meetings:** the card shows the rule and the next meeting.
+  - **Edits** update every card.
+  - **People removed, or the meeting deleted:** their cards stay in the chat, marked cancelled.
+- **Calls survive network drops:** when the connection drops mid-call (Wi-Fi to cellular, a
+  flaky access point), the call shows **Reconnecting…** with a countdown and restores itself
+  (ICE restart) instead of hanging up; it ends only if it isn't back within 30 seconds.
+
 - **Close the pop-out call:** a ✕ in the pop-out window closes it without switching windows,
   and the call carries on in the app. In the desktop app it then stays closed when you switch
   away again during that call; **Pop out** brings it back on demand.
@@ -126,6 +149,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **Deleted meetings' cards:** deleting a meeting no longer leaves its DM card showing the old
+  time; the card is marked cancelled.
+- **Join call** on a meeting card in a DM now always calls the other person of that DM.
 - **Line breaks in task details and notes:** pressing Enter in them no longer makes saving
   fail; other control characters are still refused.
 - **Links no longer trap you in the desktop app:** every link to another site (messages, the

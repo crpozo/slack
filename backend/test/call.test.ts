@@ -98,6 +98,34 @@ describe("call", () => {
     expect(sentEvents()[0]?.[1]).toMatchObject({ type: "call.end", reason: "no_answer" });
   });
 
+  it("relays ICE restarts to the peer only, never as a new call", async () => {
+    await call({ signal: "renegotiate", kind: "offer", sdp: "v=0 restart", restart: 2 });
+    expect(recipients()).toEqual(["conn-bob", "conn-bob-2"]);
+    expect(sentEvents()[0]?.[1]).toEqual({
+      type: "call.renegotiate",
+      callId: "call-1",
+      channelId: DM,
+      from: ALICE.userId,
+      kind: "offer",
+      sdp: "v=0 restart",
+      restart: 2,
+    });
+
+    // The peer offline (its socket is reconnecting): nothing comes back, the
+    // sender re-sends until its 30-second limit.
+    apiMock.resetHistory();
+    ddbMock
+      .on(ScanCommand, { TableName: "slack-test-connections" })
+      .resolves({ Items: connections.filter((c) => c.userId !== BOB.userId) });
+    await call({ signal: "renegotiate", kind: "offer", sdp: "v=0 restart", restart: 2 });
+    expect(sentEvents()).toEqual([]);
+
+    // Restart numbers start at 1.
+    expect(
+      (await call({ signal: "renegotiate", kind: "offer", sdp: "v=0", restart: 0 })).statusCode,
+    ).toBe(400);
+  });
+
   it("answers the caller with call.end 'unavailable' when the callee is offline", async () => {
     ddbMock
       .on(ScanCommand, { TableName: "slack-test-connections" })

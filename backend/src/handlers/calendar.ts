@@ -10,13 +10,18 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import {
   allDaySpan,
+  CancelOccurrenceSchema,
+  cancelledCard,
   canSeeEvent,
+  cardRefsOf,
   countVacationDays,
   CreateEventSchema,
   dateInZone,
   datesOverlap,
   describeEventWhen,
+  describeRecurrence,
   isCalendarEventId,
+  isSeriesDate,
   ListEventsQuerySchema,
   remainingDays,
   UpdateBalanceSchema,
@@ -29,13 +34,14 @@ import {
   dmMembers,
   meetingCardOf,
   meetingCardText,
+  meetingStartDate,
+  MAX_RECURRENCE_EXCEPTIONS,
   newMessageSk,
   type CalendarPushEvent,
   type HolidayEvent,
-  type MeetingCard,
   type MeetingEvent,
   type Message,
-  type UpdateEventInput,
+  type UpdateEventPatch,
   type VacationBalance,
   type VacationEvent,
 } from "@mindfultech/shared";
@@ -69,6 +75,15 @@ import {
   type HttpResult,
 } from "../lib/http";
 import { errorFields, log } from "../lib/logger";
+import {
+  announceCards,
+  announcePosted,
+  plannedCards,
+  postCards,
+  reconcileCards,
+  rewriteCards,
+  saveWithCards,
+} from "../lib/meetingCards";
 import { findSentMessage } from "../lib/messages";
 import { displayNameOf } from "../lib/notify";
 import { sendPush } from "../lib/push";
@@ -168,6 +183,13 @@ function meetingSpan(input: {
 
 const isTransactionFailure = (err: unknown) => err instanceof TransactionCanceledException;
 
+/** When a meeting is, for an invitation push: a series says how it repeats. */
+function whenOf(meeting: MeetingEvent): string {
+  const when = describeEventWhen(meeting);
+  if (!meeting.recurrence) return when;
+  return `${describeRecurrence(meeting.recurrence, meetingStartDate(meeting))} · from ${when}`;
+}
+
 // --- Listing ----------------------------------------------------------------------
 
 async function listEvents(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
@@ -216,19 +238,29 @@ async function createMeeting(
     createdBy: caller.userId,
     createdAt: now,
     updatedAt: now,
+    ...(input.recurrence && { recurrence: input.recurrence }),
   };
+  // Phase 34: a card in each invitee's DM with the organizer; the event lists them first.
+  const refs = plannedCards(meeting, now);
+  if (refs.length > 0) meeting.cards = refs;
   await putNew(meeting);
-  log.info("meeting created", { eventId: meeting.eventId, userId: caller.userId });
+  log.info("meeting created", {
+    eventId: meeting.eventId,
+    userId: caller.userId,
+    series: !!meeting.recurrence,
+  });
+  const posted = await postCards(meeting, refs, caller);
   const connections = await notify(meeting, {
     type: "calendar.event_created",
     event: meeting,
     by: caller.userId,
   });
+  await announcePosted(posted, connections);
   if (invited.length > 0) {
     const organizer = await displayNameOf(caller.userId, caller.email);
     await pushOffline(invited, connections, {
       title: `${organizer} invited you to “${meeting.title}”`,
-      body: describeEventWhen(meeting),
+      body: whenOf(meeting),
       tag: meeting.eventId,
     });
   }
@@ -286,6 +318,7 @@ async function createDmMeeting(
     channelId,
     messageId,
     messageSk,
+    ...(input.recurrence && { recurrence: input.recurrence }),
   };
   const card = meetingCardOf(meeting);
   const message: Message = {
@@ -349,7 +382,7 @@ async function createDmMeeting(
     const organizer = await displayNameOf(caller.userId, caller.email);
     await pushOffline(peers, connections, {
       title: `${organizer} invited you to “${meeting.title}”`,
-      body: describeEventWhen(meeting),
+      body: whenOf(meeting),
       tag: meeting.eventId,
     });
   }
@@ -495,19 +528,29 @@ async function updateEvent(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
   const eventId = pathParam(event, "id");
   const before = await visibleEvent(eventId, caller);
   const patch = parseBody(UpdateEventSchema, event);
+  const now = Date.now();
   let updated: CalendarEvent;
+  let plan: ReturnType<typeof reconcileCards> | null = null;
   if (before.type === "meeting") {
     if (before.createdBy !== caller.userId) throw forbidden("Only the organizer can edit it");
-    updated = await editedMeeting(before, patch, caller);
+    // The cards follow the people: kept, cancelled for whoever was dropped, new for newcomers.
+    plan = reconcileCards({ ...(await editedMeeting(before, patch, caller)), updatedAt: now }, now);
+    updated = plan.meeting;
   } else if (before.type === "holiday") {
     requireAdmin(caller, "edit national holidays");
-    updated = editedHoliday(before, patch);
+    updated = { ...editedHoliday(before, patch), updatedAt: now };
   } else {
     throw new HttpError(400, "A vacation request can't be edited: cancel it and request again");
   }
-  updated.updatedAt = Date.now();
-  const card = await saveEdited(updated, before.updatedAt);
+  // The event and the cards of everyone still invited, in one transaction.
+  const rewritten = await saveWithCards(updated, before.updatedAt, plan?.keep ?? []);
   log.info("event updated", { eventId, userId: caller.userId, fields: Object.keys(patch) });
+  const posted =
+    plan && updated.type === "meeting" ? await postCards(updated, plan.add, caller) : [];
+  const dropped =
+    plan && before.type === "meeting"
+      ? await rewriteCards(plan.drop, cancelledCard(meetingCardOf(before)))
+      : [];
   // Whoever may still see it gets the update; anyone dropped from a meeting, a deletion.
   let connections: LiveConnection[] = [];
   try {
@@ -521,17 +564,19 @@ async function updateEvent(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
           ? { type: "calendar.event_updated", event: updated, by: caller.userId }
           : { type: "calendar.event_deleted", eventId, by: caller.userId },
     );
-    if (card && isLinked(updated)) await announceCard(updated, card, caller, connections);
   } catch (err) {
     log.error("calendar broadcast failed", { eventId, ...errorFields(err) });
   }
   if (updated.type === "meeting" && before.type === "meeting") {
+    await announceCards(rewritten, meetingCardOf(updated), connections);
+    await announceCards(dropped, cancelledCard(meetingCardOf(before)), connections);
+    await announcePosted(posted, connections);
     const newcomers = updated.participants.filter((id) => !before.participants.includes(id));
     if (newcomers.length > 0) {
       const organizer = await displayNameOf(caller.userId, caller.email);
       await pushOffline(newcomers, connections, {
         title: `${organizer} invited you to “${updated.title}”`,
-        body: describeEventWhen(updated),
+        body: whenOf(updated),
         tag: updated.eventId,
       });
     }
@@ -539,105 +584,9 @@ async function updateEvent(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
   return json(200, { event: updated });
 }
 
-/** A meeting scheduled from a DM: it knows the card it posted there. */
-type LinkedMeeting = MeetingEvent & { channelId: string; messageId: string; messageSk: string };
-
-const isLinked = (event: CalendarEvent): event is LinkedMeeting =>
-  event.type === "meeting" && !!event.channelId && !!event.messageId && !!event.messageSk;
-
-/**
- * Writes the edited event (only if nobody else changed it meanwhile). A
- * meeting scheduled from a DM rewrites its card in the conversation in the
- * same transaction, so the chat and the calendar never disagree; returns the
- * card it wrote, or `null` when there's none (no card, or the message was
- * deleted meanwhile, in which case the event alone is written).
- */
-async function saveEdited(updated: CalendarEvent, was: number): Promise<MeetingCard | null> {
-  const Put = {
-    TableName: tables.events,
-    Item: toItem(updated),
-    ConditionExpression: "attribute_exists(eventId) AND updatedAt = :was",
-    ExpressionAttributeValues: { ":was": was },
-  };
-  const conflict = () =>
-    new HttpError(409, "The event changed meanwhile: reload the calendar and try again");
-  if (!isLinked(updated)) {
-    try {
-      await ddb.send(new PutCommand(Put));
-    } catch (err) {
-      if (err instanceof ConditionalCheckFailedException) throw conflict();
-      throw err;
-    }
-    return null;
-  }
-  const card = meetingCardOf(updated);
-  try {
-    await ddb.send(
-      new TransactWriteCommand({
-        TransactItems: [
-          { Put },
-          {
-            Update: {
-              TableName: tables.messages,
-              Key: { channelId: updated.channelId, sk: updated.messageSk },
-              UpdateExpression: "SET meeting = :card, #text = :text",
-              ConditionExpression: "attribute_exists(sk) AND kind = :kind",
-              ExpressionAttributeNames: { "#text": "text" },
-              ExpressionAttributeValues: {
-                ":card": card,
-                ":text": meetingCardText(card),
-                ":kind": "meeting",
-              },
-            },
-          },
-        ],
-      }),
-    );
-    return card;
-  } catch (err) {
-    if (!(err instanceof TransactionCanceledException)) throw err;
-    const [event, message] = err.CancellationReasons ?? [];
-    if (event?.Code === "ConditionalCheckFailed") throw conflict();
-    if (message?.Code !== "ConditionalCheckFailed") throw err;
-    // The card's message is gone (deleted): the meeting still changes.
-    log.warn("meeting card missing, event written alone", {
-      eventId: updated.eventId,
-      channelId: updated.channelId,
-    });
-    await ddb.send(new PutCommand(Put));
-    return null;
-  }
-}
-
-/** The card changed: the conversation's people see the new one at once. */
-async function announceCard(
-  meeting: LinkedMeeting,
-  card: MeetingCard,
-  caller: HttpCaller,
-  connections: LiveConnection[],
-): Promise<void> {
-  const channel = await getAccessibleChannel(meeting.channelId, caller.userId, {
-    allowArchived: true,
-  });
-  if (!channel) return;
-  const inAudience = channelAudience(channel);
-  await deliver(connections, (c) =>
-    inAudience(c)
-      ? {
-          type: "message.updated",
-          channelId: meeting.channelId,
-          sk: meeting.messageSk,
-          messageId: meeting.messageId,
-          text: meetingCardText(card),
-          meeting: card,
-        }
-      : null,
-  );
-}
-
 async function editedMeeting(
   before: MeetingEvent,
-  patch: UpdateEventInput,
+  patch: UpdateEventPatch,
   caller: HttpCaller,
 ): Promise<MeetingEvent> {
   const wantsSpan =
@@ -646,6 +595,9 @@ async function editedMeeting(
     patch.endAt !== undefined ||
     patch.startDate !== undefined ||
     patch.endDate !== undefined;
+  // `null` turns a series back into one meeting.
+  const recurrence =
+    patch.recurrence === undefined ? before.recurrence : (patch.recurrence ?? undefined);
   let span: ReturnType<typeof meetingSpan> = {
     allDay: before.allDay,
     startAt: before.startAt,
@@ -653,8 +605,8 @@ async function editedMeeting(
     startDate: before.startDate,
     endDate: before.endDate,
   };
-  if (wantsSpan) {
-    // Re-validate the merged span with the creation rules (length, order, required pair).
+  if (wantsSpan || patch.recurrence) {
+    // Re-validate the merged span (and rule) with the creation rules (length, order, pair).
     const merged = CreateEventSchema.safeParse({
       type: "meeting",
       title: patch.title ?? before.title,
@@ -663,6 +615,7 @@ async function editedMeeting(
       endAt: patch.endAt ?? (patch.allDay ? undefined : before.endAt),
       startDate: patch.startDate ?? before.startDate,
       endDate: patch.endDate ?? before.endDate,
+      ...(recurrence && { recurrence }),
     });
     if (!merged.success) {
       throw new HttpError(400, merged.error.issues[0]?.message ?? "Invalid dates");
@@ -691,10 +644,21 @@ async function editedMeeting(
     delete next.startDate;
     delete next.endDate;
   }
+  if (recurrence) {
+    next.recurrence = recurrence;
+    // Cancelled dates the new rule (or start) no longer has would cancel nothing.
+    const first = meetingStartDate(next);
+    const exceptions = (before.exceptions ?? []).filter((d) => isSeriesDate(first, recurrence, d));
+    if (exceptions.length > 0) next.exceptions = exceptions;
+    else delete next.exceptions;
+  } else {
+    delete next.recurrence;
+    delete next.exceptions;
+  }
   return next;
 }
 
-function editedHoliday(before: HolidayEvent, patch: UpdateEventInput): HolidayEvent {
+function editedHoliday(before: HolidayEvent, patch: UpdateEventPatch): HolidayEvent {
   const startDate = patch.startDate ?? before.startDate;
   const endDate = patch.endDate ?? (patch.startDate && !patch.endDate ? startDate : before.endDate);
   const check = CreateEventSchema.safeParse({
@@ -719,6 +683,9 @@ function editedHoliday(before: HolidayEvent, patch: UpdateEventInput): HolidayEv
 async function deleteEvent(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const eventId = pathParam(event, "id");
   const existing = await visibleEvent(eventId, caller);
+  if (event.queryStringParameters?.occurrence !== undefined) {
+    return cancelOccurrence(existing, event, caller);
+  }
   if (existing.type === "vacation") {
     await cancelVacation(existing, caller);
   } else {
@@ -729,8 +696,64 @@ async function deleteEvent(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
     await ddb.send(new DeleteCommand({ TableName: tables.events, Key: { eventId } }));
   }
   log.info("event deleted", { eventId, type: existing.type, userId: caller.userId });
-  await notify(existing, { type: "calendar.event_deleted", eventId, by: caller.userId });
+  const connections = await notify(existing, {
+    type: "calendar.event_deleted",
+    eventId,
+    by: caller.userId,
+  });
+  // Phase 34: the cards stay in the chat, marked cancelled (a whole series' too).
+  if (existing.type === "meeting") {
+    const card = cancelledCard(meetingCardOf(existing));
+    await announceCards(await rewriteCards(cardRefsOf(existing), card), card, connections);
+  }
   return json(204);
+}
+
+/**
+ * `DELETE /calendar/events/{id}?occurrence=YYYY-MM-DD`: cancels one meeting
+ * of a series (its organizer, or an admin); the rest stays. The cards then
+ * show the series' next meeting.
+ */
+async function cancelOccurrence(
+  existing: CalendarEvent,
+  event: HttpEvent,
+  caller: HttpCaller,
+): Promise<HttpResult> {
+  if (existing.type !== "meeting" || !existing.recurrence) {
+    throw new HttpError(400, "Only a repeating meeting has single meetings to cancel");
+  }
+  if (existing.createdBy !== caller.userId && !isAdmin(caller)) {
+    throw forbidden("Only the organizer can cancel it");
+  }
+  const parsed = CancelOccurrenceSchema.safeParse(event.queryStringParameters);
+  if (!parsed.success) throw new HttpError(400, "occurrence must be YYYY-MM-DD");
+  const { occurrence } = parsed.data;
+  if (!isSeriesDate(meetingStartDate(existing), existing.recurrence, occurrence)) {
+    throw new HttpError(400, "The series has no meeting on that date");
+  }
+  const exceptions = existing.exceptions ?? [];
+  if (exceptions.includes(occurrence)) return json(200, { event: existing }); // a retry
+  if (exceptions.length >= MAX_RECURRENCE_EXCEPTIONS) {
+    throw new HttpError(400, "Too many cancelled meetings: edit the series instead");
+  }
+  const updated: MeetingEvent = {
+    ...existing,
+    exceptions: [...exceptions, occurrence].sort((a, b) => a.localeCompare(b)),
+    updatedAt: Date.now(),
+  };
+  const rewritten = await saveWithCards(updated, existing.updatedAt, cardRefsOf(existing));
+  log.info("meeting occurrence cancelled", {
+    eventId: existing.eventId,
+    occurrence,
+    userId: caller.userId,
+  });
+  const connections = await notify(updated, {
+    type: "calendar.event_updated",
+    event: updated,
+    by: caller.userId,
+  });
+  await announceCards(rewritten, meetingCardOf(updated), connections);
+  return json(200, { event: updated });
 }
 
 /**

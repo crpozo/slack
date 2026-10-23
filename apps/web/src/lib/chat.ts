@@ -123,6 +123,8 @@ class ChatController {
         client.send("channel", { op: "list" });
         client.send("user", { op: "list" });
         if (reconnected) {
+          // A call being restored after a network drop can restart ICE now.
+          calls.signalingReconnected();
           // Catch up on whatever happened while we were offline.
           store().invalidateInactive();
           const active = store().activeChannelId;
@@ -269,7 +271,7 @@ class ChatController {
 
     // WebRTC signaling: the call manager owns everything about calls.
     calls.attach({
-      send: (payload) => client.send("call", payload),
+      send: (payload, key) => client.send("call", payload, key),
       postMessage: (channelId, text) => this.sendMessage(channelId, text, []),
       myUserId: () => store().me?.userId ?? null,
       nameOf: (userId) => selectName(store(), userId),
@@ -288,6 +290,7 @@ class ChatController {
       client.on("call.ice_candidate", (event) => calls.handle(event)),
       client.on("call.decline", (event) => calls.handle(event)),
       client.on("call.end", (event) => calls.handle(event)),
+      client.on("call.renegotiate", (event) => calls.handle(event)),
     );
 
     // Back online: a dead socket reconnects now, an "open" one must prove it's alive.

@@ -1,6 +1,7 @@
 import {
   addDays,
   canSeeEvent,
+  expandEvents,
   dateInZone,
   yearOf,
   type CalendarEvent,
@@ -38,6 +39,8 @@ export interface CalendarState {
   createEvent: (input: CreateEventInput) => Promise<CalendarEvent>;
   updateEvent: (eventId: string, patch: UpdateEventInput) => Promise<CalendarEvent>;
   deleteEvent: (eventId: string) => Promise<void>;
+  /** Cancels one meeting of a series (Phase 34). */
+  cancelOccurrence: (eventId: string, date: string) => Promise<void>;
   decideVacation: (eventId: string, decision: VacationDecisionInput) => Promise<void>;
   setAllowance: (userId: string, year: string, allowance: number) => Promise<void>;
   /** A `calendar.*` push: applied idempotently, hiding what `me` may no longer see. */
@@ -131,6 +134,10 @@ export function createCalendarStore(api: CalendarApi) {
       if (gone?.type === "vacation") void get().loadBalances();
     },
 
+    cancelOccurrence: async (eventId, date) => {
+      merge(set, await api.cancelOccurrence(eventId, date));
+    },
+
     decideVacation: async (eventId, decision) => {
       const event = await api.decideVacation(eventId, decision);
       merge(set, event);
@@ -188,7 +195,29 @@ export function visibleRange(view: { start: Date; end: Date }): { from: string; 
   return { from: localDate(view.start), to: addDays(localDate(view.end), -1) };
 }
 
-/** Events to draw: everything but rejected requests, which live in the requests list only. */
-export function drawableEvents(events: Record<string, CalendarEvent>): CalendarEvent[] {
-  return Object.values(events).filter((e) => e.type !== "vacation" || e.status !== "rejected");
+/**
+ * Events to draw: everything but rejected requests, which live in the
+ * requests list only, with each series expanded into its meetings within
+ * `range` (Phase 34: what's been loaded, so every drawn day has them).
+ */
+export function drawableEvents(
+  events: Record<string, CalendarEvent>,
+  range: { from: string; to: string } | null = null,
+): CalendarEvent[] {
+  const drawn = Object.values(events).filter(
+    (e) => e.type !== "vacation" || e.status !== "rejected",
+  );
+  if (!range) return drawn.filter((e) => e.type !== "meeting" || !e.recurrence);
+  return expandEvents(drawn, range.from, range.to);
+}
+
+/** The span of everything loaded so far (inclusive dates), or `null` before the first load. */
+export function loadedSpan(
+  ranges: Array<{ from: string; to: string }>,
+): { from: string; to: string } | null {
+  if (ranges.length === 0) return null;
+  return {
+    from: ranges.reduce((min, r) => (r.from < min ? r.from : min), ranges[0]!.from),
+    to: ranges.reduce((max, r) => (r.to > max ? r.to : max), ranges[0]!.to),
+  };
 }

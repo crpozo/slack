@@ -1,4 +1,4 @@
-import { addDays, dateInZone, type CalendarEvent } from "@mindfultech/shared";
+import { addDays, dateInZone, occurrenceKey, type CalendarEvent } from "@mindfultech/shared";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   addMonths,
@@ -249,10 +249,10 @@ export function MobileAgenda({
                           const t = tone(e);
                           const timed = e.type === "meeting" && !e.allDay;
                           return (
-                            <li key={e.eventId}>
+                            <li key={occurrenceKey(e)}>
                               <button
                                 type="button"
-                                onClick={() => onSelectEvent(e.eventId)}
+                                onClick={() => onSelectEvent(occurrenceKey(e))}
                                 className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left ${t.pill} active:brightness-95`}
                               >
                                 <span
