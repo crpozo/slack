@@ -525,6 +525,14 @@ The builds aren't code-signed yet:
 
 Rust is only needed to build it yourself: `pnpm --filter desktop tauri dev`.
 
+### Desktop app: release after Phase 33
+
+YouTube players in messages need the desktop app's navigation handler to let their frame
+through (`is_inline_player` in `apps/desktop/src-tauri/src/lib.rs`); macOS and Linux builds
+before it open the video in the browser instead of playing it in place. Tag a new desktop
+release (`v*`) after deploying Phase 33. Everything else in it is web code: restarting the app
+picks it up.
+
 ## Scripts
 
 | Script             | What it does                                           |

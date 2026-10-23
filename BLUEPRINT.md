@@ -840,6 +840,37 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
 - Confirming removes it at once for everyone in the conversation, with its files. A message with replies stays as "This message was deleted" with its thread, and quotes of it say "Original message deleted".
 - A board's owner or an admin can delete it only after typing its exact name. Its tasks, files and project links go, and the 📊 Board pill disappears from the linked channel.
 - A channel's creator can archive it and the composer becomes read-only.
+
+---
+
+### Phase 33 — Pop-out Close, images pasted into tasks, YouTube previews
+
+**Branch:** `feature/f33-media-and-ux-improvements`
+
+1. **Close the pop-out:** a ✕ in the pop-out call's header (`PipCallView.onClose`), in the browser's Document Picture-in-Picture window and in the desktop app's frameless window (Tauri command `close`).
+   - It calls the controller's `dismiss()`: the window closes without bringing the app forward, and the call's view in the app takes over again.
+   - For the rest of that call (`dismissedCallId`), nothing pops it out on its own: neither the desktop app leaving the front (`background`) nor the browser's auto picture-in-picture (`browser`).
+   - **Pop out** in the call (`user`) still works and lifts the dismissal; the next call starts fresh.
+   - **Back to the app** stays as it was (brings the app forward).
+2. **Line breaks in tasks:** `description` and `notes` accept `\n` and tabs (`\r\n` is stored as `\n`); other control characters are still refused, and one-line fields (title, project, board name) are unchanged.
+3. **Images pasted into tasks:** `useImagePaste` on New task's Details and Notes and on Task details' Notes.
+   - **When it intercepts:** images in `clipboardData.files`, unless there's also plain text (spreadsheet cells come with a picture of themselves).
+   - **Upload:** each image goes through the task-file path (`uploadFile` to the board's folder, size and count limits, thumbnail) and joins the task's attachments. Screenshots named `image.png` become `pasted-<date>-<time>.png`.
+   - **While it uploads:** an `![Uploading name…](uploading:<id>)` placeholder sits at the caret, on its own line, with "Uploading image…" under the field. New task's Create waits for it.
+   - **When done:** the placeholder becomes `![name](attachment:<key>)`; a failure removes it and says why. Task details applies the change to the draft while the field is focused, and saves it to the task otherwise.
+   - **Never a URL:** the text never holds a link. Download links expire within hours and are about a kilobyte long.
+   - **Showing them:** `TaskImages` signs a fresh link per key (`getDownloadUrl`, thumbnail first, original in the lightbox), only for image files the task itself holds; `![…](https://…)` is just text. Cards show the text without references (`textWithoutImages`) and up to 3 thumbnails; the forms show previews under the field.
+4. **YouTube previews in messages:** `youTubeVideosIn(text)` finds links with the renderer's own `URL_PATTERN` and parses each with `URL`.
+   - **Accepted links:** hosts `youtube.com` (`www.`/`m.`/`music.`), `youtube-nocookie.com` and `youtu.be`; paths `/watch?v=`, `/shorts/`, `/embed/`, `/live/`, `/v/` and `youtu.be/<id>`; the id must match `^[A-Za-z0-9_-]{11}$`; `t=`/`start=`/`#t=` give the start time (`90`, `90s`, `1m30s`).
+   - **Exclusions and limits:** none from code (inline or fenced), secrets, cards or deleted messages; at most 2 per message, each once.
+   - **Click to play:** `YouTubePreview` shows only the `i.ytimg.com` thumbnail and a play button in an `aspect-video w-full max-w-md rounded-md overflow-hidden` box. A click loads `www.youtube-nocookie.com/embed/<id>?autoplay=1&rel=0&playsinline=1&start=N`, which fades in over the thumbnail once loaded. **YouTube ↗** opens the video outside.
+   - **Headers:** CloudFront's managed security headers set no CSP, so the frame is allowed, and their referrer policy gives YouTube the origin it needs.
+5. **Desktop app (needs a new release):** on macOS and Linux, WebKit asks the window's navigation handler about frame loads too (wry 0.57 doesn't filter to the main frame), so without the fix the player would open in the browser. `is_inline_player` lets through only `https://www.youtube-nocookie.com/embed/…`; everything else still leaves the app. Windows (WebView2) only reports main-frame navigations. Until the new build, the play button on macOS and Linux opens the video in the browser.
+
+**Phase 33 acceptance criteria:**
+- The pop-out call has a ✕ that closes it without switching windows. The call goes on in the app, and in the desktop app the pop-out doesn't come back when you switch away again during that call.
+- Pasting a screenshot into a task's details or notes shows "Uploading image…", then a preview. The task card shows the thumbnail, and the image is still there a day later.
+- A YouTube link in a message shows its thumbnail with a play button, and plays in place when clicked.
 ---
 
 ### PHASE 7 (optional) — Desktop app with Tauri

@@ -105,3 +105,23 @@ describe("isTaskArchived", () => {
     expect(isTaskArchived({ status: "TODO", doneAt: 0, isArchived: true }, now)).toBe(false);
   });
 });
+
+describe("line breaks in a task's long fields", () => {
+  const create = (fields: Record<string, unknown>) =>
+    CreateTaskSchema.safeParse({ title: "Ship it", ...fields });
+
+  it("keeps line breaks in the description and notes, storing Windows ones as \\n", () => {
+    const parsed = create({ description: "first\r\nsecond\nthird", notes: "a\n\tb" });
+    expect(parsed.success && parsed.data.description).toBe("first\nsecond\nthird");
+    expect(parsed.success && parsed.data.notes).toBe("a\n\tb");
+    const update = UpdateTaskSchema.safeParse({ description: "one\ntwo" });
+    expect(update.success && update.data.description).toBe("one\ntwo");
+  });
+
+  it("still refuses other control characters there, and any in one-line fields", () => {
+    expect(create({ description: "bell\u0007" }).success).toBe(false);
+    expect(create({ notes: "nul\u0000" }).success).toBe(false);
+    expect(create({ title: "two\nlines" }).success).toBe(false);
+    expect(create({ project: "a\nb" }).success).toBe(false);
+  });
+});

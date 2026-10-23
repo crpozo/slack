@@ -7,6 +7,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Close the pop-out call:** a ✕ in the pop-out window closes it without switching windows,
+  and the call carries on in the app. In the desktop app it then stays closed when you switch
+  away again during that call; **Pop out** brings it back on demand.
+- **Paste images into tasks:** paste a screenshot into a task's Details or Notes. It uploads
+  (showing "Uploading image…"), becomes one of the task's files, and appears as a preview, with a
+  thumbnail on the card. The text keeps a short `attachment:` reference rather than a download
+  link, so the image keeps working after the link would have expired.
+- **YouTube previews:** a YouTube link in a message (`watch`, `youtu.be`, Shorts, live,
+  start times) gets a thumbnail with a play button that plays in place when clicked. Players
+  only load when clicked, so a channel full of links stays fast.
+
 - **Delete messages:** _Delete message_ (red, with a trash icon) at the end of a message's
   right-click menu, and in the long-press bar on phones. It's there for its author and for
   workspace admins, who can moderate anyone's message. A confirmation shows what goes, and it
@@ -115,6 +126,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **Line breaks in task details and notes:** pressing Enter in them no longer makes saving
+  fail; other control characters are still refused.
 - **Links no longer trap you in the desktop app:** every link to another site (messages, the
   image viewer, the PDF viewer, file downloads, task files) opens in the computer's default
   browser through Tauri's opener plugin. The web keeps opening them in a new tab. Desktop builds

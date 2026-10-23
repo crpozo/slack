@@ -12,7 +12,7 @@ import type { PipAdapter } from "./pip";
 //
 //   main ──call-pip:state──▶ pip      (who, phase, mic/camera flags)
 //   main ◀─call-pip:signal─▶ pip      (ready, offer/answer, ICE, bye)
-//   main ◀─call-pip:command── pip     (mic, camera, hangup, focus)
+//   main ◀─call-pip:command── pip     (mic, camera, hangup, focus, close)
 // ---------------------------------------------------------------------------
 
 export const PIP_LABEL = "call-pip";
@@ -26,7 +26,7 @@ export type PipSignal =
   | { kind: "ice"; candidate: RTCIceCandidateInit }
   | { kind: "bye" };
 
-export type PipCommand = "mic" | "camera" | "hangup" | "focus";
+export type PipCommand = "mic" | "camera" | "hangup" | "focus" | "close";
 
 /** What the small window shows besides the video. */
 export interface PipCallState {
@@ -64,6 +64,8 @@ export function runPipCommand(
   command: PipCommand,
   api: Pick<typeof calls, "toggleMic" | "toggleCamera" | "hangUp"> = calls,
   focusMain: () => Promise<void> = focusMainWindow,
+  /** Close (Phase 33): the controller's `dismiss`, which closes the window without moving focus. */
+  closeWindow: () => Promise<void> | void = () => {},
 ): Promise<void> | void {
   switch (command) {
     case "mic":
@@ -74,6 +76,8 @@ export function runPipCommand(
       return api.hangUp();
     case "focus":
       return focusMain();
+    case "close":
+      return closeWindow();
   }
 }
 
@@ -217,7 +221,11 @@ class LoopbackSender {
  * The adapter the pip controller uses in the desktop app: opens the window,
  * streams the call into it, applies its commands, and closes it all.
  */
-export function createTauriPipAdapter(nameOf: (userId: string) => string): PipAdapter {
+export function createTauriPipAdapter(
+  nameOf: (userId: string) => string,
+  /** The small window's Close button: see `PipController.dismiss`. */
+  onCloseRequested: () => Promise<void> | void = () => {},
+): PipAdapter {
   let win: TauriWindowHandle | null = null;
   let stops: Array<() => void> = [];
   let sender: LoopbackSender | null = null;
@@ -257,7 +265,7 @@ export function createTauriPipAdapter(nameOf: (userId: string) => string): PipAd
           } else void loop.handle(payload);
         }),
         events.listen<PipCommand>("call-pip:command", ({ payload }) => {
-          void runPipCommand(payload);
+          void runPipCommand(payload, calls, focusMainWindow, onCloseRequested);
         }),
         win.once("tauri://destroyed", () => {
           win = null;

@@ -15,6 +15,17 @@ fn is_external(url: &Url, app_url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https") && url.host_str() != app_url.host_str()
 }
 
+/// The inline YouTube player of a message (Phase 33): a click-to-play
+/// `<iframe>` on youtube-nocookie.com's embed page. WebKit (macOS, Linux)
+/// asks `on_navigation` about frame loads too, not only the window's own, so
+/// without this the player would open in the browser instead of playing in
+/// the message. Only that exact page: anything else still leaves the app.
+fn is_inline_player(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.host_str() == Some("www.youtube-nocookie.com")
+        && url.path().starts_with("/embed/")
+}
+
 fn open_in_browser<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url: &Url) {
     if let Err(err) = app.opener().open_url(url.as_str(), None::<&str>) {
         eprintln!("couldn't open {url}: {err}");
@@ -57,6 +68,9 @@ pub fn run() {
             let permission_app_url = app_url.clone();
             WebviewWindowBuilder::from_config(app.handle(), &config)?
                 .on_navigation(move |url| {
+                    if is_inline_player(url) {
+                        return true;
+                    }
                     if is_external(url, &nav_app_url) {
                         open_in_browser(&nav_handle, url);
                         return false;
@@ -94,4 +108,50 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running the MindfulTech Slack desktop app");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn url(s: &str) -> Url {
+        Url::parse(s).unwrap()
+    }
+
+    #[test]
+    fn links_to_other_sites_leave_the_app() {
+        let app = url("https://slack.mindfultech.ec/app/general");
+        assert!(is_external(
+            &url("https://youtube.com/watch?v=dQw4w9WgXcQ"),
+            &app
+        ));
+        assert!(is_external(
+            &url("https://bucket.s3.amazonaws.com/x.pdf"),
+            &app
+        ));
+        assert!(!is_external(
+            &url("https://slack.mindfultech.ec/app/tasks"),
+            &app
+        ));
+        assert!(!is_external(&url("mailto:a@b.ec"), &app));
+    }
+
+    #[test]
+    fn only_the_youtube_embed_page_plays_inside() {
+        assert!(is_inline_player(&url(
+            "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&start=42"
+        )));
+        assert!(!is_inline_player(&url(
+            "http://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"
+        )));
+        assert!(!is_inline_player(&url(
+            "https://www.youtube-nocookie.com/watch?v=dQw4w9WgXcQ"
+        )));
+        assert!(!is_inline_player(&url(
+            "https://www.youtube.com/embed/dQw4w9WgXcQ"
+        )));
+        assert!(!is_inline_player(&url(
+            "https://www.youtube-nocookie.com.evil.example/embed/dQw4w9WgXcQ"
+        )));
+    }
 }

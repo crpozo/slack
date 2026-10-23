@@ -199,4 +199,34 @@ describe("pip controller", () => {
     stop();
     expect(h.mediaSession.setActionHandler).toHaveBeenLastCalledWith("enterpictureinpicture", null);
   });
+
+  it("Close (Phase 33): the window goes, and nothing pops this call out on its own again", async () => {
+    const h = harness(ALL);
+    const stop = h.controller.start();
+    h.focus(false);
+    await vi.waitFor(() => expect(h.store.getState().active).toBe("tauri"));
+
+    await h.controller.dismiss();
+    expect(h.adapters.tauri.close).toHaveBeenCalledTimes(1);
+    expect(h.store.getState().active).toBeNull();
+
+    // The desktop app leaves the front again, the browser asks: not for this call.
+    h.focus(true);
+    h.focus(false);
+    expect(await h.controller.popOut("background")).toBeNull();
+    expect(await h.controller.popOut("browser")).toBeNull();
+    expect(h.adapters.tauri.open).toHaveBeenCalledTimes(1);
+
+    // "Pop out" in the call is the person asking: it works, and lifts the dismissal.
+    expect(await h.controller.popOut("user")).toBe("tauri");
+    await h.controller.popIn();
+    expect(await h.controller.popOut("background")).toBe("tauri");
+    await h.controller.popIn();
+
+    // The next call starts fresh.
+    await h.controller.dismiss();
+    h.callStore.setState({ call: { ...call(), callId: "c2" } });
+    expect(await h.controller.popOut("background")).toBe("tauri");
+    stop();
+  });
 });

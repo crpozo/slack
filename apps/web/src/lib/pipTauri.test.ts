@@ -61,6 +61,9 @@ describe("the desktop call window's bridge", () => {
     await runPipCommand("camera", api, focus);
     runPipCommand("hangup", api, focus);
     await runPipCommand("focus", api, focus);
+    const close = vi.fn();
+    await runPipCommand("close", api, focus, close);
+    expect(close).toHaveBeenCalledTimes(1);
     expect(api.toggleMic).toHaveBeenCalledTimes(1);
     expect(api.toggleCamera).toHaveBeenCalledTimes(1);
     expect(api.hangUp).toHaveBeenCalledTimes(1);

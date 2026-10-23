@@ -20,6 +20,7 @@ import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
 import { tasksApiConfigured } from "../lib/tasksApi";
+import { textWithoutImages } from "../lib/taskText";
 import { useChat, useNameOf } from "../store";
 import { splitBoards, useTasks } from "../store/tasks";
 import { Avatar } from "./Avatar";
@@ -39,6 +40,7 @@ import { Popover } from "./Popover";
 import { NewTaskModal } from "./NewTaskModal";
 import { UnreadAlertsDot } from "./NotificationBell";
 import { TaskDetails } from "./TaskDetails";
+import { TaskImages } from "./TaskImages";
 import { UserPicker } from "./UserPicker";
 
 const COLUMNS: Array<{ status: TaskStatus; title: string; accent: string }> = [
@@ -327,6 +329,8 @@ function TaskCard({
   const nameOf = useNameOf();
   const pending = task.taskId.startsWith("pending_");
   const [dragging, setDragging] = useState(false);
+  // Pasted images show as thumbnails, not as their `![…](attachment:…)` text (Phase 33).
+  const summary = textWithoutImages(task.description);
 
   return (
     <article
@@ -363,11 +367,12 @@ function TaskCard({
           {task.title}
         </button>
       </h4>
-      {task.description && (
+      {summary && (
         <p className="mt-1 line-clamp-3 whitespace-pre-line text-xs text-ink-secondary">
-          {task.description}
+          {summary}
         </p>
       )}
+      <TaskImages text={task.description} attachments={task.attachments} compact max={3} />
       <div className="mt-2 flex items-center gap-1">
         {task.attachments.length > 0 && (
           <span

@@ -56,7 +56,10 @@ let pipController: PipController | null = null;
 function pip(): PipController {
   pipController ??= createPipController(
     {
-      tauri: createTauriPipAdapter((id) => selectName(useChat.getState(), id)),
+      tauri: createTauriPipAdapter(
+        (id) => selectName(useChat.getState(), id),
+        () => pip().dismiss(),
+      ),
       document: documentPipAdapter,
       video: videoPipAdapter,
     },
@@ -140,6 +143,7 @@ function DocumentPipCall({ call }: Readonly<{ call: CallView }>) {
         window.focus();
         void pip().popIn();
       }}
+      onClose={() => void pip().dismiss()}
     />
   );
 }
