@@ -225,7 +225,7 @@ export const handler = wsHandler(async (event, caller) => {
   if (replyTo && !quoted) return replyError(caller.connectionId, "MESSAGE_NOT_FOUND");
 
   // A retry of a message that did arrive: confirm it to the sender, store nothing.
-  const existing = await findSentMessage(channelId, caller.userId, clientId);
+  const existing = await findSentMessage(channelId, caller.userId, clientId, thread?.sk);
   if (existing) {
     log.info("duplicate send ignored", { channelId, messageId: existing.messageId });
     await reply(caller.connectionId, {

@@ -96,14 +96,16 @@ export const AttachmentSchema = z.object({
 });
 /**
  * An attachment as stored and sent by clients, plus the signed download URLs
- * the server attaches to image and audio attachments on the way out
+ * the server attaches to image, audio and video attachments on the way out
  * (`history.page`, `message.new`); never stored, never accepted from a client.
  */
 export type Attachment = z.infer<typeof AttachmentSchema> & { url?: string; thumbUrl?: string };
 
 /** Whether the server attaches download URLs to this attachment (shown inline in the list). */
 export const isInlineAttachment = (a: Pick<Attachment, "contentType">) =>
-  a.contentType.startsWith("image/") || a.contentType.startsWith("audio/");
+  a.contentType.startsWith("image/") ||
+  a.contentType.startsWith("audio/") ||
+  a.contentType.startsWith("video/");
 
 /** Longest quoted text kept with a reply. */
 export const REPLY_PREVIEW_LENGTH = 140;

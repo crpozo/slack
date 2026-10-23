@@ -1,5 +1,5 @@
 import { QueryCommand } from "@aws-sdk/lib-dynamodb";
-import { compareIds, type Message } from "@mindfultech/shared";
+import { compareIds, THREAD_SK_PREFIX, threadSkPrefix, type Message } from "@mindfultech/shared";
 import { ddb, tables } from "./ddb";
 
 function userList(users: unknown): unknown[] {
@@ -29,21 +29,31 @@ export function toWireMessage(item: Record<string, unknown>): Message {
 const DEDUPE_WINDOW = 25;
 
 /**
- * The message `userId` already stored under `clientId`, among the channel's
- * newest messages. A client retries with the same clientId when its first
- * send looked lost (a slow confirmation, a dropped connection, a queued frame
- * flushed on reconnect): storing it again would post the message twice.
+ * The message `userId` already stored under `clientId`, among the newest
+ * messages of the channel (or, for a reply, of the thread under `parentSk`).
+ * A client retries with the same clientId when its first send looked lost (a
+ * slow confirmation, a dropped connection, a queued frame flushed on
+ * reconnect): storing it again would post the message twice.
+ *
+ * The window is scoped by sort key: every `thread#…` row sorts after every
+ * `<epochMs>#…` one, so an unscoped "newest 25" would be some thread's replies.
  */
 export async function findSentMessage(
   channelId: string,
   userId: string,
   clientId: string,
+  parentSk?: string,
 ): Promise<Message | null> {
   const { Items } = await ddb.send(
     new QueryCommand({
       TableName: tables.messages,
-      KeyConditionExpression: "channelId = :c",
-      ExpressionAttributeValues: { ":c": channelId },
+      KeyConditionExpression: parentSk
+        ? "channelId = :c AND begins_with(sk, :p)"
+        : "channelId = :c AND sk < :p",
+      ExpressionAttributeValues: {
+        ":c": channelId,
+        ":p": parentSk ? threadSkPrefix(parentSk) : THREAD_SK_PREFIX,
+      },
       ScanIndexForward: false,
       Limit: DEDUPE_WINDOW,
     }),

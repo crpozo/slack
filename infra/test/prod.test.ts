@@ -378,6 +378,9 @@ describe("phase 5.1 resources", () => {
       "dynamodb:GetItem",
       "dynamodb:PutItem",
       "dynamodb:Query", // retry dedupe
+      // A thread reply's transaction bumps the parent's counters: IAM checks each
+      // item's action, and without this every reply failed with AccessDenied in prod.
+      "dynamodb:UpdateItem",
     ]);
     // Phase 10: read watermarks live on the channel row, edits rewrite the caller's message,
     // typing only fans out (channel access check + connections).

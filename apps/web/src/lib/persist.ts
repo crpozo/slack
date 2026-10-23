@@ -1,4 +1,5 @@
 import { clearSnapshot, createPersister, loadSnapshot, snapshotOf } from "./cache";
+import { clearDrafts } from "./drafts";
 import { useChat } from "../store";
 
 /**
@@ -39,5 +40,6 @@ export function startPersistence(userId: string): () => void {
 
 /** Sign-out: nothing of this person stays on the device. */
 export function forgetPersisted(userId: string): Promise<void> {
+  clearDrafts(userId);
   return clearSnapshot(userId);
 }

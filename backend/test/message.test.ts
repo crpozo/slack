@@ -527,7 +527,43 @@ describe("message retries", () => {
       ],
     ]);
     const query = ddbMock.commandCalls(QueryCommand)[0]?.args[0].input;
-    expect(query).toMatchObject({ ScanIndexForward: false, Limit: 25 });
+    expect(query).toMatchObject({
+      ScanIndexForward: false,
+      Limit: 25,
+      // Top-level rows only: thread replies sort after them and would fill the window.
+      KeyConditionExpression: "channelId = :c AND sk < :p",
+      ExpressionAttributeValues: { ":c": GENERAL_CHANNEL_ID, ":p": "thread#" },
+    });
+  });
+
+  it("looks for a retried reply among its own thread's replies", async () => {
+    const parentSk = "1700000000000#P";
+    const stored = {
+      messageId: "r1",
+      channelId: GENERAL_CHANNEL_ID,
+      sk: `thread#${parentSk}#1700000000001#R1`,
+      parentId: "p1",
+      parentSk,
+      userId: ALICE.userId,
+      text: "me too",
+      clientId: "c9",
+    };
+    ddbMock.on(QueryCommand).resolves({ Items: [stored] });
+
+    await send({
+      action: "message",
+      channelId: GENERAL_CHANNEL_ID,
+      text: "me too",
+      clientId: "c9",
+      thread: { messageId: "p1", sk: parentSk },
+    });
+
+    expect(ddbMock.commandCalls(TransactWriteCommand)).toHaveLength(0);
+    expect(sentEvents()[0]?.[1]).toMatchObject({ type: "message.new", clientId: "c9" });
+    expect(ddbMock.commandCalls(QueryCommand)[0]?.args[0].input).toMatchObject({
+      KeyConditionExpression: "channelId = :c AND begins_with(sk, :p)",
+      ExpressionAttributeValues: { ":c": GENERAL_CHANNEL_ID, ":p": `thread#${parentSk}#` },
+    });
   });
 
   it("another person's message with the same clientId is not a duplicate", async () => {
