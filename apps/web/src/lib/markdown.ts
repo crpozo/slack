@@ -10,7 +10,8 @@ export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => ESCAPES[c] ?? c);
 }
 
-const URL_PATTERN = /\bhttps?:\/\/[^\s<]*[^\s<.,;:!?)\]'"]/g;
+/** http(s) links as messages show them (also how YouTube previews find theirs). */
+export const URL_PATTERN = /\bhttps?:\/\/[^\s<]*[^\s<.,;:!?)\]'"]/g;
 /** `[label](https://…)` (after escaping), http(s) only: anything else stays text. */
 const MD_LINK_PATTERN = /\[([^\]\n]{1,200})\]\((https?:\/\/[^\s<)]+)\)/g;
 const MARKER = /\uE000(\d+)\uE000/g;

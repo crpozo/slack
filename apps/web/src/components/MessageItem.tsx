@@ -15,6 +15,7 @@ import { QUICK_REACTIONS } from "../lib/emoji";
 import type { MenuContext } from "../lib/contextMenu";
 import { useMessageGestures } from "../lib/gestures";
 import { renderMarkdown } from "../lib/markdown";
+import { youTubeVideosIn } from "../lib/youtube";
 import { selectName, useChat, useNameOf, type ChatMessage } from "../store";
 import { Attachment } from "./Attachment";
 import { MeetingCard } from "./MeetingCard";
@@ -35,6 +36,7 @@ import {
   TrashIcon,
 } from "./icons";
 import { ReactionPicker, Reactions } from "./Reactions";
+import { YouTubePreview } from "./YouTubePreview";
 
 /** The message whose toolbar a long press opened (touch screens; one at a time). */
 const usePressed = create<{ id: string | null; set: (id: string | null) => void }>((set) => ({
@@ -447,6 +449,12 @@ export const MessageItem = memo(function MessageItem({
   onOpenThread,
 }: Readonly<MessageItemProps>) {
   const html = useMemo(() => renderMarkdown(message.text), [message.text]);
+  // Phase 33: YouTube links get a click-to-play player under the text (never for secrets or cards).
+  const videos = useMemo(
+    () =>
+      message.isSecret || message.kind || message.deletedAt ? [] : youTubeVideosIn(message.text),
+    [message.text, message.isSecret, message.kind, message.deletedAt],
+  );
   const time = formatTime(message.createdAt);
   // One string, not the whole directory: a refresh re-renders this row only if its name changed.
   const name = useChat((s) => selectName(s, message.userId, message.userEmail));
@@ -582,6 +590,10 @@ export const MessageItem = memo(function MessageItem({
               dangerouslySetInnerHTML={{ __html: html }}
             />
           )}
+
+          {videos.map((video) => (
+            <YouTubePreview key={video.id} video={video} />
+          ))}
 
           {message.attachments.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-2">

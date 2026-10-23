@@ -97,6 +97,13 @@ export interface PipController {
   /** Resolves with the strategy that took the call, or `null` when none could. */
   popOut(reason: PipReason): Promise<PipStrategy | null>;
   popIn(): Promise<void>;
+  /**
+   * The person closed the pop-out with its Close button (Phase 33): pops in
+   * without moving focus, and nothing pops the call out on its own again for
+   * the rest of this call (the desktop app leaving the front, the browser's
+   * auto picture-in-picture). "Pop out" in the call still works, and lifts that.
+   */
+  dismiss(): Promise<void>;
   /** Follows the call and the window: see `createPipController`. Returns a stop function. */
   start(): () => void;
 }
@@ -120,6 +127,8 @@ export function createPipController(
   const callStore = deps.callStore ?? useCall;
   const log = deps.log ?? ((step, detail) => console.info("[pip]", step, detail ?? ""));
   let opening: Promise<PipStrategy | null> | null = null;
+  /** The call whose pop-out the person closed: no automatic pop-out during it. */
+  let dismissedCallId: string | null = null;
 
   const closedFromOutside = (strategy: PipStrategy) => {
     if (store.getState().active === strategy) {
@@ -129,7 +138,10 @@ export function createPipController(
 
   async function popOut(reason: PipReason): Promise<PipStrategy | null> {
     if (store.getState().active) return store.getState().active;
-    if (!showsOutside(callStore.getState().call)) return null;
+    const call = callStore.getState().call;
+    if (!showsOutside(call)) return null;
+    if (reason === "user") dismissedCallId = null;
+    else if (dismissedCallId !== null && dismissedCallId === call?.callId) return null;
     if (opening) return opening;
     opening = (async () => {
       for (const strategy of pipStrategies(env)) {
@@ -163,6 +175,12 @@ export function createPipController(
     } catch (err) {
       log(`${active} close failed`, err);
     }
+  }
+
+  async function dismiss(): Promise<void> {
+    dismissedCallId = callStore.getState().call?.callId ?? null;
+    log("pop-out closed by the person", { callId: dismissedCallId });
+    await popIn();
   }
 
   function start(): () => void {
@@ -224,7 +242,7 @@ export function createPipController(
     };
   }
 
-  return { popOut, popIn, start };
+  return { popOut, popIn, dismiss, start };
 }
 
 // --- The browser adapters ----------------------------------------------------------

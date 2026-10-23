@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { formatCallDuration } from "../lib/call";
 import { Avatar } from "./Avatar";
 import {
+  CloseIcon,
   MaximizeIcon,
   MicIcon,
   MicOffIcon,
@@ -34,6 +35,11 @@ export interface PipCallProps {
   onHangUp: () => void;
   /** Back to the app (focuses it and closes the floating window). */
   onBack: () => void;
+  /**
+   * Phase 33: closes the floating window without bringing the app forward;
+   * the call goes on in the app, and isn't popped out on its own again.
+   */
+  onClose?: () => void;
   /** Dragging the frameless desktop window by its header. */
   onDragStart?: () => void;
 }
@@ -119,6 +125,19 @@ export function PipCallView(props: Readonly<PipCallProps>) {
         <p className="shrink-0 tabular-nums text-white/70" aria-live="polite">
           {status}
         </p>
+        {props.onClose && (
+          <button
+            type="button"
+            onClick={props.onClose}
+            // Not a drag: the header moves the frameless desktop window.
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-label="Close window (the call continues in the app)"
+            title="Close window (the call continues in the app)"
+            className="-mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-white/70 hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <CloseIcon />
+          </button>
+        )}
       </div>
       <div className="relative min-h-0 flex-1 bg-black">
         {showScreen || showCamera ? (

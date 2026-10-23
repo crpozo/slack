@@ -44,6 +44,7 @@ export function CallPipPage() {
       onCamera={() => bridge?.send("camera")}
       onHangUp={() => bridge?.send("hangup")}
       onBack={() => bridge?.send("focus")}
+      onClose={() => bridge?.send("close")}
       onDragStart={dragPipWindow}
     />
   );

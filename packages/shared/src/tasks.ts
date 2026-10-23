@@ -147,6 +147,23 @@ const text = (max: number) =>
     .max(max)
     .refine((v) => !/\p{Cc}/u.test(v), "cannot contain control characters");
 
+/**
+ * The long fields (description, notes) are written in textareas: line breaks
+ * are allowed (Windows `\r\n` stored as `\n`), tabs too; any other control
+ * character is still refused.
+ */
+const multiline = (max: number) =>
+  z
+    .string()
+    .transform((v) => v.replace(/\r\n?/g, "\n"))
+    .pipe(
+      z
+        .string()
+        .trim()
+        .max(max)
+        .refine((v) => !/[^\P{Cc}\n\t]/u.test(v), "cannot contain control characters"),
+    );
+
 export const CreateBoardSchema = z.object({
   name: text(MAX_BOARD_NAME_LENGTH).pipe(z.string().min(1)),
 });
@@ -172,10 +189,10 @@ const attachments = z.array(AttachmentSchema).max(MAX_TASK_ATTACHMENTS);
 
 export const CreateTaskSchema = z.object({
   title: text(MAX_TASK_TITLE_LENGTH).pipe(z.string().min(1)),
-  description: text(MAX_TASK_DESCRIPTION_LENGTH).default(""),
+  description: multiline(MAX_TASK_DESCRIPTION_LENGTH).default(""),
   assigneeId: UserIdSchema.nullable().default(null),
   project: text(MAX_TASK_PROJECT_LENGTH).default(""),
-  notes: text(MAX_TASK_NOTES_LENGTH).default(""),
+  notes: multiline(MAX_TASK_NOTES_LENGTH).default(""),
   attachments: attachments.default([]),
 });
 
@@ -183,11 +200,11 @@ export const CreateTaskSchema = z.object({
 export const UpdateTaskSchema = z
   .object({
     title: text(MAX_TASK_TITLE_LENGTH).pipe(z.string().min(1)).optional(),
-    description: text(MAX_TASK_DESCRIPTION_LENGTH).optional(),
+    description: multiline(MAX_TASK_DESCRIPTION_LENGTH).optional(),
     status: z.enum(TASK_STATUSES).optional(),
     assigneeId: UserIdSchema.nullable().optional(),
     project: text(MAX_TASK_PROJECT_LENGTH).optional(),
-    notes: text(MAX_TASK_NOTES_LENGTH).optional(),
+    notes: multiline(MAX_TASK_NOTES_LENGTH).optional(),
     attachments: attachments.optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), "nothing to update");

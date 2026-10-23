@@ -8,6 +8,7 @@ import {
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTasks } from "../store/tasks";
 import { Modal, SecondaryButton } from "./Modal";
+import { PasteStatus, TaskImages, useImagePaste } from "./TaskImages";
 import {
   AttachmentsSection,
   Field,
@@ -38,7 +39,22 @@ export function NewTaskModal({ board, onClose }: Readonly<{ board: Board; onClos
     setAttachments((list) => [...list, ...added]),
   );
   const drop = useFileDrop((files) => void addFiles(files));
-  const canCreate = title.trim().length > 0 && uploads.length === 0;
+  // Pasted images (Phase 33): uploaded as task files, referenced from the text.
+  const addFile = (file: Attachment) => setAttachments((list) => [...list, file]);
+  const descriptionPaste = useImagePaste({
+    boardId: board.boardId,
+    attached: attachments.length + uploads.length,
+    apply: setDescription,
+    onUploaded: addFile,
+  });
+  const notesPaste = useImagePaste({
+    boardId: board.boardId,
+    attached: attachments.length + uploads.length + descriptionPaste.pending,
+    apply: setNotes,
+    onUploaded: addFile,
+  });
+  const uploading = uploads.length + descriptionPaste.pending + notesPaste.pending;
+  const canCreate = title.trim().length > 0 && uploading === 0;
 
   function submit(e?: FormEvent) {
     e?.preventDefault();
@@ -67,9 +83,9 @@ export function NewTaskModal({ board, onClose }: Readonly<{ board: Board; onClos
             form="new-task"
             className="btn-primary"
             disabled={!canCreate}
-            title={uploads.length > 0 ? "Waiting for uploads to finish" : "Create (Enter)"}
+            title={uploading > 0 ? "Waiting for uploads to finish" : "Create (Enter)"}
           >
-            {uploads.length > 0 ? "Uploading…" : "Create"}
+            {uploading > 0 ? "Uploading…" : "Create"}
           </button>
         </>
       }
@@ -91,11 +107,14 @@ export function NewTaskModal({ board, onClose }: Readonly<{ board: Board; onClos
           <textarea
             id="task-description"
             className="input min-h-[3.5rem] resize-y"
-            placeholder="A line or two shown on the card (optional)"
+            placeholder="A line or two shown on the card (optional). Paste a screenshot to add it."
             maxLength={MAX_TASK_DESCRIPTION_LENGTH}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            onPaste={descriptionPaste.onPaste}
           />
+          <PasteStatus pending={descriptionPaste.pending} />
+          <TaskImages text={description} attachments={attachments} />
         </Field>
 
         <ProjectAndAssignee
@@ -109,11 +128,14 @@ export function NewTaskModal({ board, onClose }: Readonly<{ board: Board; onClos
           <textarea
             id="task-notes"
             className="input min-h-[10rem] resize-y leading-relaxed"
-            placeholder="Context, links, decisions…"
+            placeholder="Context, links, decisions… (paste screenshots too)"
             maxLength={MAX_TASK_NOTES_LENGTH}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
+            onPaste={notesPaste.onPaste}
           />
+          <PasteStatus pending={notesPaste.pending} />
+          <TaskImages text={notes} attachments={attachments} />
         </Field>
 
         <AttachmentsSection
