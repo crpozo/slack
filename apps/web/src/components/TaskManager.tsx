@@ -1,5 +1,6 @@
 import {
   canAccessBoard,
+  canDeleteBoard,
   isTaskArchived,
   MAX_BOARD_NAME_LENGTH,
   type Board,
@@ -569,12 +570,12 @@ function BoardTitle({
   );
 }
 
-/** Owner-only gear menu next to the board title: rename or delete. */
+/** Gear menu next to the board title: rename (its owner), delete (its owner or an admin). */
 function BoardMenu({
   board,
   onRename,
   onDelete,
-}: Readonly<{ board: Board; onRename: () => void; onDelete: () => void }>) {
+}: Readonly<{ board: Board; onRename?: () => void; onDelete?: () => void }>) {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const item = "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm";
   return (
@@ -597,28 +598,32 @@ function BoardMenu({
             aria-label="Board settings"
             className="w-48 rounded-xl border border-line bg-surface-raised p-1 shadow-xl"
           >
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setAnchor(null);
-                onRename();
-              }}
-              className={`${item} text-ink hover:bg-surface-hover`}
-            >
-              <PencilIcon /> Rename board
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setAnchor(null);
-                onDelete();
-              }}
-              className={`${item} text-error hover:bg-error/10`}
-            >
-              <TrashIcon /> Delete board
-            </button>
+            {onRename && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAnchor(null);
+                  onRename();
+                }}
+                className={`${item} text-ink hover:bg-surface-hover`}
+              >
+                <PencilIcon /> Rename board
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAnchor(null);
+                  onDelete();
+                }}
+                className={`${item} text-error hover:bg-error/10`}
+              >
+                <TrashIcon /> Delete board
+              </button>
+            )}
           </div>
         </Popover>
       )}
@@ -626,9 +631,41 @@ function BoardMenu({
   );
 }
 
-function DeleteBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: () => void }>) {
+/** "1 task", "3 tasks". */
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+/**
+ * Deleting a board (Phase 32) is destructive and permanent, so it asks for
+ * the board's exact name: Delete stays disabled until it's typed. It says
+ * what goes with it (tasks, their files, the link from project channels)
+ * and, for an admin deleting someone else's board, whose it is.
+ */
+export function DeleteBoardModal({
+  board,
+  onClose,
+}: Readonly<{ board: Board; onClose: () => void }>) {
   const deleteBoard = useTasks((s) => s.deleteBoard);
-  const count = useTasks((s) => s.tasksByBoard[board.boardId]?.length ?? 0);
+  const tasks = useTasks((s) => s.tasksByBoard[board.boardId]);
+  const myUserId = useChat((s) => s.me?.userId);
+  const projects = useChat(
+    useShallow((s) =>
+      s.channels.filter((c) => c.linkedBoardId === board.boardId).map((c) => c.name),
+    ),
+  );
+  const nameOf = useNameOf();
+  const [typed, setTyped] = useState("");
+  const count = tasks?.length ?? 0;
+  const files = (tasks ?? []).reduce((n, t) => n + t.attachments.length, 0);
+  const matches = typed.trim() === board.name;
+  const fieldId = `delete-board-${board.boardId}`;
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!matches) return;
+    onClose();
+    void deleteBoard(board.boardId);
+  }
+
   return (
     <Modal
       title="Delete board"
@@ -638,23 +675,54 @@ function DeleteBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: 
         <>
           <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
           <button
-            type="button"
-            className="inline-flex items-center gap-2 rounded-lg bg-error px-4 py-2 text-sm font-semibold text-on-accent hover:opacity-90"
-            onClick={() => {
-              onClose();
-              void deleteBoard(board.boardId);
-            }}
+            type="submit"
+            form={fieldId + "-form"}
+            disabled={!matches}
+            className="inline-flex items-center gap-2 rounded-lg bg-error px-4 py-2 text-sm font-semibold text-white hover:bg-error/90 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Delete
+            <TrashIcon aria-hidden="true" />
+            Delete board
           </button>
         </>
       }
     >
-      <p className="text-sm text-ink">
-        Delete <strong>{board.name}</strong> and its {count} task{count === 1 ? "" : "s"}? It will
-        disappear for every member.
-      </p>
-      <p className="mt-2 text-xs text-ink-secondary">This can't be undone.</p>
+      <form id={fieldId + "-form"} onSubmit={submit} className="space-y-3 text-sm">
+        {board.ownerId !== myUserId && (
+          <p className="rounded-lg bg-warning/15 px-3 py-2 text-xs text-ink">
+            You&apos;re deleting <strong>{nameOf(board.ownerId)}</strong>&apos;s board as an admin.
+          </p>
+        )}
+        <p className="text-ink">
+          <strong>{board.name}</strong> and everything on it disappear for every member:
+        </p>
+        <ul className="list-disc space-y-0.5 pl-5 text-ink-secondary">
+          <li>
+            {tasks ? plural(count, "task") : "All its tasks"}
+            {files > 0 && ` and ${plural(files, "attached file")}`}
+          </li>
+          {projects.length > 0 && (
+            <li>
+              The link from {projects.map((n) => `#${n}`).join(", ")} (
+              {projects.length === 1 ? "it stays" : "they stay"}, without a board)
+            </li>
+          )}
+        </ul>
+        <p className="font-medium text-error">This can&apos;t be undone.</p>
+        <div>
+          <label htmlFor={fieldId} className="mb-1 block text-ink">
+            Type <strong className="select-all font-mono">{board.name}</strong> to confirm
+          </label>
+          <input
+            id={fieldId}
+            className="input"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            aria-invalid={typed.length > 0 && !matches}
+          />
+        </div>
+      </form>
     </Modal>
   );
 }
@@ -681,6 +749,9 @@ export function BoardView({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const isOwner = board.ownerId === myUserId;
+  const role = useChat((s) => s.me?.role);
+  // Phase 32: its owner, or an admin (a board whose owner left would be stuck otherwise).
+  const canDelete = !!myUserId && canDeleteBoard(board, myUserId, role);
   const closeTask = useCallback(() => setOpenTaskId(null), []);
 
   useEffect(() => {
@@ -708,11 +779,11 @@ export function BoardView({
         }`}
       >
         <BoardTitle board={board} editable={isOwner} editing={renaming} setEditing={setRenaming} />
-        {isOwner && !renaming && (
+        {(isOwner || canDelete) && !renaming && (
           <BoardMenu
             board={board}
-            onRename={() => setRenaming(true)}
-            onDelete={() => setDeleting(true)}
+            onRename={isOwner ? () => setRenaming(true) : undefined}
+            onDelete={canDelete ? () => setDeleting(true) : undefined}
           />
         )}
         <div className="flex items-center -space-x-1" aria-label="Members">

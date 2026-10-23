@@ -51,6 +51,7 @@ export class SlackStack extends Stack {
       auth,
       data,
       wsApi: api,
+      attachments: storage.attachments,
       allowOrigins: [
         ...LOCAL_DEV_ORIGINS,
         ...(domains.appDomain ? [`https://${domains.appDomain}`] : []),

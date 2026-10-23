@@ -11,6 +11,7 @@ import {
   AddBoardMembersSchema,
   attachmentPrefixFor,
   canAccessBoard,
+  canDeleteBoard,
   CreateBoardSchema,
   CreateTaskSchema,
   InviteToBoardSchema,
@@ -34,12 +35,14 @@ import {
   boardRows,
   boardsOf,
   getAccessibleBoard,
+  getLiveBoard,
   memberSk,
 } from "../lib/boards";
 import { activeUserIds, deliver, listConnections, type LiveConnection } from "../lib/broadcast";
 import { speakerNames } from "../lib/callNotes";
 import { channelAudience, getAccessibleChannel } from "../lib/channels";
-import { batchDelete, ddb, tables } from "../lib/ddb";
+import { purgeBoard, type PurgeReport } from "../lib/boardDeletion";
+import { ddb, tables } from "../lib/ddb";
 import {
   forbidden,
   HttpError,
@@ -279,39 +282,76 @@ async function renameBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
  * board row last — if anything fails part way the board is still there (and
  * still owned) to retry. Members get `board.deleted`.
  */
+/**
+ * `DELETE /boards/{id}` (Phase 32): its owner, or an admin (whether or not
+ * they're on it), deletes a board and everything on it. The board row is
+ * stamped `deletingAt` first, so it's gone for every route at once and
+ * nothing new can land on it; the members hear `board.deleted`; then its
+ * tasks, files, project-channel links and membership rows are removed, and
+ * the board row last. 204 when all of that finished, 202 when the cleanup
+ * was interrupted (the daily sweep finishes it; the board is gone either way).
+ */
 async function deleteBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const boardId = pathParam(event, "id");
-  const board = await accessibleBoard(boardId, caller);
-  if (board.ownerId !== caller.userId) throw forbidden("Only the board owner can delete it");
+  const board =
+    caller.role === "admin"
+      ? await getLiveBoard(boardId)
+      : await getAccessibleBoard(boardId, caller.userId);
+  if (!board) throw notFound("Board not found");
+  if (!canDeleteBoard(board, caller.userId, caller.role)) {
+    throw forbidden("Only the board's owner or an admin can delete it");
+  }
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: tables.boards,
+        Key: { boardId, sk: BOARD_SK },
+        UpdateExpression: "SET deletingAt = :now",
+        ConditionExpression: "attribute_exists(boardId) AND attribute_not_exists(deletingAt)",
+        ExpressionAttributeValues: { ":now": Date.now() },
+      }),
+    );
+  } catch (err) {
+    if (err instanceof Error && err.name === "ConditionalCheckFailedException") {
+      throw notFound("Board not found"); // deleted (or being deleted) by someone else
+    }
+    throw err;
+  }
+  log.info("board deleting", {
+    boardId,
+    userId: caller.userId,
+    byAdmin: board.ownerId !== caller.userId,
+  });
+  const connections = await notifyBoard(board, { type: "board.deleted", boardId });
 
-  const tasks = await queryBoardTasks(boardId);
-  await batchDelete(
-    tables.tasks,
-    tasks.map((t) => ({ taskId: t.taskId })),
-  );
-  const { Items } = await ddb.send(
-    new QueryCommand({
-      TableName: tables.boards,
-      KeyConditionExpression: "boardId = :b",
-      ExpressionAttributeValues: { ":b": boardId },
-      ProjectionExpression: "boardId, sk",
-    }),
-  );
-  const memberRows = (Items ?? []).filter((i) => i.sk !== BOARD_SK);
-  await batchDelete(
-    tables.boards,
-    memberRows.map((i) => ({ boardId, sk: i.sk })),
-  );
-  await ddb.send(
-    new DeleteCommand({
-      TableName: tables.boards,
-      Key: { boardId, sk: BOARD_SK },
-      ConditionExpression: "ownerId = :me",
-      ExpressionAttributeValues: { ":me": caller.userId },
-    }),
-  );
-  log.info("board deleted", { boardId, userId: caller.userId, tasks: tasks.length });
-  await notifyBoard(board, { type: "board.deleted", boardId });
+  let report: PurgeReport;
+  try {
+    report = await purgeBoard(boardId);
+  } catch (err) {
+    log.error("board cleanup interrupted; the daily sweep finishes it", {
+      boardId,
+      ...errorFields(err),
+    });
+    return json(202, {
+      message: "The board is deleted; its tasks and files are still being removed.",
+    });
+  }
+  // Project channels that pointed at it: everyone who sees them gets the unlinked channel.
+  if (report.channels.length > 0) {
+    try {
+      const live = connections.length > 0 ? connections : await listConnections();
+      await Promise.all(
+        report.channels.map((channel) =>
+          deliver(live.filter(channelAudience(channel)), () => ({
+            type: "channel.updated",
+            channel,
+          })),
+        ),
+      );
+    } catch (err) {
+      log.error("unlinked channels not announced", { boardId, ...errorFields(err) });
+    }
+  }
   return json(204);
 }
 

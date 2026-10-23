@@ -5,6 +5,7 @@ import {
   UserIdSchema,
   type Attachment,
 } from "./protocol";
+import type { Role } from "./roles";
 
 // ---------------------------------------------------------------------------
 // Task Manager (Phase 6): boards shared with members, tasks on a Kanban board.
@@ -119,6 +120,19 @@ export function isTaskArchived(
 ): boolean {
   if (task.status !== "DONE") return false;
   return task.isArchived || (task.doneAt !== null && now - task.doneAt > ARCHIVE_DONE_AFTER_MS);
+}
+
+/**
+ * Who may delete a board and its tasks (Phase 32): its owner, or a workspace
+ * admin (a board whose owner left would otherwise be stuck). Guests never.
+ */
+export function canDeleteBoard(
+  board: Pick<Board, "ownerId">,
+  userId: string,
+  role: Role | undefined,
+): boolean {
+  if (role === "guest") return false;
+  return board.ownerId === userId || role === "admin";
 }
 
 /** Board-level permission: the owner and the members, nobody else. */

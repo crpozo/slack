@@ -6,7 +6,7 @@ import type { ChatMessage } from "../store";
 // ---------------------------------------------------------------------------
 
 export type MenuAction =
-  "copy" | "copy-selection" | "open-link" | "copy-link" | "reply" | "thread" | "edit";
+  "copy" | "copy-selection" | "open-link" | "copy-link" | "reply" | "thread" | "edit" | "delete";
 
 export interface MenuContext {
   mine: boolean;
@@ -16,6 +16,8 @@ export interface MenuContext {
   selection: string;
   /** The link right-clicked, if any. */
   link: string | null;
+  /** You wrote it, or you're an admin (Phase 32: `canDeleteMessage`). */
+  canDelete?: boolean;
 }
 
 /**
@@ -24,6 +26,8 @@ export interface MenuContext {
  * Secrets are never copied from here (their body has its own reveal/copy).
  */
 export function menuActions(message: ChatMessage, ctx: MenuContext): MenuAction[] {
+  // A deleted message that keeps its thread offers nothing.
+  if (message.deletedAt) return [];
   const sent = !message.status;
   const actions: MenuAction[] = [];
   if (!message.isSecret) {
@@ -35,6 +39,8 @@ export function menuActions(message: ChatMessage, ctx: MenuContext): MenuAction[
   actions.push("reply");
   if (ctx.canThread && !message.isSecret) actions.push("thread");
   if (ctx.mine && message.text && !message.isSecret && !message.kind) actions.push("edit");
+  // Destructive, so last and on its own (Phase 32).
+  if (ctx.canDelete) actions.push("delete");
   return actions;
 }
 

@@ -1,5 +1,5 @@
 import {
-  GENERAL_CHANNEL_ID,
+  canArchiveChannel,
   canEditChannel,
   canRenameChannel,
   ChannelNameSchema,
@@ -448,8 +448,8 @@ export function EditChannelModal({
     onClose();
   }
 
-  const admin = me?.role === "admin";
-  const canArchive = admin && channel.channelId !== GENERAL_CHANNEL_ID && channel.type !== "dm";
+  // Phase 32: the channel's creator too, not only admins.
+  const canArchive = !!me && canArchiveChannel(channel, me.userId, me.role);
   const [confirmArchive, setConfirmArchive] = useState(false);
   function toggleArchive() {
     chat.updateChannel(channel.channelId, { archived: !channel.archived });

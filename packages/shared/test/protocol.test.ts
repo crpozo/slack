@@ -351,3 +351,40 @@ describe("project channels", () => {
     });
   });
 });
+
+describe("deletion and archiving permissions (Phase 32)", async () => {
+  const { canArchiveChannel, canDeleteBoard, canDeleteMessage, GENERAL_CHANNEL_ID } =
+    await import("../src");
+  it("a message: its author or an admin, once", () => {
+    expect(canDeleteMessage({ userId: "a" }, "a", "member")).toBe(true);
+    expect(canDeleteMessage({ userId: "a" }, "b", "member")).toBe(false);
+    expect(canDeleteMessage({ userId: "a" }, "b", "admin")).toBe(true);
+    expect(canDeleteMessage({ userId: "a", deletedAt: 1 }, "a", "admin")).toBe(false);
+  });
+  it("a channel: archived by its creator or an admin, never #general or a DM", () => {
+    const channel = {
+      channelId: "ch_x",
+      type: "private" as const,
+      createdBy: "a",
+      members: ["a", "b"],
+    };
+    expect(canArchiveChannel(channel, "a", "member")).toBe(true);
+    expect(canArchiveChannel(channel, "b", "member")).toBe(false);
+    expect(canArchiveChannel(channel, "b", "admin")).toBe(true);
+    expect(canArchiveChannel(channel, "c", "admin")).toBe(false); // not a member of the private channel
+    expect(
+      canArchiveChannel(
+        { ...channel, channelId: GENERAL_CHANNEL_ID, type: "public" },
+        "a",
+        "admin",
+      ),
+    ).toBe(false);
+    expect(canArchiveChannel({ ...channel, type: "dm" }, "a", "admin")).toBe(false);
+  });
+  it("a board: its owner or an admin, never a guest", () => {
+    expect(canDeleteBoard({ ownerId: "a" }, "a", "member")).toBe(true);
+    expect(canDeleteBoard({ ownerId: "a" }, "b", "member")).toBe(false);
+    expect(canDeleteBoard({ ownerId: "a" }, "b", "admin")).toBe(true);
+    expect(canDeleteBoard({ ownerId: "a" }, "a", "guest")).toBe(false);
+  });
+});

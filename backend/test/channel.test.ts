@@ -880,13 +880,33 @@ describe("channel archive", () => {
     expect(sentEvents()[0]?.[1]).toMatchObject({ type: "error", code: "CHANNEL_NOT_FOUND" });
   });
 
-  it("refuses non-admins (even the creator), #general and DMs", async () => {
-    await update({ archived: true });
-    expect(sentEvents()[0]?.[1]).toMatchObject({ type: "error", code: "FORBIDDEN" });
+  it("the creator archives and restores too (Phase 32); other members can't", async () => {
+    await update({ archived: true }); // Alice created #team
+    expect(
+      ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input?.ExpressionAttributeValues,
+    ).toEqual({ ":archived": true });
     resetMocks();
     ddbMock
       .on(ScanCommand, { TableName: "slack-test-channels" })
       .resolves({ Items: [general, team, frozen] });
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { ...frozen, archived: false } });
+    await update({ archived: false }, ALICE, "ch_old"); // Alice created #old too
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
+
+    resetMocks();
+    ddbMock
+      .on(ScanCommand, { TableName: "slack-test-channels" })
+      .resolves({ Items: [general, team, frozen] });
+    await update({ archived: true }, BOB);
+    expect(sentEvents()[0]?.[1]).toMatchObject({
+      type: "error",
+      code: "FORBIDDEN",
+      message: "Only the channel creator or an admin can archive it",
+    });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
+  it("refuses #general and DMs, even to admins", async () => {
     await update({ archived: true }, admin, "ch_general");
     expect(sentEvents()[0]?.[1]).toMatchObject({ type: "error", code: "FORBIDDEN" });
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);

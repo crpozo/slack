@@ -6,7 +6,12 @@ export const BOARD_SK = "BOARD";
 export const memberSk = (userId: string) => `MEMBER#${userId}`;
 
 /** Row of the `boards` table for the board itself (`members` is a DynamoDB string set). */
-export type BoardItem = Omit<Board, "members"> & { sk: string; members?: Set<string> | string[] };
+export type BoardItem = Omit<Board, "members"> & {
+  sk: string;
+  members?: Set<string> | string[];
+  /** Phase 32: being deleted (see `lib/boardDeletion.ts`): gone for every route. */
+  deletingAt?: number;
+};
 
 export function toBoard(item: BoardItem): Board {
   return {
@@ -28,9 +33,19 @@ export async function getAccessibleBoard(boardId: string, userId: string): Promi
   const { Item } = await ddb.send(
     new GetCommand({ TableName: tables.boards, Key: { boardId, sk: BOARD_SK } }),
   );
-  if (!Item) return null;
+  if (!Item || (Item as BoardItem).deletingAt) return null;
   const board = toBoard(Item as BoardItem);
   return canAccessBoard(board, userId) ? board : null;
+}
+
+/** The board row regardless of membership (admins deleting any board); `null` if gone or being deleted. */
+export async function getLiveBoard(boardId: string): Promise<Board | null> {
+  if (!isBoardId(boardId)) return null;
+  const { Item } = await ddb.send(
+    new GetCommand({ TableName: tables.boards, Key: { boardId, sk: BOARD_SK } }),
+  );
+  if (!Item || (Item as BoardItem).deletingAt) return null;
+  return toBoard(Item as BoardItem);
 }
 
 /**
@@ -89,7 +104,9 @@ export async function boardsOf(userId: string): Promise<Board[]> {
     ),
   );
   const boards = pages.flatMap((page) =>
-    ((page.Responses?.[tables.boards] ?? []) as BoardItem[]).map(toBoard),
+    ((page.Responses?.[tables.boards] ?? []) as BoardItem[])
+      .filter((item) => !item.deletingAt)
+      .map(toBoard),
   );
   // Membership rows and the board row agree except mid-change: trust the board row.
   return boards.filter((b) => canAccessBoard(b, userId)).sort((a, b) => a.createdAt - b.createdAt);

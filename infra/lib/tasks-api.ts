@@ -15,6 +15,7 @@ import { PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { Architecture, Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
+import type { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import type { Api } from "./api";
 import type { Auth } from "./auth";
@@ -73,6 +74,11 @@ export const NOTES_MODEL_ID = "anthropic.claude-haiku-5-5";
  */
 export const NOTES_MODEL_RESOURCES = ["*"];
 
+/** Deleting messages (Phase 32): by their author or an admin, its own small Lambda. */
+export const MESSAGES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.DELETE, path: "/messages/{channelId}/{sk}" },
+];
+
 /** Web Push subscriptions (Phase 8), served by their own small Lambda on the same API. */
 export const PUSH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/push/key" },
@@ -88,6 +94,31 @@ interface TasksApiProps {
   wsApi: Api;
   /** Browser origins allowed to call the API (more can be added later with `allowOrigins`). */
   allowOrigins: string[];
+  /** Phase 32: deleted messages' and boards' files are removed from it. */
+  attachments: IBucket;
+}
+
+/**
+ * Deleting files from the attachments bucket (Phase 32), only under
+ * `attachments/`. `list`: also listing that prefix (a board's files are found
+ * by prefix; a message names its own).
+ */
+function grantDeleteFiles(fn: NodejsFunction, bucket: IBucket, { list = false } = {}): void {
+  fn.addToRolePolicy(
+    new PolicyStatement({
+      actions: ["s3:DeleteObject"],
+      resources: [bucket.arnForObjects("attachments/*")],
+    }),
+  );
+  if (list) {
+    fn.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["s3:ListBucket"],
+        resources: [bucket.bucketArn],
+        conditions: { StringLike: { "s3:prefix": ["attachments/*"] } },
+      }),
+    );
+  }
 }
 
 /**
@@ -106,6 +137,8 @@ export class TasksApi extends Construct {
   readonly calendarHandler: NodejsFunction;
   readonly callNotesHandler: NodejsFunction;
   readonly callNotesWorker: NodejsFunction;
+  /** `messages`: deleting a message (Phase 32). */
+  readonly messagesHandler: NodejsFunction;
   /** Base URL clients call, without a trailing slash. */
   readonly url: string;
   private readonly origins: string[];
@@ -156,6 +189,8 @@ export class TasksApi extends Construct {
       // Action items from AI notes (Phase 29): the notes card and its conversation.
       MESSAGES_TABLE: data.messages.tableName,
       CHANNELS_TABLE: data.channels.tableName,
+      // A deleted board's files (Phase 32).
+      ATTACHMENTS_BUCKET: props.attachments.bucketName,
     });
     this.pushHandler = lambda("PushFn", "push", {
       PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
@@ -204,9 +239,23 @@ export class TasksApi extends Construct {
     this.archiveHandler = lambda(
       "ArchiveFn",
       "archive-tasks",
-      { TASKS_TABLE: data.tasks.tableName },
+      {
+        TASKS_TABLE: data.tasks.tableName,
+        // Phase 32: finishing interrupted board deletions.
+        BOARDS_TABLE: data.boards.tableName,
+        CHANNELS_TABLE: data.channels.tableName,
+        ATTACHMENTS_BUCKET: props.attachments.bucketName,
+      },
       Duration.minutes(5), // scans the whole tasks table
     );
+    this.messagesHandler = lambda("MessagesFn", "messages", {
+      MESSAGES_TABLE: data.messages.tableName,
+      CHANNELS_TABLE: data.channels.tableName,
+      CONNECTIONS_TABLE: data.connections.tableName,
+      MEETING_NOTES_TABLE: data.meetingNotes.tableName,
+      ATTACHMENTS_BUCKET: props.attachments.bucketName,
+      WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+    });
     new Rule(this, "ArchiveSchedule", {
       ruleName: `slack-${stage}-archive-done-tasks`,
       description: "Archives Kanban tasks that have been Done for over a week",
@@ -240,6 +289,13 @@ export class TasksApi extends Construct {
     const integration = new HttpLambdaIntegration("TasksIntegration", this.handler);
     for (const { method, path } of TASKS_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration });
+    }
+    const messagesIntegration = new HttpLambdaIntegration(
+      "MessagesIntegration",
+      this.messagesHandler,
+    );
+    for (const { method, path } of MESSAGES_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: messagesIntegration });
     }
     const pushIntegration = new HttpLambdaIntegration("PushIntegration", this.pushHandler);
     for (const { method, path } of PUSH_ROUTES) {
@@ -311,7 +367,10 @@ export class TasksApi extends Construct {
     wsApi.webSocketApi.grantManageConnections(this.handler);
     // Tasks from AI notes: the conversation (GetItem), the notes card (GetItem) and
     // claiming it as sent (UpdateItem, in the same transaction as the tasks' PutItem).
-    data.channels.grant(this.handler, "dynamodb:GetItem");
+    // Deleting a board (Phase 32): unlinking project channels (Scan, UpdateItem) and
+    // removing its files.
+    data.channels.grant(this.handler, "dynamodb:GetItem", "dynamodb:Scan", "dynamodb:UpdateItem");
+    grantDeleteFiles(this.handler, props.attachments, { list: true });
     data.messages.grant(this.handler, "dynamodb:GetItem", "dynamodb:UpdateItem");
 
     // calendar: events by id and by year; the ledger by person/year and by year (admins).
@@ -384,6 +443,37 @@ export class TasksApi extends Construct {
 
     // archive-tasks: find done tasks (Scan) and flag them (UpdateItem). Nothing else.
     data.tasks.grant(this.archiveHandler, "dynamodb:Scan", "dynamodb:UpdateItem");
+    // ...and the sweep after board deletions (Phase 32): stamped boards (Scan), their
+    // tasks (Query byBoard, BatchWriteItem), whether a task's board exists (BatchGetItem),
+    // membership rows and the board row, unlinking project channels, the board's files.
+    data.boards.grant(
+      this.archiveHandler,
+      "dynamodb:Scan",
+      "dynamodb:Query",
+      "dynamodb:BatchGetItem",
+      "dynamodb:BatchWriteItem",
+      "dynamodb:DeleteItem",
+    );
+    data.tasks.grant(this.archiveHandler, "dynamodb:Query", "dynamodb:BatchWriteItem");
+    data.channels.grant(this.archiveHandler, "dynamodb:Scan", "dynamodb:UpdateItem");
+    grantDeleteFiles(this.archiveHandler, props.attachments, { list: true });
+
+    // messages (Phase 32): the conversation (GetItem), the message (GetItem), deleting it
+    // or making it a tombstone and recounting its thread (DeleteItem, UpdateItem in one
+    // transaction), its thread's replies and the quotes of it (Query), clearing those
+    // quotes (UpdateItem); a notes card's hub entries; its files; the push.
+    data.channels.grant(this.messagesHandler, "dynamodb:GetItem");
+    data.messages.grant(
+      this.messagesHandler,
+      "dynamodb:GetItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:Query",
+    );
+    data.meetingNotes.grant(this.messagesHandler, "dynamodb:DeleteItem");
+    data.connections.grant(this.messagesHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
+    wsApi.webSocketApi.grantManageConnections(this.messagesHandler);
+    grantDeleteFiles(this.messagesHandler, props.attachments);
 
     // push: the caller's own subscription rows, and the public half of the VAPID keys.
     data.pushSubscriptions.grant(this.pushHandler, "dynamodb:PutItem", "dynamodb:DeleteItem");

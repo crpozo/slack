@@ -11,6 +11,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import {
   canDeleteChannel,
+  canArchiveChannel,
   canEditChannel,
   canRenameChannel,
   ChannelActionSchema,
@@ -399,11 +400,16 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
     return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
   }
   if (archiving !== undefined) {
-    if (caller.role !== "admin") {
-      return replyError(caller.connectionId, "FORBIDDEN", "Only an admin can archive a channel");
-    }
     if (channel.type === "dm" || channel.channelId === GENERAL_CHANNEL_ID) {
       return replyError(caller.connectionId, "FORBIDDEN", "This conversation can't be archived");
+    }
+    // Phase 32: its creator too, not only admins.
+    if (!canArchiveChannel(channel, caller.userId, caller.role)) {
+      return replyError(
+        caller.connectionId,
+        "FORBIDDEN",
+        "Only the channel creator or an admin can archive it",
+      );
     }
   }
   const fields = {

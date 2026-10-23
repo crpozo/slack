@@ -7,6 +7,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Delete messages:** _Delete message_ (red, with a trash icon) at the end of a message's
+  right-click menu, and in the long-press bar on phones. It's there for its author and for
+  workspace admins, who can moderate anyone's message. A confirmation shows what goes, and it
+  disappears for everyone at once (`message.deleted`), files included.
+  - **Messages with replies** stay as "This message was deleted" so their thread survives.
+  - **Deleting a reply** updates its thread's counters.
+  - **Quotes** of a deleted message lose the copied text and say "Original message deleted".
+  - **Offline devices** drop deleted messages when they next refresh the conversation.
+- **Delete boards, safely:** the board's owner or a workspace admin can delete it from the board
+  settings, after typing the board's exact name.
+  - **Two phases:** the board disappears for everyone at once and nothing new can be added, then
+    its tasks, files and project-channel links are removed.
+  - **Safety net:** an interrupted cleanup is finished by the daily job, which also removes any
+    tasks left without a board.
+
 - **✨ Send to Board:** a ready AI notes card has a _Send to Board_ button that turns its action
   items into tasks in To Do. The parser reads the "Action Items" section in English or Spanish
   (Action Items, Next steps, To-do, Tareas, Próximos pasos, Pendientes, Compromisos…), whether
@@ -91,6 +106,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **Archiving a channel:** its creator can now archive and restore it, not only admins.
 - **Opens instantly.** The shell paints for the last signed-in person before Amplify has verified
   the session, and the channel list, directory and the newest 50 messages of every channel you
   opened are kept in IndexedDB per user: a conversation shows its cached history the moment you

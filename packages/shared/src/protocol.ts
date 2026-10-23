@@ -150,6 +150,11 @@ export interface ReplySnapshot {
   /** Up to `REPLY_PREVIEW_LENGTH` chars of the original text, whitespace collapsed. */
   preview: string;
   hasAttachments: boolean;
+  /**
+   * The original was deleted (Phase 32): its copied text is gone from here
+   * too (`preview` is "", `hasAttachments` false) and the quote says so.
+   */
+  deleted?: true;
 }
 
 /** `private` channels and `dm`s are visible only to their `members`. */
@@ -290,6 +295,27 @@ export interface Message {
   aiNotes?: AiNotes;
   /** DynamoDB TTL (epoch **seconds**): set by the server on secret messages only. */
   expiresAt?: number;
+  /**
+   * Deleted while it had thread replies (Phase 32): kept as a tombstone so
+   * the thread stays reachable. Its text, files and reactions are gone; it
+   * reads "This message was deleted". Messages without replies are removed
+   * outright (`message.deleted`).
+   */
+  deletedAt?: number;
+}
+
+/**
+ * Who may delete a message (Phase 32): its author, or a workspace admin
+ * moderating. Never twice (a tombstone stays), never a message still being
+ * sent.
+ */
+export function canDeleteMessage(
+  message: Pick<Message, "userId" | "deletedAt">,
+  userId: string,
+  role: Role | undefined,
+): boolean {
+  if (message.deletedAt) return false;
+  return message.userId === userId || role === "admin";
 }
 
 export interface UserProfile {
@@ -364,12 +390,15 @@ export function canDeleteChannel(
   return isLegacyChannel(channel) || !creatorKnown;
 }
 
+/** What the channel permission rules read. */
+type ChannelRuleFields = Pick<Channel, "channelId" | "type" | "createdBy" | "members">;
+
 /**
  * Who may edit `channel`'s topic and description: its creator or an admin (a
  * member of it); `#general` (created by the system) only by admins; never a DM.
  */
 export function canEditChannel(
-  channel: Pick<Channel, "channelId" | "type" | "createdBy" | "members">,
+  channel: ChannelRuleFields,
   userId: string,
   role: Role | undefined,
 ): boolean {
@@ -379,13 +408,26 @@ export function canEditChannel(
 
 /** Who may rename `channel`: its creator or an admin (a member of it); never `#general` or a DM. */
 export function canRenameChannel(
-  channel: Pick<Channel, "channelId" | "type" | "createdBy" | "members">,
+  channel: ChannelRuleFields,
   userId: string,
   role: Role | undefined,
 ): boolean {
   if (channel.channelId === GENERAL_CHANNEL_ID || channel.type === "dm") return false;
   if (!isChannelMember(channel, userId)) return false;
   return channel.createdBy === userId || role === "admin";
+}
+
+/**
+ * Who may archive or restore a channel (Phase 32): the same people who may
+ * rename it (its creator or an admin), never `#general` or a DM. Its own
+ * name so the two rules can part ways without touching their callers.
+ */
+export function canArchiveChannel(
+  channel: ChannelRuleFields,
+  userId: string,
+  role: Role | undefined,
+): boolean {
+  return canRenameChannel(channel, userId, role);
 }
 
 // ---------------------------------------------------------------------------
@@ -904,6 +946,26 @@ export interface MessageUpdatedEvent {
   meeting?: MeetingCard;
   /** An AI notes card the worker filled in (or gave up on). */
   aiNotes?: AiNotes;
+  /**
+   * Phase 32: the message was deleted but keeps its thread (a tombstone:
+   * clients drop its text, files and reactions), or the message it quotes
+   * was deleted (`replyTo` with `deleted`).
+   */
+  deletedAt?: number;
+  replyTo?: ReplySnapshot;
+}
+
+/**
+ * A message was deleted (Phase 32), by its author or an admin: clients drop
+ * it at once. `parentSk` is set for a thread reply (the parent's counters
+ * follow as `message.thread_updated`).
+ */
+export interface MessageDeletedEvent {
+  type: "message.deleted";
+  channelId: string;
+  sk: string;
+  messageId: string;
+  parentSk?: string;
 }
 
 /** `userId` has read `channelId` up to `sk` (their watermark moved forward). */
@@ -1054,6 +1116,7 @@ export type ServerEvent =
   | MessageNewEvent
   | MessageReactionEvent
   | MessageUpdatedEvent
+  | MessageDeletedEvent
   | MessageThreadUpdatedEvent
   | ChannelReadEvent
   | UserTypingEvent

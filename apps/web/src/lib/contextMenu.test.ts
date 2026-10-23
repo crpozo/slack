@@ -61,3 +61,22 @@ describe("message context menu", () => {
     });
   });
 });
+
+describe("Delete message in the menu (Phase 32)", () => {
+  it("comes last, only when you may delete (your message, or you're an admin)", () => {
+    expect(menuActions(message(), { ...ctx, canDelete: true }).at(-1)).toBe("delete");
+    expect(menuActions(message(), { ...ctx, canDelete: false })).not.toContain("delete");
+    expect(menuActions(message(), { ...ctx, mine: false, canDelete: true })).toEqual([
+      "copy",
+      "reply",
+      "thread",
+      "delete",
+    ]);
+  });
+
+  it("offers nothing on a deleted message that keeps its thread", () => {
+    expect(menuActions(message({ deletedAt: 1, text: "" }), { ...ctx, canDelete: true })).toEqual(
+      [],
+    );
+  });
+});

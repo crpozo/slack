@@ -133,6 +133,18 @@ export interface ChatState {
   receiveThreadHistory: (parentSk: string, items: Message[], nextCursor: string | null) => void;
   /** `message.thread_updated`: the parent's counters. */
   applyThreadUpdate: (event: MessageThreadUpdatedEvent) => void;
+  /**
+   * `message.deleted` (Phase 32), or your own delete before the server
+   * confirms: the message leaves its list or thread, any reply or edit of it
+   * in the composer is dropped, and its unread count with it.
+   */
+  removeMessage: (channelId: string, sk: string) => void;
+  /** Puts back a message whose delete the server refused. */
+  restoreMessage: (message: ChatMessage) => void;
+  /** `message.updated` with `deletedAt`: a tombstone that keeps its thread. */
+  applyTombstone: (channelId: string, sk: string, deletedAt: number) => void;
+  /** `message.updated` with `replyTo`: the message it quotes was deleted. */
+  applyQuote: (channelId: string, sk: string, replyTo: ReplySnapshot) => void;
 }
 
 /** Same people with the same profiles (by value), so a refresh needn't re-render everything. */
@@ -305,8 +317,10 @@ export const useChat = create<ChatState>()((set, get) => ({
         existing.length > 0;
       const stale = { ...s.stale };
       delete stale[channelId];
+      // A refresh of the newest page also tells what was deleted meanwhile (Phase 32).
+      const kept = request === "initial" ? withoutDeleted(existing, items) : existing;
       return {
-        messagesByChannel: { ...s.messagesByChannel, [channelId]: mergeMessages(existing, items) },
+        messagesByChannel: { ...s.messagesByChannel, [channelId]: mergeMessages(kept, items) },
         cursors: keepCursor ? s.cursors : { ...s.cursors, [channelId]: nextCursor },
         historyRequests: { ...s.historyRequests, [channelId]: undefined },
         directory: learnAuthors(s.directory, items),
@@ -553,7 +567,15 @@ export const useChat = create<ChatState>()((set, get) => ({
 
   receiveThreadHistory: (parentSk, items, nextCursor) =>
     set((s) => ({
-      threads: { ...s.threads, [parentSk]: mergeMessages(s.threads[parentSk] ?? [], items) },
+      threads: {
+        ...s.threads,
+        [parentSk]: mergeMessages(
+          s.threadRequests[parentSk] === "initial"
+            ? withoutDeleted(s.threads[parentSk] ?? [], items)
+            : (s.threads[parentSk] ?? []),
+          items,
+        ),
+      },
       threadCursors: { ...s.threadCursors, [parentSk]: nextCursor },
       threadRequests: { ...s.threadRequests, [parentSk]: undefined },
       directory: learnAuthors(s.directory, items),
@@ -563,7 +585,121 @@ export const useChat = create<ChatState>()((set, get) => ({
     set((s) =>
       patchMessage(s, channelId, sk, (m) => ({ ...m, replyCount, lastReplyAt, replyUserIds })),
     ),
+
+  removeMessage: (channelId, sk) =>
+    set((s) => {
+      const parentSk = parentSkOf(sk);
+      const next: Partial<ChatState> = {};
+      let removed: ChatMessage | undefined;
+      if (parentSk) {
+        const replies = s.threads[parentSk];
+        removed = replies?.find((m) => m.sk === sk);
+        if (removed)
+          next.threads = { ...s.threads, [parentSk]: replies!.filter((m) => m !== removed) };
+      } else {
+        const messages = s.messagesByChannel[channelId];
+        removed = messages?.find((m) => m.sk === sk);
+        if (removed) {
+          next.messagesByChannel = {
+            ...s.messagesByChannel,
+            [channelId]: messages!.filter((m) => m !== removed),
+          };
+        }
+        if (sk in s.threads) {
+          const threads = { ...(next.threads ?? s.threads) };
+          delete threads[sk];
+          next.threads = threads;
+        }
+        // Still counted as unread here: it no longer is.
+        const mark = s.me ? s.reads[channelId]?.[s.me.userId]?.sk : undefined;
+        const count = s.unread[channelId] ?? 0;
+        if (removed && count > 0 && removed.userId !== s.me?.userId && (!mark || sk > mark)) {
+          next.unread = { ...s.unread, [channelId]: count - 1 };
+        }
+      }
+      if (s.replyTo[channelId]?.sk === sk) {
+        const replyTo = { ...s.replyTo };
+        delete replyTo[channelId];
+        next.replyTo = replyTo;
+      }
+      if (s.editing[channelId]?.sk === sk) {
+        next.editing = { ...s.editing, [channelId]: undefined };
+      }
+      return next;
+    }),
+
+  restoreMessage: (message) =>
+    set((s) => {
+      const parentSk = parentSkOf(message.sk);
+      if (parentSk) {
+        if (!s.threads[parentSk]) return {};
+        return {
+          threads: { ...s.threads, [parentSk]: mergeMessages(s.threads[parentSk], [message]) },
+        };
+      }
+      return {
+        messagesByChannel: {
+          ...s.messagesByChannel,
+          [message.channelId]: mergeMessages(s.messagesByChannel[message.channelId] ?? [], [
+            message,
+          ]),
+        },
+      };
+    }),
+
+  applyTombstone: (channelId, sk, deletedAt) =>
+    set((s) => {
+      const next = patchMessage(s, channelId, sk, (m) => {
+        const tombstone: ChatMessage = {
+          ...m,
+          text: "",
+          attachments: [],
+          reactions: {},
+          deletedAt,
+        };
+        for (const key of [
+          "replyTo",
+          "isEdited",
+          "editedAt",
+          "isSecret",
+          "kind",
+          "meeting",
+          "aiNotes",
+        ] as const) {
+          delete tombstone[key];
+        }
+        return tombstone;
+      });
+      if (s.replyTo[channelId]?.sk === sk) {
+        const replyTo = { ...s.replyTo };
+        delete replyTo[channelId];
+        next.replyTo = replyTo;
+      }
+      if (s.editing[channelId]?.sk === sk) next.editing = { ...s.editing, [channelId]: undefined };
+      return next;
+    }),
+
+  applyQuote: (channelId, sk, replyTo) =>
+    set((s) => patchMessage(s, channelId, sk, (m) => ({ ...m, replyTo }))),
 }));
+
+/**
+ * Cached messages a fresh page says are gone: within the page's span (from
+ * its oldest to its newest message) but not in it. Ones still being sent and
+ * ones newer than the page (arrived over the socket since) are kept.
+ */
+function withoutDeleted(existing: ChatMessage[], page: Message[]): ChatMessage[] {
+  if (page.length === 0) return existing;
+  const present = new Set(page.map((m) => m.sk));
+  // The page's span, by sort key (they compare as strings: `<epoch ms>#<ulid>`).
+  let oldest = page[0]!.sk;
+  let newest = oldest;
+  for (const { sk } of page) {
+    if (sk < oldest) oldest = sk;
+    if (sk > newest) newest = sk;
+  }
+  return existing.filter((m) => m.status || m.sk < oldest || m.sk > newest || present.has(m.sk));
+}
 
 /** Unread count for a channel (messages from others after your read mark). */
 export function selectUnread(state: ChatState, channelId: string): number {

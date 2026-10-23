@@ -47,19 +47,26 @@ function BoardAction({ message }: Readonly<{ message: Message }>) {
   const [open, setOpen] = useState(false);
   const count = useMemo(() => extractActionItems(notes.summary).length, [notes.summary]);
   const sent = notes.sentToBoard;
+  const boardsLoaded = useTasks((s) => s.boardsLoaded);
   if (sent) {
+    const onBoard = !boardsLoaded || boards.some((b) => b.boardId === sent.boardId);
     const what = sent.count === 1 ? "1 task" : `${sent.count} tasks`;
     return (
       <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-ink-secondary">
         <CheckIcon className="text-success" aria-hidden="true" />
         <span>
           {what} sent to{" "}
-          <Link
-            to={`/app/tasks/${encodeURIComponent(sent.boardId)}`}
-            className="font-semibold text-ink underline decoration-primary decoration-2 underline-offset-2"
-          >
-            {sent.boardName}
-          </Link>{" "}
+          {onBoard ? (
+            <Link
+              to={`/app/tasks/${encodeURIComponent(sent.boardId)}`}
+              className="font-semibold text-ink underline decoration-primary decoration-2 underline-offset-2"
+            >
+              {sent.boardName}
+            </Link>
+          ) : (
+            // Deleted since (Phase 32), or a board you're not on: nothing to open.
+            <span className="font-semibold text-ink">{sent.boardName}</span>
+          )}{" "}
           by {nameOf(sent.by)}
         </span>
       </p>

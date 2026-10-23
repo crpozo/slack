@@ -90,6 +90,7 @@ describe("task manager API", () => {
     expect(routes.map((r) => r.RouteKey).sort((a, b) => a.localeCompare(b))).toEqual([
       "DELETE /boards/{id}",
       "DELETE /calendar/events/{id}",
+      "DELETE /messages/{channelId}/{sk}",
       "DELETE /push/subscribe",
       "DELETE /tasks/{taskId}",
       "GET /boards",
@@ -172,7 +173,12 @@ describe("task manager API", () => {
     ]);
     // Tasks from AI notes: read the card, claim it (with the tasks, one transaction).
     expect(actionsOn("DataMessages")).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);
-    expect(actionsOn("DataChannels")).toEqual(["dynamodb:GetItem"]);
+    // ...and deleting a board unlinks its project channels (Phase 32).
+    expect(actionsOn("DataChannels")).toEqual([
+      "dynamodb:GetItem",
+      "dynamodb:Scan",
+      "dynamodb:UpdateItem",
+    ]);
     expect(actionsOn("DataMeetingNotes")).toEqual([]);
     // Board pushes: members' devices, dropping expired ones; the VAPID parameter.
     expect(actionsOn("DataPushSubscriptions")).toEqual(["dynamodb:DeleteItem", "dynamodb:Query"]);
@@ -322,7 +328,7 @@ describe("task archiving", () => {
     ).toHaveLength(1);
   });
 
-  it("lets it only scan and flag tasks, never delete them", () => {
+  it("archives tasks (scan, flag) and finishes interrupted board deletions, nothing else", () => {
     const policies = template.findResources("AWS::IAM::Policy");
     const policy = Object.entries(policies).find(([id]) =>
       id.startsWith("TasksApiArchiveFnServiceRoleDefaultPolicy"),
@@ -332,10 +338,25 @@ describe("task archiving", () => {
       };
     };
     const statements = policy.Properties.PolicyDocument.Statement;
-    expect(statements.flatMap((st) => [st.Action].flat()).sort()).toEqual([
+    const on = (table: string) =>
+      statements
+        .filter((st) => JSON.stringify(st.Resource).includes(`"${table}`))
+        .flatMap((st) => [st.Action].flat())
+        .sort();
+    expect(on("DataTasks")).toEqual([
+      "dynamodb:BatchWriteItem", // orphaned tasks of a deleted board
+      "dynamodb:Query",
       "dynamodb:Scan",
       "dynamodb:UpdateItem",
     ]);
-    expect(statements.every((st) => JSON.stringify(st.Resource).includes("DataTasks"))).toBe(true);
+    expect(on("DataBoards")).toEqual([
+      "dynamodb:BatchGetItem",
+      "dynamodb:BatchWriteItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+      "dynamodb:Scan",
+    ]);
+    expect(on("DataChannels")).toEqual(["dynamodb:Scan", "dynamodb:UpdateItem"]);
+    expect(on("DataMessages")).toEqual([]);
   });
 });
