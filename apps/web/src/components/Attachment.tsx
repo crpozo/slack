@@ -211,15 +211,14 @@ function FileAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>
 }
 
 /**
- * Voice messages and other audio: a native player, so it plays inline with the
- * platform's controls (lock-screen controls on phones included). Download URLs
- * expire after a few hours: if playback fails on an old one, fetch a fresh URL once.
+ * The download URL a native `<audio>`/`<video>` plays from. URLs expire after
+ * a few hours: if playback fails on an old one (`onError`), fetch a fresh URL
+ * once; a second failure (or no URL at all) sets `failed`.
  */
-function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
+function usePlayableUrl(attachment: AttachmentData) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const refreshed = useRef(false);
-  const voice = attachment.name.startsWith("voice-");
 
   useEffect(() => {
     let cancelled = false;
@@ -238,6 +237,17 @@ function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
     refreshed.current = true;
     getDownloadUrl(attachment.key).then(setUrl, () => setFailed(true));
   }
+
+  return { url, failed, onError };
+}
+
+/**
+ * Voice messages and other audio: a native player, so it plays inline with the
+ * platform's controls (lock-screen controls on phones included).
+ */
+function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
+  const { url, failed, onError } = usePlayableUrl(attachment);
+  const voice = attachment.name.startsWith("voice-");
 
   if (failed) return <FileAttachment attachment={attachment} />;
   return (
@@ -277,27 +287,7 @@ function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
  * play (a `.mov` in Chrome, say) falls back to the download card.
  */
 function VideoAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  const refreshed = useRef(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    rememberDownloadUrl(attachment.key, attachment.url);
-    getDownloadUrl(attachment.key, attachment.url).then(
-      (u) => !cancelled && setUrl(u),
-      () => !cancelled && setFailed(true),
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [attachment.key, attachment.url]);
-
-  function onError() {
-    if (refreshed.current) return setFailed(true);
-    refreshed.current = true;
-    getDownloadUrl(attachment.key).then(setUrl, () => setFailed(true));
-  }
+  const { url, failed, onError } = usePlayableUrl(attachment);
 
   if (failed) return <FileAttachment attachment={attachment} />;
   if (!url) {
