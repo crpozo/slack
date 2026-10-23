@@ -1,7 +1,8 @@
 import type { Attachment as AttachmentData } from "@mindfultech/shared";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
+import { renderNotesMarkdown } from "../lib/markdown";
 import { formatBytes, getDownloadUrl, isUsableUrl, rememberDownloadUrl } from "../lib/upload";
 import { formatDuration } from "../lib/voice";
 import { useChat } from "../store";
@@ -210,15 +211,14 @@ function FileAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>
 }
 
 /**
- * Voice messages and other audio: a native player, so it plays inline with the
- * platform's controls (lock-screen controls on phones included). Download URLs
- * expire after a few hours: if playback fails on an old one, fetch a fresh URL once.
+ * The download URL a native `<audio>`/`<video>` plays from. URLs expire after
+ * a few hours: if playback fails on an old one (`onError`), fetch a fresh URL
+ * once; a second failure (or no URL at all) sets `failed`.
  */
-function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
+function usePlayableUrl(attachment: AttachmentData) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const refreshed = useRef(false);
-  const voice = attachment.name.startsWith("voice-");
 
   useEffect(() => {
     let cancelled = false;
@@ -237,6 +237,17 @@ function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
     refreshed.current = true;
     getDownloadUrl(attachment.key).then(setUrl, () => setFailed(true));
   }
+
+  return { url, failed, onError };
+}
+
+/**
+ * Voice messages and other audio: a native player, so it plays inline with the
+ * platform's controls (lock-screen controls on phones included).
+ */
+function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
+  const { url, failed, onError } = usePlayableUrl(attachment);
+  const voice = attachment.name.startsWith("voice-");
 
   if (failed) return <FileAttachment attachment={attachment} />;
   return (
@@ -269,12 +280,135 @@ function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
   );
 }
 
+/**
+ * Videos play inline with the browser's controls, compact (`max-w-md`) so a
+ * clip never takes over the conversation; only metadata loads until played.
+ * Like audio, an expired URL gets one fresh one; a format the browser can't
+ * play (a `.mov` in Chrome, say) falls back to the download card.
+ */
+function VideoAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
+  const { url, failed, onError } = usePlayableUrl(attachment);
+
+  if (failed) return <FileAttachment attachment={attachment} />;
+  if (!url) {
+    return (
+      <div
+        className="aspect-video w-full max-w-md animate-pulse rounded-lg bg-surface-hover"
+        aria-hidden="true"
+      />
+    );
+  }
+  return (
+    <video
+      controls
+      playsInline
+      preload="metadata"
+      src={url}
+      onError={onError}
+      className="block max-h-attachment w-full max-w-md rounded-lg border border-line bg-black"
+      aria-label={attachment.name}
+    >
+      <track kind="captions" />
+    </video>
+  );
+}
+
+/** Markdown files up to this size are read inline; bigger ones are just a download. */
+export const MAX_INLINE_MARKDOWN_BYTES = 100 * 1024;
+
+/**
+ * A small Markdown document: its download card, plus "Preview" that fetches
+ * the text and shows it rendered in a collapsible block, with the same
+ * renderer as AI call notes (headings, lists, quotes, code), which escapes
+ * everything before adding its own tags. Fetched only on the first expand.
+ */
+function MarkdownAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const html = useMemo(() => (text === null ? "" : renderNotesMarkdown(text)), [text]);
+
+  useEffect(() => {
+    if (!open || text !== null) return;
+    const controller = new AbortController();
+    setError(null);
+    getDownloadUrl(attachment.key, attachment.url)
+      .then((url) => fetch(url, { signal: controller.signal }))
+      .then((res) => {
+        if (!res.ok) throw new Error(`Couldn't load the document (${res.status}).`);
+        return res.text();
+      })
+      .then(setText, (err: unknown) => {
+        if (controller.signal.aborted) return;
+        setError(err instanceof Error ? err.message : "Couldn't load the document.");
+      });
+    return () => controller.abort();
+  }, [open, text, attachment.key, attachment.url]);
+
+  return (
+    <div className="flex w-full max-w-xl flex-col gap-1.5">
+      <FileAttachment attachment={attachment} />
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="self-start rounded-md px-1 text-xs font-medium text-primary hover:underline"
+        aria-expanded={open}
+      >
+        {open ? "Hide preview" : "Preview document"}
+      </button>
+      {open && (
+        <div className="max-h-96 overflow-y-auto rounded-lg border border-line bg-surface-sidebar p-3">
+          {error ? (
+            <p className="text-sm text-error">{error}</p>
+          ) : text === null ? (
+            <p className="text-sm text-ink-secondary">Loading…</p>
+          ) : (
+            <div
+              className="md md-notes break-words text-sm leading-relaxed text-ink"
+              // Safe: renderNotesMarkdown escapes all text before adding its own tags.
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export type AttachmentKind = "image" | "audio" | "video" | "pdf" | "markdown" | "file";
+
+/** How an attachment shows in a message (by type, or by extension when the type is vague). */
+export function attachmentKind(
+  a: Pick<AttachmentData, "contentType" | "name" | "size">,
+): AttachmentKind {
+  const type = a.contentType.toLowerCase();
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("audio/")) return "audio";
+  if (type.startsWith("video/")) return "video";
+  if (type === "application/pdf" || /\.pdf$/i.test(a.name)) return "pdf";
+  // Browsers upload `.md` as text/markdown, text/x-markdown or nothing at all.
+  if (
+    (type.includes("markdown") || /\.(md|markdown)$/i.test(a.name)) &&
+    a.size <= MAX_INLINE_MARKDOWN_BYTES
+  ) {
+    return "markdown";
+  }
+  return "file";
+}
+
 export function Attachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
-  if (attachment.contentType.startsWith("image/"))
-    return <ImageAttachment attachment={attachment} />;
-  if (attachment.contentType.startsWith("audio/"))
-    return <AudioAttachment attachment={attachment} />;
-  if (attachment.contentType === "application/pdf" || /\.pdf$/i.test(attachment.name))
-    return <PdfAttachment attachment={attachment} />;
-  return <FileAttachment attachment={attachment} />;
+  switch (attachmentKind(attachment)) {
+    case "image":
+      return <ImageAttachment attachment={attachment} />;
+    case "audio":
+      return <AudioAttachment attachment={attachment} />;
+    case "video":
+      return <VideoAttachment attachment={attachment} />;
+    case "pdf":
+      return <PdfAttachment attachment={attachment} />;
+    case "markdown":
+      return <MarkdownAttachment attachment={attachment} />;
+    default:
+      return <FileAttachment attachment={attachment} />;
+  }
 }

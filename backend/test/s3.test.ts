@@ -37,12 +37,14 @@ describe("download URLs", () => {
     expect(early.pathname).toBe(`/${image.key}`);
   });
 
-  it("are attached to image and audio attachments only, thumbnails included", async () => {
+  it("are attached to image, audio and video attachments only, thumbnails included", async () => {
     const signed = await withSignedUrls(image, T0);
     expect(signed.url).toMatch(/01A-photo\.jpg\?/);
     expect(signed.thumbUrl).toMatch(/01A-thumb-photo\.webp\?/);
     expect(signed).toMatchObject({ width: 1280, height: 960 });
     expect(await withSignedUrls(pdf, T0)).toBe(pdf);
+    const video = { ...pdf, key: "attachments/ch_general/01C-demo.mp4", contentType: "video/mp4" };
+    expect((await withSignedUrls(video, T0)).url).toMatch(/01C-demo\.mp4\?/);
 
     const message = await signAttachments(
       {

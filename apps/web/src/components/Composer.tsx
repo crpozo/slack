@@ -22,6 +22,7 @@ import {
 import { ulid } from "ulid";
 import { useCall } from "../lib/call";
 import { chat } from "../lib/chat";
+import { clearDraft, createDraftSaver, draftKey, loadDraft } from "../lib/drafts";
 import { mediaErrorText } from "../lib/media";
 import {
   formatDuration,
@@ -143,7 +144,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   ref,
 ) {
   const showToast = useChat((s) => s.showToast);
-  const [text, setText] = useState("");
+  const userId = useChat((s) => s.me?.userId);
+  // This composer's unsent text survives switching away and reloads (see lib/drafts).
+  const storageKey = userId ? draftKey(userId, channelId, thread?.sk) : null;
+  const [text, setText] = useState(() => (storageKey ? loadDraft(storageKey) : ""));
   const [uploads, setUploads] = useState<Upload[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -168,6 +172,35 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (editing) setSecret(false);
   }, [editing]);
 
+  // Drafts: saved shortly after typing stops, written at once when the composer
+  // goes (another conversation, the thread closing) or the page does.
+  const saver = useMemo(() => (storageKey ? createDraftSaver(storageKey) : null), [storageKey]);
+  useEffect(() => {
+    if (!saver) return;
+    const onHide = () => saver.flush();
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      saver.flush();
+    };
+  }, [saver]);
+  // Signed in after mounting (a cold start): the draft arrives with the user.
+  useEffect(() => {
+    if (storageKey) setText((current) => current || loadDraft(storageKey));
+  }, [storageKey]);
+  useEffect(() => {
+    if (!saver || !storageKey) return;
+    // Editing a sent message isn't a draft: keep the one from before the edit
+    // (restored on cancel). A secret never goes to disk in clear.
+    if (editing) return saver.flush();
+    if (secret) {
+      saver.cancel();
+      return clearDraft(storageKey);
+    }
+    // Sending or clearing empties the input, which forgets the draft at once.
+    saver.schedule(text);
+  }, [saver, storageKey, text, editing, secret]);
+
   // Starting a reply (swipe, or Reply in the toolbar) puts the cursor here.
   useEffect(() => {
     if (replyTo) textareaRef.current?.focus();
@@ -187,7 +220,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   function cancelEdit() {
     setEditing(channelId, null);
-    setText("");
+    // Back to what was being typed before the edit began.
+    setText(storageKey ? loadDraft(storageKey) : "");
   }
 
   /** ↑ in an empty composer: edit your newest message (with text) in this channel. */
