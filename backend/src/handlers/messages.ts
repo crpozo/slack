@@ -70,7 +70,8 @@ async function announce(channel: Channel, events: ServerEvent[]): Promise<void> 
   if (events.length === 0) return;
   try {
     const audience = (await listConnections()).filter(channelAudience(channel));
-    for (const event of events) await deliver(audience, () => event);
+    // Each event stands on its own (a reply gone, its parent's counters), so order doesn't matter.
+    await Promise.all(events.map((event) => deliver(audience, () => event)));
   } catch (err) {
     log.error("deletion broadcast failed", { channelId: channel.channelId, ...errorFields(err) });
   }
@@ -147,6 +148,121 @@ async function writeTombstone(message: Message, now: number): Promise<void> {
   );
 }
 
+interface ThreadCounters {
+  replyCount: number;
+  lastReplyAt: number;
+  /** The newest `MAX_THREAD_AVATARS` distinct repliers, newest last. */
+  replyUserIds: string[];
+}
+
+/** The thread's replies other than `reply`, as its counters need them. */
+async function repliesLeft(
+  reply: Message,
+): Promise<Array<Pick<Message, "sk" | "userId" | "createdAt">>> {
+  const left: Array<Pick<Message, "sk" | "userId" | "createdAt">> = [];
+  for await (const page of paginateQuery(
+    { client: ddb },
+    {
+      TableName: tables.messages,
+      KeyConditionExpression: "channelId = :c AND begins_with(sk, :prefix)",
+      ExpressionAttributeValues: {
+        ":c": reply.channelId,
+        ":prefix": threadSkPrefix(reply.parentSk!),
+      },
+      ProjectionExpression: "sk, userId, createdAt",
+    },
+  )) {
+    for (const item of page.Items ?? []) {
+      if (item.sk !== reply.sk) left.push(item as Pick<Message, "sk" | "userId" | "createdAt">);
+    }
+  }
+  return left;
+}
+
+/** A thread's counters from its replies, as `message` keeps them when replies are written. */
+function countersOf(replies: Array<Pick<Message, "sk" | "userId" | "createdAt">>): ThreadCounters {
+  const ordered = [...replies].sort((a, b) => a.sk.localeCompare(b.sk));
+  const repliers: string[] = [];
+  for (const r of ordered) {
+    const at = repliers.indexOf(r.userId);
+    if (at >= 0) repliers.splice(at, 1);
+    repliers.push(r.userId);
+  }
+  return {
+    replyCount: replies.length,
+    lastReplyAt: replies.reduce((at, r) => Math.max(at, r.createdAt), 0),
+    replyUserIds: repliers.slice(-MAX_THREAD_AVATARS),
+  };
+}
+
+/**
+ * The parent's half of the transaction: recounted, or deleted when it's a
+ * tombstone whose last reply goes. Either way only if no reply landed since
+ * it was read (`replyCount` unchanged).
+ */
+function parentWrite(parent: Message, counters: ThreadCounters, dropParent: boolean) {
+  const Key = { channelId: parent.channelId, sk: parent.sk };
+  const was = typeof parent.replyCount === "number" ? parent.replyCount : 0;
+  if (dropParent) {
+    return {
+      Delete: {
+        TableName: tables.messages,
+        Key,
+        ConditionExpression: "attribute_exists(deletedAt) AND replyCount = :was",
+        ExpressionAttributeValues: { ":was": was },
+      },
+    };
+  }
+  const empty = counters.replyCount === 0;
+  return {
+    Update: {
+      TableName: tables.messages,
+      Key,
+      UpdateExpression: empty
+        ? "SET replyCount = :count REMOVE lastReplyAt, replyUserIds"
+        : "SET replyCount = :count, lastReplyAt = :last, replyUserIds = :ids",
+      ConditionExpression: "attribute_exists(sk) AND replyCount = :was",
+      ExpressionAttributeValues: {
+        ":count": counters.replyCount,
+        ":was": was,
+        ...(!empty && { ":last": counters.lastReplyAt, ":ids": counters.replyUserIds }),
+      },
+    },
+  };
+}
+
+/** What everyone hears: the reply went, and its parent went too or has new counters. */
+function replyEvents(
+  reply: Message,
+  parent: Message | undefined,
+  counters: ThreadCounters,
+  dropParent: boolean,
+): ServerEvent[] {
+  const { channelId } = reply;
+  const events: ServerEvent[] = [
+    {
+      type: "message.deleted",
+      channelId,
+      sk: reply.sk,
+      messageId: reply.messageId,
+      parentSk: reply.parentSk,
+    },
+  ];
+  if (!parent) return events;
+  if (dropParent) {
+    events.push({ type: "message.deleted", channelId, sk: parent.sk, messageId: parent.messageId });
+  } else {
+    events.push({
+      type: "message.thread_updated",
+      channelId,
+      sk: parent.sk,
+      messageId: parent.messageId,
+      ...counters,
+    });
+  }
+  return events;
+}
+
 /**
  * Deletes a thread reply and recounts its parent from the replies left (the
  * avatars and "last reply" must not name the deleted one). A deleted parent
@@ -157,69 +273,18 @@ async function removeReply(
   reply: Message,
   attempt = 0,
 ): Promise<{ events: ServerEvent[]; parentGone: Message | null }> {
-  const parentSk = reply.parentSk!;
-  const key = (sk: string) => ({ channelId: reply.channelId, sk });
-  const { Item } = await ddb.send(
-    new GetCommand({ TableName: tables.messages, Key: key(parentSk) }),
-  );
+  const [{ Item }, left] = await Promise.all([
+    ddb.send(
+      new GetCommand({
+        TableName: tables.messages,
+        Key: { channelId: reply.channelId, sk: reply.parentSk! },
+      }),
+    ),
+    repliesLeft(reply),
+  ]);
   const parent = Item as Message | undefined;
-  const remaining: Array<{ userId: string; createdAt: number; sk: string }> = [];
-  for await (const page of paginateQuery(
-    { client: ddb },
-    {
-      TableName: tables.messages,
-      KeyConditionExpression: "channelId = :c AND begins_with(sk, :prefix)",
-      ExpressionAttributeValues: { ":c": reply.channelId, ":prefix": threadSkPrefix(parentSk) },
-      ProjectionExpression: "sk, userId, createdAt",
-    },
-  )) {
-    for (const item of page.Items ?? []) {
-      if (item.sk !== reply.sk) remaining.push(item as (typeof remaining)[number]);
-    }
-  }
-  const replyCount = remaining.length;
-  const lastReplyAt = remaining.reduce((at, r) => Math.max(at, r.createdAt), 0);
-  const replyUserIds: string[] = [];
-  for (const r of [...remaining].sort((a, b) => (a.sk < b.sk ? -1 : 1))) {
-    const at = replyUserIds.indexOf(r.userId);
-    if (at >= 0) replyUserIds.splice(at, 1);
-    replyUserIds.push(r.userId);
-  }
-  const avatars = replyUserIds.slice(-MAX_THREAD_AVATARS);
-  const was = typeof parent?.replyCount === "number" ? parent.replyCount : 0;
-  const dropParent = !!parent?.deletedAt && replyCount === 0;
-
-  const parentWrite = !parent
-    ? []
-    : dropParent
-      ? [
-          {
-            Delete: {
-              TableName: tables.messages,
-              Key: key(parentSk),
-              ConditionExpression: "attribute_exists(deletedAt) AND replyCount = :was",
-              ExpressionAttributeValues: { ":was": was },
-            },
-          },
-        ]
-      : [
-          {
-            Update: {
-              TableName: tables.messages,
-              Key: key(parentSk),
-              UpdateExpression:
-                replyCount === 0
-                  ? "SET replyCount = :count REMOVE lastReplyAt, replyUserIds"
-                  : "SET replyCount = :count, lastReplyAt = :last, replyUserIds = :ids",
-              ConditionExpression: "attribute_exists(sk) AND replyCount = :was",
-              ExpressionAttributeValues: {
-                ":count": replyCount,
-                ":was": was,
-                ...(replyCount > 0 && { ":last": lastReplyAt, ":ids": avatars }),
-              },
-            },
-          },
-        ];
+  const counters = countersOf(left);
+  const dropParent = !!parent?.deletedAt && counters.replyCount === 0;
   try {
     await ddb.send(
       new TransactWriteCommand({
@@ -227,12 +292,12 @@ async function removeReply(
           {
             Delete: {
               TableName: tables.messages,
-              Key: key(reply.sk),
+              Key: { channelId: reply.channelId, sk: reply.sk },
               ConditionExpression: "messageId = :id",
               ExpressionAttributeValues: { ":id": reply.messageId },
             },
           },
-          ...parentWrite,
+          ...(parent ? [parentWrite(parent, counters, dropParent)] : []),
         ],
       }),
     );
@@ -245,35 +310,10 @@ async function removeReply(
     }
     throw err;
   }
-
-  const events: ServerEvent[] = [
-    {
-      type: "message.deleted",
-      channelId: reply.channelId,
-      sk: reply.sk,
-      messageId: reply.messageId,
-      parentSk,
-    },
-  ];
-  if (parent && dropParent) {
-    events.push({
-      type: "message.deleted",
-      channelId: reply.channelId,
-      sk: parentSk,
-      messageId: parent.messageId,
-    });
-  } else if (parent) {
-    events.push({
-      type: "message.thread_updated",
-      channelId: reply.channelId,
-      sk: parentSk,
-      messageId: parent.messageId,
-      replyCount,
-      lastReplyAt,
-      replyUserIds: replyCount > 0 ? avatars : [],
-    });
-  }
-  return { events, parentGone: dropParent && parent ? parent : null };
+  return {
+    events: replyEvents(reply, parent, counters, dropParent),
+    parentGone: dropParent && parent ? parent : null,
+  };
 }
 
 /**
@@ -281,7 +321,7 @@ async function removeReply(
  * newer than what it quotes, so only the conversation after it is read.
  */
 async function clearQuotes(channel: Channel, deleted: Message): Promise<ServerEvent[]> {
-  const events: ServerEvent[] = [];
+  const quoting: Record<string, unknown>[] = [];
   for await (const page of paginateQuery(
     { client: ddb },
     {
@@ -294,40 +334,49 @@ async function clearQuotes(channel: Channel, deleted: Message): Promise<ServerEv
     },
   )) {
     for (const item of page.Items ?? []) {
-      const quote = item.replyTo as ReplySnapshot | undefined;
-      if (quote?.sk !== deleted.sk) continue;
-      const replyTo: ReplySnapshot = {
-        messageId: quote.messageId,
-        sk: quote.sk,
-        userId: quote.userId,
-        preview: "",
-        hasAttachments: false,
-        deleted: true,
-      };
-      try {
-        await ddb.send(
-          new UpdateCommand({
-            TableName: tables.messages,
-            Key: { channelId: channel.channelId, sk: item.sk },
-            UpdateExpression: "SET replyTo = :quote",
-            ConditionExpression: "attribute_exists(sk)",
-            ExpressionAttributeValues: { ":quote": replyTo },
-          }),
-        );
-        events.push({
-          type: "message.updated",
-          channelId: channel.channelId,
-          sk: String(item.sk),
-          messageId: String(item.messageId),
-          text: String(item.text ?? ""),
-          replyTo,
-        });
-      } catch (err) {
-        log.warn("quote not cleared", { channelId: channel.channelId, ...errorFields(err) });
-      }
+      if ((item.replyTo as ReplySnapshot | undefined)?.sk === deleted.sk) quoting.push(item);
     }
   }
-  return events;
+  const events = await Promise.all(quoting.map((item) => clearQuote(channel, item)));
+  return events.filter((e): e is ServerEvent => e !== null);
+}
+
+/** One quote without the deleted text; `null` if it couldn't be written (logged). */
+async function clearQuote(
+  channel: Channel,
+  item: Record<string, unknown>,
+): Promise<ServerEvent | null> {
+  const quote = item.replyTo as ReplySnapshot;
+  const replyTo: ReplySnapshot = {
+    messageId: quote.messageId,
+    sk: quote.sk,
+    userId: quote.userId,
+    preview: "",
+    hasAttachments: false,
+    deleted: true,
+  };
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: tables.messages,
+        Key: { channelId: channel.channelId, sk: item.sk },
+        UpdateExpression: "SET replyTo = :quote",
+        ConditionExpression: "attribute_exists(sk)",
+        ExpressionAttributeValues: { ":quote": replyTo },
+      }),
+    );
+  } catch (err) {
+    log.warn("quote not cleared", { channelId: channel.channelId, ...errorFields(err) });
+    return null;
+  }
+  return {
+    type: "message.updated",
+    channelId: channel.channelId,
+    sk: String(item.sk),
+    messageId: String(item.messageId),
+    text: typeof item.text === "string" ? item.text : "",
+    replyTo,
+  };
 }
 
 async function removeFiles(messages: Message[]): Promise<void> {
@@ -390,7 +439,8 @@ async function deleteMessage(event: HttpEvent, caller: HttpCaller): Promise<Http
   });
 
   await removeFiles(gone);
-  for (const deleted of gone) events.push(...(await clearQuotes(channel, deleted)));
+  const quoteEvents = await Promise.all(gone.map((deleted) => clearQuotes(channel, deleted)));
+  events.push(...quoteEvents.flat());
   await announce(channel, events);
   return json(204);
 }

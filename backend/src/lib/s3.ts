@@ -111,16 +111,23 @@ const DELETE_BATCH = 1000;
  */
 export async function deleteObjects(keys: string[]): Promise<void> {
   const unique = [...new Set(keys)];
+  const batches: string[][] = [];
   for (let i = 0; i < unique.length; i += DELETE_BATCH) {
-    const { Errors } = await s3.send(
-      new DeleteObjectsCommand({
-        Bucket: requireEnv("ATTACHMENTS_BUCKET"),
-        Delete: { Objects: unique.slice(i, i + DELETE_BATCH).map((Key) => ({ Key })), Quiet: true },
-      }),
-    );
-    if (Errors && Errors.length > 0) {
-      throw new Error(`Couldn't delete ${Errors.length} objects (first: ${Errors[0]?.Key})`);
-    }
+    batches.push(unique.slice(i, i + DELETE_BATCH));
+  }
+  const results = await Promise.all(
+    batches.map((batch) =>
+      s3.send(
+        new DeleteObjectsCommand({
+          Bucket: requireEnv("ATTACHMENTS_BUCKET"),
+          Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+        }),
+      ),
+    ),
+  );
+  const errors = results.flatMap((r) => r.Errors ?? []);
+  if (errors.length > 0) {
+    throw new Error(`Couldn't delete ${errors.length} objects (first: ${errors[0]?.Key})`);
   }
 }
 

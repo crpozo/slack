@@ -390,12 +390,15 @@ export function canDeleteChannel(
   return isLegacyChannel(channel) || !creatorKnown;
 }
 
+/** What the channel permission rules read. */
+type ChannelRuleFields = Pick<Channel, "channelId" | "type" | "createdBy" | "members">;
+
 /**
  * Who may edit `channel`'s topic and description: its creator or an admin (a
  * member of it); `#general` (created by the system) only by admins; never a DM.
  */
 export function canEditChannel(
-  channel: Pick<Channel, "channelId" | "type" | "createdBy" | "members">,
+  channel: ChannelRuleFields,
   userId: string,
   role: Role | undefined,
 ): boolean {
@@ -404,12 +407,8 @@ export function canEditChannel(
 }
 
 /** Who may rename `channel`: its creator or an admin (a member of it); never `#general` or a DM. */
-/**
- * Who may archive or restore a channel (Phase 32): its creator or an admin;
- * never `#general` or a DM.
- */
-export function canArchiveChannel(
-  channel: Pick<Channel, "channelId" | "type" | "createdBy" | "members">,
+export function canRenameChannel(
+  channel: ChannelRuleFields,
   userId: string,
   role: Role | undefined,
 ): boolean {
@@ -418,14 +417,17 @@ export function canArchiveChannel(
   return channel.createdBy === userId || role === "admin";
 }
 
-export function canRenameChannel(
-  channel: Pick<Channel, "channelId" | "type" | "createdBy" | "members">,
+/**
+ * Who may archive or restore a channel (Phase 32): the same people who may
+ * rename it (its creator or an admin), never `#general` or a DM. Its own
+ * name so the two rules can part ways without touching their callers.
+ */
+export function canArchiveChannel(
+  channel: ChannelRuleFields,
   userId: string,
   role: Role | undefined,
 ): boolean {
-  if (channel.channelId === GENERAL_CHANNEL_ID || channel.type === "dm") return false;
-  if (!isChannelMember(channel, userId)) return false;
-  return channel.createdBy === userId || role === "admin";
+  return canRenameChannel(channel, userId, role);
 }
 
 // ---------------------------------------------------------------------------

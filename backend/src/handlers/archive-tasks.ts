@@ -30,13 +30,8 @@ async function archive({ taskId, doneAt }: { taskId: string; doneAt: number }): 
   }
 }
 
-/**
- * Phase 32's safety net for board deletion: finishes boards whose cleanup was
- * interrupted (stamped `deletingAt` a while ago), and removes tasks whose
- * board no longer exists at all (one created in the instant the board was
- * being deleted).
- */
-async function sweepDeletedBoards(now: number): Promise<{ purged: number; orphans: number }> {
+/** Boards stamped `deletingAt` long enough ago that their own cleanup must have failed. */
+async function staleDeletions(now: number): Promise<string[]> {
   const stale: string[] = [];
   for await (const page of paginateScan(
     { client: ddb },
@@ -47,22 +42,30 @@ async function sweepDeletedBoards(now: number): Promise<{ purged: number; orphan
       ProjectionExpression: "boardId, deletingAt",
     },
   )) {
-    for (const item of page.Items ?? []) {
-      const at = item.deletingAt as number | undefined;
-      if (typeof at === "number" && at <= now - STALE_DELETION_MS) stale.push(String(item.boardId));
-    }
+    const due = (page.Items ?? []).filter(
+      (item) => typeof item.deletingAt === "number" && item.deletingAt <= now - STALE_DELETION_MS,
+    );
+    stale.push(...due.map((item) => String(item.boardId)));
   }
-  let purged = 0;
-  for (const boardId of stale) {
-    try {
-      await purgeBoard(boardId);
-      purged++;
-    } catch (err) {
-      log.error("board purge failed again", { boardId, ...errorFields(err) });
-    }
-  }
+  return stale;
+}
 
-  // Tasks of boards that are gone entirely.
+/** Finishes those deletions; one failing never stops the others (tomorrow tries again). */
+async function finishDeletions(boardIds: string[]): Promise<number> {
+  const results = await Promise.allSettled(boardIds.map((boardId) => purgeBoard(boardId)));
+  results.forEach((result, i) => {
+    if (result.status === "rejected") {
+      log.error("board purge failed again", {
+        boardId: boardIds[i],
+        ...errorFields(result.reason),
+      });
+    }
+  });
+  return results.filter((r) => r.status === "fulfilled").length;
+}
+
+/** Every task's id, grouped by its board. */
+async function tasksByBoard(): Promise<Map<string, string[]>> {
   const byBoard = new Map<string, string[]>();
   for await (const page of paginateScan(
     { client: ddb },
@@ -73,30 +76,64 @@ async function sweepDeletedBoards(now: number): Promise<{ purged: number; orphan
       byBoard.set(item.boardId, [...(byBoard.get(item.boardId) ?? []), String(item.taskId)]);
     }
   }
-  const ids = [...byBoard.keys()];
+  return byBoard;
+}
+
+/**
+ * Which of `boardIds` still have a board row. Keys DynamoDB didn't answer
+ * (throttling) count as existing: tomorrow's run looks again.
+ */
+async function existingBoards(boardIds: string[]): Promise<Set<string>> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < boardIds.length; i += 100) chunks.push(boardIds.slice(i, i + 100));
+  const pages = await Promise.all(
+    chunks.map((chunk) =>
+      ddb.send(
+        new BatchGetCommand({
+          RequestItems: {
+            [tables.boards]: {
+              Keys: chunk.map((boardId) => ({ boardId, sk: BOARD_SK })),
+              ProjectionExpression: "boardId",
+            },
+          },
+        }),
+      ),
+    ),
+  );
   const existing = new Set<string>();
-  for (let i = 0; i < ids.length; i += 100) {
-    const keys = ids.slice(i, i + 100).map((boardId) => ({ boardId, sk: BOARD_SK }));
-    const { Responses, UnprocessedKeys } = await ddb.send(
-      new BatchGetCommand({
-        RequestItems: { [tables.boards]: { Keys: keys, ProjectionExpression: "boardId" } },
-      }),
-    );
+  for (const { Responses, UnprocessedKeys } of pages) {
     for (const item of Responses?.[tables.boards] ?? []) existing.add(String(item.boardId));
-    // Not answered (throttling): assume they exist; tomorrow's run looks again.
     for (const key of UnprocessedKeys?.[tables.boards]?.Keys ?? []) {
       existing.add(String(key.boardId));
     }
   }
-  const orphans = ids.filter((id) => !existing.has(id)).flatMap((id) => byBoard.get(id) ?? []);
+  return existing;
+}
+
+/** Tasks whose board is gone entirely (one created in the instant the board was being deleted). */
+async function removeOrphanedTasks(): Promise<number> {
+  const byBoard = await tasksByBoard();
+  const existing = await existingBoards([...byBoard.keys()]);
+  const orphans = [...byBoard]
+    .filter(([boardId]) => !existing.has(boardId))
+    .flatMap(([, taskIds]) => taskIds);
   await batchDelete(
     tables.tasks,
     orphans.map((taskId) => ({ taskId })),
   );
-  if (purged > 0 || orphans.length > 0) {
-    log.info("deleted boards swept", { purged, orphans: orphans.length });
-  }
-  return { purged, orphans: orphans.length };
+  return orphans.length;
+}
+
+/**
+ * Phase 32's safety net for board deletion: finishes boards whose cleanup was
+ * interrupted (stamped `deletingAt` a while ago), and removes tasks whose
+ * board no longer exists at all.
+ */
+async function sweepDeletedBoards(now: number): Promise<{ purged: number; orphans: number }> {
+  const purged = await finishDeletions(await staleDeletions(now));
+  const orphans = await removeOrphanedTasks();
+  if (purged > 0 || orphans > 0) log.info("deleted boards swept", { purged, orphans });
+  return { purged, orphans };
 }
 
 /**

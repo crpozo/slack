@@ -631,6 +631,9 @@ function BoardMenu({
   );
 }
 
+/** "1 task", "3 tasks". */
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
 /**
  * Deleting a board (Phase 32) is destructive and permanent, so it asks for
  * the board's exact name: Delete stays disabled until it's typed. It says
@@ -694,8 +697,8 @@ export function DeleteBoardModal({
         </p>
         <ul className="list-disc space-y-0.5 pl-5 text-ink-secondary">
           <li>
-            {tasks ? `${count} task${count === 1 ? "" : "s"}` : "All its tasks"}
-            {files > 0 && ` and ${files} attached file${files === 1 ? "" : "s"}`}
+            {tasks ? plural(count, "task") : "All its tasks"}
+            {files > 0 && ` and ${plural(files, "attached file")}`}
           </li>
           {projects.length > 0 && (
             <li>

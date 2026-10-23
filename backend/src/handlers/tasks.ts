@@ -340,10 +340,14 @@ async function deleteBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
   if (report.channels.length > 0) {
     try {
       const live = connections.length > 0 ? connections : await listConnections();
-      for (const channel of report.channels) {
-        const inChannel = channelAudience(channel);
-        await deliver(live.filter(inChannel), () => ({ type: "channel.updated", channel }));
-      }
+      await Promise.all(
+        report.channels.map((channel) =>
+          deliver(live.filter(channelAudience(channel)), () => ({
+            type: "channel.updated",
+            channel,
+          })),
+        ),
+      );
     } catch (err) {
       log.error("unlinked channels not announced", { boardId, ...errorFields(err) });
     }

@@ -690,10 +690,14 @@ export const useChat = create<ChatState>()((set, get) => ({
  */
 function withoutDeleted(existing: ChatMessage[], page: Message[]): ChatMessage[] {
   if (page.length === 0) return existing;
-  const sks = page.map((m) => m.sk).sort();
-  const oldest = sks[0]!;
-  const newest = sks[sks.length - 1]!;
-  const present = new Set(sks);
+  const present = new Set(page.map((m) => m.sk));
+  // The page's span, by sort key (they compare as strings: `<epoch ms>#<ulid>`).
+  let oldest = page[0]!.sk;
+  let newest = oldest;
+  for (const { sk } of page) {
+    if (sk < oldest) oldest = sk;
+    if (sk > newest) newest = sk;
+  }
   return existing.filter((m) => m.status || m.sk < oldest || m.sk > newest || present.has(m.sk));
 }
 

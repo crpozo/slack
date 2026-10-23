@@ -52,29 +52,31 @@ async function unlinkChannels(boardId: string): Promise<Channel[]> {
   )) {
     linked.push(...((page.Items ?? []) as Channel[]));
   }
-  const updated: Channel[] = [];
-  for (const channel of linked) {
-    const { Attributes } = await ddb
-      .send(
-        new UpdateCommand({
-          TableName: tables.channels,
-          Key: { channelId: channel.channelId },
-          UpdateExpression: "SET isProject = :no REMOVE linkedBoardId",
-          ConditionExpression: "linkedBoardId = :b",
-          ExpressionAttributeValues: { ":no": false, ":b": boardId },
-          ReturnValues: "ALL_NEW",
-        }),
-      )
-      .catch((err: unknown) => {
-        // Relinked to another board meanwhile: leave it.
-        if (err instanceof Error && err.name === "ConditionalCheckFailedException") {
-          return { Attributes: undefined };
-        }
-        throw err;
-      });
-    if (Attributes) updated.push(Attributes as Channel);
-  }
-  return updated;
+  const results = await Promise.all(linked.map((channel) => unlink(channel, boardId)));
+  return results.filter((c): c is Channel => c !== null);
+}
+
+/** One channel without its board; `null` if it was relinked to another board meanwhile. */
+async function unlink(channel: Channel, boardId: string): Promise<Channel | null> {
+  const { Attributes } = await ddb
+    .send(
+      new UpdateCommand({
+        TableName: tables.channels,
+        Key: { channelId: channel.channelId },
+        UpdateExpression: "SET isProject = :no REMOVE linkedBoardId",
+        ConditionExpression: "linkedBoardId = :b",
+        ExpressionAttributeValues: { ":no": false, ":b": boardId },
+        ReturnValues: "ALL_NEW",
+      }),
+    )
+    .catch((err: unknown) => {
+      // Relinked to another board meanwhile: leave it.
+      if (err instanceof Error && err.name === "ConditionalCheckFailedException") {
+        return { Attributes: undefined };
+      }
+      throw err;
+    });
+  return (Attributes as Channel | undefined) ?? null;
 }
 
 /** Everything a board stamped `deletingAt` still holds, then the board row itself. */

@@ -4,6 +4,21 @@ import { useChat, useNameOf, type ChatMessage } from "../store";
 import { Modal, SecondaryButton } from "./Modal";
 import { TrashIcon } from "./icons";
 
+/** What the modal quotes: never a secret's text; a notes card by its name. */
+function previewOf(message: ChatMessage): string {
+  if (message.isSecret) return "🔒 Secret";
+  const text = replyPreview(message.text);
+  if (text) return text;
+  return message.kind === "ai_notes" ? "✨ AI call notes" : "";
+}
+
+/** What deleting does to it: gone, or (with replies) a tombstone that keeps its thread. */
+function fateOf(replies: number): string {
+  if (replies === 0) return "It disappears for everyone.";
+  const stay = replies === 1 ? "Its reply stays" : `Its ${replies} replies stay`;
+  return `${stay}; the message shows as deleted.`;
+}
+
 /**
  * "Delete message?" (Phase 32): what's about to go, whose it is when an admin
  * deletes someone else's, and what happens to a thread under it. Deleting
@@ -18,9 +33,7 @@ export function DeleteMessageModal({
   const someoneElses = message.userId !== myUserId;
   const replies = message.parentSk ? 0 : (message.replyCount ?? 0);
   const files = message.attachments.length;
-  const preview = message.isSecret
-    ? "🔒 Secret"
-    : replyPreview(message.text) || (message.kind === "ai_notes" ? "✨ AI call notes" : "");
+  const preview = previewOf(message);
 
   return (
     <Modal
@@ -60,10 +73,7 @@ export function DeleteMessageModal({
         </blockquote>
       )}
       <p className="mt-3 text-sm text-ink-secondary">
-        {replies > 0
-          ? `Its ${replies === 1 ? "reply stays" : `${replies} replies stay`}; the message shows as deleted. `
-          : "It disappears for everyone. "}
-        This can&apos;t be undone.
+        {fateOf(replies)} This can&apos;t be undone.
       </p>
     </Modal>
   );
