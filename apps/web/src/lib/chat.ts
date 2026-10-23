@@ -23,6 +23,7 @@ import { isAppActive, watchActivity } from "./activity";
 import { boardActivity, calendarActivity, raiseAlert } from "./alerts";
 import { notificationBody, prepareDesktopNotifications, shouldNotify } from "./desktop";
 import { startHeartbeat } from "./heartbeat";
+import { messagesApi } from "./messagesApi";
 import { notesApi } from "./notesApi";
 import { playMessageSound } from "./sounds";
 import { TasksApiError } from "./tasksApi";
@@ -188,12 +189,23 @@ class ChatController {
       client.on("message.reaction", ({ channelId, sk, reactions }) =>
         store().setReactions(channelId, sk, reactions),
       ),
-      client.on("message.updated", ({ channelId, sk, text, editedAt, meeting, aiNotes }) => {
-        if (meeting) store().updateMeetingCard(channelId, sk, meeting, text);
+      client.on("message.updated", (event) => {
+        const { channelId, sk, text, editedAt, meeting, aiNotes, deletedAt, replyTo } = event;
+        if (deletedAt) {
+          store().applyTombstone(channelId, sk, deletedAt);
+          useNotesHub.getState().remove(channelId, sk);
+        } else if (replyTo) store().applyQuote(channelId, sk, replyTo);
+        else if (meeting) store().updateMeetingCard(channelId, sk, meeting, text);
         else if (aiNotes) {
           store().updateAiNotes(channelId, sk, aiNotes, text);
           useNotesHub.getState().update(channelId, sk, aiNotes, text);
         } else store().applyEdit(channelId, sk, text, editedAt ?? Date.now());
+      }),
+      // Deleted by its author or an admin (Phase 32): gone at once, everywhere.
+      client.on("message.deleted", ({ channelId, sk }) => {
+        if (this.activeThread === sk) store().showToast("This thread's message was deleted.");
+        store().removeMessage(channelId, sk);
+        useNotesHub.getState().remove(channelId, sk);
       }),
       client.on("channel.read", ({ channelId, userId, sk, at }) => {
         const s = store();
@@ -629,6 +641,28 @@ class ChatController {
     if (now - (this.typingSentAt.get(channelId) ?? 0) < TYPING_INTERVAL_MS) return;
     this.typingSentAt.set(channelId, now);
     this.client?.send("typing", { channelId });
+  }
+
+  /**
+   * Deletes a message (yours, or anyone's as an admin; Phase 32). It goes
+   * from the screen at once (a parent with replies becomes "This message was
+   * deleted"); if the server refuses, it comes back with the reason.
+   */
+  async deleteMessage(message: ChatMessage): Promise<void> {
+    const store = () => useChat.getState();
+    const s = store();
+    const keepsThread = !message.parentSk && (message.replyCount ?? 0) > 0;
+    if (keepsThread) s.applyTombstone(message.channelId, message.sk, Date.now());
+    else s.removeMessage(message.channelId, message.sk);
+    try {
+      await messagesApi.delete(message.channelId, message.sk);
+    } catch (err) {
+      if (err instanceof TasksApiError && err.status === 404) return; // already gone
+      store().restoreMessage(message);
+      store().showToast(
+        err instanceof TasksApiError ? err.message : "Couldn't delete the message. Try again.",
+      );
+    }
   }
 
   /** Replaces the text of one of your messages; the server answers with `message.updated`. */

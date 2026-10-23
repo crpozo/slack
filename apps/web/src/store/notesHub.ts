@@ -21,6 +21,8 @@ export interface NotesHubState {
   upsert: (message: Message) => void;
   /** A card moved on (ready, failed, sent to a board). */
   update: (channelId: string, sk: string, aiNotes: AiNotes, text: string) => void;
+  /** A card was deleted (Phase 32). */
+  remove: (channelId: string, sk: string) => void;
   reset: () => void;
 }
 
@@ -89,6 +91,11 @@ export function createNotesHub(api: Pick<NotesApi, "list"> = notesApi) {
       set((s) => ({
         notes: s.notes.map((m) => (same(m, channelId, sk) ? { ...m, aiNotes, text } : m)),
       }));
+    },
+
+    remove(channelId, sk) {
+      if (!get().notes.some((m) => same(m, channelId, sk))) return;
+      set((s) => ({ notes: s.notes.filter((m) => !same(m, channelId, sk)) }));
     },
 
     reset() {

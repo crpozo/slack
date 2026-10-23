@@ -1,4 +1,5 @@
 import {
+  canDeleteMessage,
   isDmChannel,
   readBy,
   replyPreview,
@@ -18,6 +19,7 @@ import { selectName, useChat, useNameOf, type ChatMessage } from "../store";
 import { Attachment } from "./Attachment";
 import { MeetingCard } from "./MeetingCard";
 import { AiNotesCard } from "./AiNotesCard";
+import { DeleteMessageModal } from "./DeleteMessageModal";
 import { MessageContextMenu } from "./MessageContextMenu";
 import { Avatar } from "./Avatar";
 import {
@@ -30,6 +32,7 @@ import {
   PencilIcon,
   ReplyIcon,
   SmilePlusIcon,
+  TrashIcon,
 } from "./icons";
 import { ReactionPicker, Reactions } from "./Reactions";
 
@@ -72,11 +75,14 @@ function MessageActions({
   pressed,
   mine,
   onOpenThread,
+  onDelete,
 }: Readonly<{
   message: ChatMessage;
   pressed: boolean;
   mine: boolean;
   onOpenThread?: (message: ChatMessage) => void;
+  /** Yours, or you're an admin (Phase 32): touch screens get Delete in the long-press bar. */
+  onDelete?: () => void;
 }>) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const close = usePressed((s) => s.set);
@@ -189,6 +195,20 @@ function MessageActions({
           <CopyIcon />
         </button>
       )}
+      {pressed && onDelete && (
+        <button
+          type="button"
+          onClick={() => {
+            onDelete();
+            done();
+          }}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-error hover:bg-error/10"
+          aria-label="Delete message"
+          title="Delete message"
+        >
+          <TrashIcon />
+        </button>
+      )}
       {anchor && (
         <ReactionPicker
           message={message}
@@ -280,6 +300,14 @@ function SecretBody({ message, mine }: Readonly<{ message: ChatMessage; mine: bo
 
 function ReplyQuote({ reply }: Readonly<{ reply: ReplySnapshot }>) {
   const author = useChat((s) => selectName(s, reply.userId));
+  if (reply.deleted) {
+    return (
+      <p className="mb-0.5 mt-0.5 flex max-w-full items-center gap-1.5 rounded-md border-l-2 border-line bg-surface-sidebar/80 px-2 py-1 text-xs italic text-ink-secondary">
+        <ReplyIcon className="shrink-0 not-italic" aria-hidden="true" />
+        Original message deleted
+      </p>
+    );
+  }
   return (
     <button
       type="button"
@@ -423,12 +451,17 @@ export const MessageItem = memo(function MessageItem({
   // One string, not the whole directory: a refresh re-renders this row only if its name changed.
   const name = useChat((s) => selectName(s, message.userId, message.userEmail));
   const myUserId = useChat((s) => s.me?.userId);
+  const role = useChat((s) => s.me?.role);
   const sent = !message.status;
+  const tombstone = !!message.deletedAt;
+  // The trash icon: only for the author and workspace admins (Phase 32).
+  const canDelete = sent && !!myUserId && canDeleteMessage(message, myUserId, role);
+  const [deleting, setDeleting] = useState(false);
   const pressed = usePressed((s) => s.id === message.messageId);
   const setPressed = usePressed((s) => s.set);
   const setReplyTo = useChat((s) => s.setReplyTo);
   const { offset, touchY, ref, handlers } = useMessageGestures({
-    enabled: sent,
+    enabled: sent && !tombstone,
     onLongPress: () => setPressed(message.messageId),
     onSwipeRight: () => setReplyTo(message.channelId, snapshotOf(message)),
   });
@@ -440,7 +473,7 @@ export const MessageItem = memo(function MessageItem({
   // Touch screens keep the long-press toolbar; images, media and fields keep
   // the browser's own menu (save image, spelling…).
   function onContextMenu(e: React.MouseEvent<HTMLDivElement>) {
-    if (!window.matchMedia("(hover: hover)").matches) return;
+    if (!window.matchMedia("(hover: hover)").matches || tombstone) return;
     const target = e.target as Element;
     if (target.closest("img, video, audio, input, textarea, [data-message-menu]")) return;
     e.preventDefault();
@@ -458,7 +491,7 @@ export const MessageItem = memo(function MessageItem({
     setMenu({
       x: keyboard ? box.left + 48 : e.clientX,
       y: keyboard ? box.top + 8 : e.clientY,
-      context: { mine, canThread: !!onOpenThread, selection, link },
+      context: { mine, canThread: !!onOpenThread, selection, link, canDelete },
     });
   }
 
@@ -516,6 +549,13 @@ export const MessageItem = memo(function MessageItem({
             </div>
           )}
 
+          {tombstone && (
+            <p className="mt-0.5 inline-flex items-center gap-1.5 rounded-2xl rounded-tl-sm border border-dashed border-line px-3 py-1.5 text-sm italic text-ink-secondary">
+              <TrashIcon className="not-italic" aria-hidden="true" />
+              This message was deleted.
+            </p>
+          )}
+
           {message.replyTo && <ReplyQuote reply={message.replyTo} />}
 
           {message.isSecret && <SecretBody message={message} mine={mine} />}
@@ -554,7 +594,7 @@ export const MessageItem = memo(function MessageItem({
           {grouped && message.isEdited && <EditedMark editedAt={message.editedAt} />}
           {onOpenThread && sent && <ThreadSummary message={message} onOpen={onOpenThread} />}
 
-          {!message.status && <Reactions message={message} />}
+          {!message.status && !tombstone && <Reactions message={message} />}
 
           {mine && last && sent && isDmChannel(message.channelId) && (
             <ReadReceipt message={message} />
@@ -577,14 +617,16 @@ export const MessageItem = memo(function MessageItem({
         </div>
       </div>
 
-      {sent && (
+      {sent && !tombstone && (
         <MessageActions
           message={message}
           pressed={pressed}
           mine={mine}
           onOpenThread={onOpenThread}
+          onDelete={canDelete ? () => setDeleting(true) : undefined}
         />
       )}
+      {deleting && <DeleteMessageModal message={message} onClose={() => setDeleting(false)} />}
       {menu && (
         <MessageContextMenu
           message={message}
@@ -601,6 +643,7 @@ export const MessageItem = memo(function MessageItem({
               text: message.text,
             })
           }
+          onDelete={() => setDeleting(true)}
         />
       )}
     </div>

@@ -5,7 +5,7 @@ import { menuActions, placeMenu, type MenuAction, type MenuContext } from "../li
 import { QUICK_REACTIONS } from "../lib/emoji";
 import { openExternal } from "../lib/external";
 import { useChat, type ChatMessage } from "../store";
-import { CopyIcon, LinkIcon, MessageIcon, PencilIcon, ReplyIcon } from "./icons";
+import { CopyIcon, LinkIcon, MessageIcon, PencilIcon, ReplyIcon, TrashIcon } from "./icons";
 
 const LABELS: Record<MenuAction, string> = {
   "copy-selection": "Copy selection",
@@ -15,6 +15,7 @@ const LABELS: Record<MenuAction, string> = {
   reply: "Reply",
   thread: "Reply in thread",
   edit: "Edit message",
+  delete: "Delete message",
 };
 const ICONS: Record<MenuAction, ReactNode> = {
   "copy-selection": <CopyIcon />,
@@ -24,9 +25,10 @@ const ICONS: Record<MenuAction, ReactNode> = {
   reply: <ReplyIcon />,
   thread: <MessageIcon />,
   edit: <PencilIcon />,
+  delete: <TrashIcon />,
 };
-/** A line goes before these (the groups: copy, link, conversation). */
-const GROUP_START = new Set<MenuAction>(["open-link", "reply"]);
+/** A line goes before these (the groups: copy, link, conversation, delete). */
+const GROUP_START = new Set<MenuAction>(["open-link", "reply", "delete"]);
 
 /**
  * The menu a right-click on a message opens, at the pointer: quick reactions,
@@ -42,6 +44,7 @@ export function MessageContextMenu({
   onReply,
   onThread,
   onEdit,
+  onDelete,
   onClose,
 }: Readonly<{
   message: ChatMessage;
@@ -51,6 +54,7 @@ export function MessageContextMenu({
   onReply: () => void;
   onThread: () => void;
   onEdit: () => void;
+  onDelete: () => void;
   onClose: () => void;
 }>) {
   const ref = useRef<HTMLDivElement>(null);
@@ -121,6 +125,8 @@ export function MessageContextMenu({
         return onThread();
       case "edit":
         return onEdit();
+      case "delete":
+        return onDelete();
     }
   }
 
@@ -142,7 +148,7 @@ export function MessageContextMenu({
   }
 
   const item =
-    "flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-sm text-ink outline-none hover:bg-primary/15 focus:bg-primary/15";
+    "flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-sm outline-none";
   return createPortal(
     <div
       ref={ref}
@@ -191,9 +197,16 @@ export function MessageContextMenu({
             type="button"
             role="menuitem"
             onClick={() => run(action)}
-            className={`${item} ${action === "copy" || action === "copy-selection" ? "font-semibold" : ""}`}
+            className={`${item} ${action === "copy" || action === "copy-selection" ? "font-semibold" : ""} ${
+              action === "delete"
+                ? "text-error hover:bg-error/10 focus:bg-error/10"
+                : "text-ink hover:bg-primary/15 focus:bg-primary/15"
+            }`}
           >
-            <span className="text-ink-secondary" aria-hidden="true">
+            <span
+              className={action === "delete" ? "text-error" : "text-ink-secondary"}
+              aria-hidden="true"
+            >
               {ICONS[action]}
             </span>
             {LABELS[action]}

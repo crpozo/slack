@@ -96,3 +96,14 @@ describe("AI Notes hub store", () => {
     expect(hub.getState()).toMatchObject({ status: "idle", notes: [] });
   });
 });
+
+describe("AI Notes hub: deleted cards (Phase 32)", () => {
+  it("drops a deleted card", async () => {
+    const { hub, answer } = setup();
+    void hub.getState().load();
+    await answer({ notes: [card("3#c"), card("2#b")], nextCursor: null });
+    hub.getState().remove("dm_a_b", "3#c");
+    hub.getState().remove("dm_a_b", "nope");
+    expect(hub.getState().notes.map((m) => m.sk)).toEqual(["2#b"]);
+  });
+});

@@ -1,8 +1,13 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { paginateScan, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchGetCommand, paginateScan, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { ARCHIVE_DONE_AFTER_MS } from "@mindfultech/shared";
-import { ddb, tables } from "../lib/ddb";
-import { log } from "../lib/logger";
+import { purgeBoard } from "../lib/boardDeletion";
+import { BOARD_SK } from "../lib/boards";
+import { batchDelete, ddb, tables } from "../lib/ddb";
+import { errorFields, log } from "../lib/logger";
+
+/** A board stamped `deletingAt` this long ago whose cleanup didn't finish is finished here. */
+export const STALE_DELETION_MS = 15 * 60_000;
 
 /** Flags one task archived; `false` if it was moved out of Done since the scan. */
 async function archive({ taskId, doneAt }: { taskId: string; doneAt: number }): Promise<boolean> {
@@ -26,12 +31,82 @@ async function archive({ taskId, doneAt }: { taskId: string; doneAt: number }): 
 }
 
 /**
- * Daily (EventBridge schedule): archives tasks that have been Done for over a
- * week. Nothing is deleted; archived tasks just drop off the board until
- * someone shows them. Clients don't need a push: they hide a task past the
- * week on their own (`isTaskArchived`), this only makes the flag stick.
+ * Phase 32's safety net for board deletion: finishes boards whose cleanup was
+ * interrupted (stamped `deletingAt` a while ago), and removes tasks whose
+ * board no longer exists at all (one created in the instant the board was
+ * being deleted).
  */
-export async function handler(): Promise<{ archived: number }> {
+async function sweepDeletedBoards(now: number): Promise<{ purged: number; orphans: number }> {
+  const stale: string[] = [];
+  for await (const page of paginateScan(
+    { client: ddb },
+    {
+      TableName: tables.boards,
+      FilterExpression: "sk = :board AND attribute_exists(deletingAt)",
+      ExpressionAttributeValues: { ":board": BOARD_SK },
+      ProjectionExpression: "boardId, deletingAt",
+    },
+  )) {
+    for (const item of page.Items ?? []) {
+      const at = item.deletingAt as number | undefined;
+      if (typeof at === "number" && at <= now - STALE_DELETION_MS) stale.push(String(item.boardId));
+    }
+  }
+  let purged = 0;
+  for (const boardId of stale) {
+    try {
+      await purgeBoard(boardId);
+      purged++;
+    } catch (err) {
+      log.error("board purge failed again", { boardId, ...errorFields(err) });
+    }
+  }
+
+  // Tasks of boards that are gone entirely.
+  const byBoard = new Map<string, string[]>();
+  for await (const page of paginateScan(
+    { client: ddb },
+    { TableName: tables.tasks, ProjectionExpression: "taskId, boardId" },
+  )) {
+    for (const item of page.Items ?? []) {
+      if (typeof item.boardId !== "string") continue;
+      byBoard.set(item.boardId, [...(byBoard.get(item.boardId) ?? []), String(item.taskId)]);
+    }
+  }
+  const ids = [...byBoard.keys()];
+  const existing = new Set<string>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const keys = ids.slice(i, i + 100).map((boardId) => ({ boardId, sk: BOARD_SK }));
+    const { Responses, UnprocessedKeys } = await ddb.send(
+      new BatchGetCommand({
+        RequestItems: { [tables.boards]: { Keys: keys, ProjectionExpression: "boardId" } },
+      }),
+    );
+    for (const item of Responses?.[tables.boards] ?? []) existing.add(String(item.boardId));
+    // Not answered (throttling): assume they exist; tomorrow's run looks again.
+    for (const key of UnprocessedKeys?.[tables.boards]?.Keys ?? []) {
+      existing.add(String(key.boardId));
+    }
+  }
+  const orphans = ids.filter((id) => !existing.has(id)).flatMap((id) => byBoard.get(id) ?? []);
+  await batchDelete(
+    tables.tasks,
+    orphans.map((taskId) => ({ taskId })),
+  );
+  if (purged > 0 || orphans.length > 0) {
+    log.info("deleted boards swept", { purged, orphans: orphans.length });
+  }
+  return { purged, orphans: orphans.length };
+}
+
+/**
+ * Daily (EventBridge schedule): archives tasks that have been Done for over a
+ * week (nothing is deleted; archived tasks just drop off the board until
+ * someone shows them; clients hide a task past the week on their own,
+ * `isTaskArchived`, this only makes the flag stick), then sweeps up after
+ * board deletions that didn't finish (Phase 32).
+ */
+export async function handler(): Promise<{ archived: number; purged: number; orphans: number }> {
   const cutoff = Date.now() - ARCHIVE_DONE_AFTER_MS;
   const due: Array<{ taskId: string; doneAt: number }> = [];
   const pages = paginateScan(
@@ -58,5 +133,6 @@ export async function handler(): Promise<{ archived: number }> {
   const results = await Promise.all(due.map(archive));
   const archived = results.filter(Boolean).length;
   log.info("done tasks archived", { archived });
-  return { archived };
+  const swept = await sweepDeletedBoards(Date.now());
+  return { archived, ...swept };
 }

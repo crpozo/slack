@@ -1,6 +1,8 @@
 import {
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  paginateListObjectsV2,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -97,4 +99,40 @@ export async function objectExists(key: string): Promise<boolean> {
     if ((err instanceof Error && err.name === "NotFound") || status === 404) return false;
     throw err;
   }
+}
+
+/** DeleteObjects takes at most 1,000 keys. */
+const DELETE_BATCH = 1000;
+
+/**
+ * Deletes the objects `keys` from the attachments bucket (Phase 32: a deleted
+ * message's files, a deleted board's). Missing keys are fine. Throws if S3
+ * reports any key it couldn't delete, so callers can log or retry.
+ */
+export async function deleteObjects(keys: string[]): Promise<void> {
+  const unique = [...new Set(keys)];
+  for (let i = 0; i < unique.length; i += DELETE_BATCH) {
+    const { Errors } = await s3.send(
+      new DeleteObjectsCommand({
+        Bucket: requireEnv("ATTACHMENTS_BUCKET"),
+        Delete: { Objects: unique.slice(i, i + DELETE_BATCH).map((Key) => ({ Key })), Quiet: true },
+      }),
+    );
+    if (Errors && Errors.length > 0) {
+      throw new Error(`Couldn't delete ${Errors.length} objects (first: ${Errors[0]?.Key})`);
+    }
+  }
+}
+
+/** Deletes every object under `prefix` (a board's `attachments/<boardId>/`); returns how many. */
+export async function deletePrefix(prefix: string): Promise<number> {
+  const keys: string[] = [];
+  for await (const page of paginateListObjectsV2(
+    { client: s3 },
+    { Bucket: requireEnv("ATTACHMENTS_BUCKET"), Prefix: prefix },
+  )) {
+    for (const object of page.Contents ?? []) if (object.Key) keys.push(object.Key);
+  }
+  await deleteObjects(keys);
+  return keys.length;
 }

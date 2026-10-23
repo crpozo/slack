@@ -10,6 +10,8 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
+import { DeleteObjectsCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
+import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { handler } from "../src/handlers/tasks";
 import type { HttpEvent } from "../src/lib/http";
@@ -35,12 +37,12 @@ const TASKS = "slack-test-tasks";
 function request(
   routeKey: string,
   opts: {
-    user?: { userId: string; email: string };
+    user?: { userId: string; email: string; groups?: string[] };
     params?: Record<string, string>;
     body?: unknown;
   } = {},
 ): HttpEvent {
-  const user = opts.user ?? ALICE;
+  const user: { userId: string; email: string; groups?: string[] } = opts.user ?? ALICE;
   const [method, path] = routeKey.split(" ");
   return {
     version: "2.0",
@@ -53,7 +55,16 @@ function request(
     isBase64Encoded: false,
     requestContext: {
       http: { method, path },
-      authorizer: { jwt: { claims: { sub: user.userId, email: user.email }, scopes: [] } },
+      authorizer: {
+        jwt: {
+          claims: {
+            sub: user.userId,
+            email: user.email,
+            ...(user.groups ? { "cognito:groups": user.groups } : {}),
+          },
+          scopes: [],
+        },
+      },
     },
   } as unknown as HttpEvent;
 }
@@ -87,9 +98,11 @@ const task = {
 };
 
 let sendPush: MockInstance<typeof push.sendPush>;
+const s3Mock = mockClient(S3Client);
 
 beforeEach(() => {
   resetMocks();
+  s3Mock.reset();
   sendPush = vi.spyOn(push, "sendPush").mockResolvedValue(1);
   process.env.BOARDS_TABLE = BOARDS;
   process.env.TASKS_TABLE = TASKS;
@@ -237,10 +250,11 @@ describe("boards", () => {
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
   });
 
-  it("the owner deletes the board: tasks, then membership rows, then the board row", async () => {
+  /** A board with two tasks, two members, two files and one project channel pointing at it. */
+  function boardToDelete() {
     ddbMock
       .on(QueryCommand, { TableName: TASKS, IndexName: "byBoard" })
-      .resolves({ Items: [task, { ...task, taskId: "t_2" }] });
+      .resolves({ Items: [{ taskId: "t_1" }, { taskId: "t_2" }] });
     ddbMock
       .on(QueryCommand, { TableName: BOARDS, KeyConditionExpression: "boardId = :b" })
       .resolves({
@@ -251,10 +265,46 @@ describe("boards", () => {
         ],
       });
     ddbMock.on(BatchWriteCommand).resolves({});
+    ddbMock.on(UpdateCommand, { TableName: BOARDS }).resolves({});
+    const project = {
+      channelId: "ch_launch",
+      name: "launch",
+      type: "private",
+      createdBy: ALICE.userId,
+      createdAt: 1,
+      archived: false,
+      members: [ALICE.userId, BOB.userId],
+      isProject: true,
+      linkedBoardId: BOARD_ID,
+    };
+    ddbMock.on(ScanCommand, { TableName: "slack-test-channels" }).resolves({ Items: [project] });
+    ddbMock.on(UpdateCommand, { TableName: "slack-test-channels" }).resolves({
+      Attributes: { ...project, isProject: false, linkedBoardId: undefined },
+    });
+    s3Mock.on(ListObjectsV2Command).resolves({
+      Contents: [
+        { Key: `attachments/${BOARD_ID}/1-a.png` },
+        { Key: `attachments/${BOARD_ID}/2-b.pdf` },
+      ],
+    });
+    s3Mock.on(DeleteObjectsCommand).resolves({});
+  }
 
+  it("deletes in two phases: stamp the board, tell the members, then purge it, board row last", async () => {
+    boardToDelete();
     const { status } = await call("DELETE /boards/{id}", { params: { id: BOARD_ID } });
-
     expect(status).toBe(204);
+
+    // 1. The stamp, before anything is removed: from here on the board is gone for every route.
+    const [stamp] = ddbMock
+      .commandCalls(UpdateCommand, { TableName: BOARDS })
+      .map((c) => c.args[0].input);
+    expect(stamp).toMatchObject({
+      Key: { boardId: BOARD_ID, sk: "BOARD" },
+      UpdateExpression: "SET deletingAt = :now",
+      ConditionExpression: "attribute_exists(boardId) AND attribute_not_exists(deletingAt)",
+    });
+    // 2. Tasks, then membership rows.
     const [tasksBatch, membersBatch] = ddbMock
       .commandCalls(BatchWriteCommand)
       .map((c) => c.args[0].input.RequestItems);
@@ -266,39 +316,74 @@ describe("boards", () => {
       { DeleteRequest: { Key: { boardId: BOARD_ID, sk: `MEMBER#${ALICE.userId}` } } },
       { DeleteRequest: { Key: { boardId: BOARD_ID, sk: `MEMBER#${BOB.userId}` } } },
     ]);
+    // Its files, by the board's own prefix.
+    expect(s3Mock.commandCalls(ListObjectsV2Command)[0]!.args[0].input.Prefix).toBe(
+      `attachments/${BOARD_ID}/`,
+    );
+    expect(
+      s3Mock
+        .commandCalls(DeleteObjectsCommand)[0]!
+        .args[0].input.Delete!.Objects!.map((o) => o.Key),
+    ).toEqual([`attachments/${BOARD_ID}/1-a.png`, `attachments/${BOARD_ID}/2-b.pdf`]);
+    // The project channel stops pointing at it.
+    expect(
+      ddbMock.commandCalls(UpdateCommand, { TableName: "slack-test-channels" })[0]!.args[0].input,
+    ).toMatchObject({
+      Key: { channelId: "ch_launch" },
+      UpdateExpression: "SET isProject = :no REMOVE linkedBoardId",
+    });
+    // 3. The board row, only because it was stamped.
     expect(ddbMock.commandCalls(DeleteCommand)[0]?.args[0].input).toMatchObject({
       TableName: BOARDS,
       Key: { boardId: BOARD_ID, sk: "BOARD" },
-      ConditionExpression: "ownerId = :me",
+      ConditionExpression: "attribute_not_exists(boardId) OR attribute_exists(deletingAt)",
     });
-    expect(pushed()).toEqual(["conn-alice", "conn-bob"]);
-    expect(sentEvents()[0]?.[1]).toEqual({ type: "board.deleted", boardId: BOARD_ID });
+    expect(sentEvents().map(([id, e]) => `${id}:${e.type}`)).toEqual([
+      "conn-alice:board.deleted",
+      "conn-bob:board.deleted",
+      "conn-alice:channel.updated",
+      "conn-bob:channel.updated",
+    ]);
   });
 
-  it("only the owner can delete a board; outsiders get 404", async () => {
+  it("the owner or an admin deletes a board (an admin even when not on it); members can't", async () => {
+    boardToDelete();
     expect(
       (await call("DELETE /boards/{id}", { user: BOB, params: { id: BOARD_ID } })).status,
     ).toBe(403);
     expect(
       (await call("DELETE /boards/{id}", { user: CAROL, params: { id: BOARD_ID } })).status,
     ).toBe(404);
-    expect(ddbMock.commandCalls(BatchWriteCommand)).toHaveLength(0);
-    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
+    expect(ddbMock.commandCalls(UpdateCommand, { TableName: BOARDS })).toHaveLength(0);
+    const admin = { ...CAROL, groups: ["admins"] };
+    expect(
+      (await call("DELETE /boards/{id}", { user: admin, params: { id: BOARD_ID } })).status,
+    ).toBe(204);
   });
 
-  it("keeps the board row when its tasks can't all be deleted", async () => {
+  it("a board being deleted is gone for every route, and can't be deleted twice", async () => {
     ddbMock
-      .on(QueryCommand, { TableName: TASKS, IndexName: "byBoard" })
-      .resolves({ Items: [task] });
+      .on(GetCommand, { TableName: BOARDS, Key: { boardId: BOARD_ID, sk: "BOARD" } })
+      .resolves({
+        Item: { ...boardRow, deletingAt: 5 },
+      });
+    expect((await call("GET /boards/{id}/tasks", { params: { id: BOARD_ID } })).status).toBe(404);
+    expect(
+      (await call("POST /boards/{id}/tasks", { params: { id: BOARD_ID }, body: { title: "x" } }))
+        .status,
+    ).toBe(404);
+    expect((await call("DELETE /boards/{id}", { params: { id: BOARD_ID } })).status).toBe(404);
+  });
+
+  it("answers 202 when the cleanup is interrupted: the board is already gone, the sweep finishes it", async () => {
+    boardToDelete();
     ddbMock.on(BatchWriteCommand).resolves({
       UnprocessedItems: { [TASKS]: [{ DeleteRequest: { Key: { taskId: "t_1" } } }] },
     });
-
     const { status } = await call("DELETE /boards/{id}", { params: { id: BOARD_ID } });
-
-    expect(status).toBe(500);
-    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
-    expect(sentEvents()).toEqual([]);
+    expect(status).toBe(202);
+    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0); // the board row stays, stamped
+    expect(sentEvents()[0]?.[1]).toEqual({ type: "board.deleted", boardId: BOARD_ID });
   });
 
   it("a member who is not the owner gets 403 when adding people", async () => {

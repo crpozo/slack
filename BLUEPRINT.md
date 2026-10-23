@@ -802,6 +802,44 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
    - The call-notes Lambda gets `meeting-notes:PutItem/Query` and `messages:BatchGetItem`.
 
 **Phase 29 acceptance criteria:** a ready notes card whose summary has an "Action Items" or "Tareas" section offers Send to Board; the dialog preselects the shared project's board and lists the items with owners resolved; unticking one and confirming creates the rest in To Do in order, shows "N tasks added to the <Board> board", and both people's cards then say where they went; a second send (any device, either person) is refused; board members get one alert, not one per task; `/app/notes` lists every notes card newest first across DMs, pages older ones and shows new ones live; after the backfill, notes from before the deploy are there too.
+
+---
+
+### Phase 32 — Deleting messages and boards, archiving by channel creators
+
+**Branch:** `feature/f32-deletion-and-archiving`
+
+1. **Delete a message:** `DELETE /messages/{channelId}/{sk}` (new `messages` Lambda on the HTTP API, JWT; the sort key URL-encoded).
+   - **Who:** the author, or an admin moderating (`canDeleteMessage`). Others get 403. A message that's gone, or already a tombstone, is 404. Archived channels are frozen (409).
+   - **A thread reply** is deleted in one transaction with its parent's counters. `replyCount`, `lastReplyAt` and the reply avatars are recomputed from the replies left. A race with a new reply retries once. A tombstoned parent whose last reply goes is deleted too.
+   - **A top-level message with replies** becomes a tombstone so its thread stays: `deletedAt` is set; text, files, reactions, quote, card and secret flags are removed. It reads "This message was deleted".
+   - **Anything else** is deleted outright, conditioned on it still having no replies; a reply landing in between makes it a tombstone instead.
+   - **Hub entries:** an AI notes card's `meeting-notes` entries go in the same transaction.
+   - **Then:** the message's files (originals and thumbnails) are deleted from S3, best effort. Quotes of it (always newer, so only `sk > :sk` is read) get `replyTo.deleted` with the copied text removed.
+   - **Events:** `message.deleted { channelId, sk, messageId, parentSk? }` (or `message.updated` with `deletedAt` for a tombstone, `replyTo` for a cleared quote, and `message.thread_updated`) go to the conversation's audience.
+2. **Client:**
+   - **Delete message** is last in the right-click menu, in red with a trash icon, and in the long-press bar on touch screens. Only the author and admins see it.
+   - A confirmation modal shows the message, says when an admin deletes someone else's, and when its replies stay.
+   - The message leaves at once, comes back with the reason if refused, and a 404 counts as done.
+   - `message.deleted` removes it from its list or thread, the AI Notes hub, the pending reply or edit, and the unread count. A thread whose parent goes closes.
+   - A refreshed newest page drops cached messages inside its span that the server no longer returns, so a device that was offline catches up on deletions.
+3. **Delete a board:** owner or admin (`canDeleteBoard`; an admin even when not on the board), in two phases.
+   - **Phase one:** a conditional update stamps `deletingAt` on the board row. From then on `getAccessibleBoard` and `boardsOf` treat the board as gone, so no route can add to it. Members hear `board.deleted`.
+   - **Phase two:** `purgeBoard` deletes the tasks (byBoard, batches of 25) and the files under `attachments/<boardId>/` (List + DeleteObjects). It unlinks project channels (`isProject` false, `linkedBoardId` removed, `channel.updated` sent), then deletes the membership rows and the board row (only if stamped).
+   - **Responses:** 204, or 202 when phase two was interrupted.
+   - **Daily safety net:** the `archive-tasks` job purges boards stamped over 15 minutes ago and deletes tasks whose board row no longer exists.
+   - **UI:** **Delete board** in the board's settings menu for its owner or an admin. Rename stays the owner's. A strict modal lists the tasks, files and linked channels; **Delete board** stays disabled until the exact board name is typed.
+4. **Archive channels:** already present (Phase 23: the WebSocket `channel` update with `archived`, `channel.updated`, the Archived sidebar section, a read-only composer, search). The channel's **creator** may now archive and restore it as well as admins (`canArchiveChannel`), never `#general` or a DM.
+5. **IAM:**
+   - `messages` Lambda: messages GetItem/DeleteItem/UpdateItem/Query, channels GetItem, meeting-notes DeleteItem, `s3:DeleteObject` on `attachments/*`, connections, @connections.
+   - `tasks` Lambda: adds channels Scan/UpdateItem, plus `s3:DeleteObject` on `attachments/*` and `s3:ListBucket` limited to `attachments/*`.
+   - `archive-tasks` Lambda: adds boards Scan/Query/BatchGetItem/BatchWriteItem/DeleteItem, tasks Query/BatchWriteItem, channels Scan/UpdateItem, and the same S3 grants.
+
+**Phase 32 acceptance criteria:**
+- Your own message's right-click menu ends with a red "Delete message". Someone else's has none, unless you're an admin.
+- Confirming removes it at once for everyone in the conversation, with its files. A message with replies stays as "This message was deleted" with its thread, and quotes of it say "Original message deleted".
+- A board's owner or an admin can delete it only after typing its exact name. Its tasks, files and project links go, and the 📊 Board pill disappears from the linked channel.
+- A channel's creator can archive it and the composer becomes read-only.
 ---
 
 ### PHASE 7 (optional) — Desktop app with Tauri

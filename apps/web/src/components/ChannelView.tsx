@@ -4,7 +4,7 @@ import {
   isDmChannel,
   type Channel,
 } from "@mindfultech/shared";
-import { useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { calls, useCall } from "../lib/call";
 import { channelLabel, dmPeer } from "../lib/channels";
@@ -280,6 +280,15 @@ export function ChannelView({
   const threadSplit = usePaneSplit("thread");
   const boardSplit = usePaneSplit("board");
   const setBoardOpen = useBoardPane((s) => s.setOpen);
+  // Its parent was deleted while the thread was open (Phase 32): close it.
+  const hadThreadParent = useRef(false);
+  useEffect(() => {
+    if (threadParent) hadThreadParent.current = true;
+    else if (threadId && hadThreadParent.current) {
+      hadThreadParent.current = false;
+      onCloseThread?.();
+    }
+  }, [threadParent, threadId, onCloseThread]);
 
   if (!me) return null;
   const archived = !!channel?.archived;
