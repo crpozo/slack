@@ -95,7 +95,9 @@ describe("channel", () => {
     mockScans([read, team]);
     // Newest first: two from Bob after Alice's mark.
     ddbMock
-      .on(QueryCommand, { ExpressionAttributeValues: { ":c": "ch_general", ":after": "100#a" } })
+      .on(QueryCommand, {
+        ExpressionAttributeValues: { ":c": "ch_general", ":from": "100#a\u0000" },
+      })
       .resolves({ Items: [{ userId: BOB.userId }, { userId: BOB.userId }] });
     // No mark in ch_team: the last week counts, up to Alice's own latest message.
     ddbMock.on(QueryCommand, { ExpressionAttributeValues: { ":c": "ch_team" } }).resolves({
@@ -108,8 +110,30 @@ describe("channel", () => {
     expect(event.unread).toEqual({ ch_general: 2, ch_team: 1 });
     const queries = ddbMock.commandCalls(QueryCommand).map((c) => c.args[0].input);
     expect(queries[0]).toMatchObject({ ScanIndexForward: false, Limit: 100 });
-    const teamAfter = Number(String(queries[1]?.ExpressionAttributeValues?.[":after"]));
+    const teamAfter = Number(String(queries[1]?.ExpressionAttributeValues?.[":from"]).slice(0, -1));
     expect(Date.now() - teamAfter).toBeGreaterThan(6 * 24 * 3600 * 1000);
+  });
+
+  it("never counts thread replies: they'd come back after every read (Phase 36)", async () => {
+    const read = { ...general, reads: { [ALICE.userId]: { sk: "200#z", at: 200 } } };
+    mockScans([read]);
+    ddbMock.on(QueryCommand).resolves({ Items: [] });
+
+    await handler(wsEvent("channel", { action: "channel", op: "list" }));
+
+    const query = ddbMock.commandCalls(QueryCommand)[0]!.args[0].input;
+    // From just after the mark up to where replies (`thread#…`) begin.
+    expect(query.KeyConditionExpression).toBe("channelId = :c AND sk BETWEEN :from AND :before");
+    expect(query.ExpressionAttributeValues).toMatchObject({
+      ":from": "200#z\u0000",
+      ":before": "thread#",
+    });
+    // The bounds as DynamoDB compares them: the mark itself and replies out, later messages in.
+    const inRange = (sk: string) => sk >= "200#z\u0000" && sk <= "thread#";
+    expect(inRange("200#z")).toBe(false);
+    expect(inRange("200#za")).toBe(true);
+    expect(inRange("201#a")).toBe(true);
+    expect(inRange("thread#100#a#300#b")).toBe(false);
   });
 
   it("list still answers when an unread count fails", async () => {

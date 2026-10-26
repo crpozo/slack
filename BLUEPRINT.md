@@ -911,6 +911,40 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
 - A weekly standup created in the calendar for three people shows on every weekday, puts a "Repeating meeting" card in each invitee's DM with Join on each standup, can have one standup cancelled without touching the rest, and deleting it marks the cards cancelled.
 - Switching Wi-Fi off and on during a call shows "Reconnecting…" and the call comes back on its own. Staying offline for more than 30 seconds ends it.
 
+### Phase 36 — Ghost unread badges, voice note speed, channel calls (mesh)
+
+**Branch:** `feature/f36-calls-and-ux-fixes`
+
+1. **Ghost unread badges (fixed):**
+   - **The cause:** replies live in the channel's partition under `thread#<parentSk>#…` sort keys, which sort after every `<epoch>#…` key. `unreadCount` queried `sk > <read mark>` with no upper bound, so it counted every reply in the channel (newest first, up to the first one of yours) on every `channel.list`. Read marks are top-level keys and can never pass them, so badges came back after every reload or reconnect.
+   - **Server fix:** `sk BETWEEN <mark>+"\0" AND "thread#"` counts top-level messages only, like history's range.
+   - **Client fix:** the read marks already sent are forgotten when the socket reconnects, and the open channel's mark is sent again; a mark sent on a silently dead socket used to stay unsent forever.
+   - **Thread replies** no longer raise the channel's badge (like Slack, and like the server's count).
+2. **Voice note speed:** a button beside the player cycles 1× → 1.5× → 2× (`playbackRate`). The speed is remembered on the device (`slack.audio.playbackRate`), shared live by every player, and kept through a refreshed link (`defaultPlaybackRate`).
+3. **Channel calls (mesh, up to 6):** a "room" per channel in the new `call-rooms` table (`channelId` key, TTL `expiresAt`), kept by the `call` Lambda. There is no new WebSocket route: the `call` action gains `join`, `leave` and `rooms`.
+   - **Join:** `joinRoom` starts the room or takes a seat with a conditional write: `size(participants) < 6`, counting the seats it frees in the same write for connections no longer live. The seat records the joining connection and is noted on the connection row (`callRoom`) so `$disconnect` frees it. Everyone in the channel gets `call.room` (`started`/`joined`/`left`/`ended`); a seventh person gets `CALL_FULL`. Guests can't join (their routes are blocked).
+   - **Signals:** offer, answer, ICE and `renegotiate` with `channelId` = the channel and `callId` = the room. They're accepted only between two people seated in the room, from the sender's seat connection, and delivered only to the receiver's seat connection (not their other tabs). Nothing rings.
+   - **Mesh:** the newcomer offers a connection to everyone already in the room; the others only answer, so joins never cross. Each pair is a `PeerLink` with the DM calls' three transceivers, data channel and f34 reconnect logic (the smaller user id drives restarts, the other is polite). From 4 people, each video sender is held to 500 kbps.
+   - **Client:** `GroupCallManager` (`lib/groupCall.ts`); DM calls stay on `CallManager`, untouched except that one call at a time is enforced both ways.
+     - **Header:** Start a voice/video call, or, while one goes on, avatars and "Join · n".
+     - **Call panel:** above the messages, a grid of everyone with mute and reconnecting state, or a shared screen on stage with tiles beside it.
+     - **Elsewhere in the app:** a floating window; audio keeps playing.
+     - **Notice:** a "X started a call in #proj · Join" notice for the channel's online people (and a bell entry, without sound).
+     - **Leaving:** the last one out posts "📞 Call ended • mm:ss" in the channel.
+     - **Socket reconnect:** the seat is kept by joining again with the room's id; pairs restart ICE as needed.
+   - **Not yet:** AI notes and the pop-out window are for DM calls only.
+4. **Meetings in channels:** the calendar form has "Post to a channel", and the composer's Schedule meeting works in channels too (invitees preselected to a private channel's members).
+   - The card goes in the channel, written in the same transaction as the event; its Join opens the channel's call.
+   - Invitees get no DM cards: the channel's card is kept through edits (who's invited doesn't matter for it) and is marked cancelled when the meeting is deleted.
+   - DMs keep their rules (two people, timed).
+5. **Infra:** the `call-rooms` table; the `call` Lambda may read/write it and scan it, read channel rows and update connection rows; `$disconnect` may update/delete room rows and read channel rows.
+
+**Phase 36 acceptance criteria:**
+- Reading a channel that has threads and reloading leaves no badge on it.
+- A voice note plays at 2× after picking it once, also after a reload.
+- In a project channel, three people start and join a call from the header (or the notice), see and hear each other, and the last to leave posts the call's length; a seventh person can't join.
+- A meeting posted to a channel shows its card there, and Join on it opens the channel's call.
+
 ### Phase 35 (planned) — Customer channels (guest access to shared channels)
 
 Deferred from Phase 34: it moves the guest security boundary, so it gets its own phase and tests. Today guests are boards-only. They're blocked from every WebSocket action but `ping`, `presign` and `user` (`GUEST_ROUTES`), receive only `board.*` events (`guestMayReceive`), and see only board co-members. Needed:

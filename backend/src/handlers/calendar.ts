@@ -224,7 +224,7 @@ async function createMeeting(
   caller: HttpCaller,
 ): Promise<HttpResult> {
   if (input.channelId !== undefined) {
-    return createDmMeeting({ ...input, channelId: input.channelId }, caller);
+    return createLinkedMeeting({ ...input, channelId: input.channelId }, caller);
   }
   const invited = await checkParticipants(input.participants, caller);
   const now = Date.now();
@@ -268,13 +268,17 @@ async function createMeeting(
 }
 
 /**
- * A meeting scheduled from a direct message: its participants are the DM's
- * two people (from the channel id, never the body), and a "meeting scheduled"
- * card is posted in the conversation. The event and the message are written
- * in one transaction, so the calendar and the chat never disagree; the
- * pushes afterwards are best effort, as everywhere (a reload shows both).
+ * A meeting scheduled into a conversation, its card posted there. The event
+ * and the message are written in one transaction, so the calendar and the
+ * chat never disagree; the pushes afterwards are best effort, as everywhere
+ * (a reload shows both).
+ * - A direct message: its participants are the DM's two people (from the
+ *   channel id, never the body).
+ * - A channel (Phase 36): any channel the organizer may post in; the
+ *   invitees are the body's, and get no DM cards (the channel's card is the
+ *   one everyone joins from: its Join opens the channel's call).
  */
-async function createDmMeeting(
+async function createLinkedMeeting(
   input: Extract<ReturnType<typeof CreateEventSchema.parse>, { type: "meeting" }> & {
     channelId: string;
   },
@@ -282,10 +286,15 @@ async function createDmMeeting(
 ): Promise<HttpResult> {
   const { channelId } = input;
   const members = dmMembers(channelId);
-  const channel = members ? await getAccessibleChannel(channelId, caller.userId) : null;
-  if (!members || !channel || channel.type !== "dm") throw notFound("Conversation not found");
-  const peers = [...new Set(members)].filter((id) => id !== caller.userId);
-  if ((await guestsAmong(peers)).length > 0) {
+  const channel = await getAccessibleChannel(channelId, caller.userId);
+  if (!channel || (members ? channel.type !== "dm" : channel.type === "dm")) {
+    throw notFound("Conversation not found");
+  }
+  // Who it's for (besides the organizer): the DM's other person, or the invitees.
+  const peers = members
+    ? [...new Set(members)].filter((id) => id !== caller.userId)
+    : await checkParticipants(input.participants, caller);
+  if (members && (await guestsAmong(peers)).length > 0) {
     throw new HttpError(400, "Guests can't be invited to meetings");
   }
 
@@ -301,7 +310,7 @@ async function createDmMeeting(
 
   const now = Date.now();
   const span = meetingSpan(input);
-  const participants = [...new Set(members)].sort((a, b) => a.localeCompare(b));
+  const participants = [...new Set([caller.userId, ...peers])].sort((a, b) => a.localeCompare(b));
   const messageId = ulid(now);
   const messageSk = newMessageSk(now);
   // The event remembers its card, so an edit of the meeting rewrites the card.
@@ -355,7 +364,7 @@ async function createDmMeeting(
       ],
     }),
   );
-  log.info("meeting scheduled from DM", {
+  log.info(members ? "meeting scheduled from DM" : "meeting scheduled in a channel", {
     eventId: meeting.eventId,
     channelId,
     userId: caller.userId,

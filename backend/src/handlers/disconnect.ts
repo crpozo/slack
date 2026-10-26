@@ -1,5 +1,7 @@
 import { DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { deliver, listConnections } from "../lib/broadcast";
+import { vacate } from "../lib/callRooms";
+import { getAccessibleChannel } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import type { WsEvent } from "../lib/handler";
 import { errorFields, log } from "../lib/logger";
@@ -14,6 +16,19 @@ async function announceIfLast(userId: string): Promise<void> {
   if (connections.some((c) => c.userId === userId)) return;
   await deliver(connections, () => ({ type: "user.disconnected", userId }));
   log.info("user offline", { userId });
+}
+
+/**
+ * Phase 36: the closed socket held a seat in a channel's call: free it, so
+ * the others see them leave (and the last one out ends the call).
+ */
+async function leaveCall(channelId: string, userId: string, connectionId: string): Promise<void> {
+  try {
+    const channel = await getAccessibleChannel(channelId, userId, { allowArchived: true });
+    if (channel) await vacate(channel, userId, connectionId);
+  } catch (err) {
+    log.error("couldn't free a call seat", { channelId, connectionId, ...errorFields(err) });
+  }
 }
 
 /**
@@ -32,6 +47,8 @@ export const handler = async (event: WsEvent): Promise<HandlerResult> => {
     );
     log.info("disconnected", { connectionId });
     const userId = authorizer?.userId ?? (Attributes?.userId as string | undefined);
+    const callRoom = Attributes?.callRoom as string | undefined;
+    if (userId && callRoom) await leaveCall(callRoom, userId, connectionId);
     if (userId) await announceIfLast(userId);
   } catch (err) {
     log.error("disconnect failed", { connectionId, ...errorFields(err) });

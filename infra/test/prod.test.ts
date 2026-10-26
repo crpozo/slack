@@ -426,7 +426,7 @@ describe("phase 5.1 resources", () => {
     ).toContain("DataConnections");
   });
 
-  it("routes call signaling to a Lambda that only touches connections", () => {
+  it("routes call signaling to a Lambda that touches connections, call rooms and channel rows", () => {
     const t = template();
     expect(matching(t, "AWS::ApiGatewayV2::Route", { RouteKey: "call" })).toHaveLength(1);
     expect(
@@ -436,27 +436,50 @@ describe("phase 5.1 resources", () => {
       }),
     ).toHaveLength(1);
 
-    const policy = Object.entries(t.findResources("AWS::IAM::Policy")).find(([id]) =>
-      id.startsWith("ApicallFnServiceRoleDefaultPolicy"),
-    )?.[1];
-    const statements = (policy?.Properties?.PolicyDocument?.Statement ?? []) as Array<{
-      Action: string | string[];
-      Resource: unknown;
-    }>;
-    const tables = statements
-      .filter((st) => [st.Action].flat().some((a) => a.startsWith("dynamodb:")))
-      .map((st) => JSON.stringify(st.Resource));
-    expect(tables.length).toBeGreaterThan(0);
-    expect(tables.every((r) => r.includes("DataConnections"))).toBe(true);
-    const actions = statements
-      .flatMap((st) => [st.Action].flat())
-      .sort((a, b) => a.localeCompare(b));
-    expect(actions).toEqual([
+    const statementsOf = (prefix: string) =>
+      (Object.entries(t.findResources("AWS::IAM::Policy")).find(([id]) =>
+        id.startsWith(prefix),
+      )?.[1]?.Properties?.PolicyDocument?.Statement ?? []) as Array<{
+        Action: string | string[];
+        Resource: unknown;
+      }>;
+    const actionsOn = (prefix: string, table: string) =>
+      statementsOf(prefix)
+        .filter((st) => JSON.stringify(st.Resource).includes(`"${table}`))
+        .flatMap((st) => [st.Action].flat())
+        .sort((a, b) => a.localeCompare(b));
+
+    const call = "ApicallFnServiceRoleDefaultPolicy";
+    expect(actionsOn(call, "DataConnections")).toEqual([
       "dynamodb:DeleteItem",
       "dynamodb:GetItem",
       "dynamodb:Scan",
-      "execute-api:ManageConnections",
+      "dynamodb:UpdateItem",
     ]);
+    // Phase 36: channel calls keep a room row per channel and check channel access.
+    expect(actionsOn(call, "DataCallRooms")).toEqual([
+      "dynamodb:DeleteItem",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:Scan",
+      "dynamodb:UpdateItem",
+    ]);
+    expect(actionsOn(call, "DataChannels")).toEqual(["dynamodb:GetItem"]);
+    expect(actionsOn(call, "DataMessages")).toEqual([]);
+    // `$disconnect` frees a closed socket's seat.
+    const disconnect = "ApidisconnectFnServiceRoleDefaultPolicy";
+    expect(actionsOn(disconnect, "DataCallRooms")).toEqual([
+      "dynamodb:DeleteItem",
+      "dynamodb:UpdateItem",
+    ]);
+    expect(actionsOn(disconnect, "DataChannels")).toEqual(["dynamodb:GetItem"]);
+    // The room rows expire on their own if anything is left behind.
+    expect(
+      matching(t, "AWS::DynamoDB::Table", {
+        TableName: "slack-dev-call-rooms",
+        TimeToLiveSpecification: { AttributeName: "expiresAt", Enabled: true },
+      }),
+    ).toHaveLength(1);
   });
 });
 

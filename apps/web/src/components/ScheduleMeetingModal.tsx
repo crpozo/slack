@@ -1,13 +1,15 @@
 import {
   dateInZone,
   dmMembers,
+  MAX_EVENT_PARTICIPANTS,
   MAX_EVENT_DESCRIPTION_LENGTH,
   MAX_EVENT_TITLE_LENGTH,
   type CalendarEvent,
   type Message,
   type Recurrence,
 } from "@mindfultech/shared";
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { ulid } from "ulid";
 import { calendarApi } from "../lib/calendarApi";
 import { addMinutes, joinLocal, splitLocal } from "../lib/calendarUi";
@@ -18,6 +20,7 @@ import { ErrorNote } from "./CalendarModals";
 import { CalendarIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 import { RepeatFields } from "./RepeatFields";
+import { UserPicker } from "./UserPicker";
 
 /** The next round half hour from now, as the form's default start. */
 function nextSlot(now = Date.now()): { date: string; time: string } {
@@ -31,6 +34,10 @@ function nextSlot(now = Date.now()): { date: string; time: string } {
  * editable; the server infers them from the channel. One request creates
  * the calendar event and posts the card in the chat together. It may repeat
  * (Phase 34): one card for the whole series, showing its next meeting.
+ *
+ * From a channel (Phase 36): the card goes in the channel (Join on it opens
+ * the channel's call); invitees, preselected to the members of a private
+ * channel, get it in their calendars.
  */
 export function ScheduleMeetingModal({
   channelId,
@@ -39,8 +46,24 @@ export function ScheduleMeetingModal({
   const me = useChat((s) => s.me);
   const showToast = useChat((s) => s.showToast);
   const nameOf = useNameOf();
-  const members = dmMembers(channelId) ?? [];
-  const peers = members.filter((id) => id !== me?.userId);
+  const dm = dmMembers(channelId);
+  const channel = useChat((s) => s.channels.find((c) => c.channelId === channelId));
+  const users = useChat(useShallow((s) => Object.values(s.users)));
+  const invitable = useMemo(
+    () =>
+      users
+        .filter((u) => u.userId !== me?.userId && u.role !== "guest")
+        .filter((u) => !channel?.members || channel.members.includes(u.userId))
+        .sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    [users, me?.userId, channel?.members],
+  );
+  const [invited, setInvited] = useState<string[]>(() =>
+    dm || !channel?.members
+      ? []
+      : channel.members.filter((id) => id !== me?.userId).slice(0, MAX_EVENT_PARTICIPANTS),
+  );
+  const members = dm ?? [me?.userId ?? "", ...invited];
+  const peers = dm ? dm.filter((id) => id !== me?.userId) : invited;
 
   const slot = nextSlot();
   const [title, setTitle] = useState("");
@@ -75,6 +98,7 @@ export function ScheduleMeetingModal({
         endAt,
         channelId,
         clientId,
+        ...(!dm && { participants: invited }),
         ...(recurrence && { recurrence }),
       })) as { event: CalendarEvent; message?: Message };
       // The server's own pushes bring both too; applying the reply makes the
@@ -84,9 +108,11 @@ export function ScheduleMeetingModal({
         .applyEvent({ type: "calendar.event_created", event, by: me.userId }, me);
       if (message) useChat.getState().receiveMessage(message, clientId);
       showToast(
-        `${recurrence ? "Repeating meeting" : "Meeting"} scheduled with ${
-          peers.map((id) => nameOf(id)).join(", ") || "yourself"
-        }.`,
+        dm
+          ? `${recurrence ? "Repeating meeting" : "Meeting"} scheduled with ${
+              peers.map((id) => nameOf(id)).join(", ") || "yourself"
+            }.`
+          : `${recurrence ? "Repeating meeting" : "Meeting"} posted in #${channel?.name ?? "the channel"}.`,
       );
       onClose();
     } catch (err) {
@@ -116,7 +142,20 @@ export function ScheduleMeetingModal({
       }
     >
       <form id="schedule-meeting" onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
-        <div className="flex items-center gap-2 rounded-lg bg-surface-sidebar px-3 py-2 text-sm text-ink">
+        {!dm && (
+          <p className="flex items-center gap-2 rounded-lg bg-surface-sidebar px-3 py-2 text-sm text-ink">
+            <CalendarIcon className="shrink-0 text-ink-secondary" />
+            <span>
+              Posted in <strong>#{channel?.name ?? "this channel"}</strong>: everyone in it sees the
+              card and can join the call.
+            </span>
+          </p>
+        )}
+        <div
+          className={`flex items-center gap-2 rounded-lg bg-surface-sidebar px-3 py-2 text-sm text-ink ${
+            dm ? "" : "hidden"
+          }`}
+        >
           <CalendarIcon className="shrink-0 text-ink-secondary" />
           <span className="text-ink-secondary">With</span>
           <span className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -196,6 +235,15 @@ export function ScheduleMeetingModal({
             />
           </div>
         </div>
+
+        {!dm && (
+          <div className="space-y-1.5">
+            <span className="block text-sm font-medium text-ink">
+              In their calendars {invited.length > 0 && `(${invited.length})`}
+            </span>
+            <UserPicker users={invitable} selected={invited} onChange={setInvited} />
+          </div>
+        )}
 
         <RepeatFields
           first={firstDate}

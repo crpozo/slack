@@ -165,6 +165,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // Direct messages: schedule a meeting with the other person from here.
   const [scheduling, setScheduling] = useState(false);
   const dm = isDmChannel(channelId) && !thread;
+  // Phase 36: meetings can be scheduled into channels too.
+  const canSchedule = !thread;
 
   // Another conversation, or editing: back to a normal message.
   useEffect(() => setSecret(false), [channelId]);
@@ -617,14 +619,18 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               >
                 <LockIcon />
               </button>
-              {dm && (
+              {canSchedule && (
                 <button
                   type="button"
                   onClick={() => setScheduling(true)}
                   disabled={disabled || !!editing}
                   className="rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
                   aria-label="Schedule meeting"
-                  title="Schedule a meeting (goes to both calendars)"
+                  title={
+                    dm
+                      ? "Schedule a meeting (goes to both calendars)"
+                      : "Schedule a meeting in this channel"
+                  }
                 >
                   <CalendarIcon />
                 </button>

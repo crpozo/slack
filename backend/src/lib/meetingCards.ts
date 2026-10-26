@@ -42,8 +42,12 @@ export function peerOfRef(ref: MeetingCardRef, organizer: string): string | null
   return members.find((m) => m !== organizer) ?? organizer;
 }
 
+/** A meeting whose card is in a channel (Phase 36): that card is the only one. */
+const inChannel = (meeting: MeetingEvent) => !!meeting.channelId && !dmMembers(meeting.channelId);
+
 /** Cards to post (ids picked now) for invitees who don't have one yet. */
 export function plannedCards(meeting: MeetingEvent, at: number): MeetingCardRef[] {
+  if (inChannel(meeting)) return [];
   const organizer = meeting.createdBy;
   const covered = new Set(cardRefsOf(meeting).map((ref) => peerOfRef(ref, organizer)));
   return meeting.participants
@@ -70,6 +74,7 @@ export interface CardPlan {
 export function reconcileCards(meeting: MeetingEvent, at: number): CardPlan {
   const organizer = meeting.createdBy;
   const invited = (ref: MeetingCardRef) => {
+    if (!dmMembers(ref.channelId)) return true; // a channel's card: for whoever is in the channel
     const peer = peerOfRef(ref, organizer);
     return peer !== null && meeting.participants.includes(peer);
   };

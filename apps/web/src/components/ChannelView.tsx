@@ -12,6 +12,7 @@ import { supportsCalls } from "../lib/media";
 import { useChat, useIsOnline, useNameOf, type ChatMessage } from "../store";
 import { PresenceDot } from "./Avatar";
 import { CallPanel, useCallExpanded } from "./CallLayer";
+import { ChannelCallButtons, GroupCallPanel } from "./GroupCall";
 import { Composer, type ComposerHandle } from "./Composer";
 import { EditChannelModal, InviteModal } from "./ChannelModals";
 import {
@@ -53,6 +54,8 @@ function channelAccess(
     peer,
     notFound: !allowed || (channelsLoaded && !channel && !dm),
     canCall: !!peer && peer !== myUserId && allowed && supportsCalls(),
+    /** Phase 36: channel calls (rooms) in any channel you can post in. */
+    canRoomCall: !dm && allowed && !!channel && !channel.archived && supportsCalls(),
     canInvite: isPrivate && channel?.createdBy === myUserId,
   };
 }
@@ -217,6 +220,7 @@ function ChannelHeader({
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {access.canCall && peer && <CallButtons channelId={channelId} peer={peer} label={label} />}
+        {access.canRoomCall && <ChannelCallButtons channelId={channelId} label={label} />}
         {access.canInvite && (
           <button
             type="button"
@@ -354,6 +358,7 @@ export function ChannelView({
       ) : (
         <>
           <CallPanel channelId={channelId} />
+          <GroupCallPanel channelId={channelId} label={title} />
           <div ref={rowRef} className={callExpanded ? "hidden" : "flex min-h-0 flex-1"}>
             {/* Phones show the thread instead of the conversation; desktop beside it. */}
             <div

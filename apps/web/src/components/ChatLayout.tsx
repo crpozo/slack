@@ -32,6 +32,7 @@ import { useCalendar } from "../store/calendar";
 import { useNotesHub } from "../store/notesHub";
 import { CreateChannelModal, NewDmModal } from "./ChannelModals";
 import { CallLayer } from "./CallLayer";
+import { GroupCallLayer } from "./GroupCall";
 import { PushPrompt } from "./PushPrompt";
 import { ChannelView } from "./ChannelView";
 import { PlusIcon, SettingsIcon } from "./icons";
@@ -298,6 +299,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const overlays = (
     <>
       <CallLayer />
+      <GroupCallLayer />
       <Suspense fallback={null}>
         {switcherOpen && <QuickSwitcher onClose={() => setSwitcherOpen(false)} />}
         {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}

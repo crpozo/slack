@@ -21,6 +21,7 @@ import {
   GENERAL_CHANNEL_ID,
   isChannelMember,
   MAX_UNREAD_COUNT,
+  THREAD_SK_PREFIX,
   isLegacyChannel,
   newChannelId,
   parseAction,
@@ -93,14 +94,26 @@ export const UNREAD_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
  * Messages from others after `userId`'s read mark in `channel`, newest first,
  * stopping at their own latest message (writing in a conversation means you
  * read it) and at `MAX_UNREAD_COUNT + 1`. One small Query per channel.
+ *
+ * Top-level messages only (Phase 36): replies live in the same partition
+ * under `thread#…` sort keys, which sort after every `<epoch>#…` key, so an
+ * open-ended `sk > mark` counted every reply in the channel (newest first)
+ * on every channel list: badges came back after being read ("ghost
+ * bubbles"), since a read mark is always a top-level key. The range ends
+ * where replies begin, like history's; a key condition takes one range, so
+ * the exclusive lower end is the mark plus `\0` (the next possible key).
  */
 export async function unreadCount(channel: Channel, userId: string): Promise<number> {
   const after = channel.reads?.[userId]?.sk ?? `${Date.now() - UNREAD_LOOKBACK_MS}`;
   const { Items = [] } = await ddb.send(
     new QueryCommand({
       TableName: tables.messages,
-      KeyConditionExpression: "channelId = :c AND sk > :after",
-      ExpressionAttributeValues: { ":c": channel.channelId, ":after": after },
+      KeyConditionExpression: "channelId = :c AND sk BETWEEN :from AND :before",
+      ExpressionAttributeValues: {
+        ":c": channel.channelId,
+        ":from": `${after}\u0000`,
+        ":before": THREAD_SK_PREFIX,
+      },
       ProjectionExpression: "userId",
       ScanIndexForward: false,
       Limit: MAX_UNREAD_COUNT + 1,

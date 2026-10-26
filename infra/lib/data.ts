@@ -22,6 +22,12 @@ export class Data extends Construct {
    * notes, newest first" is one query; the cards stay in `messages`.
    */
   readonly meetingNotes: Table;
+  /**
+   * Channel calls (Phase 36): one row per channel with a call going on (who
+   * is in it, through which connection). Rows expire (`expiresAt`) as a
+   * safety net; the call Lambda and `$disconnect` keep it current.
+   */
+  readonly callRooms: Table;
 
   constructor(scope: Construct, id: string, props: { stage: Stage }) {
     super(scope, id);
@@ -125,6 +131,13 @@ export class Data extends Construct {
       tableName: `slack-${props.stage}-meeting-notes`,
       partitionKey: { name: "userId", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
+    });
+
+    this.callRooms = new Table(this, "CallRooms", {
+      ...common,
+      tableName: `slack-${props.stage}-call-rooms`,
+      partitionKey: { name: "channelId", type: AttributeType.STRING },
+      timeToLiveAttribute: "expiresAt",
     });
   }
 }

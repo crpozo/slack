@@ -72,6 +72,7 @@ export class Api extends Construct {
       CHANNELS_TABLE: data.channels.tableName,
       USERS_TABLE: data.users.tableName,
       BOARDS_TABLE: data.boards.tableName,
+      CALL_ROOMS_TABLE: data.callRooms.tableName,
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
       WS_ENDPOINT: this.webSocketStage.callbackUrl,
     };
@@ -274,6 +275,24 @@ export class Api extends Construct {
         conditions: { StringLike: { "s3:prefix": ["attachments/*"] } },
       }),
     );
+
+    // Channel calls (Phase 36): `call` keeps the room rows (start, join, leave,
+    // list), checks the caller may use the channel (GetItem) and notes the
+    // seat on the caller's connection row (UpdateItem) for `$disconnect`,
+    // which frees it: the room row (UpdateItem, DeleteItem when the last one
+    // leaves) and the channel row for who to tell (GetItem).
+    data.callRooms.grant(
+      handlers.call,
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Scan",
+    );
+    channels.grant(handlers.call, "dynamodb:GetItem");
+    connections.grant(handlers.call, "dynamodb:UpdateItem");
+    data.callRooms.grant(handlers.disconnect, "dynamodb:UpdateItem", "dynamodb:DeleteItem");
+    channels.grant(handlers.disconnect, "dynamodb:GetItem");
 
     // ping: stamps or clears `activeAt` on the caller's own connection row
     // (conditional UpdateItem), and answers a probe with `pong` (Phase 25).
