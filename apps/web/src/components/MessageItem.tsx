@@ -1,5 +1,6 @@
 import {
   canDeleteMessage,
+  canPinMessage,
   isDmChannel,
   readBy,
   replyPreview,
@@ -31,6 +32,8 @@ import {
   LockIcon,
   MessageIcon,
   PencilIcon,
+  PinIcon,
+  PinOffIcon,
   ReplyIcon,
   SmilePlusIcon,
   TrashIcon,
@@ -78,11 +81,14 @@ function MessageActions({
   mine,
   onOpenThread,
   onDelete,
+  canPin = false,
 }: Readonly<{
   message: ChatMessage;
   pressed: boolean;
   mine: boolean;
   onOpenThread?: (message: ChatMessage) => void;
+  /** Pin to channel / Unpin (Phase 38). */
+  canPin?: boolean;
   /** Yours, or you're an admin (Phase 32): touch screens get Delete in the long-press bar. */
   onDelete?: () => void;
 }>) {
@@ -160,6 +166,20 @@ function MessageActions({
           title="Reply in thread"
         >
           <MessageIcon />
+        </button>
+      )}
+      {canPin && (
+        <button
+          type="button"
+          onClick={() => {
+            chat.pinMessage(message, !message.pinnedAt);
+            done();
+          }}
+          className={actionButton}
+          aria-label={message.pinnedAt ? "Unpin from channel" : "Pin to channel"}
+          title={message.pinnedAt ? "Unpin from channel" : "Pin to channel"}
+        >
+          {message.pinnedAt ? <PinOffIcon /> : <PinIcon />}
         </button>
       )}
       {mine && message.text && !message.isSecret && !message.kind && (
@@ -464,8 +484,18 @@ export const MessageItem = memo(function MessageItem({
   const tombstone = !!message.deletedAt;
   // The trash icon: only for the author and workspace admins (Phase 32).
   const canDelete = sent && !!myUserId && canDeleteMessage(message, myUserId, role);
+  // Phase 38: any member pins (not in an archived channel, never a secret).
+  const archived = useChat(
+    (s) => s.channels.find((c) => c.channelId === message.channelId)?.archived ?? false,
+  );
+  const canPin = sent && !tombstone && !archived && role !== "guest" && canPinMessage(message);
+  const pinnedBy = useChat((s) =>
+    message.pinnedAt && message.pinnedBy ? selectName(s, message.pinnedBy, undefined) : null,
+  );
   const [deleting, setDeleting] = useState(false);
   const pressed = usePressed((s) => s.id === message.messageId);
+  // Phase 38: just jumped to (from Pinned, or Files & Links).
+  const highlighted = useChat((s) => s.highlightSk === message.sk);
   const setPressed = usePressed((s) => s.set);
   const setReplyTo = useChat((s) => s.setReplyTo);
   const { offset, touchY, ref, handlers } = useMessageGestures({
@@ -499,7 +529,7 @@ export const MessageItem = memo(function MessageItem({
     setMenu({
       x: keyboard ? box.left + 48 : e.clientX,
       y: keyboard ? box.top + 8 : e.clientY,
-      context: { mine, canThread: !!onOpenThread, selection, link, canDelete },
+      context: { mine, canThread: !!onOpenThread, selection, link, canDelete, canPin },
     });
   }
 
@@ -511,7 +541,9 @@ export const MessageItem = memo(function MessageItem({
       onContextMenu={onContextMenu}
       className={`group relative flex gap-3 px-4 transition-colors [touch-action:pan-y] [@media(hover:hover)]:hover:bg-surface-sidebar/70 [@media(hover:none)]:select-none [@media(hover:none)]:[-webkit-touch-callout:none] ${
         pressed ? "bg-surface-sidebar" : ""
-      } ${grouped ? "py-0.5" : "pt-3 pb-0.5"} ${message.status === "pending" ? "opacity-60" : ""}`}
+      } ${highlighted ? "bg-primary/15 ring-1 ring-inset ring-primary/50 duration-700" : ""} ${
+        grouped ? "py-0.5" : "pt-3 pb-0.5"
+      } ${message.status === "pending" ? "opacity-60" : ""}`}
     >
       {offset > 0 && (
         <span
@@ -555,6 +587,16 @@ export const MessageItem = memo(function MessageItem({
               </time>
               {message.isEdited && <EditedMark editedAt={message.editedAt} />}
             </div>
+          )}
+
+          {message.pinnedAt && !tombstone && (
+            <p
+              className="mt-0.5 flex items-center gap-1 text-xs font-medium text-primary"
+              data-pinned
+            >
+              <PinIcon aria-hidden="true" />
+              Pinned{pinnedBy ? ` by ${pinnedBy}` : ""}
+            </p>
           )}
 
           {tombstone && (
@@ -636,6 +678,7 @@ export const MessageItem = memo(function MessageItem({
           mine={mine}
           onOpenThread={onOpenThread}
           onDelete={canDelete ? () => setDeleting(true) : undefined}
+          canPin={canPin}
         />
       )}
       {deleting && <DeleteMessageModal message={message} onClose={() => setDeleting(false)} />}

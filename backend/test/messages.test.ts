@@ -134,7 +134,7 @@ describe("DELETE /messages/{channelId}/{sk}", () => {
     const update =
       ddbMock.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems![0]!.Update!;
     expect(update.UpdateExpression).toBe(
-      "SET deletedAt = :now, #text = :empty, attachments = :none REMOVE reactions, replyTo, isEdited, editedAt, isSecret, expiresAt, kind, meeting, aiNotes",
+      "SET deletedAt = :now, #text = :empty, attachments = :none REMOVE reactions, replyTo, isEdited, editedAt, isSecret, expiresAt, kind, meeting, aiNotes, pinnedAt, pinnedBy",
     );
     expect(events()).toEqual([
       {

@@ -39,19 +39,24 @@ export function saveSidebarPrefs(prefs: SidebarPrefs): void {
 
 // --- Phones (Phase 37): Home's accordion sections -----------------------------------
 
-export type PhoneSection = "channels" | "dms" | "apps";
+export type PhoneSection = "pinned" | "channels" | "dms" | "apps";
 /** Which of Home's sections are folded away (all open by default), on this device. */
 export type PhoneSections = Record<PhoneSection, boolean>;
 
 const PHONE_SECTIONS_KEY = "slack.phone.collapsed";
-const ALL_OPEN: PhoneSections = { channels: false, dms: false, apps: false };
+const ALL_OPEN: PhoneSections = { pinned: false, channels: false, dms: false, apps: false };
 
 export function loadPhoneSections(): PhoneSections {
   try {
     const raw: unknown = JSON.parse(localStorage.getItem(PHONE_SECTIONS_KEY) ?? "null");
     if (raw && typeof raw === "object") {
       const r = raw as Partial<PhoneSections>;
-      return { channels: r.channels === true, dms: r.dms === true, apps: r.apps === true };
+      return {
+        pinned: r.pinned === true,
+        channels: r.channels === true,
+        dms: r.dms === true,
+        apps: r.apps === true,
+      };
     }
   } catch {
     // fall through to defaults

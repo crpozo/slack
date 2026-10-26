@@ -28,6 +28,13 @@ export class Data extends Construct {
    * safety net; the call Lambda and `$disconnect` keep it current.
    */
   readonly callRooms: Table;
+  /**
+   * Pins and Files & Links (Phase 38): per conversation, one small row per
+   * shared file, per link and per pinned message (`file#…`, `link#…`,
+   * `pin#…`), written with the messages, so those lists read one page of
+   * rows instead of scanning the history. See @mindfultech/shared media.ts.
+   */
+  readonly channelMedia: Table;
 
   constructor(scope: Construct, id: string, props: { stage: Stage }) {
     super(scope, id);
@@ -138,6 +145,13 @@ export class Data extends Construct {
       tableName: `slack-${props.stage}-call-rooms`,
       partitionKey: { name: "channelId", type: AttributeType.STRING },
       timeToLiveAttribute: "expiresAt",
+    });
+
+    this.channelMedia = new Table(this, "ChannelMedia", {
+      ...common,
+      tableName: `slack-${props.stage}-channel-media`,
+      partitionKey: { name: "channelId", type: AttributeType.STRING },
+      sortKey: { name: "sk", type: AttributeType.STRING },
     });
   }
 }

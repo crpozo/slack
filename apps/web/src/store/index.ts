@@ -4,6 +4,7 @@ import {
   type Channel,
   type MeetingCard,
   type Message,
+  type MessagePinnedEvent,
   type MessageThreadUpdatedEvent,
   type ReadMark,
   type ReplySnapshot,
@@ -34,8 +35,18 @@ export interface ChatState {
   me: SessionUser | null;
   status: WsStatus;
   channels: Channel[];
-  /** Your pinned conversations (DMs), most recent pin first; synced across your devices. */
+  /**
+   * Your pinned conversations (channels and DMs: the sidebar's Pinned
+   * section), most recent pin first; synced across your devices.
+   */
   pinned: string[];
+  /**
+   * Phase 38, "Jump to message": the message the list should scroll to (older
+   * pages load until it's there); `openThread` opens its thread once found.
+   */
+  jumpTarget: { channelId: string; sk: string; openThread?: boolean } | null;
+  /** The message just jumped to, highlighted for a moment. */
+  highlightSk: string | null;
   /** Channel list received at least once since connecting. */
   channelsLoaded: boolean;
   activeChannelId: string | null;
@@ -91,6 +102,10 @@ export interface ChatState {
   /** `channel.updated` (renamed): replaces the row, keeping everything else. */
   updateChannel: (channel: Channel) => void;
   setPinned: (pinned: string[]) => void;
+  /** `message.pinned` (Phase 38): the message's pin, and the channel's count. */
+  applyPin: (event: MessagePinnedEvent) => void;
+  setJumpTarget: (target: ChatState["jumpTarget"]) => void;
+  setHighlight: (sk: string | null) => void;
   setActiveChannel: (channelId: string | null) => void;
   historyRequested: (channelId: string, kind: HistoryRequest) => void;
   receiveHistory: (channelId: string, items: Message[], nextCursor: string | null) => void;
@@ -178,6 +193,8 @@ const initialState = {
   status: "idle" as WsStatus,
   channels: [],
   pinned: [] as string[],
+  jumpTarget: null as ChatState["jumpTarget"],
+  highlightSk: null as string | null,
   channelsLoaded: false,
   activeChannelId: null,
   messagesByChannel: {},
@@ -681,6 +698,22 @@ export const useChat = create<ChatState>()((set, get) => ({
 
   applyQuote: (channelId, sk, replyTo) =>
     set((s) => patchMessage(s, channelId, sk, (m) => ({ ...m, replyTo }))),
+
+  applyPin: ({ channelId, sk, pinnedAt, pinnedBy, pinCount }) =>
+    set((s) => ({
+      ...patchMessage(s, channelId, sk, (m) => {
+        const next = { ...m, pinnedAt, pinnedBy };
+        if (!pinnedAt) {
+          delete next.pinnedAt;
+          delete next.pinnedBy;
+        }
+        return next;
+      }),
+      channels: s.channels.map((c) => (c.channelId === channelId ? { ...c, pinCount } : c)),
+    })),
+
+  setJumpTarget: (jumpTarget) => set({ jumpTarget }),
+  setHighlight: (highlightSk) => set({ highlightSk }),
 }));
 
 /**

@@ -129,6 +129,7 @@ function RowMenu({ label, items }: Readonly<{ label: string; items: RowMenuItem[
         aria-label={`More options for ${label}`}
         title="More options"
         aria-haspopup="menu"
+        data-row-menu
         aria-expanded={!!anchor}
         onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}
         className={`absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100 ${
@@ -190,7 +191,16 @@ function NavItem({
   if (active) tone = "bg-primary/20 font-semibold text-ink";
   else if (unread > 0) tone = "font-semibold text-ink hover:bg-surface-hover";
   return (
-    <li className="group relative">
+    <li
+      className="group relative"
+      // Right-click opens the row's ⋯ menu (Phase 38), like a native sidebar.
+      onContextMenu={(e) => {
+        const trigger = e.currentTarget.querySelector<HTMLButtonElement>("[data-row-menu]");
+        if (compact || !trigger) return;
+        e.preventDefault();
+        trigger.click();
+      }}
+    >
       <button
         type="button"
         onClick={onClick}
@@ -608,6 +618,19 @@ export function Sidebar({
 
   if (!me) return null;
   const statusInfo = STATUS[status];
+  // Phase 38: the Pinned section, channels and DMs in pin order; they leave
+  // their usual sections (no duplicates). Archived channels never show there.
+  const pinnedSet = new Set(pinned);
+  const pinnedItems = pinned.flatMap(
+    (id): Array<{ kind: "channel"; channel: Channel } | { kind: "dm"; dm: DmEntry }> => {
+      const channel = namedChannels.find((c) => c.channelId === id);
+      if (channel) return [{ kind: "channel", channel }];
+      const dm = dms.find((d) => d.channelId === id);
+      return dm ? [{ kind: "dm", dm }] : [];
+    },
+  );
+  const shownChannels = namedChannels.filter((c) => !pinnedSet.has(c.channelId));
+  const shownDms = dms.filter((d) => !d.channelId || !pinnedSet.has(d.channelId));
   const myName = nameOf(me.userId, me.email);
   const compact = collapsed;
 
@@ -622,7 +645,7 @@ export function Sidebar({
     if (channel) {
       const isPinned = pinned.includes(channel.channelId);
       items.push({
-        label: isPinned ? "Unpin chat" : "Pin chat",
+        label: isPinned ? "Unpin" : "Pin to the top",
         icon: isPinned ? <PinOffIcon /> : <PinIcon />,
         onSelect: () => chat.setPinned(channel.channelId, !isPinned),
       });
@@ -638,6 +661,12 @@ export function Sidebar({
 
   function channelMenu(c: Channel): RowMenuItem[] {
     const items: RowMenuItem[] = [];
+    const isPinned = pinned.includes(c.channelId);
+    items.push({
+      label: isPinned ? "Unpin" : "Pin to the top",
+      icon: isPinned ? <PinOffIcon /> : <PinIcon />,
+      onSelect: () => chat.setPinned(c.channelId, !isPinned),
+    });
     if (me && canEditChannel(c, me.userId, me.role)) {
       items.push({ label: "Edit channel", icon: <PencilIcon />, onSelect: () => setEditing(c) });
     }
@@ -670,31 +699,45 @@ export function Sidebar({
   );
 
   if (phone) {
+    const phoneDmRow = (dm: DmEntry) => {
+      const id = dm.userId ? dmChannelId(me.userId, dm.userId) : undefined;
+      const isOnline = !!dm.userId && !!online[dm.userId];
+      return (
+        <PhoneRow
+          key={dm.userId ?? dm.email}
+          label={dm.name}
+          icon={
+            <span className="relative inline-flex">
+              <Avatar name={dm.name} size="md" />
+              <StatusBadge online={isOnline} />
+            </span>
+          }
+          title={dm.userId ? undefined : dmTitle(dm, false)}
+          unread={dm.channelId && id !== activeChannelId ? (unread[dm.channelId] ?? 0) : 0}
+          urgent
+          disabled={!dm.userId}
+          onClick={() => dm.userId && openDm(dm.userId)}
+          menu={dmMenu(dm)}
+          pinned={only === "dms" && !!dm.channelId && pinnedSet.has(dm.channelId)}
+        />
+      );
+    };
+    const phoneChannelRow = (c: Channel) => (
+      <PhoneRow
+        key={c.channelId}
+        label={c.name}
+        icon={<ChannelIcon channel={c} className="text-[22px] text-ink-secondary" />}
+        title={c.type === "private" ? `#${c.name} (private)` : undefined}
+        unread={unread[c.channelId] ?? 0}
+        urgent={!!mentioned[c.channelId]}
+        onClick={() => navigate(`/app/${c.channelId}`)}
+        menu={channelMenu(c)}
+      />
+    );
     const dmRows = (
       <>
-        {dms.map((dm) => {
-          const id = dm.userId ? dmChannelId(me.userId, dm.userId) : undefined;
-          const isOnline = !!dm.userId && !!online[dm.userId];
-          return (
-            <PhoneRow
-              key={dm.userId ?? dm.email}
-              label={dm.name}
-              icon={
-                <span className="relative inline-flex">
-                  <Avatar name={dm.name} size="md" />
-                  <StatusBadge online={isOnline} />
-                </span>
-              }
-              title={dm.userId ? undefined : dmTitle(dm, false)}
-              unread={dm.channelId && id !== activeChannelId ? (unread[dm.channelId] ?? 0) : 0}
-              urgent
-              disabled={!dm.userId}
-              onClick={() => dm.userId && openDm(dm.userId)}
-              menu={dmMenu(dm)}
-              pinned={!!dm.channelId && pinned.includes(dm.channelId)}
-            />
-          );
-        })}
+        {/* The DMs tab lists every DM (pinned first); Home leaves pinned ones to Pinned. */}
+        {(only === "dms" ? dms : shownDms).map(phoneDmRow)}
         {dms.length === 0 && (
           <li className="px-4 py-2 text-sm text-ink-secondary">
             Your team appears here once they sign in.
@@ -717,6 +760,18 @@ export function Sidebar({
       <>
         {modals}
         <nav aria-label="Channels, direct messages and apps" data-phone-lists>
+          {pinnedItems.length > 0 && (
+            <PhoneSectionBlock
+              title="Pinned"
+              icon={<PinIcon />}
+              folded={folded.pinned}
+              onToggle={() => toggleSection("pinned")}
+            >
+              {pinnedItems.map((item) =>
+                item.kind === "channel" ? phoneChannelRow(item.channel) : phoneDmRow(item.dm),
+              )}
+            </PhoneSectionBlock>
+          )}
           <PhoneSectionBlock
             title="Channels"
             icon={<HashIcon />}
@@ -725,18 +780,7 @@ export function Sidebar({
             onOpen={onOpenSwitcher}
             openLabel="Browse channels"
           >
-            {namedChannels.map((c) => (
-              <PhoneRow
-                key={c.channelId}
-                label={c.name}
-                icon={<ChannelIcon channel={c} className="text-[22px] text-ink-secondary" />}
-                title={c.type === "private" ? `#${c.name} (private)` : undefined}
-                unread={unread[c.channelId] ?? 0}
-                urgent={!!mentioned[c.channelId]}
-                onClick={() => navigate(`/app/${c.channelId}`)}
-                menu={channelMenu(c)}
-              />
-            ))}
+            {shownChannels.map(phoneChannelRow)}
             {archivedChannels.length > 0 && (
               <li>
                 <button
@@ -798,6 +842,45 @@ export function Sidebar({
       </>
     );
   }
+
+  const channelNavItem = (c: Channel) => (
+    <NavItem
+      key={c.channelId}
+      compact={compact}
+      label={c.name}
+      icon={<ChannelIcon channel={c} />}
+      title={c.type === "private" ? `#${c.name} (private)` : undefined}
+      active={c.channelId === activeChannelId}
+      unread={c.channelId === activeChannelId ? 0 : (unread[c.channelId] ?? 0)}
+      urgent={!!mentioned[c.channelId]}
+      onClick={() => navigate(`/app/${c.channelId}`)}
+      menu={channelMenu(c)}
+    />
+  );
+  const dmNavItem = (dm: DmEntry) => {
+    const id = dm.userId ? dmChannelId(me.userId, dm.userId) : undefined;
+    const isOnline = !!dm.userId && !!online[dm.userId];
+    return (
+      <NavItem
+        key={dm.userId ?? dm.email}
+        compact={compact}
+        label={dm.name}
+        icon={
+          <span className="relative inline-flex">
+            <Avatar name={dm.name} size={compact ? "md" : "sm"} />
+            <PresenceDot online={isOnline} overlay />
+          </span>
+        }
+        title={`${dmTitle(dm, compact)} · ${isOnline ? "Online" : "Offline"}`}
+        active={id === activeChannelId}
+        unread={dm.channelId && id !== activeChannelId ? (unread[dm.channelId] ?? 0) : 0}
+        urgent
+        disabled={!dm.userId}
+        onClick={() => dm.userId && openDm(dm.userId)}
+        menu={dmMenu(dm)}
+      />
+    );
+  };
 
   return (
     // On the glass of the app's <aside> (Phase 37b): no background of its own.
@@ -874,6 +957,16 @@ export function Sidebar({
         className="flex-1 overflow-y-auto overflow-x-hidden pb-4"
         aria-label="Channels and direct messages"
       >
+        {only !== "dms" && pinnedItems.length > 0 && (
+          <Section title="Pinned" compact={compact}>
+            <ul className="space-y-0.5 px-2" aria-label="Pinned conversations">
+              {pinnedItems.map((item) =>
+                item.kind === "channel" ? channelNavItem(item.channel) : dmNavItem(item.dm),
+              )}
+            </ul>
+          </Section>
+        )}
+
         {only !== "dms" && (
           <Section
             title="Channels"
@@ -890,22 +983,7 @@ export function Sidebar({
               </button>
             }
           >
-            <ul className="space-y-0.5 px-2">
-              {namedChannels.map((c) => (
-                <NavItem
-                  key={c.channelId}
-                  compact={compact}
-                  label={c.name}
-                  icon={<ChannelIcon channel={c} />}
-                  title={c.type === "private" ? `#${c.name} (private)` : undefined}
-                  active={c.channelId === activeChannelId}
-                  unread={c.channelId === activeChannelId ? 0 : (unread[c.channelId] ?? 0)}
-                  urgent={!!mentioned[c.channelId]}
-                  onClick={() => navigate(`/app/${c.channelId}`)}
-                  menu={channelMenu(c)}
-                />
-              ))}
-            </ul>
+            <ul className="space-y-0.5 px-2">{shownChannels.map(channelNavItem)}</ul>
           </Section>
         )}
 
@@ -962,33 +1040,7 @@ export function Sidebar({
             }
           >
             <ul className="space-y-0.5 px-2">
-              {dms.map((dm) => {
-                const id = dm.userId ? dmChannelId(me.userId, dm.userId) : undefined;
-                const isOnline = !!dm.userId && !!online[dm.userId];
-                return (
-                  <NavItem
-                    key={dm.userId ?? dm.email}
-                    compact={compact}
-                    label={dm.name}
-                    icon={
-                      <span className="relative inline-flex">
-                        <Avatar name={dm.name} size={compact ? "md" : "sm"} />
-                        <PresenceDot online={isOnline} overlay />
-                      </span>
-                    }
-                    title={`${dmTitle(dm, compact)} · ${isOnline ? "Online" : "Offline"}`}
-                    active={id === activeChannelId}
-                    unread={
-                      dm.channelId && id !== activeChannelId ? (unread[dm.channelId] ?? 0) : 0
-                    }
-                    urgent
-                    disabled={!dm.userId}
-                    onClick={() => dm.userId && openDm(dm.userId)}
-                    menu={dmMenu(dm)}
-                    pinned={!!dm.channelId && pinned.includes(dm.channelId)}
-                  />
-                );
-              })}
+              {shownDms.map(dmNavItem)}
               {dms.length === 0 && !compact && (
                 <li className="px-2 py-1 text-xs text-ink-secondary">
                   Your team appears here once they sign in.

@@ -67,6 +67,7 @@ export const CLIENT_ACTIONS = [
   "ping",
   "read",
   "edit",
+  "pin",
 ] as const;
 export type ClientActionName = (typeof CLIENT_ACTIONS)[number];
 
@@ -182,6 +183,8 @@ export interface Channel {
    */
   lastMessageAt?: number;
   archived: boolean;
+  /** How many messages are pinned in it (Phase 38); absent when none ever were. */
+  pinCount?: number;
   /** `private` and `dm` channels: user ids allowed to see the channel. */
   members?: string[];
   /** Short line shown in the channel header ("" or absent: none). */
@@ -309,6 +312,9 @@ export interface Message {
    * outright (`message.deleted`).
    */
   deletedAt?: number;
+  /** Pinned to its channel (Phase 38): when (epoch ms) and by whom. */
+  pinnedAt?: number;
+  pinnedBy?: string;
 }
 
 /**
@@ -641,6 +647,18 @@ export const EditActionSchema = z.object({
   text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
 });
 
+/**
+ * Pins a message to its channel, or unpins it (Phase 38). Any member can, up
+ * to `MAX_PINS_PER_CHANNEL`; never a secret or a deleted message, never in an
+ * archived channel. Everyone in the channel hears `message.pinned`.
+ */
+export const PinActionSchema = z.object({
+  action: z.literal("pin"),
+  channelId,
+  sk: z.string().min(1).max(128),
+  pinned: z.boolean(),
+});
+
 /** Trimmed, 1–40 chars, no control characters. */
 export const DisplayNameSchema = z
   .string()
@@ -660,10 +678,13 @@ export const UserUpdateActionSchema = z.object({
   displayName: DisplayNameSchema,
 });
 
-/** Most conversations one person can pin to the top of their DM list. */
-export const MAX_PINNED_CHATS = 20;
+/** Most conversations (channels and DMs) one person can pin to the top of their sidebar. */
+export const MAX_PINNED_CHATS = 30;
 
-/** Pins (or unpins) a conversation for the caller only; synced to their other devices. */
+/**
+ * Pins (or unpins) a conversation, channel or DM, for the caller only; synced
+ * to their other devices. Pinned ones sit in the sidebar's Pinned section.
+ */
 export const UserPinActionSchema = z.object({
   action: z.literal("user"),
   op: z.literal("pin"),
@@ -883,6 +904,7 @@ export const ClientActionSchema = z.union([
   PingActionSchema,
   ReadActionSchema,
   EditActionSchema,
+  PinActionSchema,
 ]);
 
 export type MessageAction = z.infer<typeof MessageActionSchema>;
@@ -892,6 +914,7 @@ export type PresignAction = z.infer<typeof PresignActionSchema>;
 export type TypingAction = z.infer<typeof TypingActionSchema>;
 export type UserAction = z.infer<typeof UserActionSchema>;
 export type ReactAction = z.infer<typeof ReactActionSchema>;
+export type PinAction = z.infer<typeof PinActionSchema>;
 export type ClientAction = z.infer<typeof ClientActionSchema>;
 /** What a client may send: like `ClientAction`, but fields with defaults are optional. */
 export type ClientActionInput = z.input<typeof ClientActionSchema>;
@@ -1028,6 +1051,21 @@ export interface MessageUpdatedEvent {
    */
   deletedAt?: number;
   replyTo?: ReplySnapshot;
+}
+
+/**
+ * A message was pinned to its channel or unpinned (Phase 38). `pinnedAt` and
+ * `pinnedBy` are absent when it was unpinned; `pinCount` is the channel's new
+ * total.
+ */
+export interface MessagePinnedEvent {
+  type: "message.pinned";
+  channelId: string;
+  sk: string;
+  messageId: string;
+  pinnedAt?: number;
+  pinnedBy?: string;
+  pinCount: number;
 }
 
 /**
@@ -1246,6 +1284,7 @@ export type ServerEvent =
   | MessageReactionEvent
   | MessageUpdatedEvent
   | MessageDeletedEvent
+  | MessagePinnedEvent
   | MessageThreadUpdatedEvent
   | ChannelReadEvent
   | UserTypingEvent

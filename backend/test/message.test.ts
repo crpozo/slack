@@ -193,7 +193,13 @@ describe("message", () => {
         },
       ],
     });
-    const stored = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item as {
+    // With a file, the message and its index row go in one transaction (Phase 38).
+    const [put, fileRow] =
+      ddbMock.commandCalls(TransactWriteCommand)[0]!.args[0].input.TransactItems!;
+    expect(fileRow?.Put?.TableName).toBe("slack-test-channel-media");
+    expect(fileRow?.Put?.Item).toMatchObject({ kind: "file", messageSk: put?.Put?.Item?.sk });
+    expect(fileRow?.Put?.Item?.attachment).not.toHaveProperty("url");
+    const stored = put?.Put?.Item as {
       attachments: Array<Record<string, unknown>>;
     };
     expect(stored.attachments[0]).not.toHaveProperty("url");

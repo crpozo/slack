@@ -14,15 +14,25 @@ describe("phone sections", () => {
   });
 
   it("are all open until folded, and remembered on this device", () => {
-    expect(loadPhoneSections()).toEqual({ channels: false, dms: false, apps: false });
-    savePhoneSections({ channels: false, dms: true, apps: false });
-    expect(loadPhoneSections()).toEqual({ channels: false, dms: true, apps: false });
+    expect(loadPhoneSections()).toEqual({
+      pinned: false,
+      channels: false,
+      dms: false,
+      apps: false,
+    });
+    savePhoneSections({ pinned: true, channels: false, dms: true, apps: false });
+    expect(loadPhoneSections()).toEqual({ pinned: true, channels: false, dms: true, apps: false });
   });
 
   it("ignore junk", () => {
     stored["slack.phone.collapsed"] = '{"dms":"yes","apps":true}';
-    expect(loadPhoneSections()).toEqual({ channels: false, dms: false, apps: true });
+    expect(loadPhoneSections()).toEqual({ pinned: false, channels: false, dms: false, apps: true });
     stored["slack.phone.collapsed"] = "nope";
-    expect(loadPhoneSections()).toEqual({ channels: false, dms: false, apps: false });
+    expect(loadPhoneSections()).toEqual({
+      pinned: false,
+      channels: false,
+      dms: false,
+      apps: false,
+    });
   });
 });

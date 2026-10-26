@@ -19,9 +19,14 @@ import {
   ArchiveIcon,
   ArrowDownIcon,
   HashIcon,
+  LinkIcon,
   LockIcon,
   MenuIcon,
+  MoreHorizontalIcon,
+  PencilIcon,
   PhoneIcon,
+  PinIcon,
+  PinOffIcon,
   UserPlusIcon,
   VideoIcon,
 } from "./icons";
@@ -34,6 +39,14 @@ import { MessageList } from "./MessageList";
 import { UnreadAlertsDot } from "./NotificationBell";
 import { TypingIndicator } from "./TypingIndicator";
 import { PhoneChannelHeader, PhoneChannelSheet, PhoneIntro } from "./PhoneChannel";
+import {
+  ConversationDetailsModal,
+  PinnedMessagesModal,
+  type DetailsTab,
+  type JumpTarget,
+} from "./ConversationPanels";
+import { Popover } from "./Popover";
+import { chat } from "../lib/chat";
 
 const ICON_BUTTON =
   "rounded-md p-2 text-lg text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40";
@@ -160,6 +173,7 @@ function ChannelHeader({
   onOpenSidebar,
   onInvite,
   onDetails,
+  onPins,
 }: Readonly<{
   channelId: string;
   channel: Channel | undefined;
@@ -169,11 +183,18 @@ function ChannelHeader({
   onOpenSidebar: () => void;
   onBack?: () => void;
   onInvite: () => void;
-  /** Opens the channel's details (editable by its creator or an admin). */
-  onDetails: () => void;
+  /** Opens the conversation's details (Phase 38: About, Members, Files & Links). */
+  onDetails: (tab?: DetailsTab) => void;
+  /** Opens its pinned messages (Phase 38). */
+  onPins: () => void;
 }>) {
   const { dm, isPrivate, peer } = access;
   const KindIcon = isPrivate ? LockIcon : HashIcon;
+  const pinCount = channel?.pinCount ?? 0;
+  const sidebarPinned = useChat((s) => s.pinned.includes(channelId));
+  const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
+  const menuItem =
+    "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-primary/15";
   return (
     // Glass (Phase 37b): it floats over the conversation, which scrolls under it.
     <header className="glass absolute inset-x-0 top-0 z-20 flex h-14 items-center gap-2 border-b border-white/10 px-3 sm:px-4">
@@ -198,12 +219,21 @@ function ChannelHeader({
         </button>
       )}
       {!dm && <KindIcon className="shrink-0 text-ink-secondary" />}
-      {dm || !channel ? (
+      {!channel ? (
         <h1 className="truncate font-semibold text-ink">{label}</h1>
+      ) : dm ? (
+        <button
+          type="button"
+          onClick={() => onDetails("members")}
+          className="min-w-0 rounded-md px-1 py-0.5 text-left hover:bg-surface-hover"
+          title="Conversation details"
+        >
+          <h1 className="truncate font-semibold text-ink">{label}</h1>
+        </button>
       ) : (
         <button
           type="button"
-          onClick={onDetails}
+          onClick={() => onDetails("about")}
           className="flex min-w-0 flex-col items-start rounded-md px-1 py-0.5 text-left hover:bg-surface-hover"
           title={channel.description || "Channel details"}
         >
@@ -221,6 +251,19 @@ function ChannelHeader({
         <BoardShortcut channelId={channelId} boardId={channel.linkedBoardId} />
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1">
+        {channel && (
+          <button
+            type="button"
+            onClick={onPins}
+            className="flex items-center gap-1 rounded-md p-2 text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink"
+            aria-label={`Pinned messages (${pinCount})`}
+            title="Pinned messages"
+            data-pins-button
+          >
+            <PinIcon />
+            {pinCount > 0 && <span className="text-xs font-semibold tabular-nums">{pinCount}</span>}
+          </button>
+        )}
         {access.canCall && peer && <CallButtons channelId={channelId} peer={peer} label={label} />}
         {access.canRoomCall && <ChannelCallButtons channelId={channelId} label={label} />}
         {access.canInvite && (
@@ -232,6 +275,63 @@ function ChannelHeader({
             <UserPlusIcon />
             <span className="hidden sm:inline">Invite</span>
           </button>
+        )}
+        {channel && (
+          <button
+            type="button"
+            onClick={(e) => setMoreAnchor(moreAnchor ? null : e.currentTarget)}
+            className={ICON_BUTTON}
+            aria-label="Conversation options"
+            aria-haspopup="menu"
+            aria-expanded={!!moreAnchor}
+            title="More"
+          >
+            <MoreHorizontalIcon />
+          </button>
+        )}
+        {moreAnchor && (
+          <Popover anchor={moreAnchor} onClose={() => setMoreAnchor(null)}>
+            <div
+              role="menu"
+              aria-label="Conversation options"
+              className="glass-strong w-64 rounded-xl border border-white/10 p-1"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className={menuItem}
+                onClick={() => {
+                  setMoreAnchor(null);
+                  chat.setPinned(channelId, !sidebarPinned);
+                }}
+              >
+                {sidebarPinned ? <PinOffIcon /> : <PinIcon />}
+                {sidebarPinned ? "Unpin from the sidebar" : "Pin to the top of the sidebar"}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={menuItem}
+                onClick={() => {
+                  setMoreAnchor(null);
+                  onDetails("media");
+                }}
+              >
+                <LinkIcon /> Files &amp; Links
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={menuItem}
+                onClick={() => {
+                  setMoreAnchor(null);
+                  onDetails(dm ? "members" : "about");
+                }}
+              >
+                <PencilIcon /> {dm ? "Conversation details" : "Channel details"}
+              </button>
+            </div>
+          </Popover>
         )}
       </div>
     </header>
@@ -273,6 +373,13 @@ export function ChannelView({
   const [inviting, setInviting] = useState(false);
   const [details, setDetails] = useState(false);
   const [options, setOptions] = useState(false);
+  // Phase 38: the pinned messages, or the details on a tab.
+  const [panel, setPanel] = useState<"pins" | DetailsTab | null>(null);
+  const jump = (target: JumpTarget) => {
+    setPanel(null);
+    setOptions(false);
+    chat.jumpTo({ channelId: target.channelId, sk: target.messageSk, parentSk: target.parentSk });
+  };
   const composer = useRef<ComposerHandle>(null);
   const [dragging, setDragging] = useState(false);
   // The call fills the column: messages and composer stay mounted but hidden.
@@ -349,8 +456,30 @@ export function ChannelView({
           title={title}
           access={access}
           onClose={() => setOptions(false)}
-          onDetails={() => setDetails(true)}
+          onDetails={(tab) => setPanel(tab)}
+          onPins={() => setPanel("pins")}
           onInvite={() => setInviting(true)}
+        />
+      )}
+      {panel === "pins" && (
+        <PinnedMessagesModal
+          channelId={channelId}
+          title={title}
+          onClose={() => setPanel(null)}
+          onJump={jump}
+        />
+      )}
+      {panel && panel !== "pins" && (
+        <ConversationDetailsModal
+          channelId={channelId}
+          title={title}
+          initialTab={panel}
+          onClose={() => setPanel(null)}
+          onJump={jump}
+          onEdit={() => {
+            setPanel(null);
+            setDetails(true);
+          }}
         />
       )}
       {!mobileThread && !phone && (
@@ -363,7 +492,8 @@ export function ChannelView({
           onOpenSidebar={onOpenSidebar}
           onBack={onBack}
           onInvite={() => setInviting(true)}
-          onDetails={() => setDetails(true)}
+          onDetails={(tab) => setPanel(tab ?? "about")}
+          onPins={() => setPanel("pins")}
         />
       )}
       {/* Under the floating header: the archived note and an ongoing call, when

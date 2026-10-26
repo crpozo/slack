@@ -2,6 +2,7 @@ import { canEditChannel, MAX_ROOM_PARTICIPANTS, type Channel } from "@mindfultec
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { calls, useCall } from "../lib/call";
+import { chat } from "../lib/chat";
 import { groupCalls, useGroupCall } from "../lib/groupCall";
 import { useChat, useIsOnline } from "../store";
 import { Avatar } from "./Avatar";
@@ -11,11 +12,15 @@ import {
   HashIcon,
   HeadphonesIcon,
   KanbanIcon,
+  LinkIcon,
   LockIcon,
   PencilIcon,
+  PinIcon,
+  PinOffIcon,
   UserPlusIcon,
   VideoIcon,
 } from "./icons";
+import type { DetailsTab } from "./ConversationPanels";
 import { Modal } from "./Modal";
 
 // ---------------------------------------------------------------------------
@@ -184,7 +189,10 @@ function OptionRow({
   );
 }
 
-/** The pill's sheet: details, people, the board, a video call. */
+/**
+ * The pill's sheet: pinned messages, files & links, details, pinning the
+ * conversation to the top, people, the board, a video call.
+ */
 export function PhoneChannelSheet({
   channelId,
   channel,
@@ -192,6 +200,7 @@ export function PhoneChannelSheet({
   access,
   onClose,
   onDetails,
+  onPins,
   onInvite,
 }: Readonly<{
   channelId: string;
@@ -199,9 +208,13 @@ export function PhoneChannelSheet({
   title: string;
   access: PhoneAccess;
   onClose: () => void;
-  onDetails: () => void;
+  /** Phase 38: the details on a tab (About, Members, Files & Links). */
+  onDetails: (tab: DetailsTab) => void;
+  onPins: () => void;
   onInvite: () => void;
 }>) {
+  const sidebarPinned = useChat((s) => s.pinned.includes(channelId));
+  const pinCount = channel?.pinCount ?? 0;
   const navigate = useNavigate();
   const inDmCall = useCall((s) => s.call !== null);
   const inGroupCall = useGroupCall((s) => !!s.call);
@@ -212,14 +225,38 @@ export function PhoneChannelSheet({
   };
   const boardId = channel?.isProject ? channel.linkedBoardId : undefined;
   const rows: ReactNode[] = [];
-  if (channel && !access.dm) {
+  if (channel) {
     rows.push(
+      <OptionRow
+        key="pins"
+        icon={<PinIcon />}
+        label="Pinned messages"
+        hint={pinCount === 0 ? "None yet" : `${pinCount} pinned`}
+        onClick={then(onPins)}
+      />,
+      <OptionRow
+        key="media"
+        icon={<LinkIcon />}
+        label="Files & Links"
+        hint="Everything shared here"
+        onClick={then(() => onDetails("media"))}
+      />,
       <OptionRow
         key="details"
         icon={<PencilIcon />}
-        label="Channel details"
-        hint={channel.description || channel.topic || "Name, topic and description"}
-        onClick={then(onDetails)}
+        label={access.dm ? "Conversation details" : "Channel details"}
+        hint={
+          access.dm
+            ? "Who's in it"
+            : channel.description || channel.topic || "About, members, files"
+        }
+        onClick={then(() => onDetails(access.dm ? "members" : "about"))}
+      />,
+      <OptionRow
+        key="sidebar-pin"
+        icon={sidebarPinned ? <PinOffIcon /> : <PinIcon />}
+        label={sidebarPinned ? "Unpin from Home" : "Pin to the top of Home"}
+        onClick={then(() => chat.setPinned(channelId, !sidebarPinned))}
       />,
     );
   }

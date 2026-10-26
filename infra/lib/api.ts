@@ -73,6 +73,7 @@ export class Api extends Construct {
       USERS_TABLE: data.users.tableName,
       BOARDS_TABLE: data.boards.tableName,
       CALL_ROOMS_TABLE: data.callRooms.tableName,
+      CHANNEL_MEDIA_TABLE: data.channelMedia.tableName,
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
       WS_ENDPOINT: this.webSocketStage.callbackUrl,
     };
@@ -135,6 +136,7 @@ export class Api extends Construct {
       ping: fn("ping"),
       read: fn("read"),
       edit: fn("edit"),
+      pin: fn("pin"),
     } satisfies Record<Exclude<Handler, "authorizer">, NodejsFunction>;
 
     const integration = (name: keyof typeof handlers) =>
@@ -171,6 +173,7 @@ export class Api extends Construct {
       handlers.typing,
       handlers.read,
       handlers.edit,
+      handlers.pin,
     ];
     for (const h of routeHandlers) connections.grant(h, "dynamodb:GetItem");
 
@@ -186,6 +189,7 @@ export class Api extends Construct {
       handlers.typing,
       handlers.read,
       handlers.edit,
+      handlers.pin,
     ]) {
       connections.grant(h, "dynamodb:Scan", "dynamodb:DeleteItem");
     }
@@ -199,6 +203,7 @@ export class Api extends Construct {
       handlers.typing,
       handlers.read,
       handlers.edit,
+      handlers.pin,
     ]) {
       channels.grant(h, "dynamodb:GetItem");
     }
@@ -248,6 +253,18 @@ export class Api extends Construct {
     data.boards.grant(handlers.user, "dynamodb:Query", "dynamodb:BatchGetItem");
     // Pinning checks you can see the conversation.
     channels.grant(handlers.user, "dynamodb:GetItem");
+    // Phase 38, the conversation's files/links/pins index (`channel-media`): a message
+    // with files or links is stored in one transaction with its rows (PutItem); an
+    // edit rewrites its link rows (BatchWriteItem); deleting a conversation removes
+    // its rows (Query + BatchWriteItem).
+    data.channelMedia.grant(handlers.message, "dynamodb:PutItem");
+    data.channelMedia.grant(handlers.edit, "dynamodb:BatchWriteItem");
+    data.channelMedia.grant(handlers.channel, "dynamodb:Query", "dynamodb:BatchWriteItem");
+    // pin: the message (GetItem, then UpdateItem), its pin row (PutItem/DeleteItem) and
+    // the channel's pinCount (UpdateItem), all in one transaction.
+    messages.grant(handlers.pin, "dynamodb:GetItem", "dynamodb:UpdateItem");
+    data.channelMedia.grant(handlers.pin, "dynamodb:PutItem", "dynamodb:DeleteItem");
+    channels.grant(handlers.pin, "dynamodb:UpdateItem");
     // react: ADD/DELETE on the reaction set; GetItem for no-op removals.
     messages.grant(handlers.react, "dynamodb:UpdateItem", "dynamodb:GetItem");
 

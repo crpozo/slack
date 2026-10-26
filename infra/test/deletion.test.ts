@@ -40,21 +40,30 @@ describe("deleting messages and boards (Phase 32)", () => {
     expect(JSON.stringify(route.Target)).toMatch(/MessagesIntegration/);
   });
 
-  it("grants the messages Lambda only what deleting a message needs", () => {
+  it("grants the messages Lambda only what deleting a message and listing pins/files/links need", () => {
     const st = statementsOf("TasksApiMessagesFnServiceRoleDefaultPolicy");
     expect(actionsOn(st, "DataMessages")).toEqual([
+      "dynamodb:BatchGetItem", // Phase 38: the pinned messages
       "dynamodb:DeleteItem",
       "dynamodb:GetItem",
       "dynamodb:Query",
       "dynamodb:UpdateItem",
     ]);
-    expect(actionsOn(st, "DataChannels")).toEqual(["dynamodb:GetItem"]);
+    // UpdateItem: a deleted pinned message lowers the channel's pinCount (Phase 38).
+    expect(actionsOn(st, "DataChannels")).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);
+    expect(actionsOn(st, "DataChannelMedia")).toEqual([
+      "dynamodb:BatchWriteItem",
+      "dynamodb:Query",
+    ]);
     expect(actionsOn(st, "DataMeetingNotes")).toEqual(["dynamodb:DeleteItem"]);
     expect(actionsOn(st, "DataBoards")).toEqual([]);
-    // Files: delete only, under attachments/ only, no listing.
+    // Files: delete, and read to sign the Files tab's previews; under attachments/ only, no listing.
     const s3 = s3Statements(st);
-    expect(s3.flatMap((s) => [s.Action].flat())).toEqual(["s3:DeleteObject"]);
-    expect(JSON.stringify(s3[0]?.Resource)).toContain("/attachments/*");
+    expect(s3.flatMap((s) => [s.Action].flat()).sort()).toEqual([
+      "s3:DeleteObject",
+      "s3:GetObject",
+    ]);
+    for (const s of s3) expect(JSON.stringify(s.Resource)).toContain("/attachments/*");
   });
 
   it("lets the tasks and archive Lambdas delete a board's files by prefix, nothing beyond attachments/", () => {

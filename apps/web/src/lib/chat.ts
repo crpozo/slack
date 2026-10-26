@@ -2,6 +2,7 @@ import {
   compareIds,
   dmChannelId,
   isDmChannel,
+  MAX_PINNED_CHATS,
   type BoardEvent,
   type CalendarPushEvent,
   type CallEvent,
@@ -237,6 +238,7 @@ class ChatController {
 
       client.on("channel.updated", ({ channel }) => store().updateChannel(channel)),
       client.on("user.prefs", ({ pinned }) => store().setPinned(pinned)),
+      client.on("message.pinned", (event) => store().applyPin(event)),
 
       client.on("channel.list", ({ channels, unread }) => {
         const s = store();
@@ -586,12 +588,18 @@ class ChatController {
   }
 
   /**
-   * Pins (or unpins) a conversation to the top of your DM list. Applied at once;
-   * the server's `user.prefs` (also sent to your other devices) confirms it.
+   * Pins (or unpins) a conversation, channel or DM, to the sidebar's Pinned
+   * section. Applied at once; the server's `user.prefs` (also sent to your
+   * other devices) confirms it.
    */
   setPinned(channelId: string, pinned: boolean): void {
     const s = useChat.getState();
     const rest = s.pinned.filter((id) => id !== channelId);
+    // The server would drop the oldest pin past the limit: say so instead.
+    if (pinned && rest.length >= MAX_PINNED_CHATS) {
+      s.showToast(`You can pin up to ${MAX_PINNED_CHATS} conversations. Unpin one first.`);
+      return;
+    }
     s.setPinned(pinned ? [channelId, ...rest] : rest);
     this.client?.send("user", { op: "pin", channelId, pinned });
   }
@@ -714,6 +722,29 @@ class ChatController {
         err instanceof TasksApiError ? err.message : "Couldn't delete the message. Try again.",
       );
     }
+  }
+
+  /**
+   * Pins a message to its channel or unpins it (Phase 38). Everyone in it,
+   * you included, hears `message.pinned`; refusals arrive as toasts.
+   */
+  pinMessage(message: { channelId: string; sk: string }, pinned: boolean): void {
+    this.client?.send("pin", { channelId: message.channelId, sk: message.sk, pinned });
+  }
+
+  /**
+   * "Jump to message" (Phase 38): the conversation's list scrolls to it,
+   * loading older pages until it's there (see MessageList). A thread reply
+   * jumps to its parent and opens the thread. The caller navigates.
+   */
+  jumpTo(target: { channelId: string; sk: string; parentSk?: string }): void {
+    useChat
+      .getState()
+      .setJumpTarget(
+        target.parentSk
+          ? { channelId: target.channelId, sk: target.parentSk, openThread: true }
+          : { channelId: target.channelId, sk: target.sk },
+      );
   }
 
   /** Replaces the text of one of your messages; the server answers with `message.updated`. */

@@ -476,6 +476,21 @@ pnpm --filter infra backfill-notes prod --apply    # writes the hub's entries (s
 It scans the messages table once (only notes cards come back) with your AWS credentials, which
 need `dynamodb:Scan` on the messages table and `dynamodb:BatchWriteItem` on the new one.
 
+**Files & Links (Phase 38), once per stage after deploying it:** a conversation's Files & Links
+tab reads a per-conversation index table (`slack-<stage>-channel-media`) that new messages fill as
+they're sent, edited and deleted. Messages from before the deploy need their rows written once:
+
+```bash
+pnpm --filter infra backfill-media prod            # dry run: counts files and links, writes nothing
+pnpm --filter infra backfill-media prod --apply    # writes the rows (safe to repeat)
+```
+
+It scans the messages table once (only messages with files, `http` in their text, or a pin come
+back) and writes exactly the rows the app would. Secrets, meeting and notes cards, and deleted
+messages are skipped. Your AWS credentials need `dynamodb:Scan` on the messages table and
+`dynamodb:BatchWriteItem` on the new one. Re-running rewrites identical rows. Until it has run,
+the tab only shows what was shared after the deploy.
+
 ## App logo and icons
 
 The official logo lives at `apps/web/public/logo.webp` (square, ideally 1024×1024). Every icon

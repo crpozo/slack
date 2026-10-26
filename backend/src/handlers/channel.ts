@@ -36,6 +36,7 @@ import { boardAudience, boardRows, getAccessibleBoard } from "../lib/boards";
 import { broadcast, deliver, listConnections } from "../lib/broadcast";
 import { channelAudience } from "../lib/channels";
 import { batchDelete, ddb, tables } from "../lib/ddb";
+import { forgetChannel } from "../lib/media";
 import { wsHandler, type Caller } from "../lib/handler";
 import { errorFields, log } from "../lib/logger";
 import { badRequest, ok, reply, replyError } from "../lib/response";
@@ -376,6 +377,8 @@ async function deleteChannel(action: ActionOf<"delete">, caller: Caller) {
 
   // Messages first: if this fails half way the channel is still there to retry.
   const deleted = await deleteMessages(channel.channelId);
+  // Its files, links and pins index (Phase 38).
+  await forgetChannel(channel.channelId);
   await ddb.send(
     new DeleteCommand({ TableName: tables.channels, Key: { channelId: channel.channelId } }),
   );
