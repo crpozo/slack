@@ -1,5 +1,6 @@
 import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import {
+  BatchGetCommand,
   GetCommand,
   paginateQuery,
   TransactWriteCommand,
@@ -7,6 +8,9 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import {
   canDeleteMessage,
+  type ChannelFilesPage,
+  type ChannelLinksPage,
+  type ChannelPins,
   MAX_THREAD_AVATARS,
   threadSkPrefix,
   type Channel,
@@ -29,7 +33,17 @@ import {
   type HttpResult,
 } from "../lib/http";
 import { errorFields, log } from "../lib/logger";
-import { deleteObjects } from "../lib/s3";
+import {
+  forgetMessages,
+  listMedia,
+  listPins,
+  toChannelFile,
+  toChannelLink,
+  type FileRow,
+  type LinkRow,
+} from "../lib/media";
+import { toWireMessage } from "../lib/messages";
+import { deleteObjects, signAttachments, withSignedUrls } from "../lib/s3";
 
 /**
  * `DELETE /messages/{channelId}/{sk}` (Phase 32): its author, or an admin
@@ -131,7 +145,7 @@ async function writeTombstone(message: Message, now: number): Promise<void> {
             TableName: tables.messages,
             Key: { channelId: message.channelId, sk: message.sk },
             UpdateExpression:
-              "SET deletedAt = :now, #text = :empty, attachments = :none REMOVE reactions, replyTo, isEdited, editedAt, isSecret, expiresAt, kind, meeting, aiNotes",
+              "SET deletedAt = :now, #text = :empty, attachments = :none REMOVE reactions, replyTo, isEdited, editedAt, isSecret, expiresAt, kind, meeting, aiNotes, pinnedAt, pinnedBy",
             ConditionExpression: "messageId = :id AND attribute_not_exists(deletedAt)",
             ExpressionAttributeNames: { "#text": "text" },
             ExpressionAttributeValues: {
@@ -439,14 +453,90 @@ async function deleteMessage(event: HttpEvent, caller: HttpCaller): Promise<Http
   });
 
   await removeFiles(gone);
+  // Phase 38: out of the Files & Links index and the pins (a tombstone keeps neither).
+  events.push(...(await forgetMessages(gone)));
   const quoteEvents = await Promise.all(gone.map((deleted) => clearQuotes(channel, deleted)));
   events.push(...quoteEvents.flat());
   await announce(channel, events);
   return json(204);
 }
 
+// --- Phase 38: a conversation's files, links and pinned messages -------------------
+
+/** The conversation in the path, if the caller may read it (archived ones too). Never guests. */
+async function readableChannel(event: HttpEvent, caller: HttpCaller): Promise<Channel> {
+  if (caller.role === "guest") throw forbidden("Guests only have access to their boards");
+  const channelId = decode(pathParam(event, "channelId"));
+  const channel = await getAccessibleChannel(channelId, caller.userId, { allowArchived: true });
+  if (!channel) throw notFound("Conversation not found");
+  return channel;
+}
+
+const cursorOf = (event: HttpEvent) => event.queryStringParameters?.cursor || undefined;
+
+/** `GET /channels/{channelId}/files`: its files, newest first, a page at a time. */
+async function listFiles(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const channel = await readableChannel(event, caller);
+  const { rows, nextCursor } = await listMedia(channel.channelId, "file", cursorOf(event));
+  const now = Date.now();
+  const files = await Promise.all(
+    (rows as FileRow[]).map(async (row) =>
+      toChannelFile(row, await withSignedUrls(row.attachment, now)),
+    ),
+  );
+  return json(200, { files, nextCursor } satisfies ChannelFilesPage);
+}
+
+/** `GET /channels/{channelId}/links`: the links shared in it, newest first. */
+async function listLinks(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const channel = await readableChannel(event, caller);
+  const { rows, nextCursor } = await listMedia(channel.channelId, "link", cursorOf(event));
+  const links = (rows as LinkRow[]).map(toChannelLink);
+  return json(200, { links, nextCursor } satisfies ChannelLinksPage);
+}
+
+/** DynamoDB caps BatchGetItem at 100 keys. */
+const BATCH_GET = 100;
+
+/**
+ * `GET /channels/{channelId}/pins`: its pinned messages as they are now (the
+ * index only points at them), most recently pinned first.
+ */
+async function listPinned(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const channel = await readableChannel(event, caller);
+  const pins = await listPins(channel.channelId);
+  const found = new Map<string, Record<string, unknown>>();
+  for (let i = 0; i < pins.length; i += BATCH_GET) {
+    let keys = pins
+      .slice(i, i + BATCH_GET)
+      .map((p) => ({ channelId: p.channelId, sk: p.messageSk }));
+    // Unprocessed keys (throttling) are asked again, a few times.
+    for (let attempt = 0; keys.length > 0 && attempt < 3; attempt++) {
+      const { Responses, UnprocessedKeys } = await ddb.send(
+        new BatchGetCommand({ RequestItems: { [tables.messages]: { Keys: keys } } }),
+      );
+      for (const item of Responses?.[tables.messages] ?? []) found.set(String(item.sk), item);
+      keys = (UnprocessedKeys?.[tables.messages]?.Keys ?? []) as typeof keys;
+    }
+  }
+  const now = Date.now();
+  const messages = await Promise.all(
+    pins
+      .map((p) => found.get(p.messageSk))
+      // Deleted (or emptied) since: the deletion cleans its row up.
+      .filter(
+        (item): item is Record<string, unknown> => !!item && !item.deletedAt && !!item.pinnedAt,
+      )
+      .map((item) => signAttachments(toWireMessage(item), now)),
+  );
+  return json(200, { messages } satisfies ChannelPins);
+}
+
 const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<HttpResult>> = {
   "DELETE /messages/{channelId}/{sk}": deleteMessage,
+  "GET /channels/{channelId}/files": listFiles,
+  "GET /channels/{channelId}/links": listLinks,
+  "GET /channels/{channelId}/pins": listPinned,
 };
 
 export const handler = httpHandler(async (event, caller) => {

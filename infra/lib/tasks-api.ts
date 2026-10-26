@@ -82,9 +82,15 @@ export const NOTES_MODEL_ID = "anthropic.claude-haiku-5-5";
  */
 export const NOTES_MODEL_RESOURCES = ["*"];
 
-/** Deleting messages (Phase 32): by their author or an admin, its own small Lambda. */
+/**
+ * Deleting messages (Phase 32), by their author or an admin; a conversation's
+ * files, links and pinned messages (Phase 38). Their own small Lambda.
+ */
 export const MESSAGES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.DELETE, path: "/messages/{channelId}/{sk}" },
+  { method: HttpMethod.GET, path: "/channels/{channelId}/files" },
+  { method: HttpMethod.GET, path: "/channels/{channelId}/links" },
+  { method: HttpMethod.GET, path: "/channels/{channelId}/pins" },
 ];
 
 /** Web Push subscriptions (Phase 8), served by their own small Lambda on the same API. */
@@ -267,6 +273,7 @@ export class TasksApi extends Construct {
       CHANNELS_TABLE: data.channels.tableName,
       CONNECTIONS_TABLE: data.connections.tableName,
       MEETING_NOTES_TABLE: data.meetingNotes.tableName,
+      CHANNEL_MEDIA_TABLE: data.channelMedia.tableName,
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
       WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
     });
@@ -499,6 +506,19 @@ export class TasksApi extends Construct {
     data.connections.grant(this.messagesHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.messagesHandler);
     grantDeleteFiles(this.messagesHandler, props.attachments);
+    // Phase 38: a conversation's files/links/pins (Query the index; BatchGetItem the
+    // pinned messages as they are now; images in Files are signed: s3:GetObject); a
+    // deleted message's rows leave the index (BatchWriteItem) and a pinned one lowers
+    // the channel's pinCount (UpdateItem).
+    data.channelMedia.grant(this.messagesHandler, "dynamodb:Query", "dynamodb:BatchWriteItem");
+    data.messages.grant(this.messagesHandler, "dynamodb:BatchGetItem");
+    data.channels.grant(this.messagesHandler, "dynamodb:UpdateItem");
+    this.messagesHandler.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["s3:GetObject"],
+        resources: [props.attachments.arnForObjects("attachments/*")],
+      }),
+    );
 
     // push: the caller's own subscription rows, and the public half of the VAPID keys.
     data.pushSubscriptions.grant(this.pushHandler, "dynamodb:PutItem", "dynamodb:DeleteItem");

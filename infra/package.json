@@ -12,7 +12,8 @@
     "test": "vitest run",
     "vapid": "tsx scripts/vapid.ts",
     "migrate-dev-to-prod": "tsx scripts/migrate-dev-to-prod.ts",
-    "backfill-notes": "tsx scripts/backfill-notes.ts"
+    "backfill-notes": "tsx scripts/backfill-notes.ts",
+    "backfill-media": "tsx scripts/backfill-media.ts"
   },
   "dependencies": {
     "@mindfultech/shared": "workspace:*",

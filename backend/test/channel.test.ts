@@ -463,7 +463,9 @@ describe("channel delete", () => {
 
   it("deletes the creator's channel and its messages in batches of 25", async () => {
     const items = Array.from({ length: 30 }, (_, i) => ({ channelId: "ch_pub", sk: `${i}#x` }));
-    ddbMock.on(QueryCommand).resolves({ Items: items });
+    // The messages; the media index (Phase 38) has nothing for this channel.
+    ddbMock.on(QueryCommand).resolves({ Items: [] });
+    ddbMock.on(QueryCommand, { TableName: "slack-test-messages" }).resolves({ Items: items });
 
     const result = await remove("ch_pub");
 
@@ -488,7 +490,9 @@ describe("channel delete", () => {
 
   it("retries messages BatchWrite left unprocessed", async () => {
     const items = [{ channelId: "ch_pub", sk: "1#a" }];
-    ddbMock.on(QueryCommand).resolves({ Items: items });
+    // The messages; the media index (Phase 38) has nothing for this channel.
+    ddbMock.on(QueryCommand).resolves({ Items: [] });
+    ddbMock.on(QueryCommand, { TableName: "slack-test-messages" }).resolves({ Items: items });
     ddbMock
       .on(BatchWriteCommand)
       .resolvesOnce({
@@ -504,7 +508,9 @@ describe("channel delete", () => {
 
   it("keeps the channel when messages can't be deleted after retries", async () => {
     const items = [{ channelId: "ch_pub", sk: "1#a" }];
-    ddbMock.on(QueryCommand).resolves({ Items: items });
+    // The messages; the media index (Phase 38) has nothing for this channel.
+    ddbMock.on(QueryCommand).resolves({ Items: [] });
+    ddbMock.on(QueryCommand, { TableName: "slack-test-messages" }).resolves({ Items: items });
     ddbMock.on(BatchWriteCommand).resolves({
       UnprocessedItems: { "slack-test-messages": [{ DeleteRequest: { Key: items[0] } }] },
     });

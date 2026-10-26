@@ -1,15 +1,16 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import { EditActionSchema, parseAction } from "@mindfultech/shared";
+import { EditActionSchema, parseAction, type Message } from "@mindfultech/shared";
 import { broadcast } from "../lib/broadcast";
 import { channelAudience, getAccessibleChannel } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import { wsHandler } from "../lib/handler";
 import { log } from "../lib/logger";
+import { reindexLinks } from "../lib/media";
 import { badRequest, ok, replyError } from "../lib/response";
 
 type EditOutcome =
-  | { ok: true; messageId: string; editedAt: number }
+  | { ok: true; messageId: string; editedAt: number; before: Message }
   | { ok: false; code: "MESSAGE_NOT_FOUND" | "FORBIDDEN" };
 
 /** Replaces the text if the message exists and the caller wrote it (one conditional write). */
@@ -31,11 +32,17 @@ async function applyEdit(
           "attribute_exists(sk) AND userId = :me AND attribute_not_exists(isSecret) AND attribute_not_exists(kind)",
         ExpressionAttributeNames: { "#text": "text" },
         ExpressionAttributeValues: { ":text": text, ":yes": true, ":at": editedAt, ":me": userId },
-        ReturnValues: "ALL_NEW",
+        // The message as it was: its old links leave the index (Phase 38).
+        ReturnValues: "ALL_OLD",
         ReturnValuesOnConditionCheckFailure: "ALL_OLD",
       }),
     );
-    return { ok: true, messageId: String(Attributes?.messageId ?? ""), editedAt };
+    return {
+      ok: true,
+      messageId: String(Attributes?.messageId ?? ""),
+      editedAt,
+      before: Attributes as Message,
+    };
   } catch (err) {
     if (!(err instanceof ConditionalCheckFailedException)) throw err;
     // The row came back: it exists, so it's someone else's. Nothing back: no such message.
@@ -61,6 +68,7 @@ export const handler = wsHandler(async (event, caller) => {
     );
   }
   log.info("message edited", { channelId, sk, userId: caller.userId });
+  await reindexLinks({ ...outcome.before, channelId, sk }, text);
 
   const inAudience = channelAudience(channel);
   await broadcast((connection) =>

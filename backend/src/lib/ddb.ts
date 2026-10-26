@@ -44,6 +44,10 @@ export const tables = {
   get callRooms() {
     return requireEnv("CALL_ROOMS_TABLE");
   },
+  /** Phase 38: per conversation, one row per shared file, link and pinned message. */
+  get channelMedia() {
+    return requireEnv("CHANNEL_MEDIA_TABLE");
+  },
 };
 
 /** Row of the `connections` table. */
@@ -75,7 +79,7 @@ async function writeBatch(table: string, requests: WriteRequest[], retries = 2):
   );
   const left = (UnprocessedItems?.[table] ?? []) as WriteRequest[];
   if (left.length === 0) return;
-  if (retries <= 0) throw new Error(`Couldn't delete ${left.length} items from ${table}`);
+  if (retries <= 0) throw new Error(`Couldn't write ${left.length} items to ${table}`);
   return writeBatch(table, left, retries - 1);
 }
 
@@ -84,6 +88,15 @@ export async function batchDelete(table: string, keys: Record<string, unknown>[]
   const batches: WriteRequest[][] = [];
   for (let i = 0; i < keys.length; i += BATCH_SIZE) {
     batches.push(keys.slice(i, i + BATCH_SIZE).map((Key) => ({ DeleteRequest: { Key } })));
+  }
+  await Promise.all(batches.map((batch) => writeBatch(table, batch)));
+}
+
+/** Puts `items` into `table` in concurrent batches of 25; throws if any item is left. */
+export async function batchPut(table: string, items: Record<string, unknown>[]): Promise<void> {
+  const batches: WriteRequest[][] = [];
+  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    batches.push(items.slice(i, i + BATCH_SIZE).map((Item) => ({ PutRequest: { Item } })));
   }
   await Promise.all(batches.map((batch) => writeBatch(table, batch)));
 }

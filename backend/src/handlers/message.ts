@@ -22,6 +22,7 @@ import { channelAudience, getAccessibleChannel, touchChannel } from "../lib/chan
 import { ddb, tables } from "../lib/ddb";
 import { wsHandler } from "../lib/handler";
 import { errorFields, log } from "../lib/logger";
+import { mediaPuts } from "../lib/media";
 import { findSentMessage } from "../lib/messages";
 import { notifyOffline } from "../lib/notify";
 import { badRequest, ok, reply, replyError } from "../lib/response";
@@ -94,6 +95,8 @@ async function storeReply(
               ConditionExpression: "attribute_not_exists(sk)",
             },
           },
+          // Phase 38: its files and links in the conversation's index, with it.
+          ...mediaPuts(message),
           {
             Update: {
               TableName: tables.messages,
@@ -135,6 +138,24 @@ async function storeReply(
   };
 }
 
+/**
+ * Stores a top-level message. One with files or links goes in a transaction
+ * with its rows in the conversation's index (Phase 38), so the Files & Links
+ * tab never misses one nor lists one that wasn't sent.
+ */
+async function storeMessage(message: Message): Promise<void> {
+  const puts = mediaPuts(message);
+  if (puts.length === 0) {
+    await ddb.send(new PutCommand({ TableName: tables.messages, Item: message }));
+    return;
+  }
+  await ddb.send(
+    new TransactWriteCommand({
+      TransactItems: [{ Put: { TableName: tables.messages, Item: message } }, ...puts],
+    }),
+  );
+}
+
 const isTransactionCancelled = (err: unknown) =>
   err instanceof Error && err.name === "TransactionCanceledException";
 
@@ -163,6 +184,7 @@ async function storeReplyOnce(
     new TransactWriteCommand({
       TransactItems: [
         { Put: { TableName: tables.messages, Item: message } },
+        ...mediaPuts(message),
         {
           Update: {
             TableName: tables.messages,
@@ -260,7 +282,7 @@ export const handler = wsHandler(async (event, caller) => {
     if (!counters) return replyError(caller.connectionId, "MESSAGE_NOT_FOUND");
     parentCounters = counters;
   } else {
-    await ddb.send(new PutCommand({ TableName: tables.messages, Item: message }));
+    await storeMessage(message);
   }
   log.info("message stored", {
     channelId,
