@@ -62,6 +62,14 @@ export const CALL_NOTES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/notes" },
 ];
 
+/**
+ * AI News (Phase 35b): the latest TechCrunch AI articles, read live from the
+ * RSS feed by a stateless Lambda with no data permissions at all.
+ */
+export const NEWS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/news" },
+];
+
 /** The notes model: Claude Haiku 5.5 on Claude in Amazon Bedrock (the Mantle endpoint). */
 export const NOTES_MODEL_ID = "anthropic.claude-haiku-5-5";
 
@@ -139,6 +147,8 @@ export class TasksApi extends Construct {
   readonly callNotesWorker: NodejsFunction;
   /** `messages`: deleting a message (Phase 32). */
   readonly messagesHandler: NodejsFunction;
+  /** `news`: the AI News proxy (Phase 35b); no table, bucket or parameter. */
+  readonly newsHandler: NodejsFunction;
   /** Base URL clients call, without a trailing slash. */
   readonly url: string;
   private readonly origins: string[];
@@ -192,6 +202,10 @@ export class TasksApi extends Construct {
       // A deleted board's files (Phase 32).
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
     });
+    // AI News (Phase 35b): reads a public RSS feed over the internet and keeps
+    // it in memory; deliberately given no environment and no grants, so it
+    // can't touch any table or bucket. The feed gets 5 s; the Lambda 10.
+    this.newsHandler = lambda("NewsFn", "news", {});
     this.pushHandler = lambda("PushFn", "push", {
       PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
       VAPID_PARAMETER: vapidParameterName(stage),
@@ -314,6 +328,10 @@ export class TasksApi extends Construct {
     );
     for (const { method, path } of CALENDAR_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: calendarIntegration });
+    }
+    const newsIntegration = new HttpLambdaIntegration("NewsIntegration", this.newsHandler);
+    for (const { method, path } of NEWS_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: newsIntegration });
     }
     this.url = this.httpApi.apiEndpoint;
 

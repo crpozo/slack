@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI News:** a new app under Apps, with the latest AI stories from TechCrunch.
+  - **Layout:** the newest is featured, the rest in a grid with image, headline, summary and date.
+  - **Reading:** any card opens the article in a new tab, or the system browser in the desktop app.
+  - **Refresh:** the list refreshes every 30 minutes. Nothing is stored: it's read live from the feed.
 - **Calls in channels:** start a voice or video call from any channel's header. People join
   from the header (who's in it shows there) or from the in-app notice; nothing rings.
   - **Size:** up to 6 people, each connected directly to every other (no media server, so no

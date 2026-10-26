@@ -231,6 +231,23 @@ export const CalendarIcon = (p: IconProps) => (
     <path d="M16 3v4M8 3v4M3 11h18" />
   </Icon>
 );
+/** Opens somewhere else (a new tab, the browser). */
+export const ExternalLinkIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M15 3h6v6" />
+    <path d="M10 14 21 3" />
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+  </Icon>
+);
+/** Fetch again. */
+export const RefreshIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M21 12a9 9 0 0 1-15.5 6.2L3 16" />
+    <path d="M3 21v-5h5" />
+    <path d="M3 12a9 9 0 0 1 15.5-6.2L21 8" />
+    <path d="M21 3v5h-5" />
+  </Icon>
+);
 /** A repeating meeting (Phase 34). */
 export const RepeatIcon = (p: IconProps) => (
   <Icon {...p}>

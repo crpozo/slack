@@ -118,6 +118,10 @@ export function BottomTabs({
             setMoreOpen(false);
             void navigate("/app/notes");
           }}
+          onOpenNews={() => {
+            setMoreOpen(false);
+            void navigate("/app/news");
+          }}
           onOpenSettings={() => {
             setMoreOpen(false);
             onOpenSettings();
@@ -135,15 +139,17 @@ const THEMES: Array<{ value: ThemePreference; label: string; Icon: typeof SunIco
   { value: "system", label: "System", Icon: MonitorIcon },
 ];
 
-/** The More tab's sheet: who you are, the theme, AI Notes, settings and sign out. */
+/** The More tab's sheet: who you are, the theme, AI Notes, AI News, settings and sign out. */
 function MoreSheet({
   onClose,
   onOpenNotes,
+  onOpenNews,
   onOpenSettings,
   onSignOut,
 }: Readonly<{
   onClose: () => void;
   onOpenNotes: () => void;
+  onOpenNews: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
 }>) {
@@ -196,6 +202,14 @@ function MoreSheet({
           <SparklesIcon className="text-primary" />
           <span className="flex-1">AI Notes</span>
           <span className="text-xs text-ink-secondary">Summaries of your calls</span>
+          <ChevronRightIcon className="text-ink-secondary" aria-hidden="true" />
+        </button>
+        <button type="button" onClick={onOpenNews} className={row}>
+          <span className="w-[1em] text-center" aria-hidden="true">
+            📰
+          </span>
+          <span className="flex-1">AI News</span>
+          <span className="text-xs text-ink-secondary">The latest from TechCrunch</span>
           <ChevronRightIcon className="text-ink-secondary" aria-hidden="true" />
         </button>
         <button type="button" onClick={onOpenSettings} className={row}>

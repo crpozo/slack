@@ -158,6 +158,9 @@ importers:
       aws-jwt-verify:
         specifier: ^5.2.1
         version: 5.2.1
+      fast-xml-parser:
+        specifier: ^5.11.2
+        version: 5.11.2
       ulid:
         specifier: ^3.0.2
         version: 3.0.2
