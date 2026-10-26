@@ -1049,6 +1049,51 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
 - "Reduce transparency" in the OS makes them solid.
 - The 0.2.0 desktop app on macOS and Windows 11 shows the blurred desktop through the sidebar; on Windows 10 it looks like the web app (solid).
 
+### Phase 38 — Pinned conversations, pinned messages, Files & Links
+
+**Branch:** `feature/f38-pins-and-media`
+
+1. **Pinned conversations:** the per-person `pinned` list on the `users` row (the existing `user` → `pin` action, synced as `user.prefs`), now for channels too, up to `MAX_PINNED_CHATS` = 30.
+   - **Pinned section:** at the top of the desktop sidebar and of phone Home, in pin order. Pinned conversations leave their usual section; the phone DMs tab still lists every DM.
+   - **Pin/Unpin:** in the row menu (desktop right-click opens it), the header's ⋯ menu, and the phone options sheet.
+   - **Over the limit:** the client says so instead of letting the server drop the oldest pin.
+2. **Index table `channel-media`** (`channelId` + `sk`):
+   - **Rows:**
+     - `file#<createdAt>#<messageId>#<n>`: the attachment, stored without URLs.
+     - `link#<createdAt>#<messageId>#<n>`: the URL, its domain and a snippet.
+     - `pin#<pinnedAt>#<messageId>`: a pointer.
+     - Every row also carries `messageSk`, `parentSk` for replies, `userId` and `createdAt`.
+   - **Keys** are rebuilt from the message itself, by `@mindfultech/shared` `media.ts`, which the backend and the backfill share.
+   - **Link detection:** `extractLinks` uses the web's own pattern (`URL_PATTERN`, now in shared), ignores code, dedupes, and keeps at most 10 per message.
+   - **Writes:**
+     - **Send:** a message with files or links is stored in one transaction with its rows (replies too).
+     - **Edit:** rewrites its link rows (`ALL_OLD` gives the old text).
+     - **Delete:** deletion and tombstones remove its rows and its pin, lower `pinCount` and announce the unpin.
+     - **Deleting a conversation** removes its rows.
+     - **Never indexed:** secrets, cards, deleted messages.
+3. **Pinned messages:** `pinnedAt`/`pinnedBy` on the message and `pinCount` on the channel.
+   - **WebSocket action `pin`** (own Lambda): any member can pin, never secrets or deleted messages, never in archived channels, up to `MAX_PINS_PER_CHANNEL` = 100.
+     - **One transaction:** the message fields, the pin row, and `pinCount` (with the limit as a condition).
+     - **Broadcast:** `message.pinned` (with the new count) goes to the channel's audience. There is no post in the channel.
+   - **Web:**
+     - **Pin to channel / Unpin** in the hover toolbar and the context menu.
+     - **"Pinned by X"** label on the message.
+     - **Header 📌 with the count** (desktop), or **Pinned messages** in the phone sheet, opens the panel.
+     - **Jump to message:** the list loads older pages until the message is there (up to `MAX_JUMP_MESSAGES` = 2,000), scrolls to it and highlights it. A reply jumps to its parent and opens the thread.
+4. **Files & Links:** `GET /channels/{id}/files|links?cursor=` returns 30 rows per page, newest first, with an opaque cursor that only works for that conversation and kind. Images come back signed like history. `GET /channels/{id}/pins` reads the pinned messages as they are now (BatchGetItem). All three are on the messages Lambda: members only, never guests.
+   - **Details tabs:** About · Members · Files & Links, for channels and DMs (DMs have no About).
+   - **Members:** a private channel's or DM's members, or everyone for a public one; click someone to message them.
+   - **Files:** images open in the Lightbox, PDFs in the viewer, anything else in a tab.
+   - **Links:** open in a new tab (`noopener noreferrer`), or the system browser in the desktop app.
+5. **Backfill:** `pnpm --filter infra backfill-media <stage> [--apply]`. One scan of `messages`, filtered to files, "http" or pins; writes the very same rows; idempotent. Run once per stage after deploying.
+
+**Phase 38 acceptance criteria:**
+- Pinning a channel and a DM puts them in Pinned at the top (desktop and phone), out of their sections, on every device.
+- Pinning a message shows "Pinned by …" and the 📌 count to everyone at once.
+- The Pinned panel lists it; **Jump to message** on an old pin scrolls back to it and highlights it.
+- A conversation's Files & Links lists its files and links newest first, pages with **Show more**, opens images, PDFs and links, and jumps to the message.
+- After the backfill, files and links from before the deploy are there too.
+
 ### Phase 35 (planned) — Customer channels (guest access to shared channels)
 
 Deferred from Phase 34: it moves the guest security boundary, so it gets its own phase and tests. Today guests are boards-only. They're blocked from every WebSocket action but `ping`, `presign` and `user` (`GUEST_ROUTES`), receive only `board.*` events (`guestMayReceive`), and see only board co-members. Needed:

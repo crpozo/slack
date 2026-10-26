@@ -5,7 +5,16 @@ import { menuActions, placeMenu, type MenuAction, type MenuContext } from "../li
 import { QUICK_REACTIONS } from "../lib/emoji";
 import { openExternal } from "../lib/external";
 import { useChat, type ChatMessage } from "../store";
-import { CopyIcon, LinkIcon, MessageIcon, PencilIcon, ReplyIcon, TrashIcon } from "./icons";
+import {
+  CopyIcon,
+  LinkIcon,
+  MessageIcon,
+  PencilIcon,
+  PinIcon,
+  PinOffIcon,
+  ReplyIcon,
+  TrashIcon,
+} from "./icons";
 
 const LABELS: Record<MenuAction, string> = {
   "copy-selection": "Copy selection",
@@ -14,6 +23,8 @@ const LABELS: Record<MenuAction, string> = {
   "copy-link": "Copy link",
   reply: "Reply",
   thread: "Reply in thread",
+  pin: "Pin to channel",
+  unpin: "Unpin from channel",
   edit: "Edit message",
   delete: "Delete message",
 };
@@ -24,6 +35,8 @@ const ICONS: Record<MenuAction, ReactNode> = {
   "copy-link": <LinkIcon />,
   reply: <ReplyIcon />,
   thread: <MessageIcon />,
+  pin: <PinIcon />,
+  unpin: <PinOffIcon />,
   edit: <PencilIcon />,
   delete: <TrashIcon />,
 };
@@ -123,6 +136,9 @@ export function MessageContextMenu({
         return onReply();
       case "thread":
         return onThread();
+      case "pin":
+      case "unpin":
+        return chat.pinMessage(message, action === "pin");
       case "edit":
         return onEdit();
       case "delete":

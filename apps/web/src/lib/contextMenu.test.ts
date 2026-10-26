@@ -26,6 +26,20 @@ describe("message context menu", () => {
     ]);
   });
 
+  it("offers Pin to channel, or Unpin once pinned, where pinning is allowed (Phase 38)", () => {
+    expect(menuActions(message(), { ...ctx, canPin: true })).toEqual([
+      "copy",
+      "reply",
+      "thread",
+      "pin",
+      "edit",
+    ]);
+    expect(menuActions(message({ pinnedAt: 5 }), { ...ctx, mine: false, canPin: true })).toContain(
+      "unpin",
+    );
+    expect(menuActions(message(), ctx)).not.toContain("pin");
+  });
+
   it("offers the selection and the right-clicked link", () => {
     expect(menuActions(message(), { ...ctx, selection: "hel", link: "https://x.y/" })).toEqual([
       "copy-selection",

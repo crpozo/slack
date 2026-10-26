@@ -7,6 +7,26 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Pinned conversations:** a **Pinned** section at the top of the sidebar (and of Home on
+  phones) holds the channels and DMs you pin; they leave their usual section. Pin one from its
+  menu (right-click on a computer, a long press on a phone), from the conversation's **⋯**
+  menu, or from its options on a phone. Up to 30, synced across your devices.
+- **Pinned messages:** **Pin to channel** on any message (its hover toolbar, its right-click
+  or long-press menu) pins it for everyone in the conversation, up to 100.
+  - **Label:** a pinned message says who pinned it.
+  - **Panel:** the 📌 in the header, with the count, lists them, newest pin first, each with
+    **Jump to message** (it scrolls back and loads older messages as needed) and **Unpin**.
+  - **Limits:** secrets and deleted messages can't be pinned; archived channels are frozen.
+- **Files & Links:** channel and DM details have tabs: **About**, **Members** and **Files &
+  Links**.
+  - **Files:** every shared file, newest first. Images and PDFs open in the app's viewers;
+    anything else opens in a new tab.
+  - **Links:** every link shared, newest first. Each opens in a new tab (the system browser in
+    the desktop app).
+  - **Jump to message** on each one; **Show more** loads older ones.
+  - **Fast on long conversations:** they come from a small per-conversation index kept as
+    messages are sent, edited and deleted, not from scanning the history. Files and links
+    shared before this release appear once the backfill has run (see the README).
 - **Glass:** the sidebar, conversation headers, menus, dialogs and the phone tab bar are now
   translucent and blurred, iOS-style, over a soft dark background with faint purple and blue
   light in the corners. Messages scroll under the header.
@@ -186,6 +206,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **Pinned DMs** now sit in the sidebar's Pinned section instead of at the top of Direct
+  messages. The pinning limit is 30 conversations (was 20).
 - **Archiving a channel:** its creator can now archive and restore it, not only admins.
 - **Opens instantly.** The shell paints for the last signed-in person before Amplify has verified
   the session, and the channel list, directory and the newest 50 messages of every channel you

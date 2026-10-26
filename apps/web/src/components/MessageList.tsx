@@ -22,6 +22,10 @@ const BOTTOM_THRESHOLD_PX = 80;
 const ESTIMATED_ROW_PX = 56;
 /** Rows kept rendered beyond the viewport, each side. */
 const OVERSCAN = 8;
+/** "Jump to message" loads older pages up to this many messages back (Phase 38). */
+export const MAX_JUMP_MESSAGES = 2000;
+/** How long the message jumped to stays highlighted. */
+const HIGHLIGHT_MS = 2500;
 
 const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString();
 
@@ -139,6 +143,50 @@ export function MessageList({
     });
     return () => cancelAnimationFrame(frame);
   }, [messages, channelId, myUserId, scrollToBottom]);
+
+  // "Jump to message" (Phase 38): scroll to it once it's loaded, fetching older
+  // pages until it is (up to MAX_JUMP_MESSAGES back); then highlight it, or open
+  // its thread for a reply. Each new page re-runs this.
+  const jump = useChat((s) => (s.jumpTarget?.channelId === channelId ? s.jumpTarget : null));
+  useEffect(() => {
+    if (!jump || !loaded) return;
+    const s = useChat.getState();
+    const index = messages.findIndex((m) => m.sk === jump.sk);
+    if (index >= 0) {
+      s.setJumpTarget(null);
+      // Hold still where we land (don't follow new messages back down).
+      setAtBottom(false);
+      virtualizer.scrollToIndex(index, { align: "center" });
+      const target = messages[index]!;
+      if (jump.openThread && onOpenThread) onOpenThread(target);
+      s.setHighlight(target.sk);
+      const timer = setTimeout(() => {
+        if (useChat.getState().highlightSk === target.sk) useChat.getState().setHighlight(null);
+      }, HIGHLIGHT_MS);
+      return () => clearTimeout(timer);
+    }
+    if (loadingOlder) return; // the next page is on its way
+    if (cursor && cursor !== "stale" && messages.length < MAX_JUMP_MESSAGES) {
+      chat.loadHistory(channelId, "older");
+      return;
+    }
+    s.setJumpTarget(null);
+    s.showToast(
+      messages.length >= MAX_JUMP_MESSAGES
+        ? "That message is too far back to jump to."
+        : "That message isn't there any more.",
+    );
+  }, [
+    jump,
+    loaded,
+    messages,
+    cursor,
+    loadingOlder,
+    channelId,
+    setAtBottom,
+    virtualizer,
+    onOpenThread,
+  ]);
 
   // Infinite scroll upwards: the sentinel sits at the very top of the list's full height.
   useEffect(() => {

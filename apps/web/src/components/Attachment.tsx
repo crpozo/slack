@@ -154,37 +154,47 @@ function PdfAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>)
   );
 }
 
+/**
+ * Opens a file in a new tab (the browser shows or downloads it), or in the
+ * system browser from the desktop app. Must run in the click itself: the tab
+ * is opened before the URL is known, so popup blockers allow it.
+ */
+export async function downloadAttachment(
+  attachment: Pick<AttachmentData, "key" | "url">,
+  notify: (message: string) => void,
+): Promise<void> {
+  if (isDesktopApp()) {
+    // The desktop app hands it to the OS's browser (a tab here would trap it).
+    try {
+      await openExternal(await getDownloadUrl(attachment.key, attachment.url), { notify });
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Couldn't download the file.");
+    }
+    return;
+  }
+  const tab = window.open("about:blank", "_blank");
+  try {
+    const url = await getDownloadUrl(attachment.key, attachment.url);
+    if (tab) {
+      tab.opener = null;
+      tab.location.href = url;
+    } else {
+      window.location.href = url;
+    }
+  } catch (err) {
+    tab?.close();
+    notify(err instanceof Error ? err.message : "Couldn't download the file.");
+  }
+}
+
 function FileAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
   const showToast = useChat((s) => s.showToast);
   const [busy, setBusy] = useState(false);
 
   async function download() {
-    if (isDesktopApp()) {
-      // The desktop app hands it to the OS's browser (a tab here would trap it).
-      setBusy(true);
-      try {
-        await openExternal(await getDownloadUrl(attachment.key), { notify: showToast });
-      } catch (err) {
-        showToast(err instanceof Error ? err.message : "Couldn't download the file.");
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
-    // Open the tab synchronously so the popup blocker allows it.
-    const tab = window.open("about:blank", "_blank");
     setBusy(true);
     try {
-      const url = await getDownloadUrl(attachment.key);
-      if (tab) {
-        tab.opener = null;
-        tab.location.href = url;
-      } else {
-        window.location.href = url;
-      }
-    } catch (err) {
-      tab?.close();
-      showToast(err instanceof Error ? err.message : "Couldn't download the file.");
+      await downloadAttachment(attachment, showToast);
     } finally {
       setBusy(false);
     }
