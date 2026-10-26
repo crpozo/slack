@@ -1,85 +1,55 @@
-export type ThemePreference = "light" | "dark" | "system";
+// ---------------------------------------------------------------------------
+// The look (Phase 37b): one dark theme everywhere, Slack's palette with purple
+// accents. No light theme, no setting. On top of it, "glass": translucent
+// sidebar, headers and overlays over an ambient background (web), or over the
+// desktop itself where the desktop app has real OS blur (see `nativeGlass`).
+// ---------------------------------------------------------------------------
 
-/** Same key as the inline script in index.html, which applies it before first paint. */
-const STORAGE_KEY = "slack.theme";
-const DARK_QUERY = "(prefers-color-scheme: dark)";
-/** Same as `MOBILE_QUERY` (lib/hooks.ts), repeated in index.html's inline script. */
-const PHONE_QUERY = "(max-width: 767px)";
+/** The browser chrome's colour (also in index.html and the web manifest). */
+export const THEME_COLOR = "#1A1D21";
 
-/** The browser chrome's colour for each look. */
-export const THEME_COLORS = { light: "#69C7B9", dark: "#0E0D12", phone: "#1A1D21" } as const;
+/** The old Light/Dark/System choice, no longer read. */
+const LEGACY_THEME_KEY = "slack.theme";
 
-export function isThemePreference(value: unknown): value is ThemePreference {
-  return value === "light" || value === "dark" || value === "system";
-}
+/**
+ * What the desktop app reports before the page loads: `"vibrancy"` (macOS) or
+ * `"mica"` (Windows 11) when its window is transparent with the OS blurring
+ * the desktop behind it; `null` (or absent: a browser, an older app,
+ * Windows 10, Linux) otherwise.
+ */
+export type NativeGlass = "vibrancy" | "mica";
 
-/** Light (white) unless the user picked Dark or System in Settings. */
-export const DEFAULT_THEME: ThemePreference = "light";
-
-export function getThemePreference(): ThemePreference {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return isThemePreference(stored) ? stored : DEFAULT_THEME;
-  } catch {
-    return DEFAULT_THEME;
+declare global {
+  interface Window {
+    __MINDFULTECH_GLASS__?: NativeGlass | null;
   }
 }
 
-export function resolveTheme(preference: ThemePreference, systemDark: boolean): "light" | "dark" {
-  if (preference === "system") return systemDark ? "dark" : "light";
-  return preference;
+export function nativeGlass(
+  win: Pick<Window, "__MINDFULTECH_GLASS__"> = window,
+): NativeGlass | null {
+  const glass = win.__MINDFULTECH_GLASS__;
+  return glass === "vibrancy" || glass === "mica" ? glass : null;
 }
 
 /**
- * Phase 37: phones always get Slack's dark look (`phone` + `dark` on <html>),
- * whatever the preference; it applies again on desktop widths.
+ * Applies the look to <html>: always `dark`; `native-glass` only in the
+ * desktop app's transparent window, where the page itself becomes
+ * transparent so the OS-blurred desktop shows through. Anywhere else the page
+ * paints its own ambient background (styles.css), so nothing can end up
+ * see-through over an opaque window.
  */
-export function resolveLook(
-  preference: ThemePreference,
-  systemDark: boolean,
-  phone: boolean,
-): keyof typeof THEME_COLORS {
-  return phone ? "phone" : resolveTheme(preference, systemDark);
-}
-
-const systemDark = () => window.matchMedia(DARK_QUERY).matches;
-/** A narrow window, except the desktop app's small call window (`/call/pip`), which isn't a phone. */
-export const isPhone = () =>
-  !window.location.pathname.startsWith("/call/") && window.matchMedia(PHONE_QUERY).matches;
-
-export function applyTheme(preference: ThemePreference = getThemePreference()): void {
-  const look = resolveLook(preference, systemDark(), isPhone());
-  const root = document.documentElement.classList;
-  root.toggle("phone", look === "phone");
-  root.toggle("dark", look !== "light");
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLORS[look]);
-}
-
-export function setThemePreference(preference: ThemePreference): void {
+export function applyTheme(): void {
+  const root = document.documentElement;
+  root.classList.add("dark");
+  const glass = nativeGlass();
+  root.classList.toggle("native-glass", glass !== null);
+  if (glass) root.dataset.glass = glass;
+  else delete root.dataset.glass;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR);
   try {
-    localStorage.setItem(STORAGE_KEY, preference);
+    localStorage.removeItem(LEGACY_THEME_KEY);
   } catch {
-    // Blocked storage: the choice lasts for this page load only.
+    // Blocked storage: nothing to tidy.
   }
-  applyTheme(preference);
-}
-
-/**
- * Follows OS theme changes while the preference is "system", and the width
- * crossing the phone breakpoint (a rotation, a resized window). Returns an
- * unsubscribe.
- */
-export function watchSystemTheme(): () => void {
-  const dark = window.matchMedia(DARK_QUERY);
-  const phone = window.matchMedia(PHONE_QUERY);
-  const onDark = () => {
-    if (getThemePreference() === "system") applyTheme("system");
-  };
-  const onPhone = () => applyTheme();
-  dark.addEventListener("change", onDark);
-  phone.addEventListener("change", onPhone);
-  return () => {
-    dark.removeEventListener("change", onDark);
-    phone.removeEventListener("change", onPhone);
-  };
 }

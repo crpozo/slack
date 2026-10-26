@@ -68,7 +68,7 @@ export function EmojiPicker({ onSelect }: Readonly<EmojiPickerProps>) {
   const shownGroups = groups?.filter((g) => activeGroup === null || g.id === activeGroup) ?? [];
 
   return (
-    <div className="flex h-80 w-80 max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-xl border border-line bg-surface-raised shadow-xl">
+    <div className="flex h-80 w-80 max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-xl glass-strong border border-white/10">
       <div className="border-b border-line p-2">
         <label className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2 focus-within:border-primary">
           <SearchIcon className="shrink-0 text-ink-secondary" />

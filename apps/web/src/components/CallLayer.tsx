@@ -326,7 +326,7 @@ function DeviceMenu({
         <Popover anchor={anchor} onClose={close}>
           <section
             aria-label={labels.title}
-            className="w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-line bg-surface-raised p-1 text-ink shadow-xl"
+            className="glass-strong w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-white/10 p-1 text-ink"
           >
             <h3 className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-ink-secondary">
               {labels.title}
@@ -376,7 +376,7 @@ function IncomingCall({ call }: Readonly<{ call: CallView }>) {
   return (
     <section
       aria-label={`Incoming call from ${name}`}
-      className="fixed inset-x-3 top-3 z-50 rounded-2xl border border-line bg-surface-raised p-4 text-ink shadow-2xl sm:left-auto sm:right-4 sm:top-4 sm:w-80"
+      className="fixed inset-x-3 top-3 z-50 rounded-2xl glass-strong border border-white/10 p-4 text-ink sm:left-auto sm:right-4 sm:top-4 sm:w-80"
     >
       <p className="sr-only" aria-live="assertive">
         {name} is calling you.

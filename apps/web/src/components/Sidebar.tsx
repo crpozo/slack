@@ -142,7 +142,7 @@ function RowMenu({ label, items }: Readonly<{ label: string; items: RowMenuItem[
           <div
             role="menu"
             aria-label={`Options for ${label}`}
-            className="w-52 rounded-xl border border-line bg-surface-raised p-1 shadow-xl"
+            className="glass-strong w-52 rounded-xl border border-white/10 p-1"
           >
             {items.map((item) => (
               <button
@@ -226,7 +226,7 @@ function Section({
   children: ReactNode;
 }>) {
   return (
-    <section className={compact ? "mt-3 border-t border-line pt-3 first:border-0" : "mt-4"}>
+    <section className={compact ? "mt-3 border-t border-white/10 pt-3 first:border-0" : "mt-4"}>
       {compact ? (
         action && <div className="mb-1 flex justify-center">{action}</div>
       ) : (
@@ -800,11 +800,12 @@ export function Sidebar({
   }
 
   return (
-    <div className="flex h-full flex-col border-r border-line bg-surface-sidebar">
+    // On the glass of the app's <aside> (Phase 37b): no background of its own.
+    <div className="flex h-full flex-col">
       {modals}
       {!only && (
         <header
-          className={`flex items-center border-b border-line py-3 ${
+          className={`flex items-center border-b border-white/10 py-3 ${
             compact ? "flex-col gap-2 px-2" : "gap-3 px-4"
           }`}
         >
@@ -856,7 +857,7 @@ export function Sidebar({
             className={
               compact
                 ? iconButton
-                : "flex w-full items-center gap-2 rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-ink-secondary hover:border-primary"
+                : "flex w-full items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5 text-sm text-ink-secondary hover:border-primary"
             }
           >
             <SearchIcon />
@@ -1043,7 +1044,7 @@ export function Sidebar({
 
       {!only && (
         <footer
-          className={`flex items-center gap-2 border-t border-line py-3 ${
+          className={`flex items-center gap-2 border-t border-white/10 py-3 ${
             compact ? "flex-col px-2" : "px-3"
           }`}
         >
@@ -1054,7 +1055,7 @@ export function Sidebar({
               compact ? "p-1" : "flex-1 p-1"
             }`}
             title={`${myName} · Settings`}
-            aria-label="Profile and theme settings"
+            aria-label="Profile and settings"
           >
             <Avatar name={myName} mine size="sm" />
             {!compact && (

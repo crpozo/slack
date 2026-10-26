@@ -21,20 +21,11 @@ import {
   soundsEnabled,
   soundVolume,
 } from "../lib/sounds";
-import { MOBILE_QUERY, useMediaQuery } from "../lib/hooks";
-import { getThemePreference, setThemePreference, type ThemePreference } from "../lib/theme";
 import { useChat, useNameOf } from "../store";
 import { Avatar } from "./Avatar";
 import { CameraPreview } from "./CameraPreview";
 import { ChangePasswordForm } from "./ChangePasswordForm";
-import { MonitorIcon, MoonIcon, SunIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
-
-const THEMES: Array<{ value: ThemePreference; label: string; Icon: typeof SunIcon }> = [
-  { value: "light", label: "Light", Icon: SunIcon },
-  { value: "dark", label: "Dark", Icon: MoonIcon },
-  { value: "system", label: "System", Icon: MonitorIcon },
-];
 
 function DeviceSelect({
   id,
@@ -331,25 +322,18 @@ function PasswordSettings() {
   );
 }
 
-/** Profile (display name), appearance (theme), notifications, call devices and password. */
+/** Profile (display name), notifications, call devices and password. */
 export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
   const me = useChat((s) => s.me);
   const nameOf = useNameOf();
   const current = me ? nameOf(me.userId, me.email) : "";
   const [name, setName] = useState(current);
-  const [theme, setTheme] = useState<ThemePreference>(getThemePreference);
-  const phone = useMediaQuery(MOBILE_QUERY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const trimmed = name.trim();
   const valid = trimmed.length > 0 && trimmed.length <= MAX_DISPLAY_NAME_LENGTH;
   const changed = trimmed !== current;
-
-  function chooseTheme(value: ThemePreference) {
-    setTheme(value);
-    setThemePreference(value); // applies immediately
-  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -415,35 +399,6 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
             >
               {error}
             </p>
-          )}
-        </section>
-
-        <section className="space-y-2">
-          <h3 className="text-sm font-semibold text-ink">Theme</h3>
-          {phone ? (
-            <p className="text-sm text-ink-secondary">
-              Phones always use the dark theme. Pick one for this device on a computer.
-            </p>
-          ) : (
-            <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Theme">
-              {THEMES.map(({ value, label, Icon }) => (
-                <button
-                  key={value}
-                  type="button"
-                  role="radio"
-                  aria-checked={theme === value}
-                  onClick={() => chooseTheme(value)}
-                  className={`flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 text-sm transition-colors ${
-                    theme === value
-                      ? "border-primary bg-primary/15 font-semibold text-ink"
-                      : "border-line text-ink-secondary hover:bg-surface-hover hover:text-ink"
-                  }`}
-                >
-                  <Icon className="text-lg" />
-                  {label}
-                </button>
-              ))}
-            </div>
           )}
         </section>
 

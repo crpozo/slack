@@ -66,7 +66,7 @@ export function NotificationBell({ className }: Readonly<{ className: string }>)
           <div
             role="dialog"
             aria-label="Notifications"
-            className="flex max-h-[min(28rem,70vh)] w-80 max-w-[calc(100vw-1rem)] flex-col rounded-xl border border-line bg-surface-raised shadow-xl"
+            className="flex max-h-[min(28rem,70vh)] w-80 max-w-[calc(100vw-1rem)] flex-col rounded-xl glass-strong border border-white/10"
           >
             <div className="flex items-center justify-between border-b border-line px-3 py-2">
               <h2 className="text-sm font-semibold text-ink">Notifications</h2>

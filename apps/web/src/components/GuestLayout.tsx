@@ -3,10 +3,9 @@ import { useMatch } from "react-router-dom";
 import { signOut } from "../lib/auth";
 import { chat } from "../lib/chat";
 import { signOutPush, syncPush } from "../lib/push";
-import { getThemePreference, resolveTheme, setThemePreference } from "../lib/theme";
 import { useChat } from "../store";
 import { useTasks } from "../store/tasks";
-import { LockIcon, LogOutIcon, MoonIcon, SunIcon } from "./icons";
+import { LockIcon, LogOutIcon } from "./icons";
 import { Logo } from "./LoginPage";
 import { NotificationBell } from "./NotificationBell";
 import { PushPrompt } from "./PushPrompt";
@@ -36,11 +35,6 @@ export function GuestLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const boardId = useMatch("/app/tasks/:boardId?")?.params.boardId;
   const me = useChat((s) => s.me);
   const [passwordOpen, setPasswordOpen] = useState(false);
-  const [dark, setDark] = useState(
-    () =>
-      resolveTheme(getThemePreference(), matchMedia("(prefers-color-scheme: dark)").matches) ===
-      "dark",
-  );
 
   const handleSignOut = useCallback(async () => {
     await signOutPush();
@@ -67,11 +61,6 @@ export function GuestLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     document.title = "MindfulTech · Boards";
   }, []);
 
-  function toggleTheme() {
-    setThemePreference(dark ? "light" : "dark");
-    setDark(!dark);
-  }
-
   return (
     <div className="flex h-full flex-col overflow-hidden bg-surface pb-[env(safe-area-inset-bottom)]">
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface-sidebar px-3 pt-[env(safe-area-inset-top)] sm:px-4">
@@ -81,15 +70,6 @@ export function GuestLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           <p className="truncate text-xs text-ink-secondary">Guest access · {me?.email}</p>
         </div>
         <NotificationBell className={iconButton} />
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className={iconButton}
-          aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
-          title={dark ? "Light theme" : "Dark theme"}
-        >
-          {dark ? <SunIcon /> : <MoonIcon />}
-        </button>
         <button
           type="button"
           onClick={() => setPasswordOpen(true)}

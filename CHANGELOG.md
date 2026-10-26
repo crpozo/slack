@@ -7,6 +7,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Glass:** the sidebar, conversation headers, menus, dialogs and the phone tab bar are now
+  translucent and blurred, iOS-style, over a soft dark background with faint purple and blue
+  light in the corners. Messages scroll under the header.
+  - **Desktop app (0.2.0):** on macOS and Windows 11 the window itself is translucent, and the
+    system blurs the desktop wallpaper behind the sidebar. Windows 10 and Linux keep a solid
+    window, since the blur would slow them down. Install the new version to get it; older
+    versions keep working as before.
+  - **Readability first:** with "Reduce transparency" (macOS, iOS) or transparency effects off
+    (Windows), everything turns solid.
 - **New phone design:** phones now follow Slack's mobile app in its dark look, whatever the
   theme setting. Purple replaces the teal on phones; computers don't change.
   - **Tab bar:** Home, DMs, Activity and More in a floating bar, Search in its own circle, and a
@@ -166,6 +175,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Removed
 
+- **Light theme and the theme setting:** MindfulTech is now dark everywhere, with Slack's
+  palette and purple accents (computers too, not only phones). The teal accent is gone; the logo
+  keeps its colours.
 - **Channel canvas** (merged in #40, withdrawn): the rich-text document beside the chat, its
   `canvas` Lambda and routes, the `canvases` table, the `canvas.updated` push and the TipTap and
   `sanitize-html` dependencies. The split pane it introduced now shows project boards. In prod

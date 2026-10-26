@@ -675,7 +675,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           <ul
             role="listbox"
             aria-label="Slash commands"
-            className="mx-1.5 mb-1 overflow-hidden rounded-lg border border-line bg-surface-raised shadow-lg"
+            className="mx-1.5 mb-1 overflow-hidden rounded-lg glass-strong border border-white/10"
           >
             {commands.map((c, i) => (
               <li key={c.name} role="option" aria-selected={i === commandIndex}>

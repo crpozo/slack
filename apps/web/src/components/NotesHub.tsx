@@ -63,8 +63,9 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col bg-surface">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
+    <div className="relative flex h-full min-h-0 flex-1 flex-col bg-surface">
+      {/* Desktop (Phase 37b): glass, floating over the content that scrolls under it. */}
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4 md:glass md:absolute md:inset-x-0 md:top-0 md:z-20 md:border-white/10">
         {onOpenSidebar && (
           <button
             type="button"
@@ -95,7 +96,7 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
         )}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto md:pt-14">
         <div className="mx-auto w-full max-w-xl px-3 pb-8 sm:px-0">
           {status === "loading" && notes.length === 0 && (
             <div className="space-y-3 pt-6" aria-busy="true" aria-label="Loading notes">

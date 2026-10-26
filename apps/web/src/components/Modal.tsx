@@ -69,7 +69,7 @@ export function Modal({ title, onClose, children, footer, width = "md" }: Readon
     <dialog
       ref={dialog}
       aria-label={title}
-      className={`m-0 mt-auto max-h-[90vh] w-full max-w-full overflow-hidden rounded-t-2xl border border-line bg-surface-raised p-0 text-ink shadow-xl backdrop:bg-scrim/50 backdrop:backdrop-blur-sm sm:m-auto sm:rounded-2xl ${WIDTHS[width]}`}
+      className={`m-0 mt-auto max-h-[90vh] w-full max-w-full glass-strong overflow-hidden rounded-t-2xl border border-white/10 p-0 text-ink backdrop:bg-scrim/50 backdrop:backdrop-blur-sm sm:m-auto sm:rounded-2xl ${WIDTHS[width]}`}
     >
       <div className="flex max-h-[90vh] flex-col">
         <header className="flex items-center justify-between border-b border-line px-5 py-3">

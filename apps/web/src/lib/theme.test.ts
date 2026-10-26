@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { resolveLook, resolveTheme } from "./theme";
+import { nativeGlass } from "./theme";
 
-describe("resolveLook", () => {
-  it("follows the preference on desktop", () => {
-    expect(resolveLook("light", true, false)).toBe("light");
-    expect(resolveLook("dark", false, false)).toBe("dark");
-    expect(resolveLook("system", true, false)).toBe(resolveTheme("system", true));
+describe("nativeGlass", () => {
+  it("is on only when the desktop app reports real OS blur", () => {
+    expect(nativeGlass({ __MINDFULTECH_GLASS__: "vibrancy" })).toBe("vibrancy");
+    expect(nativeGlass({ __MINDFULTECH_GLASS__: "mica" })).toBe("mica");
   });
 
-  it("is always the phone look on phones, whatever the preference", () => {
-    for (const pref of ["light", "dark", "system"] as const) {
-      expect(resolveLook(pref, false, true)).toBe("phone");
-    }
+  it("is off in browsers, older apps, Windows 10 and Linux", () => {
+    expect(nativeGlass({})).toBeNull();
+    expect(nativeGlass({ __MINDFULTECH_GLASS__: null })).toBeNull();
+    // Anything unexpected: never a transparent page.
+    expect(nativeGlass({ __MINDFULTECH_GLASS__: "acrylic" as never })).toBeNull();
   });
 });

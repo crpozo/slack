@@ -127,8 +127,13 @@ The UI:
   description. The creator or an admin edits name, topic and description from _Edit channel_.
 - **Reactions:** hovering over a message shows quick reactions and the full picker (with
   search). The chips under the message show the count; a click adds or removes yours.
-- **Settings** (click your name, bottom left): display name, which everyone else sees live, and
-  the Light / Dark / System theme (light by default).
+- **Settings** (click your name, bottom left): display name, which everyone else sees live,
+  notifications, and call devices.
+- **Look:** one dark theme everywhere (Slack's palette, purple accents), with "glass": the sidebar,
+  headers and pop-ups are translucent and blurred over a soft ambient background, and the
+  conversation scrolls under its header. In the desktop app on macOS and Windows 11, the window
+  itself is translucent: the OS blurs the desktop behind the sidebar. "Reduce transparency" in the
+  OS settings turns the glass solid.
 - **Priority chats:** channels and DMs are ordered by their latest message (`#general` stays on
   top; pinned DMs stay first), and a new message moves its conversation up at once.
 - **Board beside the chat:** in a project channel, the **📊 Board** pill opens the channel's
@@ -192,7 +197,7 @@ The UI:
   (`sk < "thread#"`) never includes them and a thread is one `begins_with` query; the parent's
   `replyCount`, `lastReplyAt` and `replyUserIds` are written in the same transaction as the reply.
 - **Phones:** a bottom tab bar (Home, DMs, Activity, Search, More) replaces the drawer; More holds
-  your profile, the theme and settings. A conversation opens on top with a back arrow.
+  your profile and settings. A conversation opens on top with a back arrow.
 - **Slash commands:** `/` at the start of a message opens the command list (`/secret`, `/shrug`,
   `/clear`), filtered as you type. Add one in `apps/web/src/lib/commands.ts`.
 - **Archived channels:** an admin archives a channel from its details; it becomes read-only (a

@@ -175,7 +175,8 @@ function ChannelHeader({
   const { dm, isPrivate, peer } = access;
   const KindIcon = isPrivate ? LockIcon : HashIcon;
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
+    // Glass (Phase 37b): it floats over the conversation, which scrolls under it.
+    <header className="glass absolute inset-x-0 top-0 z-20 flex h-14 items-center gap-2 border-b border-white/10 px-3 sm:px-4">
       {onBack ? (
         <button
           type="button"
@@ -365,14 +366,25 @@ export function ChannelView({
           onDetails={() => setDetails(true)}
         />
       )}
-      {archived && !mobileThread && (
-        <div
-          className="flex items-center justify-center gap-2 border-b border-line bg-warning/15 px-4 py-1.5 text-xs font-medium text-ink"
-          role="status"
-        >
-          <ArchiveIcon /> This channel is archived
-        </div>
-      )}
+      {/* Under the floating header: the archived note and an ongoing call, when
+          there are any. With none, the conversation itself starts under the
+          header instead (`--list-inset`), so it scrolls beneath the glass. */}
+      <div className={phone || mobileThread ? "" : "peer pt-14 empty:pt-0"} data-top-stack>
+        {archived && !mobileThread && (
+          <div
+            className="flex items-center justify-center gap-2 border-b border-line bg-warning/15 px-4 py-1.5 text-xs font-medium text-ink"
+            role="status"
+          >
+            <ArchiveIcon /> This channel is archived
+          </div>
+        )}
+        {!access.notFound && (
+          <>
+            <CallPanel channelId={channelId} />
+            <GroupCallPanel channelId={channelId} label={title} />
+          </>
+        )}
+      </div>
       {inviting && channel && <InviteModal channel={channel} onClose={() => setInviting(false)} />}
       {details && channel && (
         <EditChannelModal channel={channel} onClose={() => setDetails(false)} />
@@ -382,9 +394,12 @@ export function ChannelView({
         <NotFound />
       ) : (
         <>
-          <CallPanel channelId={channelId} />
-          <GroupCallPanel channelId={channelId} label={title} />
-          <div ref={rowRef} className={callExpanded ? "hidden" : "flex min-h-0 flex-1"}>
+          <div
+            ref={rowRef}
+            className={`${callExpanded ? "hidden" : "flex min-h-0 flex-1"} ${
+              phone || mobileThread ? "" : "peer-empty:[--list-inset:3.5rem]"
+            }`}
+          >
             {/* Phones show the thread instead of the conversation; desktop beside it. */}
             <div
               className={`flex min-h-0 min-w-0 flex-1 flex-col ${
@@ -432,7 +447,7 @@ export function ChannelView({
             )}
             {threadParent && onCloseThread && (
               <div
-                className="flex min-h-0 w-full flex-col md:shrink-0"
+                className="flex min-h-0 w-full flex-col pt-[var(--list-inset,0px)] md:shrink-0"
                 style={desktop ? { width: `${threadSplit.percent}%` } : undefined}
                 data-thread-pane
               >
@@ -456,7 +471,7 @@ export function ChannelView({
             )}
             {showBoard && boardId && (
               <div
-                className="flex min-h-0 shrink-0 flex-col"
+                className="flex min-h-0 shrink-0 flex-col pt-[var(--list-inset,0px)]"
                 style={{ width: `${boardSplit.percent}%` }}
                 data-board-pane
               >

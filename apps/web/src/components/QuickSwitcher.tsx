@@ -105,7 +105,7 @@ export function QuickSwitcher({ onClose }: Readonly<{ onClose: () => void }>) {
     <dialog
       ref={dialog}
       aria-label="Jump to a channel"
-      className="mt-[15vh] w-[calc(100%-2rem)] max-w-md overflow-hidden rounded-xl border border-line bg-surface p-0 text-ink shadow-xl backdrop:bg-scrim/40"
+      className="mt-[15vh] w-[calc(100%-2rem)] max-w-md glass-strong overflow-hidden rounded-xl border border-white/10 p-0 text-ink backdrop:bg-scrim/40 backdrop:backdrop-blur-sm"
     >
       <div className="flex items-center gap-2 border-b border-line px-3">
         <SearchIcon className="text-ink-secondary" />
