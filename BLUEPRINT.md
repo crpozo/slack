@@ -1015,6 +1015,40 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
 - **+** opens New message / New channel / New task, and each one works.
 - In a channel, the tab bar hides while typing and comes back after; 🎧 starts or joins the call; the history button lists the channels just opened.
 
+### Phase 37b — One dark theme and glass (web, phones, desktop app)
+
+**Branch:** `feature/f37b-desktop-glass`
+
+1. **One theme:** Phase 37's phone palette is now the only one, on `:root`.
+   - **Colours:** `#1A1D21` / `#222529` surfaces, `#F8F8F8` / `#ABABAD` text, purple `#611F69` fills with white `on-primary` text, lilac `#E3B0F0` foreground (`--c-primary-fg`), and sky blue kept for others' avatars and unread counts.
+   - **Removed:** the light theme, the teal, the Light/Dark/System setting (Settings, guest header), and `slack.theme`, which is cleared on load.
+   - **Static `dark`:** `<html class="dark">` is set in `index.html`, with theme-color and the manifest at `#1A1D21`.
+2. **Glass (`styles.css`):** CSS `backdrop-filter` only blurs what's inside the page.
+   - **`.glass`:** sidebar, channel/News/AI Notes headers, phone tab bar. It is `rgb(26 29 33 / .6)` with `blur(20px) saturate(140%)`, a `white/10` edge and a 1 px inner highlight.
+   - **`.glass-strong`:** modals and sheets, the quick switcher, menus, the emoji picker, notifications, toasts and call cards. It is `/.78` with `blur(24px)` and a soft drop shadow.
+   - **Fallbacks:** without `backdrop-filter`, or with `prefers-reduced-transparency: reduce`, both are solid and the ambient layer is off.
+   - **Ambient background (web):** a fixed `body::before` with four very soft radial gradients (purple top-left, Slack blue bottom-right, plum top-right, faint cyan bottom-left). There is no blur filter and no `background-attachment: fixed`.
+   - **Layout:** the app shell is transparent; the content pane (`main`) stays solid, like macOS apps.
+   - **Scroll under:** the desktop channel header floats (`absolute`) over the conversation, which gets a `--list-inset` top padding and scrolls beneath it.
+     - When there's an archived note or an ongoing call, a `peer pt-14 empty:pt-0` stack holds them under the header instead.
+     - The thread and board panes start under the header too.
+     - News and AI Notes do the same on desktop.
+3. **Desktop app (Tauri, 0.2.0):** CSS can't blur the desktop, so real glass comes from the OS.
+   - **macOS:** vibrancy (`UnderWindowBackground`).
+   - **Windows 11 (build ≥ 22000):** `MicaDark`.
+   - **Windows 10 and Linux:** none, because Acrylic lags on drag/resize and Linux has no blur. They keep an opaque window with a `#1A1D21` background (no white flash).
+   - **Window:** the main window has a dark theme and is transparent only with glass.
+   - **Config:** `tauri.conf.json` has `transparent: true`, `theme: Dark` and `macOSPrivateApi: true`; Cargo has the `macos-private-api` feature (fine outside the Mac App Store) and `windows-version` for the Windows 11 check.
+   - **Telling the site:** an initialization script sets `window.__MINDFULTECH_GLASS__` (`"vibrancy"`, `"mica"` or `null`) before the site runs. Only then does the site add `html.native-glass`, which makes `html`/`body` transparent and drops the ambient layer.
+     - **Safe in any order:** browsers, older desktop apps, Windows 10 and Linux never get a see-through page, so the web can ship first.
+     - **Call window:** the PiP window has no script and stays opaque.
+
+**Phase 37b acceptance criteria:**
+- The web app is dark with purple accents on every device; Settings has no theme choice.
+- On a computer, the sidebar and the channel header are translucent; messages scrolling under the header are blurred; dialogs and menus are glass.
+- "Reduce transparency" in the OS makes them solid.
+- The 0.2.0 desktop app on macOS and Windows 11 shows the blurred desktop through the sidebar; on Windows 10 it looks like the web app (solid).
+
 ### Phase 35 (planned) — Customer channels (guest access to shared channels)
 
 Deferred from Phase 34: it moves the guest security boundary, so it gets its own phase and tests. Today guests are boards-only. They're blocked from every WebSocket action but `ping`, `presign` and `user` (`GUEST_ROUTES`), receive only `board.*` events (`guestMayReceive`), and see only board co-members. Needed:

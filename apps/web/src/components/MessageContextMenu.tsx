@@ -162,7 +162,7 @@ export function MessageContextMenu({
         top: position?.top ?? y,
         visibility: position ? "visible" : "hidden",
       }}
-      className="z-50 w-56 rounded-xl border border-line bg-surface-raised p-1 shadow-xl"
+      className="glass-strong z-50 w-56 rounded-xl border border-white/10 p-1"
       data-message-menu
     >
       {sent && (

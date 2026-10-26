@@ -137,11 +137,11 @@ export function BottomTabs({
   return (
     <Collapsible hidden={hidden}>
       <div
-        className="flex items-center gap-3 bg-surface px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2"
+        className="flex items-center gap-3 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2"
         data-tabbar
       >
         <nav
-          className="flex min-w-0 flex-1 items-center rounded-full border border-line bg-surface-raised p-1 shadow-[0_8px_24px_rgb(0_0_0/0.35)]"
+          className="glass flex min-w-0 flex-1 items-center rounded-full border border-white/10 p-1 shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_8px_24px_rgb(0_0_0/0.35)]"
           aria-label="Main"
         >
           {TABS.map((tab) => {
@@ -172,7 +172,7 @@ export function BottomTabs({
           onClick={() => navigate("/app/search")}
           aria-label="Search"
           aria-current={searchActive ? "page" : undefined}
-          className={`flex h-[60px] w-[60px] shrink-0 items-center justify-center rounded-full border border-line bg-surface-raised text-[26px] shadow-[0_8px_24px_rgb(0_0_0/0.35)] transition-colors ${
+          className={`glass flex h-[60px] w-[60px] shrink-0 items-center justify-center rounded-full border border-white/10 text-[26px] shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_8px_24px_rgb(0_0_0/0.35)] transition-colors ${
             searchActive ? "text-primary" : "text-ink"
           }`}
         >

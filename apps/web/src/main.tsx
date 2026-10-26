@@ -8,14 +8,13 @@ import { registerServiceWorker } from "./lib/push";
 import { loadConfig } from "./lib/config";
 import { installAudioUnlock } from "./lib/sounds";
 import { configureTasksApi } from "./lib/tasksApi";
-import { applyTheme, watchSystemTheme } from "./lib/theme";
+import { applyTheme } from "./lib/theme";
 import { installExternalLinks } from "./lib/external";
 import { useChat } from "./store";
 import "./styles.css";
 
-// index.html already applied the saved theme before paint; keep it in sync with the OS.
+// The one dark look, and native glass in the desktop app (index.html set `dark` before paint).
 applyTheme();
-watchSystemTheme();
 // Browsers block audio until a user gesture: arm notification sounds on the first one.
 installAudioUnlock();
 // Desktop app: links to other sites open in the OS's browser, never inside the app.

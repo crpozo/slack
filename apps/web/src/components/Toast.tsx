@@ -18,7 +18,7 @@ export function Toast() {
     <div className="pointer-events-none fixed inset-x-0 bottom-[calc(6rem+env(safe-area-inset-bottom))] z-50 flex justify-center px-4">
       <div
         role="alert"
-        className="pointer-events-auto flex max-w-md items-start gap-3 rounded-lg border border-error/40 bg-surface px-4 py-3 text-sm text-ink shadow-lg"
+        className="pointer-events-auto flex max-w-md items-start gap-3 glass-strong rounded-lg border border-error/40 px-4 py-3 text-sm text-ink"
       >
         <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-error" />
         <span className="flex-1">{toast}</span>

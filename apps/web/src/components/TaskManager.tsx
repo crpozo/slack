@@ -282,7 +282,7 @@ function MoveMenu({ task }: Readonly<{ task: Task }>) {
           <div
             role="menu"
             aria-label="Move to"
-            className="w-44 rounded-xl border border-line bg-surface-raised p-1 shadow-xl"
+            className="w-44 rounded-xl glass-strong border border-white/10 p-1"
           >
             {COLUMNS.filter((c) => c.status !== task.status).map((c) => (
               <button
@@ -601,7 +601,7 @@ function BoardMenu({
           <div
             role="menu"
             aria-label="Board settings"
-            className="w-48 rounded-xl border border-line bg-surface-raised p-1 shadow-xl"
+            className="w-48 rounded-xl glass-strong border border-white/10 p-1"
           >
             {onRename && (
               <button

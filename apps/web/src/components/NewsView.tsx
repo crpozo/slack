@@ -31,8 +31,9 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
   const loading = status === "loading" || status === "idle";
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col bg-surface" data-news-view>
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
+    <div className="relative flex h-full min-h-0 flex-1 flex-col bg-surface" data-news-view>
+      {/* Desktop (Phase 37b): glass, floating over the content that scrolls under it. */}
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4 md:glass md:absolute md:inset-x-0 md:top-0 md:z-20 md:border-white/10">
         {onOpenSidebar && (
           <button
             type="button"
@@ -70,7 +71,7 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
         </button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto md:pt-14">
         <div className="mx-auto w-full max-w-6xl px-3 py-5 sm:px-6 sm:py-6">
           {!configured ? (
             <Notice>AI News isn&apos;t set up on this deployment.</Notice>

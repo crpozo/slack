@@ -197,7 +197,9 @@ export function MessageList({
         aria-live="polite"
         aria-label={`Messages in ${title}`}
       >
-        <div className="flex min-h-full flex-col justify-end pb-3">
+        {/* `--list-inset`: room for a floating glass header (ChannelView); the
+            messages scroll up beneath it. */}
+        <div className="flex min-h-full flex-col justify-end pb-3 pt-[var(--list-inset,0px)]">
           {!loaded && (
             <div className="space-y-4 px-4 py-6" aria-label="Loading messages">
               {[0, 1, 2].map((i) => (

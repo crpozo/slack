@@ -111,7 +111,7 @@ function MessageActions({
       ref={ref}
       role="toolbar"
       aria-label="Message actions"
-      className={`absolute -top-4 right-4 z-10 items-center gap-0.5 rounded-lg border border-line bg-surface-raised p-0.5 shadow-sm ${visibility}`}
+      className={`absolute -top-4 right-4 z-10 items-center gap-0.5 rounded-lg glass-strong border border-white/10 p-0.5 ${visibility}`}
     >
       {QUICK_REACTIONS.map((emoji) => (
         <button

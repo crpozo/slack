@@ -1,23 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildGroups, normalizeSearch, QUICK_REACTIONS, searchEmojis } from "./emoji";
 import { clampSidebarWidth, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "./sidebar";
-import { isThemePreference, resolveTheme } from "./theme";
-
-describe("theme", () => {
-  it("resolves system to the OS preference", () => {
-    expect(resolveTheme("system", true)).toBe("dark");
-    expect(resolveTheme("system", false)).toBe("light");
-    expect(resolveTheme("dark", false)).toBe("dark");
-    expect(resolveTheme("light", true)).toBe("light");
-  });
-
-  it("validates stored values", () => {
-    expect(isThemePreference("dark")).toBe(true);
-    expect(isThemePreference("blue")).toBe(false);
-    expect(isThemePreference(null)).toBe(false);
-  });
-});
-
 describe("sidebar width", () => {
   it("clamps to the allowed range", () => {
     expect(clampSidebarWidth(10)).toBe(SIDEBAR_MIN_WIDTH);
@@ -56,12 +39,5 @@ describe("emoji", () => {
   it("quick reactions use the dataset's exact strings", () => {
     expect(QUICK_REACTIONS[0]).toBe("👍️");
     expect(QUICK_REACTIONS[1]).toBe("❤️");
-  });
-});
-
-describe("defaults", async () => {
-  const { DEFAULT_THEME } = await import("./theme");
-  it("starts in the light (white) theme", () => {
-    expect(DEFAULT_THEME).toBe("light");
   });
 });

@@ -3,51 +3,19 @@
 @tailwind utilities;
 
 @layer base {
-  /* MindfulTech tokens as "R G B" (see tailwind.config.js). */
+  /* MindfulTech tokens as "R G B" (see tailwind.config.js). Phase 37b: one dark
+     theme everywhere, Slack's palette (Phase 37 brought it to phones). Purple
+     plays two parts, because no single purple is both a fill under white text
+     and readable text on #1A1D21: #611F69 for fills (`bg-primary`, white
+     `on-primary` text on it), lilac #E3B0F0 for active icons, text, borders and
+     rings (`text-primary`…, `--c-primary-fg`). Sky blue stays as the second
+     accent (others' avatars, unread counts). */
   :root {
-    --c-primary: 105 199 185; /* #69C7B9 */
-    --c-primary-hover: 90 179 166; /* #5AB3A6 */
-    --c-sky: 133 191 233; /* #85BFE9 */
-    --c-ink: 14 13 18; /* #0E0D12 */
-    --c-ink-secondary: 75 77 85; /* #4B4D55 */
-    --c-surface: 255 255 255; /* #FFFFFF */
-    --c-surface-sidebar: 245 247 249; /* #F5F7F9 */
-    --c-surface-hover: 232 237 242; /* #E8EDF2 */
-    --c-surface-raised: 255 255 255;
-    --c-line: 232 237 242; /* #E8EDF2 */
-    --c-success: 95 212 178; /* #5FD4B2 */
-    --c-warning: 244 201 92; /* #F4C95C */
-    --c-error: 229 115 115; /* #E57373 */
-    --c-on-accent: 14 13 18;
-    --c-on-primary: 14 13 18;
-    --c-primary-fg: 105 199 185; /* = primary */
-    --c-scrim: 14 13 18;
-    color-scheme: light;
-  }
-
-  /* Dark set derived from ink: surfaces in ink tones, light text, same accents. */
-  .dark {
-    --c-primary-hover: 127 211 198; /* brighter on dark */
-    --c-ink: 236 238 242; /* text */
-    --c-ink-secondary: 164 167 177;
-    --c-surface: 23 22 29;
-    --c-surface-sidebar: 14 13 18; /* #0E0D12 */
-    --c-surface-hover: 42 41 51;
-    --c-surface-raised: 32 31 40;
-    --c-line: 42 41 51;
-    --c-scrim: 0 0 0;
-    color-scheme: dark;
-  }
-
-  /* Phones (Phase 37): always this dark set, Slack's mobile palette, whatever the
-     theme setting (lib/theme.ts adds `phone` and `dark` together). Purple replaces
-     the teal: #611F69 for fills (white text on it), lilac #E3B0F0 for active icons,
-     text, borders and rings (readable on #1A1D21). */
-  .phone {
     --c-primary: 97 31 105; /* #611F69 */
     --c-primary-hover: 122 42 132; /* #7A2A84 */
     --c-primary-fg: 227 176 240; /* #E3B0F0 */
     --c-on-primary: 255 255 255;
+    --c-sky: 133 191 233; /* #85BFE9 */
     --c-ink: 248 248 248; /* #F8F8F8 */
     --c-ink-secondary: 171 171 173; /* #ABABAD */
     --c-surface: 26 29 33; /* #1A1D21 */
@@ -56,6 +24,9 @@
     --c-surface-raised: 34 37 41; /* #222529 */
     --c-line: 53 55 59; /* #35373B */
     --c-success: 43 172 118; /* #2BAC76, Slack's "active" green */
+    --c-warning: 244 201 92; /* #F4C95C */
+    --c-error: 229 115 115; /* #E57373 */
+    --c-on-accent: 14 13 18; /* text on sky, green, amber, red */
     --c-scrim: 0 0 0;
     color-scheme: dark;
   }
@@ -80,6 +51,35 @@
     @apply bg-surface font-sans text-ink antialiased;
   }
 
+  /* The ambient background (Phase 37b): mostly #1A1D21, with very faint deep
+     purple and blue light in the corners, for the glass to sit on. A fixed
+     layer rather than `background-attachment: fixed` (which stutters on iOS);
+     radial gradients are soft already, so no costly full-screen blur filter. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60vmax 45vmax at 0% 0%, rgb(97 31 105 / 0.42), transparent 70%),
+      radial-gradient(55vmax 45vmax at 100% 100%, rgb(18 100 163 / 0.26), transparent 70%),
+      radial-gradient(40vmax 32vmax at 100% 0%, rgb(74 21 75 / 0.3), transparent 70%),
+      radial-gradient(38vmax 30vmax at 0% 100%, rgb(54 197 240 / 0.08), transparent 70%);
+  }
+
+  /* The desktop app's transparent window with real OS blur (macOS vibrancy,
+     Windows 11 Mica; see lib/theme.ts): the page itself is see-through, and
+     the blurred, darkened desktop is the ambient background. Never anywhere
+     else: an opaque window would show nothing behind a transparent page. */
+  html.native-glass,
+  html.native-glass body {
+    background: transparent;
+  }
+  html.native-glass body::before {
+    display: none;
+  }
+
   /* No browser back/forward swipe or sideways rubber-banding: horizontal
      swipes belong to the app (drawer, swipe to reply). */
   html,
@@ -89,6 +89,26 @@
 }
 
 @layer components {
+  /* Glass (Phase 37b), iOS-style: a translucent dark tint, a strong blur of
+     what's behind (the ambient background, content scrolling underneath, or,
+     in the desktop app, the OS-blurred desktop), and a faint light edge. For
+     the frame around the content: sidebar, headers, the phone tab bar. */
+  .glass {
+    background-color: rgb(26 29 33 / 0.6);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    backdrop-filter: blur(20px) saturate(140%);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
+  }
+  /* Overlays with text right on them (modals, sheets, menus, toasts): more tint. */
+  .glass-strong {
+    background-color: rgb(30 33 38 / 0.78);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+    backdrop-filter: blur(24px) saturate(150%);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.08),
+      0 24px 48px -12px rgb(0 0 0 / 0.55);
+  }
+
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50;
   }
@@ -240,5 +260,33 @@
   }
   .fc .fc-col-header-cell-cushion {
     font-size: 0.75rem;
+  }
+}
+
+/* Glass falls back to solid where it can't blur, or where the person asked the
+   OS for less transparency (macOS and iOS "Reduce transparency", Windows
+   "Transparency effects" off): readable first. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background-color: rgb(var(--c-surface-sidebar));
+  }
+  .glass-strong {
+    background-color: rgb(var(--c-surface-raised));
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-strong {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass {
+    background-color: rgb(var(--c-surface-sidebar));
+  }
+  .glass-strong {
+    background-color: rgb(var(--c-surface-raised));
+  }
+  body::before {
+    display: none;
   }
 }

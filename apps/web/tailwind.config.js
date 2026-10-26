@@ -4,17 +4,14 @@
 const token = (name) => `rgb(var(--c-${name}) / <alpha-value>)`;
 
 /**
- * MindfulTech design system. Values live in src/styles.css as CSS variables
- * with a light set on :root and a dark set on .dark, so every utility
- * (bg-surface, text-ink, bg-primary/15…) switches theme without `dark:` variants.
- * Contrast: primary (#69C7B9) and sky (#85BFE9) are light in both themes, so text on
- * them uses `on-accent` (always the dark ink), never white.
+ * MindfulTech design system. Values live in src/styles.css as CSS variables:
+ * one dark theme everywhere (Phase 37b), Slack's palette with purple accents.
  *
- * Phones (Phase 37, `html.phone`) swap the teal for Slack's purple, which can't be
- * both a fill under white text and readable text on the dark background. So
- * `primary` is split: fills (`bg-primary`) use `--c-primary`, while text, borders,
- * rings, underlines and icon strokes use `--c-primary-fg`. Text on a primary fill
- * uses `on-primary`. On desktop the two match, so nothing changes there.
+ * `primary` is split: fills (`bg-primary`, #611F69) use `--c-primary`, with
+ * `on-primary` (white) text on them; text, borders, rings, underlines and
+ * icon strokes use `--c-primary-fg` (lilac #E3B0F0), which is readable on the
+ * dark background where the fill purple isn't. Text on sky, green, amber and
+ * red uses `on-accent` (the dark ink).
  * @type {import('tailwindcss').Config}
  */
 export default {
@@ -45,14 +42,14 @@ export default {
         success: token("success"),
         warning: token("warning"),
         error: token("error"),
-        /** Text on primary/sky: #0E0D12 in both themes. */
+        /** Text on sky, green, amber and red: the dark ink #0E0D12. */
         "on-accent": token("on-accent"),
-        /** Text on a solid primary fill: the dark ink on desktop's teal, white on phones' purple. */
+        /** Text on a solid primary fill (white on the purple). */
         "on-primary": token("on-primary"),
         /** Modal and drawer backdrops. */
         scrim: token("scrim"),
       },
-      // Primary as a foreground (see above): readable lilac on phones, the same teal elsewhere.
+      // Primary as a foreground (see above): the readable lilac.
       textColor: { primary: { DEFAULT: token("primary-fg"), hover: token("primary-fg") } },
       borderColor: { primary: { DEFAULT: token("primary-fg"), hover: token("primary-fg") } },
       ringColor: { primary: { DEFAULT: token("primary-fg"), hover: token("primary-fg") } },

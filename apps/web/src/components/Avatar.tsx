@@ -31,7 +31,7 @@ export function Avatar({ name, mine = false, size = "md" }: Readonly<AvatarProps
 const dotSrc = (svg: string) => `data:image/svg+xml,${encodeURIComponent(svg)}`;
 const PRESENCE_DOTS = {
   online: dotSrc(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5" fill="#5FD4B2"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5" fill="#2BAC76"/></svg>',
   ),
   offline: dotSrc(
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="none" stroke="#8A8D96" stroke-width="2"/></svg>',
