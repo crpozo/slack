@@ -212,7 +212,7 @@ export function RepeatFields({
                     onClick={() => toggleDay(day)}
                     className={`h-8 w-8 rounded-full text-xs font-semibold transition-colors ${
                       on
-                        ? "bg-primary text-on-accent"
+                        ? "bg-primary text-on-primary"
                         : "bg-surface-sidebar text-ink-secondary hover:text-ink"
                     } ${day === dow ? "cursor-default" : ""}`}
                   >

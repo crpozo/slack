@@ -228,7 +228,7 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
             </button>
             <button
               type="button"
-              className="ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary text-on-accent hover:bg-primary-hover"
+              className="ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary text-on-primary hover:bg-primary-hover"
               onClick={() => newEvent()}
               aria-label="New event"
             >

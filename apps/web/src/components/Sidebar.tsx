@@ -5,21 +5,34 @@ import {
   MAX_UNREAD_COUNT,
   type Channel,
 } from "@mindfultech/shared";
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
+import { LONG_PRESS_MS, SLOP_PX, swallowNextClick } from "../lib/gestures";
 import { dmEntries, orderChannels, orderDms, type DmEntry } from "../lib/channels";
+import {
+  loadPhoneSections,
+  savePhoneSections,
+  type PhoneSection,
+  type PhoneSections,
+} from "../lib/sidebar";
 import type { WsStatus } from "../lib/ws";
 import { selectUnread, useChat, useNameOf } from "../store";
-import { Avatar, PresenceDot } from "./Avatar";
+import { Avatar, PresenceDot, StatusBadge } from "./Avatar";
 import { ChannelIcon } from "./ChannelIcon";
 import { DeleteChannelModal, EditChannelModal } from "./ChannelModals";
+import { Modal } from "./Modal";
 import { NotificationBell } from "./NotificationBell";
 import { Popover } from "./Popover";
 import {
+  AppsIcon,
   ArchiveIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
+  ChevronUpIcon,
+  DmsIcon,
+  HashIcon,
   CalendarIcon,
   KanbanIcon,
   LogOutIcon,
@@ -229,10 +242,294 @@ function Section({
   );
 }
 
+// --- Phones (Phase 37) -------------------------------------------------------------
+
+/**
+ * A row's options on phones: a long press (or a right click) opens them as a
+ * sheet, like Slack's, instead of a ⋯ on every row. Keyboard users still get
+ * a ⋯ button, shown when it has focus.
+ */
+function useLongPress(enabled: boolean, onLongPress: () => void) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  /** It fired: the lift that follows must not click, nor reach the sheet's backdrop. */
+  const fired = useRef(false);
+  const cancel = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    start.current = null;
+  };
+  useEffect(() => cancel, []);
+  if (!enabled) return {};
+  return {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      start.current = { x: e.clientX, y: e.clientY };
+      fired.current = false;
+      timer.current = setTimeout(() => {
+        cancel();
+        fired.current = true;
+        swallowNextClick(); // the lift mustn't also open the conversation
+        navigator.vibrate?.(10);
+        onLongPress();
+      }, LONG_PRESS_MS);
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const from = start.current;
+      if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) > SLOP_PX) cancel();
+    },
+    onPointerUp: cancel,
+    onPointerCancel: cancel,
+    // Not passive in React: cancelling it stops the mouse events a lift makes.
+    onTouchEnd: (e: React.TouchEvent) => {
+      if (!fired.current) return;
+      fired.current = false;
+      if (e.cancelable) e.preventDefault();
+    },
+    onContextMenu: (e: React.MouseEvent) => {
+      e.preventDefault();
+      cancel();
+      onLongPress();
+    },
+  };
+}
+
+/** A large Slack-style row: icon, name (bold when unread), badge; options on a long press. */
+function PhoneRow({
+  label,
+  icon,
+  unread,
+  urgent = false,
+  title,
+  disabled,
+  faded = false,
+  chip,
+  pinned = false,
+  onClick,
+  menu,
+}: Readonly<{
+  label: string;
+  icon: ReactNode;
+  unread: number;
+  urgent?: boolean;
+  title?: string;
+  disabled?: boolean;
+  faded?: boolean;
+  /** A small label after the name (Apps: "APP"). */
+  chip?: string;
+  pinned?: boolean;
+  onClick: () => void;
+  menu?: RowMenuItem[];
+}>) {
+  const tone = unread > 0 ? "font-bold text-ink" : faded ? "text-ink-secondary" : "text-ink/85";
+  const [options, setOptions] = useState(false);
+  const hasMenu = !!menu && menu.length > 0;
+  const press = useLongPress(hasMenu, () => setOptions(true));
+  return (
+    <li className="group relative">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        title={title}
+        {...press}
+        className={`flex w-full touch-manipulation select-none items-center gap-4 px-4 py-2 text-left text-[17px] [-webkit-touch-callout:none] active:bg-surface-hover disabled:opacity-50 ${tone}`}
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center">{icon}</span>
+        <span className="truncate">{label}</span>
+        {chip && (
+          <span className="shrink-0 rounded-md bg-surface-hover px-1.5 py-0.5 text-xs font-semibold tracking-wide text-ink-secondary">
+            {chip}
+          </span>
+        )}
+        {pinned && <PinIcon className="shrink-0 text-sm text-ink-secondary" aria-label="Pinned" />}
+        <UnreadBadge count={unread} compact={false} urgent={urgent} />
+      </button>
+      {hasMenu && (
+        <button
+          type="button"
+          onClick={() => setOptions(true)}
+          aria-label={`More options for ${label}`}
+          aria-haspopup="dialog"
+          className="sr-only rounded-md p-1 text-ink-secondary focus:not-sr-only focus:absolute focus:right-3 focus:top-1/2 focus:-translate-y-1/2"
+        >
+          <MoreHorizontalIcon />
+        </button>
+      )}
+      {options && menu && (
+        <Modal title={label} width="sm" onClose={() => setOptions(false)}>
+          <div
+            role="menu"
+            aria-label={`Options for ${label}`}
+            className="-mx-5 -my-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+          >
+            {menu.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOptions(false);
+                  item.onSelect();
+                }}
+                className={`flex w-full items-center gap-3 px-4 py-3 text-left text-base font-semibold active:bg-surface-hover ${
+                  item.danger ? "text-error" : "text-ink"
+                }`}
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-surface-hover text-xl">
+                  {item.icon}
+                </span>
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
+    </li>
+  );
+}
+
+/** The faded "+ Add channel" / "+ Start a new message" at the end of a list. */
+function AddRow({ label, onClick }: Readonly<{ label: string; onClick: () => void }>) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex w-full items-center gap-4 px-4 py-2.5 text-left text-[17px] text-ink-secondary active:bg-surface-hover"
+      >
+        <span className="flex w-9 shrink-0 justify-center text-[24px]">
+          <PlusIcon />
+        </span>
+        {label}
+      </button>
+    </li>
+  );
+}
+
+/**
+ * A folding section: its icon and bold title (with a › to the full list when
+ * there is one) and a caret that folds it away, remembered on the device.
+ */
+function PhoneSectionBlock({
+  title,
+  icon,
+  folded,
+  onToggle,
+  onOpen,
+  openLabel,
+  children,
+}: Readonly<{
+  title: string;
+  icon: ReactNode;
+  folded: boolean;
+  onToggle: () => void;
+  onOpen?: () => void;
+  openLabel?: string;
+  children: ReactNode;
+}>) {
+  const id = `phone-section-${title.toLowerCase().replace(/\s+/g, "-")}`;
+  const heading = (
+    <>
+      <span className="flex w-9 shrink-0 justify-center text-[24px] text-ink">{icon}</span>
+      <span className="text-[17px] font-bold text-ink">{title}</span>
+    </>
+  );
+  return (
+    <section className="border-b border-line py-2 last:border-0" aria-labelledby={`${id}-title`}>
+      <div className="flex items-center pr-2">
+        <h2 id={`${id}-title`} className="min-w-0 flex-1">
+          {onOpen ? (
+            <button
+              type="button"
+              onClick={onOpen}
+              aria-label={openLabel}
+              className="flex items-center gap-4 py-2.5 pl-4 pr-2 text-left"
+            >
+              {heading}
+              <ChevronRightIcon className="text-lg text-ink" aria-hidden="true" />
+            </button>
+          ) : (
+            <span className="flex items-center gap-4 py-2.5 pl-4">{heading}</span>
+          )}
+        </h2>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={!folded}
+          aria-controls={id}
+          aria-label={folded ? `Show ${title}` : `Hide ${title}`}
+          className="rounded-full p-2.5 text-[22px] text-ink-secondary active:bg-surface-hover"
+        >
+          <ChevronUpIcon
+            className={`transition-transform duration-200 ${folded ? "rotate-180" : ""}`}
+          />
+        </button>
+      </div>
+      {!folded && (
+        <ul id={id} className="pb-1">
+          {children}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+interface PhoneApp {
+  path: string;
+  label: string;
+  tile: string;
+  icon: ReactNode;
+}
+
+/** Apps on phones, each with its square tile. */
+const PHONE_APPS: PhoneApp[] = [
+  {
+    path: "/app/tasks",
+    label: "Task Manager",
+    tile: "bg-gradient-to-br from-[#7C3AED] to-[#4A154B] text-white",
+    icon: <KanbanIcon />,
+  },
+  {
+    path: "/app/calendar",
+    label: "Calendar",
+    tile: "bg-gradient-to-br from-[#36C5F0] to-[#1264A3] text-white",
+    icon: <CalendarIcon />,
+  },
+  {
+    path: "/app/notes",
+    label: "AI Notes",
+    tile: "bg-gradient-to-br from-[#ECB22E] to-[#E01E5A] text-white",
+    icon: <SparklesIcon />,
+  },
+  {
+    path: "/app/news",
+    label: "AI News",
+    tile: "bg-white text-[#1A1D21]",
+    icon: <span aria-hidden="true">📰</span>,
+  },
+];
+
+function AppTile({ app }: Readonly<{ app: PhoneApp }>) {
+  return (
+    <span
+      className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl shadow-sm ${app.tile}`}
+      aria-hidden="true"
+    >
+      {app.icon}
+    </span>
+  );
+}
+
 interface SidebarProps {
   activeChannelId: string;
   /** Phones' tab screens: one section, full width, no header or footer. */
   only?: "channels" | "dms";
+  /**
+   * Phones (Phase 37): Slack's mobile lists. Channels, Direct Messages and Apps
+   * as folding sections with large rows (or only the DM rows, with `only`).
+   */
+  phone?: boolean;
   /** Icon-only rail (desktop). */
   collapsed: boolean;
   onToggleCollapsed?: () => void;
@@ -246,6 +543,7 @@ interface SidebarProps {
 export function Sidebar({
   activeChannelId,
   only,
+  phone = false,
   collapsed,
   onToggleCollapsed,
   onOpenSwitcher,
@@ -288,6 +586,14 @@ export function Sidebar({
     [channels],
   );
   const [showArchived, setShowArchived] = useState(false);
+  const [folded, setFolded] = useState<PhoneSections>(loadPhoneSections);
+  const toggleSection = useCallback((section: PhoneSection) => {
+    setFolded((prev) => {
+      const next = { ...prev, [section]: !prev[section] };
+      savePhoneSections(next);
+      return next;
+    });
+  }, []);
   const dms = useMemo(
     () =>
       me
@@ -350,8 +656,8 @@ export function Sidebar({
 
   const iconButton = "rounded-md p-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink";
 
-  return (
-    <div className="flex h-full flex-col border-r border-line bg-surface-sidebar">
+  const modals = (
+    <>
       {editing && <EditChannelModal channel={editing} onClose={() => setEditing(null)} />}
       {deleting && (
         <DeleteChannelModal
@@ -360,6 +666,142 @@ export function Sidebar({
           onClose={() => setDeleting(null)}
         />
       )}
+    </>
+  );
+
+  if (phone) {
+    const dmRows = (
+      <>
+        {dms.map((dm) => {
+          const id = dm.userId ? dmChannelId(me.userId, dm.userId) : undefined;
+          const isOnline = !!dm.userId && !!online[dm.userId];
+          return (
+            <PhoneRow
+              key={dm.userId ?? dm.email}
+              label={dm.name}
+              icon={
+                <span className="relative inline-flex">
+                  <Avatar name={dm.name} size="md" />
+                  <StatusBadge online={isOnline} />
+                </span>
+              }
+              title={dm.userId ? undefined : dmTitle(dm, false)}
+              unread={dm.channelId && id !== activeChannelId ? (unread[dm.channelId] ?? 0) : 0}
+              urgent
+              disabled={!dm.userId}
+              onClick={() => dm.userId && openDm(dm.userId)}
+              menu={dmMenu(dm)}
+              pinned={!!dm.channelId && pinned.includes(dm.channelId)}
+            />
+          );
+        })}
+        {dms.length === 0 && (
+          <li className="px-4 py-2 text-sm text-ink-secondary">
+            Your team appears here once they sign in.
+          </li>
+        )}
+        <AddRow label="Start a new message" onClick={onNewDm} />
+      </>
+    );
+    if (only === "dms") {
+      return (
+        <>
+          {modals}
+          <ul className="py-2" aria-label="Direct messages">
+            {dmRows}
+          </ul>
+        </>
+      );
+    }
+    return (
+      <>
+        {modals}
+        <nav aria-label="Channels, direct messages and apps" data-phone-lists>
+          <PhoneSectionBlock
+            title="Channels"
+            icon={<HashIcon />}
+            folded={folded.channels}
+            onToggle={() => toggleSection("channels")}
+            onOpen={onOpenSwitcher}
+            openLabel="Browse channels"
+          >
+            {namedChannels.map((c) => (
+              <PhoneRow
+                key={c.channelId}
+                label={c.name}
+                icon={<ChannelIcon channel={c} className="text-[22px] text-ink-secondary" />}
+                title={c.type === "private" ? `#${c.name} (private)` : undefined}
+                unread={unread[c.channelId] ?? 0}
+                urgent={!!mentioned[c.channelId]}
+                onClick={() => navigate(`/app/${c.channelId}`)}
+                menu={channelMenu(c)}
+              />
+            ))}
+            {archivedChannels.length > 0 && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setShowArchived((v) => !v)}
+                  aria-expanded={showArchived}
+                  className="flex w-full items-center gap-4 px-4 py-2.5 text-left text-[17px] text-ink-secondary active:bg-surface-hover"
+                >
+                  <span className="flex w-9 shrink-0 justify-center text-[22px]">
+                    <ArchiveIcon />
+                  </span>
+                  <span className="flex-1">Archived ({archivedChannels.length})</span>
+                  <ChevronDownIcon className={showArchived ? "rotate-180" : ""} />
+                </button>
+              </li>
+            )}
+            {showArchived &&
+              archivedChannels.map((c) => (
+                <PhoneRow
+                  key={c.channelId}
+                  label={c.name}
+                  icon={<ArchiveIcon className="text-[20px] text-ink-secondary" />}
+                  title={`#${c.name} (archived)`}
+                  unread={0}
+                  faded
+                  onClick={() => navigate(`/app/${c.channelId}`)}
+                />
+              ))}
+            <AddRow label="Add channel" onClick={onCreateChannel} />
+          </PhoneSectionBlock>
+          <PhoneSectionBlock
+            title="Direct Messages"
+            icon={<DmsIcon />}
+            folded={folded.dms}
+            onToggle={() => toggleSection("dms")}
+            onOpen={() => navigate("/app/dms")}
+            openLabel="All direct messages"
+          >
+            {dmRows}
+          </PhoneSectionBlock>
+          <PhoneSectionBlock
+            title="Apps"
+            icon={<AppsIcon />}
+            folded={folded.apps}
+            onToggle={() => toggleSection("apps")}
+          >
+            {PHONE_APPS.map((app) => (
+              <PhoneRow
+                key={app.path}
+                label={app.label}
+                icon={<AppTile app={app} />}
+                chip="APP"
+                unread={0}
+                onClick={() => navigate(app.path)}
+              />
+            ))}
+          </PhoneSectionBlock>
+        </nav>
+      </>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col border-r border-line bg-surface-sidebar">
+      {modals}
       {!only && (
         <header
           className={`flex items-center border-b border-line py-3 ${

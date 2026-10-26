@@ -33,6 +33,7 @@ import { DESKTOP_QUERY, useMediaQuery } from "../lib/hooks";
 import { MessageList } from "./MessageList";
 import { UnreadAlertsDot } from "./NotificationBell";
 import { TypingIndicator } from "./TypingIndicator";
+import { PhoneChannelHeader, PhoneChannelSheet, PhoneIntro } from "./PhoneChannel";
 
 const ICON_BUTTON =
   "rounded-md p-2 text-lg text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40";
@@ -270,6 +271,7 @@ export function ChannelView({
   const nameOf = useNameOf();
   const [inviting, setInviting] = useState(false);
   const [details, setDetails] = useState(false);
+  const [options, setOptions] = useState(false);
   const composer = useRef<ComposerHandle>(null);
   const [dragging, setDragging] = useState(false);
   // The call fills the column: messages and composer stay mounted but hidden.
@@ -305,6 +307,8 @@ export function ChannelView({
   const access = channelAccess(channelId, channel, me.userId, channelsLoaded);
   const label = channelLabel(channelId, channel, me.userId, (id) => nameOf(id));
   const title = access.dm ? label : `#${label}`;
+  // Phones (Phase 37): Slack's mobile header and the "very beginning" intro.
+  const phone = !desktop && !!onBack;
 
   function handleDragOver(e: DragEvent) {
     if (!channel || !e.dataTransfer.types.includes("Files")) return;
@@ -327,7 +331,28 @@ export function ChannelView({
       }}
       onDrop={handleDrop}
     >
-      {!mobileThread && (
+      {!mobileThread && phone && onBack && (
+        <PhoneChannelHeader
+          channelId={channelId}
+          channel={channel}
+          label={label}
+          access={access}
+          onBack={onBack}
+          onOpenOptions={() => setOptions(true)}
+        />
+      )}
+      {options && (
+        <PhoneChannelSheet
+          channelId={channelId}
+          channel={channel}
+          title={title}
+          access={access}
+          onClose={() => setOptions(false)}
+          onDetails={() => setDetails(true)}
+          onInvite={() => setInviting(true)}
+        />
+      )}
+      {!mobileThread && !phone && (
         <ChannelHeader
           channelId={channelId}
           channel={channel}
@@ -366,7 +391,25 @@ export function ChannelView({
                 threadParent && !desktop ? "hidden" : ""
               }`}
             >
-              <MessageList channelId={channelId} title={title} onOpenThread={onOpenThread} />
+              <MessageList
+                channelId={channelId}
+                title={title}
+                onOpenThread={onOpenThread}
+                intro={
+                  phone
+                    ? (hasMessages) => (
+                        <PhoneIntro
+                          channel={channel}
+                          title={title}
+                          access={access}
+                          hasMessages={hasMessages}
+                          onAddDescription={() => setDetails(true)}
+                          onAddPeople={() => setInviting(true)}
+                        />
+                      )
+                    : undefined
+                }
+              />
               <TypingIndicator channelId={channelId} />
               <Composer
                 key={channelId}

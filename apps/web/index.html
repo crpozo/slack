@@ -22,7 +22,11 @@
       // (main.tsx awaits this promise instead of starting its own request).
       window.__configRequest = fetch("/config.json", { cache: "no-store" });
       // Apply the saved theme before first paint (no light flash in dark mode). Default: light.
+      // Phones are always dark (Phase 37, lib/theme.ts).
       try {
+        var phone =
+          location.pathname.indexOf("/call/") !== 0 && matchMedia("(max-width: 767px)").matches;
+        if (phone) document.documentElement.classList.add("phone", "dark");
         var pref = localStorage.getItem("slack.theme") || "light";
         var dark =
           pref === "dark" ||

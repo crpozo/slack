@@ -24,10 +24,24 @@ import {
 } from "../lib/sidebar";
 import { selectUnread, useChat } from "../store";
 import { useTasks } from "../store/tasks";
-import { DESKTOP_QUERY, useMediaQuery } from "../lib/hooks";
+import { DESKTOP_QUERY, useMediaQuery, useSoftKeyboard } from "../lib/hooks";
+import { forgetRecents, recordVisit } from "../lib/recents";
 import { forgetPersisted, startPersistence } from "../lib/persist";
 import { saveSessionSnapshot } from "../lib/session";
-import { ActivityScreen, AppsRow, BottomTabs, MobileScreen, SearchScreen } from "./MobileScreens";
+import {
+  ActivityScreen,
+  BottomTabs,
+  CreateSheet,
+  Fab,
+  HuddlesSheet,
+  MobileHomeHeader,
+  MobileScreen,
+  MoreSheet,
+  NewTaskSheet,
+  RecentsSheet,
+  SearchScreen,
+  ShortcutCards,
+} from "./MobileScreens";
 import { useCalendar } from "../store/calendar";
 import { useNews } from "../store/news";
 import { useNotesHub } from "../store/notesHub";
@@ -36,7 +50,7 @@ import { CallLayer } from "./CallLayer";
 import { GroupCallLayer } from "./GroupCall";
 import { PushPrompt } from "./PushPrompt";
 import { ChannelView } from "./ChannelView";
-import { PlusIcon, SettingsIcon } from "./icons";
+import { PlusIcon } from "./icons";
 
 // Not needed to show a conversation: loaded on first use, off the initial bundle.
 const TaskManager = lazy(() => import("./TaskManager").then((m) => ({ default: m.TaskManager })));
@@ -55,6 +69,9 @@ import { Sidebar } from "./Sidebar";
 import { Toast } from "./Toast";
 
 const BASE_TITLE = "MindfulTech Slack";
+
+/** Phones: the bottom sheets the shell opens. */
+type MobileSheet = "more" | "create" | "task" | "recents" | "huddles" | null;
 
 export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const params = useParams();
@@ -101,6 +118,10 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [newDmOpen, setNewDmOpen] = useState(false);
+
+  // Phones: which sheet is up (the FAB's, More, recent conversations…), and the keyboard.
+  const [sheet, setSheet] = useState<MobileSheet>(null);
+  const keyboardUp = useSoftKeyboard();
 
   // Desktop sidebar: resizable width + icon-only mode, both remembered.
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
@@ -173,7 +194,10 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     useNotesHub.getState().reset();
     useNews.getState().reset();
     const userId = useChat.getState().me?.userId;
-    if (userId) await forgetPersisted(userId);
+    if (userId) {
+      await forgetPersisted(userId);
+      forgetRecents(userId);
+    }
     saveSessionSnapshot(null);
     await signOut().catch(() => {});
     useChat.getState().setSession(null);
@@ -223,7 +247,9 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     const s = useChat.getState();
     s.setActiveChannel(channelId);
     setSidebarOpen(false);
+    setSheet(null);
     if (!channelId) return;
+    if (s.me) recordVisit(s.me.userId, channelId);
     if (!(channelId in s.cursors) || s.stale[channelId]) chat.loadHistory(channelId, "initial");
     s.setListAtBottom(true);
     chat.viewed(channelId);
@@ -396,7 +422,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
             </button>
           }
         >
-          <Sidebar only="dms" {...sidebarProps} />
+          <Sidebar only="dms" phone {...sidebarProps} />
         </MobileScreen>
       );
     } else if (tab === "activity") {
@@ -405,46 +431,68 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
       screen = <SearchScreen />;
     } else {
       screen = (
-        <MobileScreen
-          title="Home"
-          actions={
-            <>
-              <button
-                type="button"
-                onClick={() => setCreateOpen(true)}
-                className={headerButton}
-                aria-label="Create channel"
-              >
-                <PlusIcon />
-              </button>
-              <button
-                type="button"
-                onClick={() => setSettingsOpen(true)}
-                className={headerButton}
-                aria-label="Settings"
-              >
-                <SettingsIcon />
-              </button>
-            </>
-          }
-        >
-          <AppsRow />
-          <Sidebar only="channels" {...sidebarProps} />
-        </MobileScreen>
+        <div className="flex h-full min-h-0 flex-col bg-surface">
+          <MobileHomeHeader
+            onOpenWorkspace={() => setSheet("more")}
+            onOpenHistory={() => setSheet("recents")}
+            onOpenProfile={() => setSettingsOpen(true)}
+          />
+          <div className="min-h-0 flex-1 overflow-y-auto pb-24">
+            <ShortcutCards onOpenHuddles={() => setSheet("huddles")} />
+            <Sidebar phone {...sidebarProps} />
+          </div>
+        </div>
       );
     }
+    const closeSheet = () => setSheet(null);
+    const go = (path: string) => {
+      setSheet(null);
+      void navigate(path);
+    };
     return (
       <div className="flex h-full flex-col overflow-hidden bg-surface">
-        <main className="flex min-h-0 w-full flex-1 flex-col">
+        <main className="relative flex min-h-0 w-full flex-1 flex-col">
           <PushPrompt />
           {screen}
+          {/* The "+" sits over the tab screens, never over a composer. */}
+          {(tab === "home" || tab === "dms" || tab === "activity") && !keyboardUp && (
+            <Fab onClick={() => setSheet("create")} />
+          )}
         </main>
-        {!channelId && (
-          <BottomTabs
-            onOpenSettings={() => setSettingsOpen(true)}
+        <BottomTabs
+          hidden={keyboardUp}
+          moreOpen={sheet === "more"}
+          onOpenMore={() => setSheet("more")}
+        />
+        {sheet === "more" && (
+          <MoreSheet
+            onClose={closeSheet}
+            onOpenNotes={() => go("/app/notes")}
+            onOpenNews={() => go("/app/news")}
+            onOpenSettings={() => {
+              setSheet(null);
+              setSettingsOpen(true);
+            }}
             onSignOut={() => void handleSignOut()}
           />
         )}
+        {sheet === "create" && (
+          <CreateSheet
+            onClose={closeSheet}
+            onNewMessage={() => {
+              setSheet(null);
+              setNewDmOpen(true);
+            }}
+            onNewChannel={() => {
+              setSheet(null);
+              setCreateOpen(true);
+            }}
+            onNewTask={() => setSheet("task")}
+          />
+        )}
+        {sheet === "task" && <NewTaskSheet onClose={closeSheet} />}
+        {sheet === "recents" && <RecentsSheet onClose={closeSheet} />}
+        {sheet === "huddles" && <HuddlesSheet onClose={closeSheet} />}
         {overlays}
       </div>
     );

@@ -19,6 +19,8 @@
     --c-warning: 244 201 92; /* #F4C95C */
     --c-error: 229 115 115; /* #E57373 */
     --c-on-accent: 14 13 18;
+    --c-on-primary: 14 13 18;
+    --c-primary-fg: 105 199 185; /* = primary */
     --c-scrim: 14 13 18;
     color-scheme: light;
   }
@@ -33,6 +35,27 @@
     --c-surface-hover: 42 41 51;
     --c-surface-raised: 32 31 40;
     --c-line: 42 41 51;
+    --c-scrim: 0 0 0;
+    color-scheme: dark;
+  }
+
+  /* Phones (Phase 37): always this dark set, Slack's mobile palette, whatever the
+     theme setting (lib/theme.ts adds `phone` and `dark` together). Purple replaces
+     the teal: #611F69 for fills (white text on it), lilac #E3B0F0 for active icons,
+     text, borders and rings (readable on #1A1D21). */
+  .phone {
+    --c-primary: 97 31 105; /* #611F69 */
+    --c-primary-hover: 122 42 132; /* #7A2A84 */
+    --c-primary-fg: 227 176 240; /* #E3B0F0 */
+    --c-on-primary: 255 255 255;
+    --c-ink: 248 248 248; /* #F8F8F8 */
+    --c-ink-secondary: 171 171 173; /* #ABABAD */
+    --c-surface: 26 29 33; /* #1A1D21 */
+    --c-surface-sidebar: 34 37 41; /* #222529: others' bubbles, chips, code */
+    --c-surface-hover: 44 47 52; /* #2C2F34 */
+    --c-surface-raised: 34 37 41; /* #222529 */
+    --c-line: 53 55 59; /* #35373B */
+    --c-success: 43 172 118; /* #2BAC76, Slack's "active" green */
     --c-scrim: 0 0 0;
     color-scheme: dark;
   }
@@ -67,7 +90,7 @@
 
 @layer components {
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-accent transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   /* 16px on phones: iOS Safari zooms into any smaller field on focus. */
@@ -137,7 +160,7 @@
   --fc-now-indicator-color: rgb(var(--c-error));
   --fc-event-bg-color: rgb(var(--c-primary));
   --fc-event-border-color: rgb(var(--c-primary-hover));
-  --fc-event-text-color: rgb(var(--c-on-accent));
+  --fc-event-text-color: rgb(var(--c-on-primary));
   --fc-more-link-bg-color: rgb(var(--c-surface-hover));
   --fc-more-link-text-color: rgb(var(--c-ink));
   --fc-non-business-color: rgb(var(--c-surface-sidebar) / 0.6);
@@ -170,7 +193,7 @@
 .fc .ev-meeting {
   background: rgb(var(--c-primary));
   border-color: rgb(var(--c-primary-hover));
-  color: rgb(var(--c-on-accent));
+  color: rgb(var(--c-on-primary));
 }
 .fc .ev-vacation {
   background: rgb(var(--c-success));

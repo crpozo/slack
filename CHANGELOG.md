@@ -7,6 +7,23 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **New phone design:** phones now follow Slack's mobile app in its dark look, whatever the
+  theme setting. Purple replaces the teal on phones; computers don't change.
+  - **Tab bar:** Home, DMs, Activity and More in a floating bar, Search in its own circle, and a
+    purple **+** for a new message, channel or task. The bar stays inside conversations and folds
+    away while you type.
+  - **Home:** the workspace header with your recent conversations (kept on this phone only), and
+    shortcuts to Huddles (calls going on now), Activity, Tasks and Calendar.
+    - **Sections:** Channels, Direct Messages and Apps fold away, and stay that way.
+    - **Status:** a green dot when someone is online, a "z" when not.
+    - **Row options:** a long press opens them.
+  - **Conversations:**
+    - **Header:** a back button, the name and member count in a pill (tap it for details, people,
+      the board or a video call), and 🎧 to start or join the channel's call.
+    - **Start of a channel:** "This is the very beginning of #channel", with _Add description_ and
+      _Add people_.
+    - **Composer:** a rounded field with **+** for files, emoji, meetings and secrets, and the mic
+      until there's something to send.
 - **AI News:** a new app under Apps, with the latest AI stories from TechCrunch.
   - **Layout:** the newest is featured, the rest in a grid with image, headline, summary and date.
   - **Reading:** any card opens the article in a new tab, or the system browser in the desktop app.

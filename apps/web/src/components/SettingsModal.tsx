@@ -21,6 +21,7 @@ import {
   soundsEnabled,
   soundVolume,
 } from "../lib/sounds";
+import { MOBILE_QUERY, useMediaQuery } from "../lib/hooks";
 import { getThemePreference, setThemePreference, type ThemePreference } from "../lib/theme";
 import { useChat, useNameOf } from "../store";
 import { Avatar } from "./Avatar";
@@ -337,6 +338,7 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
   const current = me ? nameOf(me.userId, me.email) : "";
   const [name, setName] = useState(current);
   const [theme, setTheme] = useState<ThemePreference>(getThemePreference);
+  const phone = useMediaQuery(MOBILE_QUERY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -418,25 +420,31 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
 
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-ink">Theme</h3>
-          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Theme">
-            {THEMES.map(({ value, label, Icon }) => (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={theme === value}
-                onClick={() => chooseTheme(value)}
-                className={`flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 text-sm transition-colors ${
-                  theme === value
-                    ? "border-primary bg-primary/15 font-semibold text-ink"
-                    : "border-line text-ink-secondary hover:bg-surface-hover hover:text-ink"
-                }`}
-              >
-                <Icon className="text-lg" />
-                {label}
-              </button>
-            ))}
-          </div>
+          {phone ? (
+            <p className="text-sm text-ink-secondary">
+              Phones always use the dark theme. Pick one for this device on a computer.
+            </p>
+          ) : (
+            <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Theme">
+              {THEMES.map(({ value, label, Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={theme === value}
+                  onClick={() => chooseTheme(value)}
+                  className={`flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 text-sm transition-colors ${
+                    theme === value
+                      ? "border-primary bg-primary/15 font-semibold text-ink"
+                      : "border-line text-ink-secondary hover:bg-surface-hover hover:text-ink"
+                  }`}
+                >
+                  <Icon className="text-lg" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="space-y-2">
