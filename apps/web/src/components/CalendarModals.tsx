@@ -1,6 +1,7 @@
 import {
   addDays,
   countVacationDays,
+  isDmChannel,
   dateInZone,
   describeRecurrence,
   MAX_EVENT_DAYS,
@@ -79,6 +80,8 @@ export interface EventDraft {
   /** Local times for a timed selection. */
   startAt?: number;
   endAt?: number;
+  /** Phase 36: preselect the channel to post to. */
+  channelId?: string;
 }
 
 /**
@@ -135,6 +138,19 @@ export function EventFormModal({
   const [participants, setParticipants] = useState<string[]>(
     existing?.type === "meeting" ? existing.participants.filter((id) => id !== me?.userId) : [],
   );
+  // Phase 36: post the meeting's card in a channel (its Join opens that channel's call).
+  const postable = useChat(
+    useShallow((s) =>
+      s.channels
+        .filter((c) => c.type !== "dm" && !c.archived)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    ),
+  );
+  const [postTo, setPostTo] = useState<string>(draft.channelId ?? "");
+  const postedIn =
+    existing?.type === "meeting" && existing.channelId && !isDmChannel(existing.channelId)
+      ? existing.channelId
+      : null;
   // Phase 34: a series (editing one edits all of its meetings).
   const series = existing?.type === "meeting" && existing.recurrence ? existing : null;
   const [recurrence, setRecurrence] = useState<Recurrence | null>(series?.recurrence ?? null);
@@ -170,6 +186,8 @@ export function EventFormModal({
     if (type === "vacation") return { type, startDate, endDate, note };
     if (type === "holiday") return { type, title, description, startDate, endDate };
     const repeat = rule ? { recurrence: rule } : {};
+    // Only when creating: an existing meeting's card stays where it was posted.
+    Object.assign(repeat, !existing && postTo ? { channelId: postTo } : {});
     if (allDay) {
       return {
         type,
@@ -371,6 +389,37 @@ export function EventFormModal({
               <p className="text-xs text-ink-secondary">
                 Only one-day all-day meetings can repeat.
               </p>
+            )}
+            {postedIn ? (
+              <p className="text-sm text-ink-secondary">
+                Posted in{" "}
+                <span className="font-medium text-ink">
+                  #{postable.find((c) => c.channelId === postedIn)?.name ?? "a channel"}
+                </span>
+              </p>
+            ) : (
+              !editing && (
+                <Field
+                  id="event-channel"
+                  label="Post to a channel (optional)"
+                  hint="Its card goes there, and Join on it opens the channel's call."
+                >
+                  <select
+                    id="event-channel"
+                    className="input"
+                    value={postTo}
+                    onChange={(e) => setPostTo(e.target.value)}
+                    disabled={busy}
+                  >
+                    <option value="">No channel (cards in each invitee's DM)</option>
+                    {postable.map((c) => (
+                      <option key={c.channelId} value={c.channelId}>
+                        #{c.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )
             )}
             <div className="space-y-1.5">
               <span className="block text-sm font-medium text-ink">

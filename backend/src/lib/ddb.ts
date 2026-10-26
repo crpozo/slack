@@ -40,6 +40,10 @@ export const tables = {
   get vacationBalances() {
     return requireEnv("VACATION_BALANCES_TABLE");
   },
+  /** Phase 36: one row per channel with a call going on. */
+  get callRooms() {
+    return requireEnv("CALL_ROOMS_TABLE");
+  },
 };
 
 /** Row of the `connections` table. */
@@ -55,6 +59,8 @@ export interface ConnectionItem {
   activeAt?: number;
   /** From the token's Cognito groups; absent on rows from before roles (members). */
   role?: Role;
+  /** Phase 36: the channel whose call this connection sits in (freed on `$disconnect`). */
+  callRoom?: string;
 }
 
 /** DynamoDB caps BatchWriteItem at 25 requests. */

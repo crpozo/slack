@@ -7,6 +7,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Calls in channels:** start a voice or video call from any channel's header. People join
+  from the header (who's in it shows there) or from the in-app notice; nothing rings.
+  - **Size:** up to 6 people, each connected directly to every other (no media server, so no
+    media costs).
+  - **In the call:** a grid of everyone, screen sharing, mute and camera, and a floating window
+    while you look elsewhere.
+  - **When it ends:** the last one out posts the call's length in the channel.
+- **Meetings in channels:** _Post to a channel_ in the calendar, and _Schedule meeting_ in a
+  channel's composer, put the meeting's card in the channel; its **Join** opens the channel's
+  call.
+- **Voice note speed:** a 1× / 1.5× / 2× button next to every voice note and audio file,
+  remembered on each device.
+
 - **Passwords:** the first sign-in with an emailed temporary password now has a proper
   "Choose your password" screen.
   - **The screen:** confirm field, show/hide, the rules ticked off as you type, and a way back.
@@ -149,6 +162,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **Unread badges that came back:** a channel with threads showed unread messages again after
+  every reload or reconnect, however often you read it.
+  - **The cause:** the server counted thread replies as unread, and your read position can
+    never move past them.
+  - **The fix:** it now counts only the channel's own messages, and a read position that didn't
+    reach the server is sent again after a reconnect.
+  - **Thread replies** no longer raise the channel's badge (like Slack).
 - **Deleted meetings' cards:** deleting a meeting no longer leaves its DM card showing the old
   time; the card is marked cancelled.
 - **Join call** on a meeting card in a DM now always calls the other person of that DM.

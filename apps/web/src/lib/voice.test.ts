@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { baseType, formatDuration, pickAudioMime, voiceFileName } from "./voice";
 
 describe("voice messages", () => {
@@ -24,5 +24,32 @@ describe("voice messages", () => {
     expect(formatDuration(0)).toBe("0:00");
     expect(formatDuration(12_400)).toBe("0:12");
     expect(formatDuration(5 * 60_000)).toBe("5:00");
+  });
+});
+
+describe("playback speed (Phase 36)", () => {
+  it("cycles 1× → 1.5× → 2× → 1× and formats it", async () => {
+    const { nextPlaybackRate, formatPlaybackRate } = await import("./voice");
+    expect(nextPlaybackRate(1)).toBe(1.5);
+    expect(nextPlaybackRate(1.5)).toBe(2);
+    expect(nextPlaybackRate(2)).toBe(1);
+    expect(formatPlaybackRate(1.5)).toBe("1.5×");
+  });
+
+  it("is remembered on this device, ignoring anything it doesn't offer", async () => {
+    const store: Record<string, string> = {};
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => {
+        store[k] = v;
+      },
+    });
+    const { loadPlaybackRate, savePlaybackRate } = await import("./voice");
+    expect(loadPlaybackRate()).toBe(1);
+    savePlaybackRate(2);
+    expect(loadPlaybackRate()).toBe(2);
+    store["slack.audio.playbackRate"] = "3";
+    expect(loadPlaybackRate()).toBe(1);
+    vi.unstubAllGlobals();
   });
 });

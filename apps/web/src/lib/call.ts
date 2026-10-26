@@ -183,7 +183,11 @@ export interface CallView {
 
 export const useCall = create<{ call: CallView | null }>(() => ({ call: null }));
 
-type CallInput = Extract<ClientActionInput, { action: "call" }>;
+/** DM call signals (the channel-call room ops are `GroupCallManager`'s). */
+type CallInput = Exclude<
+  Extract<ClientActionInput, { action: "call" }>,
+  { signal: "join" | "leave" | "rooms" }
+>;
 type SignalPayload = DistributiveOmit<CallInput, "action" | "callId" | "channelId" | "to">;
 /**
  * Sends a signal over the socket. `key`: while the socket is offline, a
@@ -262,6 +266,8 @@ export interface CallDeps {
   notify: (text: string) => void;
   /** Sends a finished call's transcript for AI notes (caller only, see `postsCallSummary`). */
   submitNotes: (input: SummarizeCallInput) => void;
+  /** Phase 36: in a channel call already (one call at a time). */
+  busyElsewhere?: () => boolean;
 }
 
 /** Toast shown when the other side ends or declines; `null` for none. */
@@ -363,7 +369,7 @@ export class CallManager {
   async startCall(channelId: string, peerId: string, media: CallMedia): Promise<void> {
     const deps = this.deps;
     if (!deps) return;
-    if (this.session) {
+    if (this.session || deps.busyElsewhere?.()) {
       deps.notify("You're already in a call.");
       return;
     }
@@ -655,6 +661,17 @@ export class CallManager {
     const deps = this.deps;
     const current = this.session;
     if (!deps) return;
+    if (!current && deps.busyElsewhere?.()) {
+      // In a channel call: the DM caller hears "on another call".
+      deps.send({
+        signal: "decline",
+        reason: "busy",
+        callId: event.callId,
+        channelId: event.channelId,
+        to: event.from,
+      });
+      return;
+    }
     if (current) {
       const me = deps.myUserId() ?? "";
       const glare =

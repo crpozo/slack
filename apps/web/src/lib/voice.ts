@@ -31,6 +31,56 @@ export function voiceFileName(mime: string, at: Date): string {
   return `voice-${stamp}.${EXTENSIONS[baseType(mime)] ?? "audio"}`;
 }
 
+// --- Playback speed (Phase 36) ------------------------------------------------
+
+/** What the speed button cycles through. */
+export const PLAYBACK_RATES = [1, 1.5, 2] as const;
+export type PlaybackRate = (typeof PLAYBACK_RATES)[number];
+
+const RATE_KEY = "slack.audio.playbackRate";
+const rateListeners = new Set<(rate: PlaybackRate) => void>();
+
+/** The speed chosen on this device (1× until changed, or if storage is unavailable). */
+export function loadPlaybackRate(): PlaybackRate {
+  try {
+    const saved = Number(localStorage.getItem(RATE_KEY));
+    return PLAYBACK_RATES.find((r) => r === saved) ?? 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** Saves the speed for this device and tells every player on screen. */
+export function savePlaybackRate(rate: PlaybackRate): void {
+  try {
+    localStorage.setItem(RATE_KEY, String(rate));
+  } catch {
+    // Not remembered; this session still uses it.
+  }
+  rateListeners.forEach((fn) => fn(rate));
+}
+
+/** 1× → 1.5× → 2× → 1×. */
+export function nextPlaybackRate(rate: PlaybackRate): PlaybackRate {
+  const i = PLAYBACK_RATES.indexOf(rate);
+  return PLAYBACK_RATES[(i + 1) % PLAYBACK_RATES.length]!;
+}
+
+/** `1×`, `1.5×`, `2×`. */
+export const formatPlaybackRate = (rate: number) => `${rate}×`;
+
+/** The device's playback speed, shared live by every audio player. */
+export function usePlaybackRate(): [PlaybackRate, (rate: PlaybackRate) => void] {
+  const [rate, setRate] = useState<PlaybackRate>(loadPlaybackRate);
+  useEffect(() => {
+    rateListeners.add(setRate);
+    return () => {
+      rateListeners.delete(setRate);
+    };
+  }, []);
+  return [rate, savePlaybackRate];
+}
+
 /** `m:ss` */
 export function formatDuration(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));

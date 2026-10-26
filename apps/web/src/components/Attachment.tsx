@@ -4,7 +4,12 @@ import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
 import { renderNotesMarkdown } from "../lib/markdown";
 import { formatBytes, getDownloadUrl, isUsableUrl, rememberDownloadUrl } from "../lib/upload";
-import { formatDuration } from "../lib/voice";
+import {
+  formatDuration,
+  formatPlaybackRate,
+  nextPlaybackRate,
+  usePlaybackRate,
+} from "../lib/voice";
 import { useChat } from "../store";
 import { DownloadIcon, FileIcon, MicIcon } from "./icons";
 import { Lightbox } from "./Lightbox";
@@ -243,11 +248,23 @@ function usePlayableUrl(attachment: AttachmentData) {
 
 /**
  * Voice messages and other audio: a native player, so it plays inline with the
- * platform's controls (lock-screen controls on phones included).
+ * platform's controls (lock-screen controls on phones included), plus a speed
+ * button (Phase 36): 1× → 1.5× → 2×, remembered on this device and shared by
+ * every player. `defaultPlaybackRate` keeps the speed when a refreshed link
+ * reloads the audio.
  */
 function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
   const { url, failed, onError } = usePlayableUrl(attachment);
   const voice = attachment.name.startsWith("voice-");
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [rate, setRate] = usePlaybackRate();
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    el.defaultPlaybackRate = rate;
+    el.playbackRate = rate;
+  }, [rate, url]);
 
   if (failed) return <FileAttachment attachment={attachment} />;
   return (
@@ -260,16 +277,33 @@ function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
         )}
       </p>
       {url ? (
-        <audio
-          controls
-          preload="metadata"
-          src={url}
-          onError={onError}
-          className="h-10 w-full"
-          aria-label={voice ? "Voice message" : attachment.name}
-        >
-          <track kind="captions" />
-        </audio>
+        <div className="flex items-center gap-1.5">
+          <audio
+            ref={audioRef}
+            controls
+            preload="metadata"
+            src={url}
+            onError={onError}
+            // A reload (fresh link) starts from the default rate; this is the chosen one.
+            onLoadedMetadata={(e) => {
+              e.currentTarget.playbackRate = rate;
+            }}
+            className="h-10 min-w-0 flex-1"
+            aria-label={voice ? "Voice message" : attachment.name}
+          >
+            <track kind="captions" />
+          </audio>
+          <button
+            type="button"
+            onClick={() => setRate(nextPlaybackRate(rate))}
+            className="h-8 w-12 shrink-0 rounded-full border border-line text-xs font-semibold tabular-nums text-ink hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label={`Playback speed ${formatPlaybackRate(rate)}. Change speed`}
+            title="Playback speed"
+            data-playback-rate={rate}
+          >
+            {formatPlaybackRate(rate)}
+          </button>
+        </div>
       ) : (
         <div
           className="h-10 w-full animate-pulse rounded-full bg-surface-hover"

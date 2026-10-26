@@ -11,6 +11,7 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { joinState } from "../lib/agenda";
 import { calls, useCall } from "../lib/call";
+import { groupCalls, useGroupCall } from "../lib/groupCall";
 import { formatWhen } from "../lib/calendarUi";
 import { useNow } from "../lib/hooks";
 import { useChat, useNameOf } from "../store";
@@ -54,7 +55,9 @@ export function MeetingCard({
   const navigate = useNavigate();
   const nameOf = useNameOf();
   const showToast = useChat((s) => s.showToast);
-  const inCall = useCall((s) => s.call !== null);
+  const inDmCall = useCall((s) => s.call !== null);
+  const inGroupCall = useGroupCall((s) => s.call !== null);
+  const inCall = inDmCall || inGroupCall;
   const live = useCalendar((s) => s.events[stored.eventId]);
   // A cancelled card stays cancelled, whatever the calendar still holds.
   const card = useMemo(
@@ -84,8 +87,10 @@ export function MeetingCard({
       : "Meeting scheduled";
 
   function joinCall() {
-    if (!peerId) return;
     if (inCall) return showToast("You're already in a call.");
+    // A channel's meeting (Phase 36): its call is the channel's.
+    if (!dm) return void groupCalls.join(channelId, "video");
+    if (!peerId) return;
     void calls.startCall(channelId, peerId, "video");
   }
 

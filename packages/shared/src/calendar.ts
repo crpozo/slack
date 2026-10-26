@@ -10,6 +10,7 @@ import {
   isWeekend,
   zonedMidnight,
 } from "./dates";
+import { dmMembers } from "./ids";
 import { UserIdSchema, type MeetingCard } from "./protocol";
 import {
   describeRecurrence,
@@ -269,6 +270,10 @@ const DATE_RANGE_MESSAGE = `the end must be on or after the start, at most ${MAX
  * the body), it must be timed, and the server also posts a "meeting
  * scheduled" card in the DM, in the same transaction. `clientId` makes a
  * retried request return the pair already created instead of a second one.
+ *
+ * Phase 36: `channelId` may also be a channel you can post in. Its card goes
+ * there (the only card: invitees get no DM cards), Join on it opens the
+ * channel's call, and `participants` says whose calendars it's in.
  */
 export const CreateMeetingSchema = z
   .object({
@@ -298,7 +303,8 @@ export const CreateMeetingSchema = z
       const problem = first ? recurrenceProblem(v.recurrence, first) : null;
       if (problem) ctx.addIssue({ code: "custom", path: ["recurrence"], message: problem });
     }
-    if (v.channelId !== undefined) {
+    // A DM's meeting takes its two people from it; a channel's (Phase 36) invites as usual.
+    if (v.channelId !== undefined && dmMembers(v.channelId)) {
       if (v.participants.length > 0) {
         ctx.addIssue({
           code: "custom",

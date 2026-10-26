@@ -4,6 +4,7 @@ import {
   isDmChannel,
   type BoardEvent,
   type CalendarPushEvent,
+  type CallEvent,
   type ChannelVisibility,
   type ProjectBoard,
   type Attachment,
@@ -19,6 +20,7 @@ import { pendingMessageId } from "../store/messages";
 import { useNotifications } from "../store/notifications";
 import { getIdToken, SessionExpiredError } from "./auth";
 import { calls } from "./call";
+import { groupCalls } from "./groupCall";
 import { isAppActive, watchActivity } from "./activity";
 import { boardActivity, calendarActivity, raiseAlert } from "./alerts";
 import { notificationBody, prepareDesktopNotifications, shouldNotify } from "./desktop";
@@ -39,6 +41,7 @@ const ERROR_TEXT: Record<ErrorCode, string> = {
   CHANNEL_NAME_TAKEN: "A channel with that name already exists.",
   FILE_NOT_FOUND: "That file no longer exists.",
   BOARD_NOT_FOUND: "That board doesn't exist or you can't see it.",
+  CALL_FULL: "That call is full: it holds up to 6 people.",
   FORBIDDEN: "You don't have permission to do that.",
   USER_NOT_FOUND: "That person doesn't exist or has never signed in.",
   MESSAGE_NOT_FOUND: "That message no longer exists.",
@@ -122,9 +125,16 @@ class ChatController {
         }
         client.send("channel", { op: "list" });
         client.send("user", { op: "list" });
+        // The channel calls going on (Phase 36); after a reconnect, `groupCalls` asks.
+        if (!reconnected) client.send("call", { signal: "rooms" });
         if (reconnected) {
           // A call being restored after a network drop can restart ICE now.
           calls.signalingReconnected();
+          groupCalls.signalingReconnected();
+          // A read mark sent on the dead socket never arrived: send it again.
+          this.readSent.clear();
+          const viewing = store().activeChannelId;
+          if (viewing) this.sendReadMark(viewing);
           // Catch up on whatever happened while we were offline.
           store().invalidateInactive();
           const active = store().activeChannelId;
@@ -269,9 +279,34 @@ class ChatController {
       }),
     );
 
-    // WebRTC signaling: the call manager owns everything about calls.
+    // WebRTC signaling: the call managers own everything about calls.
+    const routeCall = (event: CallEvent) =>
+      isDmChannel(event.channelId) ? calls.handle(event) : groupCalls.handle(event);
+    groupCalls.attach({
+      send: (payload, key) => client.send("call", payload, key),
+      myUserId: () => store().me?.userId ?? null,
+      nameOf: (userId) => selectName(store(), userId),
+      notify: (text) => store().showToast(text),
+      postMessage: (channelId, text) => this.sendMessage(channelId, text, []),
+      dmCallActive: () => calls.busy,
+      onStarted: ({ channelId, by }) => {
+        const s = store();
+        const channel = s.channels.find((c) => c.channelId === channelId);
+        raiseAlert(
+          {
+            kind: "message",
+            title: `${selectName(s, by)} started a call${channel ? ` in #${channel.name}` : ""}`,
+            body: "Join it from the channel's header.",
+            url: `/app/${encodeURIComponent(channelId)}`,
+            channelId,
+          },
+          { sound: false }, // no ringing for channel calls
+        );
+      },
+    });
     calls.attach({
       send: (payload, key) => client.send("call", payload, key),
+      busyElsewhere: () => groupCalls.busy,
       postMessage: (channelId, text) => this.sendMessage(channelId, text, []),
       myUserId: () => store().me?.userId ?? null,
       nameOf: (userId) => selectName(store(), userId),
@@ -285,12 +320,15 @@ class ChatController {
       },
     });
     this.cleanups.push(
-      client.on("call.offer", (event) => calls.handle(event)),
-      client.on("call.answer", (event) => calls.handle(event)),
-      client.on("call.ice_candidate", (event) => calls.handle(event)),
-      client.on("call.decline", (event) => calls.handle(event)),
-      client.on("call.end", (event) => calls.handle(event)),
-      client.on("call.renegotiate", (event) => calls.handle(event)),
+      // DM calls ring (`calls`); channel calls are rooms (`groupCalls`, Phase 36).
+      client.on("call.offer", routeCall),
+      client.on("call.answer", routeCall),
+      client.on("call.ice_candidate", routeCall),
+      client.on("call.decline", routeCall),
+      client.on("call.end", routeCall),
+      client.on("call.renegotiate", routeCall),
+      client.on("call.room", (event) => groupCalls.onRoom(event)),
+      client.on("call.rooms", ({ rooms }) => groupCalls.setRooms(rooms)),
     );
 
     // Back online: a dead socket reconnects now, an "open" one must prove it's alive.
@@ -351,6 +389,7 @@ class ChatController {
   stop(): void {
     // Hang up while the socket can still tell the other side.
     calls.detach();
+    groupCalls.detach();
     this.client?.disconnect();
     this.client = null;
     // Requests in flight died with the socket; let the next session re-issue them.
@@ -578,7 +617,11 @@ class ChatController {
       (isDmChannel(message.channelId) ? ({ type: "dm" } as const) : undefined);
     const me = s.me && { ...s.me, displayName: s.users[s.me.userId]?.displayName };
     const notify = !!channel && !!me && shouldNotify(channel, message, me);
-    if (!known) s.bumpUnread(message.channelId, notify && channel?.type === "public");
+    // Thread replies show on their parent's counter, not the channel's badge
+    // (like Slack, and like the server's count since Phase 36).
+    if (!known && !message.parentSk) {
+      s.bumpUnread(message.channelId, notify && channel?.type === "public");
+    }
     if (!channel || !notify) return;
     const sender = selectName(s, message.userId, message.userEmail);
     const dm = channel.type === "dm";
@@ -606,7 +649,12 @@ class ChatController {
     this.sendReadMark(channelId);
   }
 
-  /** The newest `sk` sent as a read mark per channel (don't repeat it while the echo is in flight). */
+  /**
+   * The newest `sk` sent as a read mark per channel (don't repeat it while the
+   * echo is in flight). Cleared when the socket reconnects: a mark sent on a
+   * socket that had silently died never reached the server, and keeping it
+   * here would stop it from ever being sent again (Phase 36).
+   */
   private readSent = new Map<string, string>();
 
   /**

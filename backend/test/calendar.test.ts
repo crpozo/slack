@@ -741,7 +741,7 @@ describe("meetings scheduled from a direct message", () => {
         })
       ).status,
     ).toBe(400);
-    // Carol isn't in Alice & Bob's DM; a public channel isn't a DM.
+    // Carol isn't in Alice & Bob's DM; a channel that doesn't exist (or that you can't see).
     expect((await call("POST /calendar/events", { user: CAROL, body })).status).toBe(404);
     expect(
       (await call("POST /calendar/events", { body: { ...body, channelId: "ch_general" } })).status,
@@ -1232,5 +1232,115 @@ describe("recurring meetings (Phase 34)", () => {
     });
     expect(body.event.recurrence).toEqual({ freq: "weekly", interval: 1, byWeekday: [1] });
     expect(body.event.exceptions).toEqual(["2026-11-02"]);
+  });
+});
+
+describe("meetings posted to a channel (Phase 36)", () => {
+  const MESSAGES = "slack-test-messages";
+  const CH = "ch_proj";
+  const startAt = zonedMidnight("2026-11-04") + 15 * 3_600_000;
+  const project = {
+    channelId: CH,
+    name: "proj",
+    type: "private" as const,
+    createdBy: ALICE.userId,
+    createdAt: 1,
+    archived: false,
+    members: [ALICE.userId, BOB.userId, CAROL.userId],
+  };
+  const body = {
+    type: "meeting",
+    title: "Sprint review",
+    startAt,
+    endAt: startAt + 3_600_000,
+    channelId: CH,
+    participants: [BOB.userId, CAROL.userId],
+    clientId: "c-proj-1",
+  };
+
+  beforeEach(() => {
+    mockChannels(project, dmRow(ALICE.userId, BOB.userId));
+    ddbMock.on(QueryCommand, { TableName: MESSAGES }).resolves({ Items: [] });
+  });
+
+  it("posts the one card in the channel with the event, invitees from the body", async () => {
+    const { status, body: reply } = await call("POST /calendar/events", { body });
+    expect(status).toBe(201);
+    expect(reply.event).toMatchObject({
+      participants: [ALICE.userId, BOB.userId, CAROL.userId].sort(),
+      channelId: CH,
+    });
+    expect(reply.event.cards).toBeUndefined(); // no DM cards
+    const [event, message] = transactItems();
+    expect(event!.Put?.TableName).toBe(EVENTS);
+    expect(message!.Put).toMatchObject({
+      TableName: MESSAGES,
+      Item: { channelId: CH, kind: "meeting", meeting: { title: "Sprint review" } },
+    });
+    // Nothing posted anywhere else.
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    // The channel's people see the card; the invitees the calendar entry and a push.
+    const chat = sentEvents()
+      .filter(([, e]) => e.type === "message.new")
+      .map(([id]) => id)
+      .sort();
+    expect(chat).toEqual(["conn-alice", "conn-bob", "conn-carol"]);
+    expect(sendPush).toHaveBeenCalledWith(
+      [BOB.userId, CAROL.userId],
+      expect.objectContaining({ title: "alice invited you to “Sprint review”" }),
+    );
+  });
+
+  it("an edit rewrites the channel card and adds no DM cards for newcomers", async () => {
+    const row = {
+      ...meetingRow,
+      participants: new Set([ALICE.userId, BOB.userId]),
+      channelId: CH,
+      messageId: "mp",
+      messageSk: "1#mp",
+    };
+    ddbMock
+      .on(GetCommand, { TableName: EVENTS, Key: { eventId: row.eventId } })
+      .resolves({ Item: row });
+    const { status, body: reply } = await call("PUT /calendar/events/{id}", {
+      params: { id: row.eventId },
+      body: { participants: [CAROL.userId] }, // Bob out, Carol in
+    });
+    expect(status).toBe(200);
+    expect(
+      transactItems()
+        .slice(1)
+        .map((i) => i.Update?.Key),
+    ).toEqual([{ channelId: CH, sk: "1#mp" }]);
+    expect(reply.event.cards).toBeUndefined();
+    expect(reply.event.channelId).toBe(CH);
+    expect(ddbMock.commandCalls(PutCommand).map((c) => c.args[0].input.TableName)).toEqual([]);
+  });
+
+  it("deleting it marks the channel card cancelled", async () => {
+    const row = { ...meetingRow, channelId: CH, messageId: "mp", messageSk: "1#mp" };
+    ddbMock
+      .on(GetCommand, { TableName: EVENTS, Key: { eventId: row.eventId } })
+      .resolves({ Item: row });
+    expect(
+      (await call("DELETE /calendar/events/{id}", { params: { id: row.eventId } })).status,
+    ).toBe(204);
+    const cancel = ddbMock
+      .commandCalls(UpdateCommand)
+      .map((c) => c.args[0].input)
+      .find((i) => i.TableName === MESSAGES);
+    expect(cancel).toMatchObject({ Key: { channelId: CH, sk: "1#mp" } });
+    expect(cancel?.ExpressionAttributeValues?.[":card"]).toMatchObject({ cancelled: true });
+  });
+
+  it("only in channels you can post in", async () => {
+    const outsider = await call("POST /calendar/events", {
+      user: { ...CAROL, userId: "user-zed" },
+      body,
+    });
+    expect(outsider.status).toBe(404);
+    mockChannels({ ...project, archived: true });
+    expect((await call("POST /calendar/events", { body })).status).toBe(404);
+    expect(ddbMock.commandCalls(TransactWriteCommand)).toHaveLength(0);
   });
 });

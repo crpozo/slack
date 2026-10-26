@@ -791,6 +791,44 @@ export const CallRenegotiateSchema = z.object({
   restart: z.number().int().min(1).max(MAX_ICE_RESTARTS),
 });
 
+// --- Channel calls (Phase 36): a "room" per channel, a mesh of peer connections ---
+
+/**
+ * A channel call holds at most this many people. Each one sends their audio
+ * and video to every other one (a mesh: no media server, so no media costs),
+ * so upload and CPU grow with every person.
+ */
+export const MAX_ROOM_PARTICIPANTS = 6;
+
+/**
+ * Join the channel's call, starting it when there's none. `callId`: the room
+ * this connection was in (a socket that reconnected), so its seat is kept;
+ * omitted, the current room (or a new one). Signals then flow as for DM calls,
+ * with `channelId` the channel and `callId` the room's id, but only between
+ * people in the room and only to the connection that joined.
+ */
+export const CallJoinSchema = z.object({
+  action: z.literal("call"),
+  signal: z.literal("join"),
+  channelId,
+  callId: z.string().min(1).max(64).optional(),
+  media: z.enum(CALL_MEDIA),
+});
+
+/** Leave the channel's call (the last one out ends it). */
+export const CallLeaveSchema = z.object({
+  action: z.literal("call"),
+  signal: z.literal("leave"),
+  channelId,
+  callId: z.string().min(1).max(64),
+});
+
+/** The calls going on in the caller's channels (`call.rooms`), e.g. after connecting. */
+export const CallRoomsSchema = z.object({
+  action: z.literal("call"),
+  signal: z.literal("rooms"),
+});
+
 export const CallActionSchema = z.discriminatedUnion("signal", [
   CallOfferSchema,
   CallAnswerSchema,
@@ -799,8 +837,17 @@ export const CallActionSchema = z.discriminatedUnion("signal", [
   CallEndSchema,
   CallDeclineSchema,
   CallRenegotiateSchema,
+  CallJoinSchema,
+  CallLeaveSchema,
+  CallRoomsSchema,
 ]);
+/** The 1:1 signals (a DM call, or a pair inside a channel call): everything but the room ops. */
+export type CallPeerSignal = Exclude<CallAction, { signal: "join" | "leave" | "rooms" }>;
 export type CallAction = z.infer<typeof CallActionSchema>;
+export const isRoomOp = (
+  a: CallAction,
+): a is Extract<CallAction, { signal: "join" | "leave" | "rooms" }> =>
+  a.signal === "join" || a.signal === "leave" || a.signal === "rooms";
 export type CallSignal = CallAction["signal"];
 
 /**
@@ -884,6 +931,7 @@ export type ErrorCode =
   | "MESSAGE_NOT_FOUND"
   | "FILE_NOT_FOUND"
   | "BOARD_NOT_FOUND"
+  | "CALL_FULL"
   | "INTERNAL_ERROR";
 
 export interface MessageNewEvent {
@@ -1097,6 +1145,47 @@ export interface CallRenegotiateEvent extends CallEventBase {
   restart: number;
 }
 
+/** Someone in a channel call (connection details stay on the server). */
+export interface RoomParticipant {
+  userId: string;
+  /** Epoch ms. */
+  joinedAt: number;
+  media: CallMedia;
+}
+
+/** A channel's call as everyone in the channel sees it. */
+export interface CallRoom {
+  channelId: string;
+  roomId: string;
+  /** Epoch ms. */
+  startedAt: number;
+  startedBy: string;
+  /** In the order they joined. */
+  participants: RoomParticipant[];
+}
+
+/**
+ * A channel's call changed (Phase 36), for everyone in the channel: who
+ * started, joined or left it, or that it ended (`room: null`). The joiner
+ * gets it too, and offers a connection to everyone already there.
+ */
+export interface CallRoomEvent {
+  type: "call.room";
+  channelId: string;
+  room: CallRoom | null;
+  change: "started" | "joined" | "left" | "ended";
+  /** Who joined, left or (for `ended`) left last. */
+  userId: string;
+  /** `ended`: when it started, for the summary the last one out posts. */
+  startedAt?: number;
+}
+
+/** The calls going on in your channels, in answer to `rooms`. */
+export interface CallRoomsEvent {
+  type: "call.rooms";
+  rooms: CallRoom[];
+}
+
 export type CallEvent =
   | CallOfferEvent
   | CallAnswerEvent
@@ -1171,6 +1260,8 @@ export type ServerEvent =
   | UserConnectedEvent
   | UserDisconnectedEvent
   | CallEvent
+  | CallRoomEvent
+  | CallRoomsEvent
   | BoardEvent
   | CalendarPushEvent
   | PongEvent
