@@ -945,6 +945,39 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
 - In a project channel, three people start and join a call from the header (or the notice), see and hear each other, and the last to leave posts the call's length; a seventh person can't join.
 - A meeting posted to a channel shows its card there, and Join on it opens the channel's call.
 
+### Phase 35b — AI News app view (stateless TechCrunch proxy)
+
+**Branch:** `feature/f35b-daily-ai-news`
+
+1. **Backend:** `GET /news` on the HTTP API (JWT; guests get 403), served by its own `news` Lambda.
+   - **Source:** the TechCrunch AI feed (`https://techcrunch.com/category/artificial-intelligence/feed/`), read with a 5 s timeout and a 3 MB cap. Anything that isn't an RSS feed is refused.
+   - **Parsing:** done with `fast-xml-parser`. Each article is `{ title, link, snippet, pubDate, imageUrl }`, newest first, at most 15.
+     - Titles and snippets are plain text with entities decoded.
+     - Snippets are cut at a word near 220 characters, without WordPress's "The post … appeared first on" footer.
+     - Links and images must be https.
+   - **Image cascade:** the first source that has one wins.
+     1. `media:content` that is an image (the widest);
+     2. `media:thumbnail`;
+     3. an image `enclosure`;
+     4. the first `<img>` in `content:encoded`, then in `description`;
+     5. otherwise `null`, and the card shows a placeholder.
+   - **Caching:** HTTP APIs have no response cache of their own, so there are two layers:
+     - **Lambda:** the parsed list stays in the warm container for 30 minutes.
+     - **Browser:** the response carries `Cache-Control: public, max-age=<what's left of those 30 min>, stale-while-revalidate=600`.
+     - **Feed down:** the last good list is served marked `stale` and retried after a minute. With no list yet, the response is 502.
+   - **Stateless:** the Lambda has **no** DynamoDB, S3 or SSM permissions and no table env vars, only basic execution (logs). An infra test asserts this.
+2. **Web:** "📰 AI News" under Apps in the sidebar (and in the mobile _More_ sheet), at `/app/news`.
+   - **Data:** `GET /news` goes through the existing `request()` helper and a small zustand store, reused for 30 minutes without refetching.
+   - **Layout:** the newest story is featured (image beside the text on wide screens), with the rest in a 1/2/3-column grid of cards (image, title, snippet, relative date with the full date on hover).
+   - **States:** skeletons while loading, an error card with Try again, and a banner when the list is stale.
+   - **Links:** every card is an `<a target="_blank" rel="noopener noreferrer">`. The desktop app opens it in the system browser.
+3. **Infra:** the `NewsFn` Lambda and the `GET /news` route; nothing else changes.
+
+**Phase 35b acceptance criteria:**
+- `GET /news` answers 200 with 10–15 articles, most with an image, and a `cache-control` header; a second call within 30 minutes is served from the container (`fromCache` in the logs).
+- The News Lambda's role has no data permissions, and no DynamoDB item is written.
+- AI News in the sidebar shows the grid; clicking a card opens the article in a new tab.
+
 ### Phase 35 (planned) — Customer channels (guest access to shared channels)
 
 Deferred from Phase 34: it moves the guest security boundary, so it gets its own phase and tests. Today guests are boards-only. They're blocked from every WebSocket action but `ping`, `presign` and `user` (`GUEST_ROUTES`), receive only `board.*` events (`guestMayReceive`), and see only board co-members. Needed:

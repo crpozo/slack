@@ -29,6 +29,7 @@ import { forgetPersisted, startPersistence } from "../lib/persist";
 import { saveSessionSnapshot } from "../lib/session";
 import { ActivityScreen, AppsRow, BottomTabs, MobileScreen, SearchScreen } from "./MobileScreens";
 import { useCalendar } from "../store/calendar";
+import { useNews } from "../store/news";
 import { useNotesHub } from "../store/notesHub";
 import { CreateChannelModal, NewDmModal } from "./ChannelModals";
 import { CallLayer } from "./CallLayer";
@@ -43,6 +44,7 @@ const CalendarView = lazy(() =>
   import("./CalendarView").then((m) => ({ default: m.CalendarView })),
 );
 const NotesHub = lazy(() => import("./NotesHub").then((m) => ({ default: m.NotesHub })));
+const NewsView = lazy(() => import("./NewsView").then((m) => ({ default: m.NewsView })));
 const SettingsModal = lazy(() =>
   import("./SettingsModal").then((m) => ({ default: m.SettingsModal })),
 );
@@ -62,6 +64,8 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const calendarMatch = useMatch("/app/calendar");
   // `/app/notes`: the AI Notes hub (Phase 29).
   const notesMatch = useMatch("/app/notes");
+  // `/app/news`: AI News (Phase 35b).
+  const newsMatch = useMatch("/app/news");
   const navigate = useNavigate();
   // Phones' tabs and a thread's own screen are routes too.
   const threadMatch = useMatch("/app/:channelId/thread/:messageId");
@@ -79,7 +83,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           ? "search"
           : null;
   const channelId =
-    tasksMatch || calendarMatch || notesMatch || tab
+    tasksMatch || calendarMatch || notesMatch || newsMatch || tab
       ? null
       : (threadMatch?.params.channelId ?? params.channelId ?? GENERAL_CHANNEL_ID);
   const threadId = threadMatch?.params.messageId;
@@ -167,6 +171,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     useTasks.getState().reset();
     useCalendar.getState().reset();
     useNotesHub.getState().reset();
+    useNews.getState().reset();
     const userId = useChat.getState().me?.userId;
     if (userId) await forgetPersisted(userId);
     saveSessionSnapshot(null);
@@ -350,6 +355,12 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           onCloseThread={closeThread}
         />
       );
+    } else if (newsMatch) {
+      screen = (
+        <Suspense fallback={<div className="flex-1" aria-busy="true" aria-label="Loading news" />}>
+          <NewsView />
+        </Suspense>
+      );
     } else if (notesMatch) {
       screen = (
         <Suspense fallback={<div className="flex-1" aria-busy="true" aria-label="Loading notes" />}>
@@ -462,7 +473,8 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
       >
         <Sidebar
           activeChannelId={
-            channelId ?? (calendarMatch ? "calendar" : notesMatch ? "notes" : "tasks")
+            channelId ??
+            (calendarMatch ? "calendar" : notesMatch ? "notes" : newsMatch ? "news" : "tasks")
           }
           collapsed={collapsed}
           onToggleCollapsed={isDesktop ? toggleCollapsed : undefined}
@@ -500,6 +512,12 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
             onOpenThread={openThread}
             onCloseThread={closeThread}
           />
+        ) : newsMatch ? (
+          <Suspense
+            fallback={<div className="flex-1" aria-busy="true" aria-label="Loading news" />}
+          >
+            <NewsView onOpenSidebar={() => setSidebarOpen(true)} />
+          </Suspense>
         ) : notesMatch ? (
           <Suspense
             fallback={<div className="flex-1" aria-busy="true" aria-label="Loading notes" />}

@@ -582,6 +582,18 @@ export function Sidebar({
                 unread={0}
                 onClick={() => navigate("/app/notes")}
               />
+              <NavItem
+                compact={compact}
+                label="AI News"
+                icon={
+                  <span className="text-[15px] leading-none" aria-hidden="true">
+                    📰
+                  </span>
+                }
+                active={activeChannelId === "news"}
+                unread={0}
+                onClick={() => navigate("/app/news")}
+              />
             </ul>
           </Section>
         )}

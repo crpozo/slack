@@ -7,3 +7,4 @@ export * from "./calendar";
 export * from "./recurrence";
 export * from "./callNotes";
 export * from "./actionItems";
+export * from "./news";

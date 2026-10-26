@@ -97,6 +97,7 @@ describe("task manager API", () => {
       "GET /boards/{id}/tasks",
       "GET /calendar/balances",
       "GET /calendar/events",
+      "GET /news",
       "GET /notes",
       "GET /push/key",
       "POST /boards",
