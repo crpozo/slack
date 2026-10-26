@@ -978,6 +978,43 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
 - The News Lambda's role has no data permissions, and no DynamoDB item is written.
 - AI News in the sidebar shows the grid; clicking a card opens the article in a new tab.
 
+### Phase 37 — Phone UI after Slack's mobile app (dark, purple)
+
+**Branch:** `feature/f37-mobile-ui-revamp`. Phones only (below 768 px); the desktop layout and theme are untouched.
+
+1. **Phone scope:** `lib/theme.ts` puts `phone` and `dark` on `<html>` on phones, whatever the theme preference; `index.html` does it before first paint.
+   - **Width changes:** it follows them live (a rotation or a resized window).
+   - **Exception:** the desktop app's `/call/pip` window isn't a phone.
+   - **Settings:** the theme picker says phones are always dark.
+2. **Tokens (`.phone` in `styles.css`):** `#1A1D21` background, `#222529` raised surfaces, `#F8F8F8` / `#ABABAD` text, `#2BAC76` green.
+   - **Purple in two roles:** `primary` is split because no single purple works as both a fill under white text and readable text on `#1A1D21`.
+     - **Fills:** `bg-primary` is `#611F69`, with white text through the new `on-primary`.
+     - **Foreground:** `text-` / `border-` / `ring-` / `decoration-primary` use `--c-primary-fg`, lilac `#E3B0F0`. These are per-utility colours in `tailwind.config.js`.
+   - **Desktop:** both values equal the teal there, so nothing changes.
+3. **Shell (`ChatLayout` mobile branch, `MobileScreens.tsx`):**
+   - **Tab bar:** Home, DMs, Activity and More in a floating rounded bar, Search in its own circle. The active tab is lilac on a pill.
+   - **Keyboard:** the bar shows in conversations too, and folds away (height and opacity) while the keyboard is up. `useSoftKeyboard` counts the keyboard as up when a text field has focus on a touch screen, or when the visual viewport shrinks by more than 150 px.
+   - **FAB:** the purple **+** on the Home, DMs and Activity tabs opens a sheet with New message, New channel and New task (pick a board, then the usual task form).
+   - **Home header:** the workspace (opens More), recent conversations, and you with a status badge.
+   - **Recent conversations:** `lib/recents.ts`, the last 15 channels and DMs opened, per account, on this device only. They are forgotten on sign-out.
+   - **Shortcut cards:** Huddles (live channel calls, with a sheet to join), Activity (new alerts), Tasks and Calendar.
+4. **Lists (`Sidebar` with `phone`):** Channels, Direct Messages and Apps as accordion sections. Folded state is remembered (`slack.phone.collapsed`).
+   - **Section titles:** Channels › opens Search, Direct Messages › opens the DMs tab.
+   - **Rows:** large rows; channels with `#` or 🔒; DMs with avatar and `StatusBadge` (green dot online, gray "z" away); apps with square tiles and an APP chip.
+   - **Add rows:** faded "+ Add channel" and "+ Start a new message".
+   - **Row options:** a long press (or right click) opens them as a sheet, instead of a ⋯ on every row. Keyboard users get a ⋯ when it has focus.
+5. **Conversation (`PhoneChannel.tsx`):**
+   - **Header:** a round back button, and a pill with the name and "N members • board • N in call" that opens the options sheet (details, add people, board, video call).
+   - **🎧 button:** starts or joins the channel's mesh call (audio), shows the live count, and in DMs places a voice call.
+   - **Intro:** "This is the very beginning of #channel" with _Add description_ (creator or admin) and _Add people_ (private channels, creator) pills.
+   - **Composer:** a rounded pill. **+** opens a sheet with photo or file, emoji, schedule a meeting and secret. On the right, 🎙 until there's text, then a purple send button.
+
+**Phase 37 acceptance criteria:**
+- On a phone, the app is dark (`#1A1D21`) with purple accents even with the Light theme picked; on a computer, nothing changed.
+- Home shows the workspace header, the shortcut cards and the three folding sections; a folded section stays folded after a reload.
+- **+** opens New message / New channel / New task, and each one works.
+- In a channel, the tab bar hides while typing and comes back after; 🎧 starts or joins the call; the history button lists the channels just opened.
+
 ### Phase 35 (planned) — Customer channels (guest access to shared channels)
 
 Deferred from Phase 34: it moves the guest security boundary, so it gets its own phase and tests. Today guests are boards-only. They're blocked from every WebSocket action but `ping`, `presign` and `user` (`GUEST_ROUTES`), receive only `board.*` events (`guestMayReceive`), and see only board co-members. Needed:

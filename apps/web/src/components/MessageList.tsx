@@ -1,6 +1,14 @@
 import { isExpired } from "@mindfultech/shared";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { chat } from "../lib/chat";
 import { formatDay } from "../lib/channels";
 import { useChat, type ChatMessage } from "../store";
@@ -28,9 +36,12 @@ export function MessageList({
   channelId,
   title,
   onOpenThread,
+  intro,
 }: Readonly<{
   channelId: string;
   title: string;
+  /** Phones (Phase 37): replaces the plain "start of the conversation" line. */
+  intro?: (hasMessages: boolean) => ReactNode;
   /** "Reply in thread" / "N replies": opens the thread of that message. */
   onOpenThread?: (message: ChatMessage) => void;
 }>) {
@@ -157,7 +168,8 @@ export function MessageList({
       {loadingOlder && (
         <p className="py-3 text-center text-xs text-ink-secondary">Loading earlier messages…</p>
       )}
-      {loaded && cursor === null && (
+      {loaded && cursor === null && intro?.(messages.length > 0)}
+      {loaded && cursor === null && !intro && (
         <div className="px-4 pb-2 pt-8">
           <p className="text-lg font-semibold text-ink">{title}</p>
           <p className="text-sm text-ink-secondary">

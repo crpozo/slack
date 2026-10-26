@@ -352,3 +352,60 @@ export const SparklesIcon = (p: IconProps) => (
     <path d="M19 3v4M17 5h4M18 17v3M16.5 18.5h3" />
   </Icon>
 );
+
+// --- Phones (Phase 37): Slack's mobile set ---------------------------------------
+/** Home tab: a house; filled when active. */
+export const HomeIcon = ({ filled = false, ...p }: IconProps & { filled?: boolean }) => (
+  <Icon {...p}>
+    <path
+      d="M3.5 10.2 12 3.5l8.5 6.7V19a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19z"
+      fill={filled ? "currentColor" : "none"}
+    />
+    {filled && <circle cx="12" cy="13.5" r="1.6" fill="var(--home-dot, #1A1D21)" stroke="none" />}
+  </Icon>
+);
+/** DMs tab: two overlapping speech bubbles. */
+export const DmsIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M14.5 4.5a5.5 5.5 0 0 1 5 7.8l.9 3.2-3.2-.9a5.5 5.5 0 0 1-2.7.7" />
+    <path d="M9 9.5a5.5 5.5 0 0 0-4.8 8.2L3.5 20.5l2.8-.8A5.5 5.5 0 1 0 9 9.5z" />
+  </Icon>
+);
+/** Recent conversations: a clock with a counter-clockwise arrow. */
+export const HistoryIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" />
+    <path d="M3.5 3.5V8H8" />
+    <path d="M12 7.5V12l3 2" />
+  </Icon>
+);
+/** Huddles: headphones. */
+export const HeadphonesIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 15v-3a8 8 0 0 1 16 0v3" />
+    <rect x="3.5" y="14" width="4" height="6.5" rx="1.8" />
+    <rect x="16.5" y="14" width="4" height="6.5" rx="1.8" />
+  </Icon>
+);
+/** Apps section: three circles and a sparkle. */
+export const AppsIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="7" cy="7" r="2.6" />
+    <circle cx="7" cy="17" r="2.6" />
+    <circle cx="17" cy="17" r="2.6" />
+    <path d="M17 3.5v7M13.5 7h7" />
+  </Icon>
+);
+/** To-dos card: a check in a circle. */
+export const CheckCircleIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="m8.5 12.2 2.4 2.4 4.6-5" />
+  </Icon>
+);
+/** Back: a plain chevron pointing left. */
+export const ChevronLeftIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m15 5-7 7 7 7" />
+  </Icon>
+);

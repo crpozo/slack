@@ -32,6 +32,7 @@ import {
   type VoiceClip,
 } from "../lib/voice";
 import { formatBytes, MAX_SIZE_LABEL, uploadFile, validateFile } from "../lib/upload";
+import { MOBILE_QUERY, useMediaQuery } from "../lib/hooks";
 import { useChat, useNameOf } from "../store";
 import { EmojiPicker } from "./EmojiPicker";
 import {
@@ -43,11 +44,13 @@ import {
   MicIcon,
   PaperclipIcon,
   PencilIcon,
+  PlusIcon,
   ReplyIcon,
   SendIcon,
   SmileIcon,
   TrashIcon,
 } from "./icons";
+import { Modal } from "./Modal";
 import { Popover } from "./Popover";
 import { ScheduleMeetingModal } from "./ScheduleMeetingModal";
 
@@ -152,6 +155,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [emojiAnchor, setEmojiAnchor] = useState<HTMLElement | null>(null);
+  // Phones (Phase 37): Slack's pill, with attach/emoji/meeting/secret behind "+".
+  const phone = useMediaQuery(MOBILE_QUERY);
+  const plusRef = useRef<HTMLButtonElement>(null);
+  const [addSheet, setAddSheet] = useState(false);
   const replyTo = useChat((s) => s.replyTo[channelId]);
   const inCall = useCall((s) => s.call !== null);
   const voiceSupported = useMemo(supportsVoiceMessages, []);
@@ -455,9 +462,107 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     }
   }
 
+  const fileInput = (
+    <input
+      ref={fileInputRef}
+      type="file"
+      multiple
+      hidden
+      onChange={(e) => {
+        if (e.target.files) addFiles(e.target.files);
+        e.target.value = "";
+      }}
+    />
+  );
+  const pickers = (
+    <>
+      {scheduling && (
+        <ScheduleMeetingModal channelId={channelId} onClose={() => setScheduling(false)} />
+      )}
+      {emojiAnchor && (
+        <Popover anchor={emojiAnchor} onClose={() => setEmojiAnchor(null)}>
+          <EmojiPicker
+            onSelect={(emoji) => {
+              insertAtCursor(emoji);
+              setEmojiAnchor(null);
+            }}
+          />
+        </Popover>
+      )}
+    </>
+  );
+  const textarea = (
+    <textarea
+      ref={textareaRef}
+      rows={1}
+      value={text}
+      maxLength={MAX_TEXT_LENGTH}
+      onChange={(e) => handleChange(e.target.value)}
+      onKeyDown={handleKeyDown}
+      onPaste={handlePaste}
+      placeholder={secret ? "Password or API key (deleted in 7 days)" : placeholder}
+      disabled={disabled}
+      aria-label={secret ? "Secret" : "Message"}
+      className={`max-h-[200px] flex-1 resize-none bg-transparent text-base text-ink focus:outline-none disabled:cursor-not-allowed ${
+        phone
+          ? "min-h-[40px] px-1 py-2 text-[17px] placeholder:text-ink-secondary"
+          : "min-h-[36px] px-1 py-2 placeholder:text-ink-secondary/80 sm:text-sm"
+      }`}
+    />
+  );
+  const sendButton = (
+    <button
+      type="button"
+      onClick={submit}
+      disabled={editing ? !text.trim() : !canSend}
+      className={
+        phone
+          ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-lg text-on-primary disabled:opacity-40"
+          : "btn-primary h-9 w-9 p-0"
+      }
+      aria-label={editing ? "Save changes" : "Send"}
+      title={
+        editing ? "Save (Enter)" : uploading ? "Waiting for uploads to finish" : "Send (Enter)"
+      }
+    >
+      <SendIcon />
+    </button>
+  );
+  const micButton = voiceSupported && (
+    <button
+      type="button"
+      onClick={startRecording}
+      disabled={disabled || inCall || !!editing || secret}
+      className={
+        phone
+          ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[24px] text-ink active:bg-surface-hover disabled:opacity-40"
+          : "rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
+      }
+      aria-label="Record a voice message"
+      title={inCall ? "Not available during a call" : "Voice message"}
+    >
+      <MicIcon />
+    </button>
+  );
+  // Phones: the mic until there's something to send (Slack's way).
+  const typed = text.trim().length > 0 || uploads.length > 0 || !!editing || secret;
+
   return (
-    <div className="border-t border-line bg-surface px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4 sm:pb-3">
-      <div className="rounded-xl border border-line bg-surface focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30">
+    <div
+      className={
+        phone
+          ? "bg-surface px-3 pb-2 pt-1.5"
+          : "border-t border-line bg-surface px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4 sm:pb-3"
+      }
+      data-composer
+    >
+      <div
+        className={
+          phone
+            ? "overflow-hidden rounded-[26px] border border-line bg-surface-raised focus-within:border-primary/60"
+            : "rounded-xl border border-line bg-surface focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30"
+        }
+      >
         {editing && (
           <div
             className="flex items-center gap-2 border-b border-line px-3 py-2 text-sm"
@@ -593,7 +698,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             ))}
           </ul>
         )}
-        <div className="flex items-end gap-1 p-1.5">
+        <div className={`flex items-end gap-1 ${phone ? "p-1" : "p-1.5"}`}>
           {recording ? (
             <RecordingBar
               elapsed={voice.elapsed}
@@ -602,6 +707,110 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               onCancel={voice.cancel}
               onSend={() => void voice.stop().then(sendVoice)}
             />
+          ) : phone ? (
+            <>
+              <button
+                ref={plusRef}
+                type="button"
+                onClick={() => setAddSheet(true)}
+                disabled={disabled}
+                aria-label="Add to message"
+                aria-haspopup="dialog"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-hover text-[22px] text-ink disabled:opacity-40"
+              >
+                <PlusIcon />
+              </button>
+              {pickers}
+              {addSheet && (
+                <Modal title="Add to message" width="sm" onClose={() => setAddSheet(false)}>
+                  <div className="-mx-5 -my-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+                    {/* Its own input: the page behind the sheet is inert. */}
+                    <label
+                      className={`flex w-full items-center gap-3 px-4 py-3 text-left active:bg-surface-hover ${
+                        editing || secret ? "pointer-events-none opacity-40" : "cursor-pointer"
+                      }`}
+                    >
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-hover text-xl text-ink">
+                        <PaperclipIcon />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-base font-semibold text-ink">
+                          Photo or file
+                        </span>
+                        <span className="block text-sm text-ink-secondary">
+                          Up to {MAX_SIZE_LABEL}
+                        </span>
+                      </span>
+                      <input
+                        type="file"
+                        multiple
+                        className="sr-only"
+                        disabled={!!editing || secret}
+                        aria-label="Attach a photo or file"
+                        onChange={(e) => {
+                          if (e.target.files) addFiles(e.target.files);
+                          setAddSheet(false);
+                        }}
+                      />
+                    </label>
+                    {[
+                      {
+                        key: "emoji",
+                        icon: <SmileIcon />,
+                        label: "Emoji",
+                        off: false,
+                        run: () => setEmojiAnchor(plusRef.current),
+                      },
+                      ...(canSchedule
+                        ? [
+                            {
+                              key: "meeting",
+                              icon: <CalendarIcon />,
+                              label: "Schedule a meeting",
+                              hint: dm ? "Goes to both calendars" : "Posted in this channel",
+                              off: !!editing,
+                              run: () => setScheduling(true),
+                            },
+                          ]
+                        : []),
+                      {
+                        key: "secret",
+                        icon: <LockIcon />,
+                        label: secret ? "Send as a normal message" : "Send a secret",
+                        hint: "Masked until revealed, deleted in 7 days",
+                        off: !!editing,
+                        run: toggleSecret,
+                      },
+                    ].map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        disabled={item.off}
+                        onClick={() => {
+                          item.run();
+                          setAddSheet(false);
+                        }}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-surface-hover disabled:opacity-40"
+                      >
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-hover text-xl text-ink">
+                          {item.icon}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-base font-semibold text-ink">
+                            {item.label}
+                          </span>
+                          {item.hint && (
+                            <span className="block text-sm text-ink-secondary">{item.hint}</span>
+                          )}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </Modal>
+              )}
+              {textarea}
+              {typed || !micButton ? sendButton : micButton}
+            </>
           ) : (
             <>
               <button
@@ -645,16 +854,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               >
                 <PaperclipIcon />
               </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                hidden
-                onChange={(e) => {
-                  if (e.target.files) addFiles(e.target.files);
-                  e.target.value = "";
-                }}
-              />
+              {fileInput}
               <button
                 type="button"
                 onClick={(e) => setEmojiAnchor(emojiAnchor ? null : e.currentTarget)}
@@ -665,60 +865,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               >
                 <SmileIcon />
               </button>
-              {scheduling && (
-                <ScheduleMeetingModal channelId={channelId} onClose={() => setScheduling(false)} />
-              )}
-              {emojiAnchor && (
-                <Popover anchor={emojiAnchor} onClose={() => setEmojiAnchor(null)}>
-                  <EmojiPicker
-                    onSelect={(emoji) => {
-                      insertAtCursor(emoji);
-                      setEmojiAnchor(null);
-                    }}
-                  />
-                </Popover>
-              )}
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                value={text}
-                maxLength={MAX_TEXT_LENGTH}
-                onChange={(e) => handleChange(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                placeholder={secret ? "Password or API key (deleted in 7 days)" : placeholder}
-                disabled={disabled}
-                aria-label={secret ? "Secret" : "Message"}
-                className="max-h-[200px] min-h-[36px] flex-1 resize-none bg-transparent px-1 py-2 text-base text-ink placeholder:text-ink-secondary/80 focus:outline-none disabled:cursor-not-allowed sm:text-sm"
-              />
-              {voiceSupported && (
-                <button
-                  type="button"
-                  onClick={startRecording}
-                  disabled={disabled || inCall || !!editing || secret}
-                  className="rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
-                  aria-label="Record a voice message"
-                  title={inCall ? "Not available during a call" : "Voice message"}
-                >
-                  <MicIcon />
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={submit}
-                disabled={editing ? !text.trim() : !canSend}
-                className="btn-primary h-9 w-9 p-0"
-                aria-label={editing ? "Save changes" : "Send"}
-                title={
-                  editing
-                    ? "Save (Enter)"
-                    : uploading
-                      ? "Waiting for uploads to finish"
-                      : "Send (Enter)"
-                }
-              >
-                <SendIcon />
-              </button>
+              {pickers}
+              {textarea}
+              {micButton}
+              {sendButton}
             </>
           )}
         </div>

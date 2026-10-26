@@ -17,8 +17,8 @@ export function Avatar({ name, mine = false, size = "md" }: Readonly<AvatarProps
   const initial = (name?.trim()[0] ?? "?").toUpperCase();
   return (
     <span
-      className={`inline-flex shrink-0 select-none items-center justify-center rounded-lg font-semibold text-on-accent ${SIZES[size]} ${
-        mine ? "bg-primary" : "bg-sky"
+      className={`inline-flex shrink-0 select-none items-center justify-center rounded-lg font-semibold ${SIZES[size]} ${
+        mine ? "bg-primary text-on-primary" : "bg-sky text-on-accent"
       }`}
       aria-hidden="true"
     >
@@ -62,6 +62,33 @@ export function PresenceDot({
   return (
     <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-surface-sidebar ring-2 ring-surface-sidebar">
       {img}
+    </span>
+  );
+}
+
+/**
+ * Phones (Phase 37), Slack-style: a green dot when online, a gray "z" when
+ * not, on a disc of the background colour, pinned to the bottom-right corner of
+ * a relatively positioned avatar.
+ */
+export function StatusBadge({
+  online,
+  ringClass = "bg-surface ring-surface",
+}: Readonly<{ online: boolean; ringClass?: string }>) {
+  const label = online ? "Online" : "Away";
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      data-status={online ? "online" : "away"}
+      className={`absolute -bottom-1 -right-1 flex h-[15px] w-[15px] items-center justify-center rounded-full ring-2 ${ringClass}`}
+    >
+      {online ? (
+        <span className="h-[11px] w-[11px] rounded-full bg-success" />
+      ) : (
+        <span className="text-[11px] font-black italic leading-none text-ink-secondary">z</span>
+      )}
     </span>
   );
 }

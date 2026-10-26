@@ -85,7 +85,7 @@ export function UserPicker({
                 {mode === "multi" ? (
                   <span
                     className={`flex h-5 w-5 items-center justify-center rounded border ${
-                      checked ? "border-primary bg-primary text-on-accent" : "border-line"
+                      checked ? "border-primary bg-primary text-on-primary" : "border-line"
                     } ${isLocked ? "opacity-50" : ""}`}
                   >
                     {checked && <CheckIcon className="text-xs" />}
