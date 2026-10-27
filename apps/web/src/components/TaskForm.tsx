@@ -213,7 +213,7 @@ function AttachmentRow({
     setOpening(true);
     try {
       const url = await getDownloadUrl(attachment.key);
-      await openExternal(url, { notify: showToast });
+      await openExternal(url);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Couldn't download the file.");
     } finally {

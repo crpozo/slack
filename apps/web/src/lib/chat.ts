@@ -288,7 +288,7 @@ class ChatController {
         } else if (code === "UNAUTHORIZED") {
           onSessionExpired();
         } else {
-          store().showToast(text);
+          store().showToast(text, "error");
         }
       }),
     );

@@ -70,7 +70,7 @@ export function SendToBoardModal({
       useChat.getState().updateAiNotes(message.channelId, message.sk, updated, message.text);
       useNotesHub.getState().update(message.channelId, message.sk, updated, message.text);
       const what = chosen.length === 1 ? "1 task" : `${chosen.length} tasks`;
-      showToast(`${what} added to the ${board.name} board`);
+      showToast(`${what} added to the ${board.name} board`, "success");
       onClose();
     } catch (err) {
       setSending(false);

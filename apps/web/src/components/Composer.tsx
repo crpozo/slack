@@ -480,7 +480,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     setText("");
     setPlainAnyway(false);
     if (detected) {
-      showToast("🔒 Sent as a secret: it looked like a password. It's deleted in 24 hours.");
+      showToast("Sent as a secret: it looked like a password. It's deleted in 24 hours.", "info");
     }
     if (secret) setSecret(false);
     else {

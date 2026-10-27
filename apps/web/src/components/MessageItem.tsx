@@ -210,7 +210,7 @@ function MessageActions({
           type="button"
           onClick={() => {
             void navigator.clipboard?.writeText(message.text).then(
-              () => useChat.getState().showToast("Copied"),
+              () => useChat.getState().showToast("Copied", "success"),
               () => {},
             );
             done();
@@ -278,7 +278,7 @@ function CopyButton({ value, what }: Readonly<{ value: string; what: string }>) 
     void navigator.clipboard?.writeText(value).then(
       () => {
         setCopied(true);
-        showToast(`Copied ${what.toLowerCase()}`);
+        showToast(`Copied ${what.toLowerCase()}`, "success");
       },
       () => showToast("Couldn't copy"),
     );
