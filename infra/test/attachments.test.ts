@@ -1,5 +1,5 @@
 import { App } from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
+import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
 import { SlackStack } from "../lib/slack-stack";
 
@@ -41,7 +41,11 @@ describe("attachments", () => {
   it("allows the browser to send the signed Cache-Control header on uploads", () => {
     const [bucket] = Object.values(
       template.findResources("AWS::S3::Bucket", {
-        Properties: { LifecycleConfiguration: { Rules: [{ Status: "Enabled" }] } },
+        Properties: {
+          LifecycleConfiguration: {
+            Rules: Match.arrayWith([Match.objectLike({ Status: "Enabled" })]),
+          },
+        },
       }),
     );
     const rules = bucket?.Properties.CorsConfiguration.CorsRules as Array<{
@@ -51,5 +55,25 @@ describe("attachments", () => {
     expect(rules).toHaveLength(1);
     expect(rules[0]?.AllowedMethods).toEqual(["PUT", "GET"]);
     expect(rules[0]?.AllowedHeaders).toEqual(["content-type", "content-length", "cache-control"]);
+  });
+
+  it("only moves files above Glacier IR's minimum billable size to cold storage", () => {
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([
+          Match.objectLike({
+            Id: "ColdAfter90Days",
+            Status: "Enabled",
+            ObjectSizeGreaterThan: 131072,
+            Transitions: [{ StorageClass: "GLACIER_IR", TransitionInDays: 90 }],
+          }),
+          Match.objectLike({
+            Id: "AbortStaleMultipartUploads",
+            Status: "Enabled",
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
+          }),
+        ]),
+      },
+    });
   });
 });

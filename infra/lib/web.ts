@@ -9,6 +9,7 @@ import {
   AllowedMethods,
   CachePolicy,
   Distribution,
+  HttpVersion,
   PriceClass,
   ResponseHeadersPolicy,
   ViewerProtocolPolicy,
@@ -105,6 +106,10 @@ export class Web extends Construct {
     this.distribution = new Distribution(this, "Distribution", {
       comment: `slack-${props.stage}`,
       priceClass: PriceClass.PRICE_CLASS_100,
+      // HTTP/3 (QUIC) where the browser has it: faster connection setup and
+      // no head-of-line blocking on lossy phone networks; HTTP/2 otherwise.
+      // CloudFront charges nothing extra for it.
+      httpVersion: HttpVersion.HTTP2_AND_3,
       defaultRootObject: "index.html",
       ...(props.customDomain && {
         domainNames: [props.customDomain.domainName],

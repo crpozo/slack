@@ -21,6 +21,7 @@ describe("web hosting", () => {
       DistributionConfig: Match.objectLike({
         DefaultRootObject: "index.html",
         PriceClass: "PriceClass_100",
+        HttpVersion: "http2and3",
         DefaultCacheBehavior: Match.objectLike({
           ViewerProtocolPolicy: "redirect-to-https",
           Compress: true,

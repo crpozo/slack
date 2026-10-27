@@ -12,7 +12,6 @@ import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations
 import { Rule, Schedule } from "aws-cdk-lib/aws-events";
 import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
 import { PolicyStatement } from "aws-cdk-lib/aws-iam";
-import { Architecture, Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import type { IBucket } from "aws-cdk-lib/aws-s3";
@@ -20,6 +19,7 @@ import { Construct } from "constructs";
 import type { Api } from "./api";
 import type { Auth } from "./auth";
 import type { Data } from "./data";
+import { LAMBDA_ARCHITECTURE, LAMBDA_BUNDLING, LAMBDA_MEMORY_MB, LAMBDA_RUNTIME } from "./lambda";
 import { removalPolicyFor, vapidParameterName, type Stage } from "./stage";
 import { grantReadVapid } from "./vapid";
 
@@ -175,14 +175,14 @@ export class TasksApi extends Construct {
         functionName,
         entry: `${HANDLERS_DIR}${name}.ts`,
         handler: "handler",
-        runtime: Runtime.NODEJS_22_X,
-        architecture: Architecture.ARM_64,
-        memorySize: 256,
+        runtime: LAMBDA_RUNTIME,
+        architecture: LAMBDA_ARCHITECTURE,
+        memorySize: LAMBDA_MEMORY_MB,
         timeout,
         environment: { STAGE: stage, LOG_LEVEL: "info", ...environment },
         projectRoot: REPO_ROOT,
         depsLockFilePath: `${REPO_ROOT}pnpm-lock.yaml`,
-        bundling: { minify: true, sourceMap: false, target: "node22", externalModules: [] },
+        bundling: LAMBDA_BUNDLING,
         logGroup: new LogGroup(this, `${id === "Fn" ? "" : id}Logs`, {
           logGroupName: `/aws/lambda/${functionName}`,
           retention: RetentionDays.ONE_WEEK,

@@ -206,6 +206,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **Faster Lambdas, same bill.** Every handler is now bundled as an ES module (the AWS SDK's
+  ESM entry points tree-shake), which makes each bundle 25–30 % smaller (`message` 1.75 → 1.26 MB,
+  `ping` 1.14 → 0.84 MB): less to download and parse on a cold start. They also run with 512 MB
+  instead of 256 MB: CPU scales with memory on Lambda, and these handlers spent their time
+  parsing the bundle and signing requests, not waiting on DynamoDB, so cold starts and short
+  invocations take about half the time. At this team's volume the difference in cost is within
+  rounding, inside the free tier.
+- **Cheaper cold storage, done right.** Attachments still move to Glacier Instant Retrieval after
+  90 days, but only when they are larger than its 128 KB minimum billable size: below it every
+  object was billed as 128 KB (more than Standard for thumbnails and small files) plus a transition
+  request each. Abandoned multipart uploads, should a client ever start one, are removed after 7
+  days instead of being billed forever.
+- **HTTP/3 on CloudFront** for browsers that support it: faster connection setup and better
+  behaviour on lossy phone networks, at no extra charge. HTTP/2 stays for the rest.
 - **Pinned DMs** now sit in the sidebar's Pinned section instead of at the top of Direct
   messages. The pinning limit is 30 conversations (was 20).
 - **Archiving a channel:** its creator can now archive and restore it, not only admins.

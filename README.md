@@ -593,6 +593,34 @@ Both notify the email in the `budgetEmail` context key (in `infra/cdk.json` or w
 For the monitor to see the spend, activate the tag once in _Billing → Cost allocation tags_
 (`project`); AWS takes up to 24 h to apply it.
 
+### Where the money goes, and what keeps it low
+
+Everything is serverless and billed per use, so an idle stack costs nearly nothing; what's left
+is mostly fixed (the Route 53 hosted zone, if any, is USD 0.50/month) and storage:
+
+- **Lambda** (`infra/lib/lambda.ts`): arm64 (20 % cheaper per ms than x86), Node 22, 512 MB,
+  one minified ES-module bundle per handler with the AWS SDK inside. Memory is the performance
+  knob: CPU scales with it, so 512 MB halves cold starts and short invocations compared to
+  256 MB for a per-invocation cost that is within rounding (a 100 ms call is USD 0.0000008
+  either way, and the free tier covers 400,000 GB-seconds a month). Logs are kept one week.
+- **DynamoDB**: every table is on-demand (`PAY_PER_REQUEST`): no provisioned capacity to pay for
+  while nobody is online, and the tables are small. Expiring rows (connections, secrets, call
+  rooms) leave through TTL, which is free.
+- **S3**: attachments larger than 128 KB move to Glacier Instant Retrieval after 90 days (a sixth
+  of the Standard price, same instant download); smaller ones stay in Standard, where they are
+  cheaper than Glacier IR's 128 KB minimum billable size. Abandoned multipart uploads are removed
+  after 7 days.
+- **CloudFront**: price class 100 (North America and Europe edges), compression and HTTP/3 on,
+  hashed assets cached for a year. The free tier covers 1 TB a month.
+- **API Gateway**: the HTTP API verifies Cognito tokens itself (no authorizer Lambda per
+  request); the WebSocket API bills per message and per connection-minute, both in fractions of a
+  cent per million.
+- **Bedrock**: AI notes are one short Claude Haiku 5.5 request per call at low effort: cents a
+  month.
+
+Nothing here is provisioned, reserved or running continuously: there are no NAT gateways, VPCs,
+load balancers, provisioned concurrency or always-on instances to pay for.
+
 ## Roadmap
 
 Threads · rename and archive channels · edit and delete messages · search ·

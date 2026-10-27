@@ -6,13 +6,13 @@ import { WebSocketLambdaAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authoriz
 import { WebSocketLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import type { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import { PolicyStatement } from "aws-cdk-lib/aws-iam";
-import { Architecture, Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import type { Bucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import type { Auth } from "./auth";
 import type { Data } from "./data";
+import { LAMBDA_ARCHITECTURE, LAMBDA_BUNDLING, LAMBDA_MEMORY_MB, LAMBDA_RUNTIME } from "./lambda";
 import { removalPolicyFor, vapidParameterName, type Stage } from "./stage";
 import { grantReadVapid } from "./vapid";
 
@@ -84,20 +84,14 @@ export class Api extends Construct {
         functionName,
         entry: `${HANDLERS_DIR}${name}.ts`,
         handler: "handler",
-        runtime: Runtime.NODEJS_22_X,
-        architecture: Architecture.ARM_64,
-        memorySize: 256,
+        runtime: LAMBDA_RUNTIME,
+        architecture: LAMBDA_ARCHITECTURE,
+        memorySize: LAMBDA_MEMORY_MB,
         timeout: Duration.seconds(10),
         environment: { ...environment, ...extraEnv },
         projectRoot: REPO_ROOT,
         depsLockFilePath: `${REPO_ROOT}pnpm-lock.yaml`,
-        bundling: {
-          minify: true,
-          sourceMap: false,
-          target: "node22",
-          // Bundle the AWS SDK too: the versions we test are the versions we ship.
-          externalModules: [],
-        },
+        bundling: LAMBDA_BUNDLING,
         // Explicit log group (instead of the deprecated `logRetention`) so it is
         // removed together with the stack in dev.
         logGroup: new LogGroup(this, `${name}Logs`, {
