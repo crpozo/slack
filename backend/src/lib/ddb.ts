@@ -37,6 +37,14 @@ export const tables = {
   get meetingNotes() {
     return requireEnv("MEETING_NOTES_TABLE");
   },
+  /**
+   * Phase 40: a call's full notes by `callId` + `sk`: `raw` (the transcript),
+   * `polished` (the minutes) and `qa#<userId>#<askedAt>` (each person's own
+   * questions about it).
+   */
+  get noteDetails() {
+    return requireEnv("NOTE_DETAILS_TABLE");
+  },
   get vacationBalances() {
     return requireEnv("VACATION_BALANCES_TABLE");
   },

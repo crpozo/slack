@@ -238,7 +238,7 @@ export function notesStatusText(notes: CallView["notes"], micOn: boolean): strin
   const where = notes.onDevice
     ? "Your voice is transcribed on this device."
     : "Your voice is transcribed by your browser's speech service.";
-  return `AI notes are on. ${where} A summary is posted to the chat when the call ends.`;
+  return `AI notes are on: the call is recorded. ${where} Notes are posted to the chat when the call ends.`;
 }
 
 /** ✨ toggle: notes on or off for both sides (the other side is told). */
@@ -246,7 +246,7 @@ function NotesButton({ call }: Readonly<{ call: CallView }>) {
   const on = call.notes.on;
   return (
     <ControlButton
-      label={on ? "Turn off AI notes" : "Turn on AI notes (transcribes both of you)"}
+      label={on ? "Turn off AI notes" : "Turn on AI notes (records and transcribes both of you)"}
       highlight={on}
       disabled={call.phase !== "connected"}
       onClick={() => void calls.toggleNotes()}

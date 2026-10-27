@@ -32,6 +32,7 @@ import { TasksApiError } from "./tasksApi";
 import { useTasks } from "../store/tasks";
 import { useCalendar } from "../store/calendar";
 import { useNotesHub } from "../store/notesHub";
+import { recordingExtension, type CallRecording } from "./callRecorder";
 import { outbox, type UploadTask } from "./outbox";
 import { WsClient, type DistributiveOmit } from "./ws";
 
@@ -96,6 +97,8 @@ class ChatController {
     { timer: ReturnType<typeof setTimeout>; settle: (confirmed: boolean) => void }
   >();
   private readonly deletedListeners = new Set<(channelId: string, by: string) => void>();
+  /** Phase 40: each ended call's notes request (whether its card was posted), by `callId`. */
+  private readonly notesRequests = new Map<string, Promise<boolean>>();
 
   constructor() {
     // The outbox sends a message through here once its files are up.
@@ -324,11 +327,20 @@ class ChatController {
       notify: (text) => store().showToast(text),
       submitNotes: (input) => {
         // The ✨ card itself arrives over the socket (`message.new`, then `message.updated`).
-        notesApi.summarizeCall(input).catch((err: unknown) => {
+        const requested = notesApi.summarizeCall(input);
+        this.notesRequests.set(
+          input.callId,
+          requested.then(
+            () => true,
+            () => false,
+          ),
+        );
+        requested.catch((err: unknown) => {
           const why = err instanceof TasksApiError ? ` ${err.message}` : "";
           store().showToast(`✨ The AI notes couldn't be requested.${why}`);
         });
       },
+      submitRecording: (call, recording) => void this.attachRecording(call, recording),
     });
     this.cleanups.push(
       // DM calls ring (`calls`); channel calls are rooms (`groupCalls`, Phase 36).
@@ -567,6 +579,44 @@ class ChatController {
     clearTimeout(pending.timer);
     this.sendTimers.delete(clientId);
     pending.settle(confirmed);
+  }
+
+  /**
+   * Phase 40: once a call's notes card is posted and its recording is ready,
+   * uploads the recording (like any attachment of the conversation) and
+   * attaches it to the card. No card, no recording: it's dropped.
+   */
+  private async attachRecording(
+    { callId, channelId }: { callId: string; channelId: string },
+    recording: Promise<CallRecording | null>,
+  ): Promise<void> {
+    const [posted, clip] = await Promise.all([
+      this.notesRequests.get(callId) ?? Promise.resolve(false),
+      recording,
+    ]);
+    this.notesRequests.delete(callId);
+    if (!posted || !clip) return;
+    try {
+      // Loaded on demand: `upload` itself uses this module.
+      const { startUpload } = await import("./upload");
+      const day = new Date().toISOString().slice(0, 10);
+      const file = new File([clip.blob], `call-${day}.${recordingExtension(clip.mimeType)}`, {
+        type: clip.mimeType,
+      });
+      const task = startUpload(file, channelId);
+      const uploaded = await task.start();
+      task.dispose();
+      await notesApi.attachAudio(callId, {
+        key: uploaded.key,
+        contentType: clip.mimeType,
+        size: uploaded.size,
+        durationMs: Math.max(1, Math.round(clip.durationMs)),
+      });
+    } catch {
+      useChat
+        .getState()
+        .showToast("✨ The call's recording couldn't be saved. The notes are fine.");
+    }
   }
 
   /**

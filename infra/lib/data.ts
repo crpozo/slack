@@ -22,6 +22,8 @@ export class Data extends Construct {
    * notes, newest first" is one query; the cards stay in `messages`.
    */
   readonly meetingNotes: Table;
+  /** Phase 40: a call's full notes (`raw`, `polished`, `qa#<userId>#<askedAt>`) by `callId`. */
+  readonly noteDetails: Table;
   /**
    * Channel calls (Phase 36): one row per channel with a call going on (who
    * is in it, through which connection). Rows expire (`expiresAt`) as a
@@ -143,6 +145,13 @@ export class Data extends Construct {
       ...common,
       tableName: `slack-${props.stage}-meeting-notes`,
       partitionKey: { name: "userId", type: AttributeType.STRING },
+      sortKey: { name: "sk", type: AttributeType.STRING },
+    });
+
+    this.noteDetails = new Table(this, "NoteDetails", {
+      ...common,
+      tableName: `slack-${props.stage}-note-details`,
+      partitionKey: { name: "callId", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
     });
 

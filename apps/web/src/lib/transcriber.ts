@@ -267,6 +267,10 @@ export async function canTranscribeOnDevice(lang: string): Promise<boolean> {
   }
 }
 
-/** The language to recognize: the browser's (e.g. `es-EC`), Spanish if it has none. */
-export const speechLang = (): string =>
-  (typeof navigator !== "undefined" && navigator.language) || "es-EC";
+/**
+ * The language to recognize: always Spanish (Ecuador), whatever the browser's
+ * own language (Phase 40). Recognizing with an English browser's `en-US` made
+ * Spanish speech and background noise come out as random English words.
+ */
+export const SPEECH_LANG = "es-EC";
+export const speechLang = (): string => SPEECH_LANG;

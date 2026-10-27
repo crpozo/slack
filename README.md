@@ -461,10 +461,18 @@ notes" and the worker's CloudWatch log shows the Bedrock error.
 
 What leaves the browser: speech recognition runs on the device when Chrome has the language pack
 (`SpeechRecognition.available` with `processLocally`). Otherwise the browser's speech service
-(Google's servers, in Chrome) hears your own microphone while notes are on. The transcript goes
-to the API, to the worker and to Bedrock, and is never stored. Only the summary is kept, as the
-card's message. Each call is one request of a few thousand tokens to Haiku, which costs cents a
-month at this team's volume.
+(Google's servers, in Chrome) hears your own microphone while notes are on. It always recognizes
+Spanish (Ecuador, `es-EC`), whatever the browser's language.
+
+What is kept (Phase 40): while notes are on, the caller's app also records the call (both voices)
+and uploads it to the attachments bucket under the DM's folder when the call ends. The
+transcript, the polished minutes Claude writes from it, and each person's own questions about
+them are kept in `slack-<stage>-note-details`, readable only by the two people in the call (and
+each question only by whoever asked it). Deleting the ✨ card deletes all of it, recording
+included. Each call is one streamed request to Haiku of about twice the transcript's length, and
+each question one short request; at this team's volume that is still cents a month. No manual
+step: the table, routes and grants come with the deploy (the worker also needs
+`bedrock:InvokeModelWithResponseStream`, granted on the same profile).
 
 **AI Notes hub (Phase 29), once per stage after deploying it:** the hub (`/app/notes`) lists
 notes through a per-person index table (`slack-<stage>-meeting-notes`) that new cards fill as

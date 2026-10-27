@@ -7,14 +7,22 @@ import { renderNotesMarkdown } from "../lib/markdown";
 import { tasksApiConfigured } from "../lib/tasksApi";
 import { useChat, useNameOf } from "../store";
 import { useTasks } from "../store/tasks";
-import { CheckIcon, CopyIcon, KanbanIcon, SparklesIcon } from "./icons";
+import { Attachment } from "./Attachment";
+import { CheckIcon, ChevronDownIcon, CopyIcon, KanbanIcon, SparklesIcon } from "./icons";
+import { NoteDetails } from "./NoteDetails";
 
 const SendToBoardModal = lazy(() =>
   import("./SendToBoardModal").then((m) => ({ default: m.SendToBoardModal })),
 );
 
-/** A card still pending this long after the call is presumed lost (the worker gives up well before). */
+/**
+ * A card still pending this long after the call is presumed lost (the worker
+ * gives up well before): 5 minutes, plus a tenth of the call for its polished
+ * minutes (Phase 40), at most 16 minutes.
+ */
 export const NOTES_STALE_MS = 5 * 60_000;
+export const notesStaleAfter = (callMs: number) =>
+  Math.min(16 * 60_000, NOTES_STALE_MS + Math.max(0, callMs) / 10);
 
 /** Every card wants to know your boards; ask the server once per session. */
 let boardsRequested = false;
@@ -115,11 +123,14 @@ export function AiNotesCard({ message, mine }: Readonly<{ message: Message; mine
   const showToast = useChat((s) => s.showToast);
   const now = useNow();
   const [copied, setCopied] = useState(false);
+  const [open, setOpen] = useState(false);
   const html = useMemo(
     () => (notes.status === "ready" ? renderNotesMarkdown(notes.summary) : ""),
     [notes.status, notes.summary],
   );
-  const stale = notes.status === "pending" && now - notes.endedAt > NOTES_STALE_MS;
+  const stale =
+    notes.status === "pending" &&
+    now - notes.endedAt > notesStaleAfter(notes.endedAt - notes.startedAt);
   const people = notes.participants.map((id) => nameOf(id)).join(" & ");
 
   async function copy() {
@@ -159,6 +170,20 @@ export function AiNotesCard({ message, mine }: Readonly<{ message: Message; mine
         <p className="text-xs text-ink-secondary">
           {people} · {formatCallDuration(notes.endedAt - notes.startedAt)}
         </p>
+        {/* Phase 40: the call's recording (both voices, while notes were on). */}
+        {notes.audio && (
+          <div className="mt-2" data-note-audio>
+            <Attachment
+              attachment={{
+                key: notes.audio.key,
+                name: "Call recording",
+                size: notes.audio.size,
+                contentType: notes.audio.contentType,
+                durationMs: notes.audio.durationMs,
+              }}
+            />
+          </div>
+        )}
         {notes.status === "pending" && !stale && (
           <div role="status" className="mt-2 space-y-2" aria-label="Generating the notes">
             <p className="text-sm text-ink-secondary">Generating notes…</p>
@@ -185,6 +210,24 @@ export function AiNotesCard({ message, mine }: Readonly<{ message: Message; mine
               dangerouslySetInnerHTML={{ __html: html }}
             />
             <BoardAction message={message} />
+            {notes.details && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setOpen((v) => !v)}
+                  aria-expanded={open}
+                  className="mt-2 flex items-center gap-1 text-sm font-semibold text-primary hover:underline"
+                  data-open-notes
+                >
+                  {open ? "Hide full notes" : "Open full notes"}
+                  <ChevronDownIcon
+                    className={`transition-transform ${open ? "rotate-180" : ""}`}
+                    aria-hidden="true"
+                  />
+                </button>
+                {open && <NoteDetails callId={notes.callId} />}
+              </>
+            )}
             <p className="mt-2 border-t border-line/70 pt-2 text-[11px] text-ink-secondary">
               Written by AI from the call&apos;s transcript: check names, dates and figures.
             </p>

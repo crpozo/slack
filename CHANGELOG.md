@@ -19,6 +19,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI call notes, "Wispr Flow" style:** call notes now come with the call's recording, polished
+  minutes and your own questions.
+  - **Spanish, always:** calls are transcribed in Spanish (Ecuador) whatever your browser's
+    language, so speech and background noise no longer turn into random English words.
+  - **The recording:** while AI notes are on, the call is recorded (both voices; both people are
+    told) and the ✨ card gets a player once the call ends.
+  - **Polished minutes:** Claude rewrites the whole conversation as clean minutes, fixing
+    recognition errors and dropping filler words while keeping every fact, name, figure and
+    commitment. **Open full notes** on the card shows them; **View original transcript** shows
+    what the browser heard.
+  - **Ask about the call:** "Ask a question about this note…" answers from that call's minutes
+    only. Your questions and answers are private: the other person never sees them.
+  - Deleting the card deletes its recording, transcript, minutes and questions.
 - **Send without waiting:** attach images or files and send right away, then keep typing and
   sending; nothing waits for uploads any more.
   - **Shows at once:** each message appears immediately, slightly faded with "Sending…", its
