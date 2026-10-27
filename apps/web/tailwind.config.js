@@ -8,7 +8,7 @@ const token = (name) => `rgb(var(--c-${name}) / <alpha-value>)`;
  * one dark theme everywhere (Phase 37b), with the brand green #40B375 as accent.
  *
  * `primary` is split: fills (`bg-primary`) use `--c-primary`, with
- * `on-primary` (white) text on them; text, borders, rings, underlines and
+ * `on-primary` (black) text on them; text, borders, rings, underlines and
  * icon strokes use `--c-primary-fg`. Both are #40B375 today; they stay
  * separate tokens so a fill and a foreground can differ again if the
  * palette needs it (Phase 37's purple did). Text on sky, green, amber and
@@ -45,7 +45,7 @@ export default {
         error: token("error"),
         /** Text on sky, green, amber and red: the dark ink #0E0D12. */
         "on-accent": token("on-accent"),
-        /** Text on a solid primary fill (white on the green). */
+        /** Text on a solid primary fill (black on the green, 7.9:1). */
         "on-primary": token("on-primary"),
         /** Modal and drawer backdrops. */
         scrim: token("scrim"),

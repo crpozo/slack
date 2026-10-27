@@ -5,15 +5,15 @@
 @layer base {
   /* MindfulTech tokens as "R G B" (see tailwind.config.js). Phase 37b: one dark
      theme everywhere. The accent is the brand green #40B375 (since Phase 38's
-     polish, replacing Slack's purple): fills (`bg-primary`, with white
-     `on-primary` text) and active icons, text, borders and rings
+     polish, replacing Slack's purple): fills (`bg-primary`, with black
+     `on-primary` text: 7.9:1, where white was 2.65:1) and active icons, text, borders and rings
      (`text-primary`…, `--c-primary-fg`, readable on #1A1D21 at 6.4:1). Sky blue
      stays as the second accent (others' avatars, unread counts). */
   :root {
     --c-primary: 64 179 117; /* #40B375 */
     --c-primary-hover: 54 156 101; /* #369C65 */
     --c-primary-fg: 64 179 117; /* #40B375 */
-    --c-on-primary: 255 255 255;
+    --c-on-primary: 0 0 0; /* #000000 on #40B375 */
     --c-sky: 133 191 233; /* #85BFE9 */
     --c-ink: 248 248 248; /* #F8F8F8 */
     --c-ink-secondary: 171 171 173; /* #ABABAD */
