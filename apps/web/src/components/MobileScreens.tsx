@@ -140,7 +140,7 @@ export function BottomTabs({
   return (
     <Collapsible hidden={hidden}>
       <div
-        className="flex items-center gap-3 px-3 pb-[env(safe-area-inset-bottom)] pt-2"
+        className="flex items-center gap-3 px-3 pb-[max(4px,env(safe-area-inset-bottom))] pt-2"
         data-tabbar
       >
         <nav
