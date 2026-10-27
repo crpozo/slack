@@ -7,6 +7,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI Insights:** the AI News view opens with the morning's analysis of the day's stories,
+  written by Claude Haiku 5.5 on Amazon Bedrock in Spanish: what matters, the trends behind the
+  stories, what they mean for MindfulTech and what to watch next. A scheduled worker writes it
+  every day at 07:07 (Ecuador) from the same TechCrunch feed and keeps one per day; the view
+  shows the newest. Admins can ask for one now with **Generate now** (and **Generate again**
+  later in the day).
+- **New version banner:** a tab opened before a deploy now notices the new version (when it
+  comes to the front, when the browser is back online, and every 15 minutes) and shows a banner
+  at the top: **Reload** gets the update, **Later** hides it for that tab.
 - **Pinned conversations:** a **Pinned** section at the top of the sidebar (and of Home on
   phones) holds the channels and DMs you pin; they leave their usual section. Pin one from its
   menu (right-click on a computer, a long press on a phone), from the conversation's **⋯**

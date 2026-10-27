@@ -48,6 +48,10 @@ export const tables = {
   get channelMedia() {
     return requireEnv("CHANNEL_MEDIA_TABLE");
   },
+  /** Phase 39: one row per day with the morning's AI Insights on the news. */
+  get newsInsights() {
+    return requireEnv("NEWS_INSIGHTS_TABLE");
+  },
 };
 
 /** Row of the `connections` table. */

@@ -491,6 +491,30 @@ messages are skipped. Your AWS credentials need `dynamodb:Scan` on the messages 
 `dynamodb:BatchWriteItem` on the new one. Re-running rewrites identical rows. Until it has run,
 the tab only shows what was shared after the deploy.
 
+### 8. AI Insights (the morning analysis of the AI news)
+
+The AI News view (`/app/news`) opens with **AI Insights**: an analysis of the day's TechCrunch AI
+stories written by **Claude Haiku 5.5** on Amazon Bedrock, in Spanish, with what matters, the
+trends behind the stories, what they mean for MindfulTech and what to watch next. A scheduled
+worker (`news-insights-worker`, EventBridge, every day at 07:07 in Ecuador) reads the feed, asks
+the model and keeps the analysis as that day's row in `slack-<stage>-news-insights`; the view
+reads the newest one through `GET /news/insights`. It needs the same Bedrock model access as the
+call notes (step 7) and nothing else to set up.
+
+Before the first morning run after a deploy, the section says so; an **admin** can ask for one at
+once with **Generate now** (also **Generate again** later in the day), which starts the worker and
+shows the analysis when it's ready, about half a minute later. Each analysis is one request of a
+few thousand tokens: cents a month. A failed run (the feed down, the model busy) is retried twice
+by the schedule and writes nothing, so the view keeps showing the previous day's analysis.
+
+### Deploys and open tabs
+
+Every deploy uploads a new `index.html` naming a new, hashed app bundle. A tab opened before the
+deploy keeps running the old bundle, so the app checks for a newer one when the tab comes to the
+front, when the browser comes back online and every 15 minutes while visible (it downloads
+`index.html` again, uncached, and compares the bundle it names with its own). When one is up, a
+banner at the top offers **Reload**; **Later** hides it for that tab.
+
 ## App logo and icons
 
 The official logo lives at `apps/web/public/logo.webp` (square, ideally 1024×1024). Every icon

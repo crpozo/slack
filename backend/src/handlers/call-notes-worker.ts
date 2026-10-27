@@ -1,5 +1,4 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
 import {
   notesFrom,
   notesRequest,
@@ -7,27 +6,13 @@ import {
   transcriptFor,
   type NotesJob,
 } from "../lib/callNotes";
+import { bedrockModel, type ClaudeModel } from "../lib/claude";
 import { errorFields, log } from "../lib/logger";
 
 /** The part of the Messages client the worker uses (a fake in tests). */
-export interface NotesModel {
-  create(params: Anthropic.MessageCreateParamsNonStreaming): Promise<Anthropic.Message>;
-}
+export type NotesModel = ClaudeModel;
 
 let model: NotesModel | null = null;
-
-/**
- * Claude in Amazon Bedrock, signed with this Lambda's role (SigV4, service
- * `bedrock-mantle`, region from `AWS_REGION`). Built once per container.
- */
-function defaultModel(): NotesModel {
-  const client = new AnthropicBedrockMantle({
-    // Under the Lambda's 2-minute timeout, retries included.
-    timeout: 50_000,
-    maxRetries: 1,
-  });
-  return { create: (params) => client.messages.create(params) };
-}
 
 /** Tests swap the model. */
 export function useNotesModel(next: NotesModel | null): void {
@@ -58,7 +43,7 @@ export const handler = async (job: NotesJob): Promise<void> => {
   let settled: typeof notes;
   try {
     const transcript = await transcriptFor(segments, notes.startedAt);
-    const response = await (model ?? (model = defaultModel())).create(notesRequest(transcript));
+    const response = await (model ?? (model = bedrockModel())).create(notesRequest(transcript));
     const outcome = notesFrom(response);
     log.info("call notes generated", {
       channelId: card.channelId,

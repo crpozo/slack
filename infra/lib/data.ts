@@ -35,6 +35,12 @@ export class Data extends Construct {
    * rows instead of scanning the history. See @mindfultech/shared media.ts.
    */
   readonly channelMedia: Table;
+  /**
+   * AI Insights (Phase 39): one row per day with the morning's analysis of the
+   * AI news (`feed` + `day`, so the newest is one query). See
+   * backend/src/lib/newsInsights.ts.
+   */
+  readonly newsInsights: Table;
 
   constructor(scope: Construct, id: string, props: { stage: Stage }) {
     super(scope, id);
@@ -152,6 +158,13 @@ export class Data extends Construct {
       tableName: `slack-${props.stage}-channel-media`,
       partitionKey: { name: "channelId", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
+    });
+
+    this.newsInsights = new Table(this, "NewsInsights", {
+      ...common,
+      tableName: `slack-${props.stage}-news-insights`,
+      partitionKey: { name: "feed", type: AttributeType.STRING },
+      sortKey: { name: "day", type: AttributeType.STRING },
     });
   }
 }

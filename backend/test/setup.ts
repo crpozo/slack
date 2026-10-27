@@ -16,6 +16,8 @@ Object.assign(process.env, {
   CHANNEL_MEDIA_TABLE: "slack-test-channel-media",
   MEETING_NOTES_TABLE: "slack-test-meeting-notes",
   NOTES_WORKER_FUNCTION: "slack-test-call-notes-worker",
+  NEWS_INSIGHTS_TABLE: "slack-test-news-insights",
+  INSIGHTS_WORKER_FUNCTION: "slack-test-news-insights-worker",
   VAPID_PARAMETER: "/slack/test/vapid",
   ATTACHMENTS_BUCKET: "slack-test-attachments",
   WS_ENDPOINT: "https://abc123.execute-api.us-east-1.amazonaws.com/prod",

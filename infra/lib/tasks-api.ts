@@ -70,6 +70,23 @@ export const NEWS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/news" },
 ];
 
+/**
+ * AI Insights (Phase 39): the morning's analysis of the news, written by a
+ * scheduled worker; an admin may ask for a fresh one.
+ */
+export const NEWS_INSIGHTS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/news/insights" },
+  { method: HttpMethod.POST, path: "/news/insights" },
+];
+
+/**
+ * When the morning analysis runs: 07:07 in Ecuador (UTC-5, no daylight
+ * saving), i.e. `NEWS_INSIGHTS_LOCAL_TIME` in `NEWS_INSIGHTS_TIME_ZONE` of
+ * @mindfultech/shared, which the view shows. Off the hour so it doesn't queue
+ * behind everyone else's on-the-hour jobs.
+ */
+export const NEWS_INSIGHTS_SCHEDULE = { hour: "12", minute: "7" };
+
 /** The notes model: Claude Haiku 5.5 on Claude in Amazon Bedrock (the Mantle endpoint). */
 export const NOTES_MODEL_ID = "anthropic.claude-haiku-5-5";
 
@@ -155,6 +172,10 @@ export class TasksApi extends Construct {
   readonly messagesHandler: NodejsFunction;
   /** `news`: the AI News proxy (Phase 35b); no table, bucket or parameter. */
   readonly newsHandler: NodejsFunction;
+  /** `news-insights`: the latest analysis, and an admin's request for a new one (Phase 39). */
+  readonly newsInsightsHandler: NodejsFunction;
+  /** `news-insights-worker`: writes the day's analysis (the morning schedule, or on request). */
+  readonly newsInsightsWorker: NodejsFunction;
   /** Base URL clients call, without a trailing slash. */
   readonly url: string;
   private readonly origins: string[];
@@ -212,6 +233,25 @@ export class TasksApi extends Construct {
     // it in memory; deliberately given no environment and no grants, so it
     // can't touch any table or bucket. The feed gets 5 s; the Lambda 10.
     this.newsHandler = lambda("NewsFn", "news", {});
+    // AI Insights (Phase 39): the worker reads the feed and the model, and
+    // writes one row; the endpoint reads that row and, for admins, starts the
+    // worker. The feed gets 5 s, the model up to 50; the worker 2 minutes.
+    this.newsInsightsWorker = lambda(
+      "NewsInsightsWorkerFn",
+      "news-insights-worker",
+      { NEWS_INSIGHTS_TABLE: data.newsInsights.tableName },
+      Duration.minutes(2),
+    );
+    this.newsInsightsHandler = lambda("NewsInsightsFn", "news-insights", {
+      NEWS_INSIGHTS_TABLE: data.newsInsights.tableName,
+      INSIGHTS_WORKER_FUNCTION: this.newsInsightsWorker.functionName,
+    });
+    new Rule(this, "NewsInsightsSchedule", {
+      ruleName: `slack-${stage}-news-insights`,
+      description: "Writes the morning's AI Insights on the AI news",
+      schedule: Schedule.cron(NEWS_INSIGHTS_SCHEDULE), // daily, 07:07 in Ecuador
+      targets: [new LambdaFunction(this.newsInsightsWorker, { retryAttempts: 2 })],
+    });
     this.pushHandler = lambda("PushFn", "push", {
       PUSH_SUBSCRIPTIONS_TABLE: data.pushSubscriptions.tableName,
       VAPID_PARAMETER: vapidParameterName(stage),
@@ -339,6 +379,13 @@ export class TasksApi extends Construct {
     const newsIntegration = new HttpLambdaIntegration("NewsIntegration", this.newsHandler);
     for (const { method, path } of NEWS_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: newsIntegration });
+    }
+    const newsInsightsIntegration = new HttpLambdaIntegration(
+      "NewsInsightsIntegration",
+      this.newsInsightsHandler,
+    );
+    for (const { method, path } of NEWS_INSIGHTS_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: newsInsightsIntegration });
     }
     this.url = this.httpApi.apiEndpoint;
 
@@ -472,6 +519,19 @@ export class TasksApi extends Construct {
         resources: NOTES_MODEL_RESOURCES,
       }),
     );
+
+    // news-insights-worker: the day's row (PutItem) and the model on Claude in
+    // Amazon Bedrock; it reads the feed over the internet. news-insights: the
+    // newest row (Query) and starting the worker (admins).
+    data.newsInsights.grant(this.newsInsightsWorker, "dynamodb:PutItem");
+    this.newsInsightsWorker.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["bedrock-mantle:CreateInference"],
+        resources: NOTES_MODEL_RESOURCES,
+      }),
+    );
+    data.newsInsights.grant(this.newsInsightsHandler, "dynamodb:Query");
+    this.newsInsightsWorker.grantInvoke(this.newsInsightsHandler);
 
     // archive-tasks: find done tasks (Scan) and flag them (UpdateItem). Nothing else.
     data.tasks.grant(this.archiveHandler, "dynamodb:Scan", "dynamodb:UpdateItem");

@@ -2,6 +2,7 @@ import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { CallPipPage } from "./components/CallPipPage";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { PIP_PATH } from "./lib/pipTauri";
 import { configureAuth } from "./lib/auth";
 import { registerServiceWorker } from "./lib/push";
@@ -34,7 +35,13 @@ if (location.pathname === PIP_PATH) {
     const config = await loadConfig();
     configureAuth(config.userPoolId, config.userPoolClientId);
     configureTasksApi(config.tasksUrl ?? null);
-    render(<App config={config} />);
+    render(
+      <>
+        {/* Over every screen: a deploy since this tab loaded offers a reload (Phase 39b). */}
+        <UpdateBanner />
+        <App config={config} />
+      </>,
+    );
     // Notifications and their clicks go through the service worker; registering never blocks the app.
     void registerServiceWorker();
   } catch (err: unknown) {
