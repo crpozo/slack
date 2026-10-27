@@ -97,6 +97,9 @@ function Collapsible({ hidden, children }: Readonly<{ hidden: boolean; children:
   );
 }
 
+/** The Search circle and the "+" (56px, the height of the tabs' bar too). */
+const ROUND_BUTTON = "h-14 w-14";
+
 /**
  * The tab bar: four tabs in a floating rounded bar, and Search in a circle of
  * its own on the right. It paints edge-to-edge (its background runs under the
@@ -137,11 +140,11 @@ export function BottomTabs({
   return (
     <Collapsible hidden={hidden}>
       <div
-        className="flex items-center gap-3 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2"
+        className="flex items-center gap-3 px-3 pb-[env(safe-area-inset-bottom)] pt-2"
         data-tabbar
       >
         <nav
-          className="glass flex min-w-0 flex-1 items-center rounded-full border border-white/10 p-1 shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_8px_24px_rgb(0_0_0/0.35)]"
+          className="glass flex h-14 min-w-0 flex-1 items-center rounded-full border border-white/10 p-1 shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_8px_24px_rgb(0_0_0/0.35)]"
           aria-label="Main"
         >
           {TABS.map((tab) => {
@@ -154,7 +157,7 @@ export function BottomTabs({
                 onClick={() => (isMore ? onOpenMore() : navigate(tab.path))}
                 aria-current={active ? "page" : undefined}
                 aria-haspopup={isMore ? "dialog" : undefined}
-                className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[11px] font-semibold transition-colors ${
+                className={`flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[11px] font-semibold transition-colors ${
                   active ? "bg-surface-hover text-primary" : "text-ink"
                 }`}
               >
@@ -172,7 +175,7 @@ export function BottomTabs({
           onClick={() => navigate("/app/search")}
           aria-label="Search"
           aria-current={searchActive ? "page" : undefined}
-          className={`glass flex h-[60px] w-[60px] shrink-0 items-center justify-center rounded-full border border-white/10 text-[26px] shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_8px_24px_rgb(0_0_0/0.35)] transition-colors ${
+          className={`glass flex ${ROUND_BUTTON} shrink-0 items-center justify-center rounded-full border border-white/10 text-[24px] shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_8px_24px_rgb(0_0_0/0.35)] transition-colors ${
             searchActive ? "text-primary" : "text-ink"
           }`}
         >
@@ -192,7 +195,7 @@ export function Fab({ onClick }: Readonly<{ onClick: () => void }>) {
       aria-label="Create"
       aria-haspopup="dialog"
       data-fab
-      className="absolute bottom-3 right-5 z-20 flex h-[60px] w-[60px] items-center justify-center rounded-full bg-primary text-[28px] text-on-primary shadow-[0_8px_24px_rgb(0_0_0/0.45)] ring-1 ring-white/10 transition-transform active:scale-95"
+      className={`absolute bottom-3 right-3 z-20 flex ${ROUND_BUTTON} items-center justify-center rounded-full border border-white/10 bg-primary text-[26px] text-on-primary shadow-[0_8px_24px_rgb(0_0_0/0.45)] transition-transform active:scale-95`}
     >
       <PlusIcon />
     </button>
@@ -442,7 +445,7 @@ export function MobileHomeHeader({
   const myName = nameOf(me.userId, me.email);
   return (
     <header
-      className="shrink-0 bg-gradient-to-b from-[#14533C] to-[#0E3328] px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]"
+      className="shrink-0 border-b border-line bg-surface px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]"
       data-home-header
     >
       <div className="flex items-center gap-3">
@@ -453,19 +456,19 @@ export function MobileHomeHeader({
           aria-label="MindfulTech workspace"
           aria-haspopup="dialog"
         >
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white ring-2 ring-white/15 [&>img]:h-9 [&>img]:w-9 [&>img]:rounded-none">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white ring-2 ring-white/15 [&>img]:h-7 [&>img]:w-7 [&>img]:rounded-none">
             <Logo />
           </span>
-          <span className="truncate text-2xl font-bold text-white">MindfulTech</span>
-          <ChevronDownIcon className="shrink-0 text-xl text-white/80" aria-hidden="true" />
+          <span className="truncate text-xl font-bold text-ink">MindfulTech</span>
+          <ChevronDownIcon className="shrink-0 text-lg text-ink-secondary" aria-hidden="true" />
         </button>
-        <div className="flex shrink-0 items-center gap-1 rounded-full border border-white/15 bg-black/20 p-1">
+        <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-white/10 bg-surface-raised p-0.5">
           <button
             type="button"
             onClick={onOpenHistory}
             aria-label="Recent conversations"
             aria-haspopup="dialog"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-[22px] text-white active:bg-white/10"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-[20px] text-ink active:bg-white/10"
           >
             <HistoryIcon />
           </button>
@@ -473,10 +476,10 @@ export function MobileHomeHeader({
             type="button"
             onClick={onOpenProfile}
             aria-label={`${myName}: profile and settings`}
-            className="relative flex h-10 w-10 items-center justify-center rounded-full active:bg-white/10"
+            className="relative flex h-9 w-9 items-center justify-center rounded-full active:bg-white/10"
           >
             <Avatar name={myName} mine size="md" />
-            <StatusBadge online={connected} ringClass="ring-[#0E3328] bg-[#0E3328]" />
+            <StatusBadge online={connected} ringClass="ring-surface-raised bg-surface-raised" />
           </button>
         </div>
       </div>
@@ -626,8 +629,8 @@ export function MobileScreen({
 }: Readonly<{ title: string; actions?: ReactNode; children: ReactNode }>) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-4">
-        <h1 className="min-w-0 flex-1 truncate text-2xl font-bold text-ink">{title}</h1>
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-surface px-4">
+        <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-ink">{title}</h1>
         {actions}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>

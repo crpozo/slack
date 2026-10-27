@@ -453,7 +453,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
       // Phones: the screens are solid; the glass tab bar sits on the ambient background.
       <div className="flex h-full flex-col overflow-hidden">
         <main className="relative flex min-h-0 w-full flex-1 flex-col bg-surface">
-          <PushPrompt />
+          <PushPrompt phone />
           {screen}
           {/* The "+" sits over the tab screens, never over a composer. */}
           {(tab === "home" || tab === "dms" || tab === "activity") && !keyboardUp && (
