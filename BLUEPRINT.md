@@ -738,14 +738,13 @@ Uploads already go straight to S3 with a presigned **PUT** whose signature pins 
    - Posts a pending `kind:"ai_notes"` message (`aiNotes: {callId, status:"pending", …}`; `text` is the plain fallback from `aiNotesText`), pushes `message.new`, and invokes the worker with `InvocationType: "Event"` (payload ≤ 240 KB, else 413).
    - Answers `202 {message}`. A failed invoke settles the card as failed (502).
 5. **Worker:** `call-notes-worker` Lambda (2 min, async retries 0, max event age 1 h).
-   - `AnthropicBedrockMantle` from `@anthropic-ai/bedrock-sdk` (SigV4 with the Lambda's role, Mantle endpoint of its region), model `anthropic.claude-haiku-5-5`, `max_tokens` 4096, `output_config.effort: "low"`, no sampling parameters.
+   - `AnthropicBedrock` from `@anthropic-ai/bedrock-sdk` (SigV4 with the Lambda's role, the standard Bedrock runtime of its region), model `us.anthropic.claude-haiku-5-5` (the US cross-region inference profile), `max_tokens` 4096, `output_config.effort: "low"`, no sampling parameters. Not `AnthropicBedrockMantle`: Mantle doesn't serve Haiku 5.5 for this account.
    - The system prompt treats the transcript as content only. The user turn is the requested instruction ("Summarize the following meeting transcript. Provide a brief summary paragraph and a bulleted list of Action Items. Output in markdown.") followed by `<transcript>` with `[mm:ss] Name: text` lines.
    - `stop_reason` `refusal` or `max_tokens` mark the card as failed.
    - `settleNotesCard` updates the message only while it is still pending (conditional update) and pushes `message.updated` with `aiNotes`. Errors never throw: they become a failed card with a reason.
    - The transcript is never written anywhere; only the summary is stored.
-6. **IAM (CDK grants only, no models provisioned):** the worker gets `bedrock-mantle:CreateInference`; the endpoint gets `lambda:InvokeFunction` on the worker.
-   - The resource is `*` for now (`NOTES_MODEL_RESOURCES` in `infra/lib/tasks-api.ts`); narrow it once the Mantle ARN format is confirmed for the account.
-   - Model access to Claude Haiku 5.5 is enabled once in the Bedrock console.
+6. **IAM (CDK grants only, no models provisioned):** the worker gets `bedrock:InvokeModel` on the inference profile (stack account and region) and on the foundation model in any region the profile routes to (`notesModelResources` in `infra/lib/tasks-api.ts`); the endpoint gets `lambda:InvokeFunction` on the worker.
+   - Model access to Claude Haiku 5.5 is enabled once in the Bedrock console (Model catalog → Request access).
 7. **Card:** `AiNotesCard`.
    - Header "✨ AI Call Notes", the two people and the duration.
    - Pending shows a skeleton; past 5 minutes it says it may not arrive. Failed shows the reason. Ready shows the notes, a copy-as-markdown button and an "AI-written, check details" line.

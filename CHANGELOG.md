@@ -5,6 +5,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Fixed
+
+- **AI call notes and AI Insights were failing:** the workers asked for Claude Haiku 5.5 through
+  Bedrock's Mantle endpoint, which doesn't serve that model for this account (`404 The model
+'anthropic.claude-haiku-5-5' does not exist`), so every card ended in "Something went wrong
+  writing the notes". They now use the standard Bedrock runtime (`InvokeModel`) with the
+  `us.anthropic.claude-haiku-5-5` inference profile, and the stack grants `bedrock:InvokeModel`
+  on exactly that profile and its model instead of `bedrock-mantle:CreateInference` on `*`.
+
 ### Added
 
 - **AI Insights:** the AI News view opens with the morning's analysis of the day's stories,
