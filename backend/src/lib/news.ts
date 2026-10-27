@@ -2,6 +2,7 @@ import {
   NEWS_CACHE_SECONDS,
   NEWS_FEED_URL,
   NEWS_MAX_ARTICLES,
+  NEWS_REFRESH_MIN_SECONDS,
   NEWS_SNIPPET_CHARS,
   NEWS_SOURCE,
   type NewsArticle,
@@ -220,7 +221,7 @@ export async function fetchFeed(
 
 // --- The warm container's copy ------------------------------------------------------
 
-let cached: { response: NewsResponse; until: number } | null = null;
+let cached: { response: NewsResponse; until: number; readAt: number } | null = null;
 
 /** Forget the cached list (tests). */
 export function resetNewsCache(): void {
@@ -229,25 +230,30 @@ export function resetNewsCache(): void {
 
 /**
  * The articles: this container's copy while it's fresh, else the feed read
- * now. When the feed can't be read, the last good list is served marked
- * `stale` (and tried again on the next request); with none yet, it throws.
+ * now. `refresh` ("Refresh news") reads the feed again even while the copy
+ * is fresh, unless it was read within `NEWS_REFRESH_MIN_SECONDS`. When the
+ * feed can't be read, the last good list is served marked `stale` (and tried
+ * again on the next request); with none yet, it throws.
  */
 export async function getNews(
   fetchImpl: typeof fetch = fetch,
   now = Date.now(),
+  refresh = false,
 ): Promise<{ response: NewsResponse; fromCache: boolean; expiresAt: number }> {
-  if (cached && now < cached.until) {
+  const fresh = cached && now < cached.until;
+  const justRead = cached && now - cached.readAt < NEWS_REFRESH_MIN_SECONDS * 1000;
+  if (cached && (refresh ? justRead : fresh)) {
     return { response: cached.response, fromCache: true, expiresAt: cached.until };
   }
   try {
     const articles = parseFeed(await fetchFeed(fetchImpl));
     const response: NewsResponse = { articles, source: NEWS_SOURCE, fetchedAt: now };
-    cached = { response, until: now + NEWS_CACHE_SECONDS * 1000 };
+    cached = { response, until: now + NEWS_CACHE_SECONDS * 1000, readAt: now };
     return { response, fromCache: false, expiresAt: cached.until };
   } catch (err) {
     if (!cached) throw err;
     // Don't make every request wait for a feed that's down: try again in a minute.
-    cached = { response: cached.response, until: now + RETRY_AFTER_FAILURE_MS };
+    cached = { ...cached, until: now + RETRY_AFTER_FAILURE_MS };
     return {
       response: { ...cached.response, stale: true },
       fromCache: true,

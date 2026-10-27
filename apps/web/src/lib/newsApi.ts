@@ -4,10 +4,14 @@ import { request } from "./tasksApi";
 /**
  * AI News (Phase 35b), on the same HTTP API and auth as the Task Manager.
  * The server answers with `Cache-Control: max-age`, so the browser reuses a
- * response for up to 30 minutes without asking again.
+ * response for up to 30 minutes without asking again. `refresh` ("Refresh
+ * news") asks the server to read the feed again now, past both caches.
  */
 export const newsApi = {
-  list: () => request<NewsResponse>("GET", "/news"),
+  list: (refresh = false) =>
+    refresh
+      ? request<NewsResponse>("GET", "/news?refresh=1", undefined, { cache: "no-store" })
+      : request<NewsResponse>("GET", "/news"),
 };
 
 export type NewsApi = typeof newsApi;

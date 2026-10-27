@@ -71,15 +71,23 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
               ` · Updated ${relativeTime(new Date(data.fetchedAt).toISOString(), now).toLowerCase()}`}
           </p>
         </div>
+        {/* Reads the feed again now (the server otherwise keeps a list 30 minutes). */}
         <button
           type="button"
           onClick={() => void load(true)}
           disabled={status === "loading" || !configured}
-          className="rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
-          aria-label="Refresh the news"
-          title="Refresh"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-sm font-semibold text-ink hover:bg-surface-hover disabled:opacity-50"
+          aria-label="Refresh news"
+          title="Read the latest stories from TechCrunch now"
+          data-refresh-news
         >
-          <RefreshIcon className={status === "loading" && data ? "animate-spin" : ""} />
+          <RefreshIcon
+            className={status === "loading" && data ? "animate-spin" : ""}
+            aria-hidden="true"
+          />
+          <span className="hidden sm:inline">
+            {status === "loading" && data ? "Refreshing…" : "Refresh news"}
+          </span>
         </button>
       </header>
 

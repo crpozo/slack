@@ -491,6 +491,9 @@ messages are skipped. Your AWS credentials need `dynamodb:Scan` on the messages 
 `dynamodb:BatchWriteItem` on the new one. Re-running rewrites identical rows. Until it has run,
 the tab only shows what was shared after the deploy.
 
+The header's **Refresh news** button reads the feed again right away, past the 30-minute cache
+(at most once a minute per server container).
+
 ### 8. AI Insights (the morning analysis of the AI news)
 
 The AI News view (`/app/news`) opens with **AI Insights**: an analysis of the day's TechCrunch AI

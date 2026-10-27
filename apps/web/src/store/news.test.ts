@@ -25,6 +25,12 @@ describe("news store", () => {
     expect(api.list).toHaveBeenCalledTimes(2);
     await store.getState().load(true);
     expect(api.list).toHaveBeenCalledTimes(3);
+    // Only the forced load (the Refresh button) asks the server to read the feed again.
+    expect(vi.mocked(api.list).mock.calls.map(([refresh]) => refresh)).toEqual([
+      false,
+      false,
+      true,
+    ]);
   });
 
   it("an error with nothing loaded is an error; with articles on screen, they stay", async () => {

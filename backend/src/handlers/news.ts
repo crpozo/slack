@@ -9,14 +9,17 @@ import { getNews } from "../lib/news";
  * permissions at all); the parsed list stays in the warm container for 30
  * minutes, and browsers are told to keep the response for whatever is left
  * of that (API Gateway HTTP APIs have no response cache of their own).
+ * `?refresh=1` ("Refresh news") reads the feed again now (at most once a
+ * minute per container) and is never cached by the browser.
  */
 export const handler = httpHandler(async (event, caller): Promise<HttpResult> => {
   if (event.routeKey !== "GET /news") throw notFound(`No route for ${event.routeKey}`);
   if (caller.role === "guest") throw forbidden("Guests only have access to their boards");
   const now = Date.now();
+  const refresh = event.queryStringParameters?.refresh === "1";
   let result: Awaited<ReturnType<typeof getNews>>;
   try {
-    result = await getNews(fetch, now);
+    result = await getNews(fetch, now, refresh);
   } catch (err) {
     log.error("news feed unreachable", { ...errorFields(err) });
     throw new HttpError(502, "Couldn't reach TechCrunch right now. Try again in a minute.");
@@ -25,6 +28,7 @@ export const handler = httpHandler(async (event, caller): Promise<HttpResult> =>
   log.info("news served", {
     articles: response.articles.length,
     fromCache,
+    ...(refresh && { refresh: true }),
     ...(response.stale && { stale: true }),
   });
   // The browser keeps it until this container's copy expires (never longer than 30 min).
@@ -33,7 +37,9 @@ export const handler = httpHandler(async (event, caller): Promise<HttpResult> =>
     statusCode: 200,
     headers: {
       "content-type": "application/json",
-      "cache-control": `public, max-age=${maxAge}, stale-while-revalidate=600`,
+      "cache-control": refresh
+        ? "no-store"
+        : `public, max-age=${maxAge}, stale-while-revalidate=600`,
     },
     body: JSON.stringify(response),
   };

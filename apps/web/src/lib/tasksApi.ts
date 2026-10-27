@@ -34,7 +34,7 @@ export async function request<T>(
   method: string,
   path: string,
   body?: unknown,
-  options: { keepalive?: boolean } = {},
+  options: { keepalive?: boolean; cache?: RequestCache } = {},
 ): Promise<T> {
   if (!baseUrl) throw new TasksApiError(0, "The Task Manager isn't configured on this deployment.");
   const token = await getIdToken();
@@ -48,6 +48,7 @@ export async function request<T>(
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       keepalive: options.keepalive,
+      cache: options.cache,
     });
   } catch {
     throw new TasksApiError(0, "Couldn't reach the server. Check your connection.");

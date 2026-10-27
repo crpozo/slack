@@ -13,7 +13,7 @@ export interface NewsState {
   error: string | null;
   /** When it was last loaded (epoch ms). */
   loadedAt: number;
-  /** Loads unless what we have is still fresh (`force`: always). */
+  /** Loads unless what we have is still fresh (`force`: always, and the feed is read again). */
   load: (force?: boolean) => Promise<void>;
   reset: () => void;
 }
@@ -30,7 +30,7 @@ export function createNewsStore(api: NewsApi, now: () => number = Date.now) {
       if (!force && s.data && now() - s.loadedAt < NEWS_CACHE_SECONDS * 1000) return;
       set({ status: "loading", error: null });
       try {
-        const data = await api.list();
+        const data = await api.list(force);
         set({ status: "ready", data, loadedAt: now() });
       } catch (err) {
         set({

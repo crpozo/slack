@@ -11,6 +11,11 @@ export const NEWS_SOURCE = "TechCrunch";
 export const NEWS_MAX_ARTICLES = 15;
 /** How long a fetched feed is reused (Lambda memory, browser cache). */
 export const NEWS_CACHE_SECONDS = 30 * 60;
+/**
+ * "Refresh news": the feed is read again unless it was read this recently
+ * (one container, many clicks; TechCrunch posts a few stories an hour).
+ */
+export const NEWS_REFRESH_MIN_SECONDS = 60;
 /** The longest snippet, cut at a word. */
 export const NEWS_SNIPPET_CHARS = 220;
 

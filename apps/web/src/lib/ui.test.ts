@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { buildGroups, normalizeSearch, QUICK_REACTIONS, searchEmojis } from "./emoji";
-import { clampSidebarWidth, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "./sidebar";
+import {
+  clampSidebarWidth,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+} from "./sidebar";
 describe("sidebar width", () => {
   it("clamps to the allowed range", () => {
     expect(clampSidebarWidth(10)).toBe(SIDEBAR_MIN_WIDTH);
     expect(clampSidebarWidth(9999)).toBe(SIDEBAR_MAX_WIDTH);
     expect(clampSidebarWidth(287.6)).toBe(288);
-    expect(clampSidebarWidth(Number.NaN)).toBe(256);
+    expect(clampSidebarWidth(Number.NaN)).toBe(SIDEBAR_DEFAULT_WIDTH);
   });
 });
 

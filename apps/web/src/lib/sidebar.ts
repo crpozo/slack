@@ -1,6 +1,12 @@
 export const SIDEBAR_MIN_WIDTH = 200;
 export const SIDEBAR_MAX_WIDTH = 400;
-export const SIDEBAR_DEFAULT_WIDTH = 256;
+/**
+ * Wide enough for the header to show the logo, "MindfulTech" and its two
+ * buttons without truncating the name (at 256 it read "MindfulT…").
+ */
+export const SIDEBAR_DEFAULT_WIDTH = 288;
+/** The default before 288: a saved width of exactly this is the old default, not a choice. */
+const LEGACY_DEFAULT_WIDTH = 256;
 /** Width of the icon-only rail. */
 export const SIDEBAR_COLLAPSED_WIDTH = 64;
 
@@ -21,7 +27,8 @@ export function loadSidebarPrefs(): SidebarPrefs {
     const raw: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
     if (raw && typeof raw === "object") {
       const { width, collapsed } = raw as Partial<SidebarPrefs>;
-      return { width: clampSidebarWidth(Number(width)), collapsed: collapsed === true };
+      const chosen = Number(width) === LEGACY_DEFAULT_WIDTH ? SIDEBAR_DEFAULT_WIDTH : Number(width);
+      return { width: clampSidebarWidth(chosen), collapsed: collapsed === true };
     }
   } catch {
     // fall through to defaults

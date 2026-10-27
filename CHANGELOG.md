@@ -13,6 +13,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   every day at 07:07 (Ecuador) from the same TechCrunch feed and keeps one per day; the view
   shows the newest. Admins can ask for one now with **Generate now** (and **Generate again**
   later in the day).
+- **Sidebar:** opens 288 px wide (was 256), so the header shows the logo and "MindfulTech"
+  without cutting the name. A width you dragged to is kept; the old default moves to the new.
+- **Refresh news:** the button in the AI News header now says so, and really reads the feed
+  again (the server kept a list for 30 minutes and the old button only repeated it). Once a
+  minute at most.
 - **New version banner:** a tab opened before a deploy now notices the new version (when it
   comes to the front, when the browser is back online, and every 15 minutes) and shows a banner
   at the top: **Reload** gets the update, **Later** hides it for that tab.

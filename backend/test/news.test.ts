@@ -193,12 +193,13 @@ describe("getNews (the warm container's copy)", () => {
 });
 
 describe("GET /news", () => {
-  const event = (routeKey = "GET /news", groups?: string[]): HttpEvent =>
+  const event = (routeKey = "GET /news", groups?: string[], refresh = false): HttpEvent =>
     ({
       version: "2.0",
       routeKey,
       rawPath: "/news",
-      rawQueryString: "",
+      rawQueryString: refresh ? "refresh=1" : "",
+      ...(refresh && { queryStringParameters: { refresh: "1" } }),
       headers: {},
       isBase64Encoded: false,
       requestContext: {
@@ -239,6 +240,29 @@ describe("GET /news", () => {
     expect(second.headers["cache-control"]).toBe(
       "public, max-age=1200, stale-while-revalidate=600",
     );
+    vi.unstubAllGlobals();
+  });
+
+  it("?refresh=1 reads the feed again, uncached by the browser, at most once a minute", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response(rss(MEDIA_ITEM), { headers: { "content-type": "text/xml" } }),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    vi.setSystemTime(1_800_000_000_000);
+    await call(event());
+    vi.setSystemTime(1_800_000_000_000 + 30_000);
+    const soon = await call(event("GET /news", undefined, true));
+    expect(soon.headers["cache-control"]).toBe("no-store");
+    expect(fetchImpl).toHaveBeenCalledTimes(1); // read 30 s ago: served from memory
+    vi.setSystemTime(1_800_000_000_000 + 90_000);
+    const later = await call(event("GET /news", undefined, true));
+    expect(later.headers["cache-control"]).toBe("no-store");
+    expect(fetchImpl).toHaveBeenCalledTimes(2); // the fresh read
+    expect(JSON.parse(later.body).fetchedAt).toBe(1_800_000_000_000 + 90_000);
+    // A plain request afterwards is the refreshed copy, cached for a full 30 minutes again.
+    const plain = await call(event());
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(plain.headers["cache-control"]).toBe("public, max-age=1800, stale-while-revalidate=600");
     vi.unstubAllGlobals();
   });
 
