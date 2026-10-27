@@ -7,6 +7,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **AI Insights was cut off:** Claude Haiku 5.5 thinks before it writes and the thinking counts
+  toward the response ceiling, so the 2048-token ceiling ran out before the page was done and the
+  morning analysis was never saved. The ceiling is now 8192; the page itself stays under 400 words.
 - **AI call notes and AI Insights were failing:** the workers asked for Claude Haiku 5.5 through
   Bedrock's Mantle endpoint, which doesn't serve that model for this account (`404 The model
 'anthropic.claude-haiku-5-5' does not exist`), so every card ended in "Something went wrong
