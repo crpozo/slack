@@ -2,6 +2,7 @@ import type { Attachment as AttachmentData } from "@mindfultech/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
+import { localPreview, releaseLocalPreview } from "../lib/outbox";
 import { renderNotesMarkdown } from "../lib/markdown";
 import { formatBytes, getDownloadUrl, isUsableUrl, rememberDownloadUrl } from "../lib/upload";
 import {
@@ -37,10 +38,14 @@ function previewSize(a: AttachmentData): { width: number; height: number } | nul
 
 function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
   const previewKey = attachment.thumbKey ?? attachment.key;
-  const [url, setUrl] = useState<string | null>(() =>
-    isUsableUrl(attachment.thumbUrl ?? attachment.url)
-      ? (attachment.thumbUrl ?? attachment.url)!
-      : null,
+  // Just sent from here (Phase 39): the local copy shows until the S3 image has
+  // loaded, so the confirmed message doesn't blink.
+  const [url, setUrl] = useState<string | null>(
+    () =>
+      localPreview(previewKey) ??
+      (isUsableUrl(attachment.thumbUrl ?? attachment.url)
+        ? (attachment.thumbUrl ?? attachment.url)!
+        : null),
   );
   const [failed, setFailed] = useState(false);
   const [viewing, setViewing] = useState<string | null>(null);
@@ -55,8 +60,23 @@ function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
   useEffect(() => {
     let cancelled = false;
     getDownloadUrl(previewKey, attachment.thumbKey ? attachment.thumbUrl : attachment.url).then(
-      (u) => !cancelled && setUrl(u),
-      () => !cancelled && setFailed(true),
+      (u) => {
+        if (cancelled) return;
+        if (!localPreview(previewKey)) {
+          setUrl(u);
+          return;
+        }
+        // Swap only once the S3 image is in the cache, then free the local copy.
+        const loader = new Image();
+        // (If it can't load, the local copy stays: it's the same picture.)
+        loader.onload = () => {
+          if (cancelled) return;
+          setUrl(u);
+          releaseLocalPreview(attachment.key, attachment.thumbKey);
+        };
+        loader.src = u;
+      },
+      () => !cancelled && !localPreview(previewKey) && setFailed(true),
     );
     return () => {
       cancelled = true;

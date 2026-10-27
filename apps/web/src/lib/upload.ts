@@ -4,6 +4,7 @@ import {
   type Attachment,
 } from "@mindfultech/shared";
 import { chat } from "./chat";
+import { UploadTask } from "./outbox";
 import { describeImage } from "./thumbnail";
 
 export const MAX_SIZE_LABEL = "500 MB";
@@ -101,6 +102,19 @@ export async function uploadFile(
   }
   onProgress(1);
   return attachment;
+}
+
+/**
+ * Starts uploading a file for a message (Phase 39): the composer shows its
+ * progress, the outbox awaits it when the message is sent. `extra` goes on
+ * the attachment too (a voice note's `durationMs`).
+ */
+export function startUpload(
+  file: File,
+  channelId: string,
+  extra: Partial<Attachment> = {},
+): UploadTask {
+  return new UploadTask(file, (onProgress) => uploadFile(file, channelId, onProgress), extra);
 }
 
 const downloadUrls = new Map<string, { url: string; expiresAt: number }>();
