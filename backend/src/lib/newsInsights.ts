@@ -18,8 +18,14 @@ import { ddb, tables } from "./ddb";
 /** The same model as the call notes: one short request a day. */
 export const INSIGHTS_MODEL = NOTES_MODEL;
 
-/** An analysis is a page, not an essay. */
-export const INSIGHTS_MAX_TOKENS = 2048;
+/**
+ * An analysis is a page, not an essay (the instruction caps it at 400 words,
+ * about 600 tokens). The ceiling is far above that because Haiku 5.5 thinks
+ * before it writes and the thinking counts toward `max_tokens`: at its default
+ * effort the first production run spent all of 2048 on thinking plus the start
+ * of the page and stopped with `max_tokens`. 8192 leaves room for both.
+ */
+export const INSIGHTS_MAX_TOKENS = 8192;
 
 /** How many of the feed's stories the model reads (the view shows the same). */
 export const INSIGHTS_MAX_ARTICLES = 15;
