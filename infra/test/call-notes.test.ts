@@ -102,14 +102,19 @@ describe("AI call notes", () => {
     const invoke = st.filter((s) => [s.Action].flat().includes("lambda:InvokeFunction"));
     expect(invoke).toHaveLength(1);
     expect(JSON.stringify(invoke[0]?.Resource)).toMatch(/CallNotesWorkerFn/);
-    expect(st.flatMap((s) => [s.Action].flat())).not.toContain("bedrock-mantle:CreateInference");
+    expect(JSON.stringify(st)).not.toMatch(/bedrock/);
   });
 
-  it("lets only the worker call the model, through bedrock-mantle (no bedrock:InvokeModel, nothing provisioned)", () => {
+  it("lets only the worker invoke the Haiku 5.5 profile and its model (standard runtime, not Mantle, nothing provisioned)", () => {
     const st = statementsOf("TasksApiCallNotesWorkerFnServiceRoleDefaultPolicy");
     const actions = st.flatMap((s) => [s.Action].flat());
-    expect(actions).toContain("bedrock-mantle:CreateInference");
-    expect(actions).not.toContain("bedrock:InvokeModel");
+    expect(actions).toContain("bedrock:InvokeModel");
+    expect(actions).not.toContain("bedrock-mantle:CreateInference");
+    const bedrock = st.find((s) => [s.Action].flat().includes("bedrock:InvokeModel"))!;
+    const resources = JSON.stringify(bedrock.Resource);
+    expect(resources).toMatch(/:inference-profile\/us\.anthropic\.claude-haiku-5-5/);
+    expect(resources).toMatch(/arn:aws:bedrock:\*::foundation-model\/anthropic\.claude-haiku-5-5/);
+    expect(resources).not.toContain('"*"');
     expect(actionsOn(st, "DataMessages")).toEqual(["dynamodb:UpdateItem"]);
     expect(actionsOn(st, "DataUsers")).toEqual(["dynamodb:GetItem"]);
     const types = Object.values(

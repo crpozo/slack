@@ -8,7 +8,6 @@ import {
   type CallEvent,
   type ChannelVisibility,
   type ProjectBoard,
-  type Attachment,
   type ErrorCode,
   type Message,
   type PresignAction,
@@ -33,6 +32,7 @@ import { TasksApiError } from "./tasksApi";
 import { useTasks } from "../store/tasks";
 import { useCalendar } from "../store/calendar";
 import { useNotesHub } from "../store/notesHub";
+import { outbox, type UploadTask } from "./outbox";
 import { WsClient, type DistributiveOmit } from "./ws";
 
 const ERROR_TEXT: Record<ErrorCode, string> = {
@@ -90,8 +90,17 @@ class ChatController {
   private readonly presigns = new Map<string, Deferred<PresignResultEvent>>();
   private pendingCreate: (Deferred<string> & { name: string }) | null = null;
   private pendingName: (Deferred<void> & { name: string }) | null = null;
-  private readonly sendTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** A sent message's timeout, and how its `transmit` settles (confirmed, or not). */
+  private readonly sendTimers = new Map<
+    string,
+    { timer: ReturnType<typeof setTimeout>; settle: (confirmed: boolean) => void }
+  >();
   private readonly deletedListeners = new Set<(channelId: string, by: string) => void>();
+
+  constructor() {
+    // The outbox sends a message through here once its files are up.
+    outbox.attach((message) => this.transmit(message));
+  }
 
   /**
    * Called when a channel or DM you can see is deleted (by anyone, you included),
@@ -144,8 +153,8 @@ class ChatController {
       }),
 
       client.on("message.new", ({ message, clientId }) => {
-        clearTimeout(this.sendTimers.get(clientId));
-        this.sendTimers.delete(clientId);
+        this.settleSend(clientId, true);
+        outbox.confirmed(clientId);
         const s = store();
         const known = s.messagesByChannel[message.channelId]?.some(
           (m) => m.messageId === message.messageId,
@@ -399,8 +408,8 @@ class ChatController {
     useNotifications.getState().load(null); // saved alerts stay for the next sign-in
     this.cleanups.forEach((fn) => fn());
     this.cleanups.length = 0;
-    this.sendTimers.forEach((t) => clearTimeout(t));
-    this.sendTimers.clear();
+    for (const clientId of [...this.sendTimers.keys()]) this.settleSend(clientId, false);
+    outbox.clear();
     for (const d of this.presigns.values()) {
       clearTimeout(d.timer);
       d.reject(new Error("Signed out"));
@@ -452,11 +461,15 @@ class ChatController {
     });
   }
 
-  /** Optimistically inserts the message, then sends it (as a reply when `replyTo` is set). */
+  /**
+   * Shows the message at once (optimistic) and hands it to the outbox, which
+   * sends it when its `files` are up, after the conversation's earlier
+   * messages (as a reply when `replyTo` is set).
+   */
   sendMessage(
     channelId: string,
     text: string,
-    attachments: Attachment[],
+    files: UploadTask[] = [],
     replyTo?: ReplySnapshot,
     /** A password or API key: masked for readers, deleted by the server after a week. */
     isSecret = false,
@@ -473,7 +486,7 @@ class ChatController {
       userId: me.userId,
       userEmail: me.email,
       text,
-      attachments,
+      attachments: [],
       createdAt: Date.now(),
       clientId,
       status: "pending",
@@ -482,14 +495,15 @@ class ChatController {
       ...(thread && { parentId: thread.messageId, parentSk: thread.sk }),
     };
     addPending(message);
-    this.transmit(message);
+    outbox.enqueue(message, files);
   }
 
   /**
    * Sends a failed message again, under the same `clientId`: only from the
    * `failed` state (a double tap, or a retry racing a late confirmation, does
-   * nothing), it replaces any copy still queued while offline, and the server
-   * ignores a clientId it already stored — so one message, however it raced.
+   * nothing). The outbox uploads again whatever file failed and queues it
+   * after the conversation's other messages; the server ignores a clientId it
+   * already stored, so one message, however it raced.
    */
   retry(message: ChatMessage): void {
     const { clientId, channelId } = message;
@@ -500,10 +514,17 @@ class ChatController {
       s.messagesByChannel[channelId]?.find((m) => m.messageId === id) ??
       (message.parentSk ? s.threads[message.parentSk]?.find((m) => m.messageId === id) : undefined);
     if (current?.status !== "failed") return;
-    useChat.getState().setPendingStatus(channelId, clientId, "pending");
-    this.transmit(current);
+    if (outbox.retry(clientId)) return;
+    // Not the outbox's (sent before this page loaded it): straight out again.
+    s.setPendingStatus(channelId, clientId, "pending");
+    void this.transmit(current);
   }
 
+  /**
+   * Sends one message (its files already up). Resolves `true` when the server
+   * confirms it (`message.new`), `false` when it doesn't in `SEND_TIMEOUT_MS`
+   * (it turns "failed": Retry) or the session ends.
+   */
   private transmit({
     channelId,
     text,
@@ -513,8 +534,8 @@ class ChatController {
     isSecret,
     parentId,
     parentSk,
-  }: ChatMessage): void {
-    if (!this.client || !clientId) return;
+  }: ChatMessage): Promise<boolean> {
+    if (!this.client || !clientId) return Promise.resolve(false);
     this.client.send(
       "message",
       {
@@ -528,14 +549,24 @@ class ChatController {
       },
       clientId,
     );
-    clearTimeout(this.sendTimers.get(clientId));
-    this.sendTimers.set(
-      clientId,
-      setTimeout(() => {
+    this.settleSend(clientId, false);
+    return new Promise<boolean>((settle) => {
+      const timer = setTimeout(() => {
         this.sendTimers.delete(clientId);
         useChat.getState().setPendingStatus(channelId, clientId, "failed");
-      }, SEND_TIMEOUT_MS),
-    );
+        settle(false);
+      }, SEND_TIMEOUT_MS);
+      this.sendTimers.set(clientId, { timer, settle });
+    });
+  }
+
+  /** Ends a send's wait: confirmed by the server, or given up on. */
+  private settleSend(clientId: string, confirmed: boolean): void {
+    const pending = this.sendTimers.get(clientId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.sendTimers.delete(clientId);
+    pending.settle(confirmed);
   }
 
   /**

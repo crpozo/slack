@@ -5,8 +5,31 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Fixed
+
+- **AI Insights was cut off:** Claude Haiku 5.5 thinks before it writes and the thinking counts
+  toward the response ceiling, so the 2048-token ceiling ran out before the page was done and the
+  morning analysis was never saved. The ceiling is now 8192; the page itself stays under 400 words.
+- **AI call notes and AI Insights were failing:** the workers asked for Claude Haiku 5.5 through
+  Bedrock's Mantle endpoint, which doesn't serve that model for this account (`404 The model
+'anthropic.claude-haiku-5-5' does not exist`), so every card ended in "Something went wrong
+  writing the notes". They now use the standard Bedrock runtime (`InvokeModel`) with the
+  `us.anthropic.claude-haiku-5-5` inference profile, and the stack grants `bedrock:InvokeModel`
+  on exactly that profile and its model instead of `bedrock-mantle:CreateInference` on `*`.
+
 ### Added
 
+- **Send without waiting:** attach images or files and send right away, then keep typing and
+  sending; nothing waits for uploads any more.
+  - **Shows at once:** each message appears immediately, slightly faded with "Sending…", its
+    images shown from your own copy with a progress bar while they upload.
+  - **Always in order:** messages go out in the order you sent them; a text sent after an image
+    waits for that image, like in Slack.
+  - **Failures:** a message that couldn't be sent says **Failed to send · Click to retry**, and
+    the ones after it still go out. Retry uploads again only what failed.
+  - **No flicker:** when the server confirms a message its images don't blink.
+  - **Voice messages** work the same way.
+  - Closing the tab while something is still sending asks first.
 - **AI Insights:** the AI News view opens with the morning's analysis of the day's stories,
   written by Claude Haiku 5.5 on Amazon Bedrock in Spanish: what matters, the trends behind the
   stories, what they mean for MindfulTech and what to watch next. A scheduled worker writes it

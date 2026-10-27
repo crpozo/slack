@@ -1,4 +1,3 @@
-import type { Attachment } from "@mindfultech/shared";
 import { isDmChannel, MAX_TEXT_LENGTH } from "@mindfultech/shared";
 import {
   applyCommand,
@@ -19,7 +18,6 @@ import {
   type ClipboardEvent,
   type KeyboardEvent,
 } from "react";
-import { ulid } from "ulid";
 import { useCall } from "../lib/call";
 import { chat } from "../lib/chat";
 import { clearDraft, createDraftSaver, draftKey, loadDraft } from "../lib/drafts";
@@ -31,7 +29,8 @@ import {
   useVoiceRecorder,
   type VoiceClip,
 } from "../lib/voice";
-import { formatBytes, MAX_SIZE_LABEL, uploadFile, validateFile } from "../lib/upload";
+import { useUploadState, type UploadTask } from "../lib/outbox";
+import { formatBytes, MAX_SIZE_LABEL, startUpload, validateFile } from "../lib/upload";
 import { MOBILE_QUERY, useMediaQuery } from "../lib/hooks";
 import { useChat, useNameOf } from "../store";
 import { EmojiPicker } from "./EmojiPicker";
@@ -54,12 +53,60 @@ import { Modal } from "./Modal";
 import { Popover } from "./Popover";
 import { ScheduleMeetingModal } from "./ScheduleMeetingModal";
 
-interface Upload {
-  id: string;
-  file: File;
-  progress: number;
-  attachment?: Attachment;
-  error?: string;
+/** A file attached to the next message: its name, size, and how its upload is going. */
+function UploadChip({ task, onRemove }: Readonly<{ task: UploadTask; onRemove: () => void }>) {
+  const { progress, attachment, error } = useUploadState(task);
+  const { file } = task;
+  return (
+    <li
+      className={`relative flex w-52 items-center gap-2 overflow-hidden rounded-lg border bg-surface-sidebar px-2 py-1.5 ${
+        error ? "border-error" : "border-line"
+      }`}
+      data-upload
+    >
+      {task.previewUrl ? (
+        <img
+          src={task.previewUrl}
+          alt=""
+          className="h-8 w-8 shrink-0 rounded object-cover"
+          aria-hidden="true"
+        />
+      ) : (
+        <FileIcon className="shrink-0 text-ink-secondary" />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-medium text-ink" title={file.name}>
+          {file.name}
+        </p>
+        <p className="text-[11px] text-ink-secondary" aria-live="polite">
+          {error
+            ? `${error} It will be tried again when you send.`
+            : attachment
+              ? formatBytes(file.size)
+              : `Uploading… ${Math.round(progress * 100)} % of ${formatBytes(file.size)}`}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="rounded p-0.5 text-ink-secondary hover:bg-surface-hover hover:text-ink"
+        aria-label={`Remove ${file.name}`}
+      >
+        <CloseIcon />
+      </button>
+      {!attachment && !error && (
+        <span
+          role="progressbar"
+          aria-label={`Uploading ${file.name}`}
+          aria-valuenow={Math.round(progress * 100)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          className="absolute bottom-0 left-0 h-1 bg-primary transition-all"
+          style={{ width: `${Math.round(progress * 100)}%` }}
+        />
+      )}
+    </li>
+  );
 }
 
 export interface ComposerHandle {
@@ -151,7 +198,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // This composer's unsent text survives switching away and reloads (see lib/drafts).
   const storageKey = userId ? draftKey(userId, channelId, thread?.sk) : null;
   const [text, setText] = useState(() => (storageKey ? loadDraft(storageKey) : ""));
-  const [uploads, setUploads] = useState<Upload[]>([]);
+  // Files attached to the next message, already uploading (Phase 39: never waited on).
+  const [uploads, setUploads] = useState<UploadTask[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [emojiAnchor, setEmojiAnchor] = useState<HTMLElement | null>(null);
@@ -162,7 +210,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const replyTo = useChat((s) => s.replyTo[channelId]);
   const inCall = useCall((s) => s.call !== null);
   const voiceSupported = useMemo(supportsVoiceMessages, []);
-  const [sendingVoice, setSendingVoice] = useState(false);
   const setReplyTo = useChat((s) => s.setReplyTo);
   const editing = useChat((s) => s.editing[channelId]);
   const setEditing = useChat((s) => s.setEditing);
@@ -292,11 +339,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     });
   }
 
-  const uploading = uploads.some((u) => !u.attachment && !u.error);
-  const ready = uploads.flatMap((u) => (u.attachment ? [u.attachment] : []));
+  // Never waits for uploads: the outbox sends the message once its files are up.
   // A secret is text only: files wait until secret mode is off.
-  const canSend =
-    !disabled && !uploading && (text.trim().length > 0 || (ready.length > 0 && !secret));
+  const canSend = !disabled && (text.trim().length > 0 || (uploads.length > 0 && !secret));
 
   // Auto-grow up to MAX_HEIGHT_PX.
   useLayoutEffect(() => {
@@ -306,8 +351,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT_PX)}px`;
   }, [text]);
 
-  const update = (id: string, patch: Partial<Upload>) =>
-    setUploads((list) => list.map((u) => (u.id === id ? { ...u, ...patch } : u)));
+  // Files attached but never sent (the composer closed) give their local copies back.
+  const uploadsRef = useRef(uploads);
+  uploadsRef.current = uploads;
+  useEffect(() => () => uploadsRef.current.forEach((u) => u.dispose()), []);
+
+  function removeUpload(task: UploadTask) {
+    task.dispose();
+    setUploads((list) => list.filter((u) => u !== task));
+  }
 
   function addFiles(files: FileList | File[]) {
     if (disabled) return;
@@ -317,45 +369,31 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         showToast(`${file.name}: ${invalid}`);
         continue;
       }
-      const id = ulid();
-      setUploads((list) => [...list, { id, file, progress: 0 }]);
-      uploadFile(file, channelId, (progress) => update(id, { progress })).then(
-        (attachment) => update(id, { attachment, progress: 1 }),
-        (err: unknown) =>
-          update(id, { error: err instanceof Error ? err.message : "Upload failed" }),
-      );
+      const task = startUpload(file, channelId);
+      setUploads((list) => [...list, task]);
     }
   }
 
   useImperativeHandle(ref, () => ({ addFiles }));
 
+  // Shows at once and uploads in the background, like any other message (Phase 39).
   const sendVoice = useCallback(
-    async (clip: VoiceClip | null) => {
+    (clip: VoiceClip | null) => {
       if (!clip) return;
       if (clip.durationMs < MIN_VOICE_MS) {
         showToast("Too short: hold on a little longer.");
         return;
       }
-      setSendingVoice(true);
-      try {
-        const attachment = await uploadFile(clip.file, channelId);
-        chat.sendMessage(
-          channelId,
-          "",
-          [{ ...attachment, durationMs: Math.max(1, Math.round(clip.durationMs)) }],
-          useChat.getState().replyTo[channelId],
-        );
-        useChat.getState().setReplyTo(channelId, null);
-      } catch (err) {
-        showToast(err instanceof Error ? err.message : "Couldn't send the voice message.");
-      } finally {
-        setSendingVoice(false);
-      }
+      const task = startUpload(clip.file, channelId, {
+        durationMs: Math.max(1, Math.round(clip.durationMs)),
+      });
+      chat.sendMessage(channelId, "", [task], useChat.getState().replyTo[channelId]);
+      useChat.getState().setReplyTo(channelId, null);
     },
     [channelId, showToast],
   );
-  const voice = useVoiceRecorder((clip) => void sendVoice(clip));
-  const recording = voice.state !== "idle" || sendingVoice;
+  const voice = useVoiceRecorder(sendVoice);
+  const recording = voice.state !== "idle";
 
   if (readOnly) {
     return (
@@ -398,7 +436,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       if (!outgoing) return;
     } else if (command) {
       outgoing = applyCommand(command.command, command.rest);
-      if (!outgoing && ready.length === 0) {
+      if (!outgoing && uploads.length === 0) {
         setText("");
         return;
       }
@@ -406,7 +444,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     chat.sendMessage(
       channelId,
       outgoing,
-      asSecret ? [] : ready,
+      asSecret ? [] : uploads,
       thread ? undefined : replyTo,
       asSecret,
       thread,
@@ -414,7 +452,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (replyTo) setReplyTo(channelId, null);
     setText("");
     if (secret) setSecret(false);
-    else setUploads((list) => list.filter((u) => !u.attachment));
+    else {
+      uploadsRef.current = []; // the outbox has them now: not this composer's to free
+      setUploads([]);
+    }
     textareaRef.current?.focus();
   }
 
@@ -521,9 +562,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           : "btn-primary h-9 w-9 p-0"
       }
       aria-label={editing ? "Save changes" : "Send"}
-      title={
-        editing ? "Save (Enter)" : uploading ? "Waiting for uploads to finish" : "Send (Enter)"
-      }
+      title={editing ? "Save (Enter)" : "Send (Enter)"}
     >
       <SendIcon />
     </button>
@@ -628,45 +667,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         )}
         {uploads.length > 0 && (
           <ul className="flex flex-wrap gap-2 border-b border-line p-2">
-            {uploads.map((u) => (
-              <li
-                key={u.id}
-                className={`relative flex w-52 items-center gap-2 overflow-hidden rounded-lg border bg-surface-sidebar px-2 py-1.5 ${
-                  u.error ? "border-error" : "border-line"
-                }`}
-              >
-                <FileIcon className="shrink-0 text-ink-secondary" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium text-ink" title={u.file.name}>
-                    {u.file.name}
-                  </p>
-                  <p className="text-[11px] text-ink-secondary" aria-live="polite">
-                    {u.error ??
-                      (u.attachment
-                        ? formatBytes(u.file.size)
-                        : `Uploading… ${Math.round(u.progress * 100)} % of ${formatBytes(u.file.size)}`)}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setUploads((list) => list.filter((x) => x.id !== u.id))}
-                  className="rounded p-0.5 text-ink-secondary hover:bg-surface-hover hover:text-ink"
-                  aria-label={`Remove ${u.file.name}`}
-                >
-                  <CloseIcon />
-                </button>
-                {!u.attachment && !u.error && (
-                  <span
-                    role="progressbar"
-                    aria-label={`Uploading ${u.file.name}`}
-                    aria-valuenow={Math.round(u.progress * 100)}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    className="absolute bottom-0 left-0 h-1 bg-primary transition-all"
-                    style={{ width: `${Math.round(u.progress * 100)}%` }}
-                  />
-                )}
-              </li>
+            {uploads.map((task) => (
+              <UploadChip key={task.id} task={task} onRemove={() => removeUpload(task)} />
             ))}
           </ul>
         )}
@@ -703,7 +705,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             <RecordingBar
               elapsed={voice.elapsed}
               level={voice.level}
-              sending={sendingVoice || voice.state === "starting"}
+              sending={voice.state === "starting"}
               onCancel={voice.cancel}
               onSend={() => void voice.stop().then(sendVoice)}
             />

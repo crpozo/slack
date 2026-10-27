@@ -443,19 +443,21 @@ when the browser goes back online.
 
 ### 7. AI call notes (Amazon Bedrock, once per account)
 
-The ✨ notes of DM calls are written by **Claude Haiku 5.5** on Amazon Bedrock. The stack only
-grants the worker Lambda `bedrock-mantle:CreateInference`; it provisions nothing. Before the
-first use, in the account and region of the stack:
+The ✨ notes of DM calls are written by **Claude Haiku 5.5** on Amazon Bedrock, through the
+standard runtime (`InvokeModel`) and the US cross-region inference profile
+`us.anthropic.claude-haiku-5-5`. The stack only grants the worker Lambda `bedrock:InvokeModel`
+on that profile and its foundation model (`notesModelResources` in `infra/lib/tasks-api.ts`); it
+provisions nothing. Before the first use, in the account and region of the stack:
 
-1. _Bedrock console → Model access_: enable **Claude Haiku 5.5** (Anthropic's use-case form,
-   once per account).
-2. Deploy as usual. The `call-notes-worker` Lambda calls the Mantle endpoint of its own region
-   (`bedrock-mantle.<region>.api.aws`), signed with its role.
+1. _Bedrock console → Model catalog_: request access to **Claude Haiku 5.5** (Anthropic's
+   use-case form, once per account; the Marketplace agreement takes up to a day to settle).
+2. Deploy as usual. The `call-notes-worker` Lambda calls `bedrock-runtime.<region>.amazonaws.com`,
+   signed with its role.
 
-The grant is on resource `*` for now (`NOTES_MODEL_RESOURCES` in `infra/lib/tasks-api.ts`).
-Narrow it to the model's ARN once its format is confirmed for the account. If access isn't
-enabled, cards end with "Something went wrong writing the notes" and the worker's CloudWatch log
-shows the Bedrock error.
+Not the Mantle endpoint (`bedrock-mantle`, `AnthropicBedrockMantle`): Mantle has its own
+per-account model lineup and doesn't serve Haiku 5.5 for this account (every request returned
+`404 not_found_error`). If access isn't enabled, cards end with "Something went wrong writing the
+notes" and the worker's CloudWatch log shows the Bedrock error.
 
 What leaves the browser: speech recognition runs on the device when Chrome has the language pack
 (`SpeechRecognition.available` with `processLocally`). Otherwise the browser's speech service

@@ -11,6 +11,7 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { chat } from "../lib/chat";
+import { outbox } from "../lib/outbox";
 import { formatDay, formatTime, seenByLine } from "../lib/channels";
 import { QUICK_REACTIONS } from "../lib/emoji";
 import type { MenuContext } from "../lib/contextMenu";
@@ -19,6 +20,7 @@ import { renderMarkdown } from "../lib/markdown";
 import { youTubeVideosIn } from "../lib/youtube";
 import { selectName, useChat, useNameOf, type ChatMessage } from "../store";
 import { Attachment } from "./Attachment";
+import { OutgoingFiles, SendStatus } from "./OutgoingFiles";
 import { MeetingCard } from "./MeetingCard";
 import { AiNotesCard } from "./AiNotesCard";
 import { DeleteMessageModal } from "./DeleteMessageModal";
@@ -543,7 +545,7 @@ export const MessageItem = memo(function MessageItem({
         pressed ? "bg-surface-sidebar" : ""
       } ${highlighted ? "bg-primary/15 ring-1 ring-inset ring-primary/50 duration-700" : ""} ${
         grouped ? "py-0.5" : "pt-3 pb-0.5"
-      } ${message.status === "pending" ? "opacity-60" : ""}`}
+      } ${message.status === "pending" ? "opacity-70" : ""}`}
     >
       {offset > 0 && (
         <span
@@ -637,12 +639,17 @@ export const MessageItem = memo(function MessageItem({
             <YouTubePreview key={video.id} video={video} />
           ))}
 
-          {message.attachments.length > 0 && (
-            <div className="mt-1.5 flex flex-wrap gap-2">
-              {message.attachments.map((a) => (
-                <Attachment key={a.key} attachment={a} />
-              ))}
-            </div>
+          {/* On its way (Phase 39): its files from the local copies, as they go up. */}
+          {message.status && outbox.files(message.clientId).length > 0 ? (
+            <OutgoingFiles message={message} />
+          ) : (
+            message.attachments.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {message.attachments.map((a) => (
+                  <Attachment key={a.key} attachment={a} />
+                ))}
+              </div>
+            )
           )}
 
           {grouped && message.isEdited && <EditedMark editedAt={message.editedAt} />}
@@ -655,19 +662,7 @@ export const MessageItem = memo(function MessageItem({
           )}
           {last && sent && !isDmChannel(message.channelId) && <ChannelSeenBy message={message} />}
 
-          {message.status === "failed" && (
-            <p className="mt-1 flex items-center gap-2 text-xs text-ink-secondary">
-              <span className="h-1.5 w-1.5 rounded-full bg-error" />
-              <span>Not sent.</span>
-              <button
-                type="button"
-                onClick={() => chat.retry(message)}
-                className="font-semibold text-ink underline decoration-primary decoration-2 underline-offset-2"
-              >
-                Retry
-              </button>
-            </p>
-          )}
+          {message.status && <SendStatus message={message} />}
         </div>
       </div>
 
