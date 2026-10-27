@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// The look (Phase 37b): one dark theme everywhere, Slack's palette with purple
+// The look (Phase 37b): one dark theme everywhere, Slack's palette with the brand green
 // accents. No light theme, no setting. On top of it, "glass": translucent
 // sidebar, headers and overlays over an ambient background (web), or over the
 // desktop itself where the desktop app has real OS blur (see `nativeGlass`).

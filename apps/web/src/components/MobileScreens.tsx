@@ -41,7 +41,7 @@ const NewTaskModal = lazy(() =>
 // ---------------------------------------------------------------------------
 // Phones (Phase 23, redesigned in Phase 37 after Slack's mobile app): a
 // floating tab bar (Home, DMs, Activity, More) with Search in its own circle,
-// a purple "+" button above it, and full-screen tabs. The bar stays inside
+// a brand-green "+" button above it, and full-screen tabs. The bar stays inside
 // conversations too, and steps aside while the keyboard is up.
 // ---------------------------------------------------------------------------
 
@@ -183,7 +183,7 @@ export function BottomTabs({
   );
 }
 
-/** The purple "+" floating above the bar's right end: new message, channel or task. */
+/** The green "+" floating above the bar's right end: new message, channel or task. */
 export function Fab({ onClick }: Readonly<{ onClick: () => void }>) {
   return (
     <button
@@ -442,7 +442,7 @@ export function MobileHomeHeader({
   const myName = nameOf(me.userId, me.email);
   return (
     <header
-      className="shrink-0 bg-gradient-to-b from-[#3F0E40] to-[#2A0B2C] px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]"
+      className="shrink-0 bg-gradient-to-b from-[#14533C] to-[#0E3328] px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]"
       data-home-header
     >
       <div className="flex items-center gap-3">
@@ -476,7 +476,7 @@ export function MobileHomeHeader({
             className="relative flex h-10 w-10 items-center justify-center rounded-full active:bg-white/10"
           >
             <Avatar name={myName} mine size="md" />
-            <StatusBadge online={connected} ringClass="ring-[#2A0B2C] bg-[#2A0B2C]" />
+            <StatusBadge online={connected} ringClass="ring-[#0E3328] bg-[#0E3328]" />
           </button>
         </div>
       </div>

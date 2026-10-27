@@ -202,7 +202,7 @@ export function ConversationDetailsModal({
         <div
           role="tablist"
           aria-label="Conversation details"
-          className="sticky top-0 z-10 flex gap-1 border-b border-white/10 bg-[rgb(30_33_38/0.9)] px-4 pt-2 backdrop-blur-xl"
+          className="sticky -top-4 z-10 flex gap-1 border-b border-white/10 bg-[rgb(30_33_38/0.35)] px-5 backdrop-blur-xl"
         >
           {tabs.map((t) => (
             <button
@@ -213,7 +213,7 @@ export function ConversationDetailsModal({
               aria-selected={tab === t.id}
               aria-controls={`details-panel-${t.id}`}
               onClick={() => setTab(t.id)}
-              className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold transition-colors ${
+              className={`-mb-px border-b-2 px-3 py-3 text-sm font-semibold transition-colors ${
                 tab === t.id
                   ? "border-primary text-ink"
                   : "border-transparent text-ink-secondary hover:text-ink"
@@ -227,7 +227,7 @@ export function ConversationDetailsModal({
           role="tabpanel"
           id={`details-panel-${tab}`}
           aria-labelledby={`details-tab-${tab}`}
-          className="px-5 py-4"
+          className="p-6"
         >
           {tab === "about" && channel && <AboutTab channel={channel} onEdit={onEdit} />}
           {tab === "members" && (
@@ -244,15 +244,18 @@ function AboutTab({ channel, onEdit }: Readonly<{ channel: Channel; onEdit: () =
   const me = useChat((s) => s.me);
   const nameOf = useNameOf();
   const canEdit = !!me && canEditChannel(channel, me.userId, me.role);
+  // A quiet label over a readable value, with room between the fields.
   const row = (label: string, value: ReactNode) => (
-    <div>
-      <dt className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">{label}</dt>
-      <dd className="mt-0.5 whitespace-pre-wrap break-words text-sm text-ink">{value}</dd>
+    <div className="flex flex-col gap-1.5">
+      <dt className="text-xs font-medium uppercase tracking-wider text-ink-secondary">{label}</dt>
+      <dd className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-ink">
+        {value}
+      </dd>
     </div>
   );
   return (
-    <div className="space-y-4">
-      <dl className="space-y-3">
+    <div className="flex flex-col gap-8" data-about>
+      <dl className="space-y-6">
         {row("Topic", channel.topic || <span className="text-ink-secondary">No topic yet.</span>)}
         {row(
           "Description",
@@ -265,15 +268,17 @@ function AboutTab({ channel, onEdit }: Readonly<{ channel: Channel; onEdit: () =
           )}
         {channel.archived && row("Status", "Archived: read-only.")}
       </dl>
-      {canEdit ? (
-        <button type="button" onClick={onEdit} className="btn-primary">
-          <PencilIcon /> Edit channel
-        </button>
-      ) : (
-        <p className="text-xs text-ink-secondary">
-          Only the channel&apos;s creator or an admin can edit these.
-        </p>
-      )}
+      <div className="border-t border-white/10 pt-6">
+        {canEdit ? (
+          <button type="button" onClick={onEdit} className="btn-primary">
+            <PencilIcon /> Edit channel
+          </button>
+        ) : (
+          <p className="text-sm text-ink-secondary">
+            Only the channel&apos;s creator or an admin can edit these.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
