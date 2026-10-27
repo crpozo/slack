@@ -8,6 +8,8 @@ import {
   ChannelNameSchema,
   isChannelMember,
   isExpired,
+  SECRET_TTL_MS,
+  secretExpiresAt,
   MAX_ATTACHMENT_SIZE,
   MAX_ICE_CANDIDATES_PER_SIGNAL,
   MAX_SDP_LENGTH,
@@ -309,9 +311,20 @@ describe("secret messages", () => {
 
   it("count as expired as soon as their TTL (epoch seconds) passes", () => {
     const now = 1_700_000_000_000;
-    expect(isExpired({ expiresAt: now / 1000 + 1 }, now)).toBe(false);
-    expect(isExpired({ expiresAt: now / 1000 }, now)).toBe(true);
-    expect(isExpired({}, now)).toBe(false);
+    const createdAt = now - 60_000;
+    expect(isExpired({ createdAt, expiresAt: now / 1000 + 1 }, now)).toBe(false);
+    expect(isExpired({ createdAt, expiresAt: now / 1000 }, now)).toBe(true);
+    expect(isExpired({ createdAt }, now)).toBe(false);
+  });
+
+  it("expire 24 hours after they're sent, even when stored with the old week-long TTL", () => {
+    expect(SECRET_TTL_MS).toBe(24 * 60 * 60 * 1000);
+    const createdAt = 1_700_000_000_000;
+    const weekLong = { createdAt, expiresAt: (createdAt + 7 * 86_400_000) / 1000 };
+    expect(secretExpiresAt(weekLong)).toBe(createdAt + 86_400_000);
+    expect(isExpired(weekLong, createdAt + 86_400_000 - 1)).toBe(false);
+    expect(isExpired(weekLong, createdAt + 86_400_000)).toBe(true);
+    expect(secretExpiresAt({ createdAt })).toBeUndefined();
   });
 });
 

@@ -5,6 +5,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Security
+
+- **Secrets expire after 24 hours** instead of a week, including ones sent before this change
+  (hidden at 24 hours; `shorten-secret-ttl` has DynamoDB delete them on the new schedule).
+- **Passwords are sent as secrets automatically:** a message that looks like a credential (an
+  email or username with a password, "contraseña: …", a single random-looking string, a URL with
+  a login) goes out masked and expiring, with no need for `/secret`. The composer says so
+  before you send, and **Send as normal text** keeps it plain.
+- **Copy just the password:** a revealed secret with several parts (an email and a password, or
+  several lines) has a Copy button for each.
+
 ### Fixed
 
 - **AI Insights was cut off:** Claude Haiku 5.5 thinks before it writes and the thinking counts

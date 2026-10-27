@@ -142,6 +142,31 @@ describe("history", () => {
     expect(event.items.map((m) => m.text)).toEqual(["m1", "m3"]);
   });
 
+  it("leaves out secrets older than 24 hours, even ones stored with the old week-long TTL", async () => {
+    const now = Date.now();
+    const weekLongTtl = (sentAt: number) => Math.floor((sentAt + 7 * 86_400_000) / 1000);
+    ddbMock.on(QueryCommand).resolves({
+      Items: [
+        {
+          ...msg(3),
+          isSecret: true,
+          createdAt: now - 3_600_000,
+          expiresAt: weekLongTtl(now - 3_600_000),
+        },
+        {
+          ...msg(2),
+          isSecret: true,
+          createdAt: now - 25 * 3_600_000,
+          expiresAt: weekLongTtl(now - 25 * 3_600_000),
+        },
+        msg(1),
+      ],
+    });
+    await handler(wsEvent("history", { action: "history", channelId: GENERAL_CHANNEL_ID }));
+    const [[, event]] = sentEvents() as [[string, HistoryPageEvent]];
+    expect(event.items.map((m) => m.text)).toEqual(["m1", "m3"]);
+  });
+
   it("reads a thread's replies oldest first, under the parent's key prefix", async () => {
     const parent = msg(1);
     ddbMock.on(QueryCommand).resolves({

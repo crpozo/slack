@@ -1133,6 +1133,20 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
 - A question is answered from the minutes; "something not in the call" gets "the notes don't say". The other person never sees your questions.
 - Deleting the card removes its transcript, minutes, questions and recording.
 
+### Urgent — Secrets: 24-hour TTL, credential auto-detection, per-part copy
+
+**Branch:** `feature/urgent-secret-autodetect`.
+
+1. **TTL:** `SECRET_TTL_MS` is 24 hours. `secretExpiresAt()` caps every secret at `createdAt + 24h`, so secrets stored with the old week-long `expiresAt` are hidden at 24 hours by `isExpired` (history's server-side filter and the list's). `pnpm --filter infra shorten-secret-ttl <stage> [--apply]` brings their stored TTL down too (conditional on the TTL read), so DynamoDB deletes them on the new schedule.
+2. **Auto-detection (`apps/web/src/lib/credentials.ts`):** `detectCredentials(text)` is true for:
+   - an email, then whitespace or a line break, then a password-looking value;
+   - a common username (`admin`, `root`, `user`, `usuario`, `postgres`…), then a password-looking value;
+   - a keyword (`contraseña`, `password`, `pwd`, `clave`, `pass`, `token`, `api key`…) followed by a password-looking value, or by `:`/`=` and a value that ends its line;
+   - a message that is one high-entropy string (8+ characters, lowercase plus two of uppercase/digits/symbols and ≥ 2.5 bits per character, or 20+ characters of two kinds with ≥ 3.5 bits: API keys);
+   - a URL with a login (`scheme://user:pass@host`).
+   URLs, emails, mentions, hashtags, file names, versions, issue keys, identifiers and numbers never count. Ordinary sentences with a keyword ("the password is wrong") don't either: a false positive would hide someone's message and delete it a day later. In the composer a match shows "Looks like a password: it will be sent as a secret", with **Send as normal text**; on send the message goes out with `isSecret` and a toast says so. Not for files, thread replies (secrets can't be either) or slash commands.
+3. **Per-part copy:** `secretParts(text)` splits a revealed secret into lines, "Label: value" lines by label, and 2–3-token lines with an email, username or password per token (labelled Email / User / Password). Each part has its own Copy button (✓ for a moment); Copy all stays. A single value shows as before.
+
 ### Phase 35 (planned) — Customer channels (guest access to shared channels)
 
 Deferred from Phase 34: it moves the guest security boundary, so it gets its own phase and tests. Today guests are boards-only. They're blocked from every WebSocket action but `ping`, `presign` and `user` (`GUEST_ROUTES`), receive only `board.*` events (`guestMayReceive`), and see only board co-members. Needed:

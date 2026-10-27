@@ -118,10 +118,14 @@ The UI:
   attached, pasted or dropped, and emoji inserted with the composer's 🙂 button. Images open in
   a full-screen viewer (wheel / pinch / double-tap to zoom, drag to pan, Esc to close).
 - **Secrets:** the 🔒 button next to the paperclip (or `/secret ` typed first) sends a password
-  or API key masked; the reader's eye button reveals it. The server stores it with a DynamoDB
-  TTL and the row is deleted 7 days later. Secrets are text only, can't be edited, and never
-  appear in notifications or quotes. They are not encrypted: anyone in the conversation can
-  reveal them, so send them in a DM.
+  or API key masked; the reader's eye button reveals it. A message that looks like a credential
+  (an email or common username followed by a password, "contraseña: …", "password: …", or a
+  single random-looking string) is sent as a secret on its own: a banner says so before you
+  send, with **Send as normal text** to override. Secrets expire 24 hours after they're sent:
+  hidden at once, then deleted by DynamoDB's TTL. Revealed, an email and a password (or each
+  line) get their own Copy button. Secrets are text only, can't be edited, and never appear in
+  notifications or quotes. They are not encrypted: anyone in the conversation can reveal them,
+  so send them in a DM.
 - **PDFs** open in an in-app viewer (click the card); other files download.
 - **Channel details:** the header shows the channel's topic under its name; click it for the
   description. The creator or an admin edits name, topic and description from _Edit channel_.
@@ -473,6 +477,15 @@ included. Each call is one streamed request to Haiku of about twice the transcri
 each question one short request; at this team's volume that is still cents a month. No manual
 step: the table, routes and grants come with the deploy (the worker also needs
 `bedrock:InvokeModelWithResponseStream`, granted on the same profile).
+
+**Secrets expire after 24 hours, once per stage after deploying the change:** secrets sent
+while the TTL was a week are hidden at 24 hours anyway; to have DynamoDB delete their rows on
+the new schedule too, shorten their stored TTL:
+
+```bash
+pnpm --filter infra shorten-secret-ttl prod            # dry run: counts, writes nothing
+pnpm --filter infra shorten-secret-ttl prod --apply    # shortens the TTLs (safe to repeat)
+```
 
 **AI Notes hub (Phase 29), once per stage after deploying it:** the hub (`/app/notes`) lists
 notes through a per-person index table (`slack-<stage>-meeting-notes`) that new cards fill as
