@@ -355,7 +355,7 @@ Estimated times assuming Opus writes the code and you supervise: F1 2 h · F2 3 
    - `ChannelView`: header with `#name` or the DM's email; `MessageList`; `Composer`.
    - `MessageList`: requests `history` on mount; renders in ascending order; `IntersectionObserver` on the first element → if `cursors[id]` is not null, requests the next page and **preserves the scroll position** when prepending. When `message.new` arrives with the scroll at the bottom → auto-scroll; otherwise, shows a "↓ new messages" pill. Groups consecutive messages from the same author within < 5 min.
    - `MessageItem`: avatar = initial of the email, name (local part of the email), time `HH:mm`, text via `markdown.ts`, list of `Attachment`.
-   - `Composer`: auto-height `textarea`; Enter sends, Shift+Enter inserts a newline; drag & drop and `onPaste` of images/files → `upload.ts`; shows chips for pending attachments with progress; disables sending while uploading. Sends `message` with `clientId = ulid()` and does an **optimistic insert** (`pending` state), reconciled when the `message.new` with the same `clientId` arrives.
+   - `Composer`: auto-height `textarea`; Enter sends, Shift+Enter inserts a newline; drag & drop and `onPaste` of images/files → `upload.ts`; shows chips for pending attachments with progress. Sends `message` with `clientId = ulid()` and does an **optimistic insert** (`pending` state), reconciled when the `message.new` with the same `clientId` arrives. (Since Phase 39 sending never waits for uploads: see the outbox.)
    - `Attachment`: if `contentType` starts with `image/` → requests `presign get` and renders an `<img>` (max 320 px tall, click opens it in a new tab); otherwise → chip with name, size and a download button (requests `presign get` on click and opens the URL).
    - `markdown.ts`: `**bold**`, `_italic_`, `` `code` ``, ``` ``` blocks, URLs → `<a target=_blank rel=noopener>`. Escape HTML **before** applying the regexes (never `dangerouslySetInnerHTML` with unescaped text). Emoji: users type them with the OS keyboard; no picker is included.
 6. **`lib/upload.ts`**: `uploadFile(file, channelId)` → validates 25 MB on the client → `presign put` → `fetch(url, { method: "PUT", body: file, headers: { "Content-Type": file.type } })` → returns `Attachment { key, name, size, contentType }`.
@@ -1092,6 +1092,22 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
 - The Pinned panel lists it; **Jump to message** on an old pin scrolls back to it and highlights it.
 - A conversation's Files & Links lists its files and links newest first, pages with **Show more**, opens images, PDFs and links, and jumps to the message.
 - After the backfill, files and links from before the deploy are there too.
+
+### Phase 39 — Optimistic outbox: send without waiting
+
+**Branch:** `feature/f39-optimistic-queue`. Web only: the `message` action already had `clientId`, which the server stores, dedupes on and echoes in `message.new`.
+
+1. **Non-blocking composer:** files start uploading when attached (`startUpload` → `UploadTask`); **Send** never waits for them. It clears the text and the chips at once and hands the message to the outbox. Voice notes go the same way (no more "sending" state on the recording bar).
+2. **Outbox (`lib/outbox.ts`):** the pending message shows at once (`status: "pending"`, `opacity-70`, "Sending…") with its files from local `URL.createObjectURL` copies and a progress bar. One lane per conversation (a thread's replies are their own lane). Uploads run in parallel, but a lane sends **strictly in order**: a message goes out only once its files are up **and** the previous message of the lane is confirmed (`message.new`) or has failed. Waiting for the confirmation, not just the frame, keeps the server's order, since two frames on one socket can reach two Lambdas at once.
+3. **Failure:** an upload error, or no confirmation within 15 s, turns it `failed`: "Failed to send · Click to retry", and the lane goes on. Retry keeps the `clientId` (the server ignores one it already stored), re-uploads only the files that failed and queues it at the end of its lane.
+4. **Reconciliation without flicker:** `message.new` replaces the pending copy as before (`mergeMessages` by `clientId`). The confirmed image starts from the local copy, registered under its S3 key (and thumbnail's). It swaps to the signed URL only once that image has loaded, then frees the local copy (60 kept at most).
+5. **Edge cases:** leaving the page with something on its way asks first (`beforeunload`, not in the desktop app, whose close only hides the window). Sign-out drops the outbox and frees every local copy. Pending copies are never saved to the offline cache.
+
+**Phase 39 acceptance criteria:**
+- Sending two images and a text back to back takes no waiting: the composer is empty and usable at once, and three faded "Sending…" messages show in order with the images visible.
+- On a slow connection nothing goes out before the first image is up; the server stores them in the order sent.
+- A confirmed image doesn't blink.
+- A failed upload shows "Failed to send · Click to retry" while the next message still goes out; Retry sends it.
 
 ### Phase 35 (planned) — Customer channels (guest access to shared channels)
 
