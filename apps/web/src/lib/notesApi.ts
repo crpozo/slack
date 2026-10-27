@@ -1,4 +1,12 @@
-import type { Message, NotesPage, SummarizeCallInput } from "@mindfultech/shared";
+import type {
+  AiNotes,
+  Message,
+  NoteAudio,
+  NoteDetail,
+  NoteQuestion,
+  NotesPage,
+  SummarizeCallInput,
+} from "@mindfultech/shared";
 import { request } from "./tasksApi";
 
 /**
@@ -20,6 +28,14 @@ export const notesApi = {
   /** The AI Notes hub (Phase 29): your notes cards from every conversation, newest first. */
   list: (cursor: string | null) =>
     request<NotesPage>("GET", cursor ? `/notes?cursor=${encodeURIComponent(cursor)}` : "/notes"),
+  /** Phase 40: attaches the uploaded recording to the call's card (`message.updated` follows). */
+  attachAudio: (callId: string, audio: NoteAudio) =>
+    request<{ aiNotes: AiNotes }>("PUT", `/calls/${encodeURIComponent(callId)}/audio`, audio),
+  /** Phase 40: the full notes: raw transcript, polished minutes, your own questions. */
+  detail: (callId: string) => request<NoteDetail>("GET", `/notes/${encodeURIComponent(callId)}`),
+  /** Phase 40: a question about the notes, answered from them (kept for you alone). */
+  ask: (callId: string, question: string) =>
+    request<NoteQuestion>("POST", `/notes/${encodeURIComponent(callId)}/ask`, { question }),
 };
 
 export type NotesApi = typeof notesApi;

@@ -7,6 +7,14 @@ export interface ClaudeModel {
 }
 
 /**
+ * Long answers (Phase 40's minutes): streamed, as the SDK requires for a large
+ * `max_tokens`, and handed back whole once the stream ends.
+ */
+export interface StreamingClaudeModel {
+  stream(params: Anthropic.MessageStreamParams): Promise<Anthropic.Message>;
+}
+
+/**
  * Claude on Amazon Bedrock through the standard runtime (`InvokeModel`,
  * service `bedrock`), signed with the Lambda's role (SigV4, region from
  * `AWS_REGION`). Built once per container by each worker. `timeout` keeps one
@@ -17,7 +25,10 @@ export interface ClaudeModel {
  * it for this account (`404 not_found_error` on 2026-10-22 and 2026-10-26),
  * while the standard runtime has it.
  */
-export function bedrockModel(timeout = 50_000): ClaudeModel {
-  const client = new AnthropicBedrock({ timeout, maxRetries: 1 });
-  return { create: (params) => client.messages.create(params) };
+export function bedrockModel(timeout = 50_000, maxRetries = 1): ClaudeModel & StreamingClaudeModel {
+  const client = new AnthropicBedrock({ timeout, maxRetries });
+  return {
+    create: (params) => client.messages.create(params),
+    stream: (params) => client.messages.stream(params).finalMessage(),
+  };
 }

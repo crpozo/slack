@@ -73,14 +73,18 @@ describe("AI call notes", () => {
       "MEETING_NOTES_TABLE",
       "MESSAGES_TABLE",
       "NOTES_WORKER_FUNCTION",
+      "NOTE_DETAILS_TABLE",
       "STAGE",
+      "USERS_TABLE",
       "WS_ENDPOINT",
     ]);
+    // Phase 40: answering a question waits on Claude, up to API Gateway's 30 s.
+    expect(fn("slack-dev-call-notes")?.[1].Properties.Timeout).toBe(30);
   });
 
-  it("runs the worker for up to 2 minutes with no async retries", () => {
+  it("runs the worker for up to 15 minutes (streamed minutes) with no async retries", () => {
     const worker = fn("slack-dev-call-notes-worker")?.[1];
-    expect(worker?.Properties.Timeout).toBe(120);
+    expect(worker?.Properties.Timeout).toBe(900);
     const config = Object.values(
       template.findResources("AWS::Lambda::EventInvokeConfig", {
         Properties: { MaximumRetryAttempts: 0 },
@@ -89,7 +93,7 @@ describe("AI call notes", () => {
     expect(config).toHaveLength(1);
   });
 
-  it("grants the endpoint only what it calls, including starting the worker", () => {
+  it("grants the endpoint only what it calls, including starting the worker and answering questions", () => {
     const st = statementsOf("TasksApiCallNotesFnServiceRoleDefaultPolicy");
     expect(actionsOn(st, "DataMessages")).toEqual([
       "dynamodb:BatchGetItem", // the hub's cards
@@ -99,16 +103,55 @@ describe("AI call notes", () => {
     ]);
     expect(actionsOn(st, "DataChannels")).toEqual(["dynamodb:GetItem"]);
     expect(actionsOn(st, "DataMeetingNotes")).toEqual(["dynamodb:PutItem", "dynamodb:Query"]);
+    expect(actionsOn(st, "DataNoteDetails")).toEqual([
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:Query",
+    ]);
+    expect(actionsOn(st, "DataUsers")).toEqual(["dynamodb:GetItem"]);
     const invoke = st.filter((s) => [s.Action].flat().includes("lambda:InvokeFunction"));
     expect(invoke).toHaveLength(1);
     expect(JSON.stringify(invoke[0]?.Resource)).toMatch(/CallNotesWorkerFn/);
-    expect(JSON.stringify(st)).not.toMatch(/bedrock/);
+    // Questions (Phase 40): one plain request each, on the same profile as the worker.
+    const bedrock = st.filter((s) => JSON.stringify(s.Action).includes("bedrock"));
+    expect(bedrock.flatMap((s) => [s.Action].flat())).toEqual(["bedrock:InvokeModel"]);
+    expect(JSON.stringify(bedrock[0]?.Resource)).toMatch(
+      /inference-profile\/us\.anthropic\.claude-haiku-5-5/,
+    );
+  });
+
+  it("keeps each call's full notes in their own table: callId + raw / polished / qa#user#time", () => {
+    template.hasResourceProperties("AWS::DynamoDB::Table", {
+      TableName: "slack-dev-note-details",
+      BillingMode: "PAY_PER_REQUEST",
+      KeySchema: [
+        { AttributeName: "callId", KeyType: "HASH" },
+        { AttributeName: "sk", KeyType: "RANGE" },
+      ],
+    });
+    for (const key of [
+      "PUT /calls/{callId}/audio",
+      "GET /notes/{callId}",
+      "POST /notes/{callId}/ask",
+    ]) {
+      const route = Object.values(
+        template.findResources("AWS::ApiGatewayV2::Route", { Properties: { RouteKey: key } }),
+      )[0]?.Properties as { AuthorizationType: string; Target: unknown };
+      expect(route.AuthorizationType).toBe("JWT");
+      expect(JSON.stringify(route.Target)).toMatch(/CallNotesIntegration/);
+    }
+    // Deleting a notes card takes its details with it.
+    expect(
+      actionsOn(statementsOf("TasksApiMessagesFnServiceRoleDefaultPolicy"), "DataNoteDetails"),
+    ).toEqual(["dynamodb:BatchWriteItem", "dynamodb:Query"]);
   });
 
   it("lets only the worker invoke the Haiku 5.5 profile and its model (standard runtime, not Mantle, nothing provisioned)", () => {
     const st = statementsOf("TasksApiCallNotesWorkerFnServiceRoleDefaultPolicy");
     const actions = st.flatMap((s) => [s.Action].flat());
     expect(actions).toContain("bedrock:InvokeModel");
+    // Phase 40: the minutes are streamed.
+    expect(actions).toContain("bedrock:InvokeModelWithResponseStream");
     expect(actions).not.toContain("bedrock-mantle:CreateInference");
     const bedrock = st.find((s) => [s.Action].flat().includes("bedrock:InvokeModel"))!;
     const resources = JSON.stringify(bedrock.Resource);
@@ -117,6 +160,7 @@ describe("AI call notes", () => {
     expect(resources).not.toContain('"*"');
     expect(actionsOn(st, "DataMessages")).toEqual(["dynamodb:UpdateItem"]);
     expect(actionsOn(st, "DataUsers")).toEqual(["dynamodb:GetItem"]);
+    expect(actionsOn(st, "DataNoteDetails")).toEqual(["dynamodb:GetItem", "dynamodb:PutItem"]);
     const types = Object.values(
       template.toJSON().Resources as Record<string, { Type: string }>,
     ).map((r) => r.Type);

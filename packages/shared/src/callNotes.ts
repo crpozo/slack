@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_ATTACHMENT_SIZE } from "./protocol";
 
 // ---------------------------------------------------------------------------
 // AI call notes (Phase 28). During a DM call with notes switched on, each
@@ -33,6 +34,22 @@ export interface AiNotes {
   error?: string;
   /** Its action items were added to a board (Phase 29): once per notes card. */
   sentToBoard?: NotesSentToBoard;
+  /**
+   * Phase 40: the full notes are kept apart (`GET /notes/{callId}`): the raw
+   * transcript, the polished minutes and your own questions. Cards from before
+   * Phase 40 have none.
+   */
+  details?: true;
+  /** Phase 40: the call's recording (both voices, while notes were on). */
+  audio?: NoteAudio;
+}
+
+/** A call's recording, uploaded like any attachment under the conversation's folder. */
+export interface NoteAudio {
+  key: string;
+  contentType: string;
+  size: number;
+  durationMs: number;
 }
 
 export interface NotesSentToBoard {
@@ -145,4 +162,58 @@ export function parseNotesPeerMessage(data: unknown): NotesPeerMessage | null {
     return { type: "transcript", text, at: v.at };
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 40: "Wispr Flow" notes. Besides the summary on the card, each call
+// keeps its raw transcript (as the browser heard it), polished minutes
+// (Claude as a dictation editor) and its recording; anyone in the call can
+// ask questions about it, and each person's questions are theirs alone.
+// ---------------------------------------------------------------------------
+
+/** `PUT /calls/{callId}/audio`: the recording, once uploaded (presign + PUT, as attachments). */
+export const NoteAudioSchema = z.object({
+  key: z.string().min(1).max(1024),
+  contentType: z
+    .string()
+    .regex(/^audio\/[\w.+-]+(;.*)?$/, "an audio type")
+    .max(255),
+  size: z.number().int().positive().max(MAX_ATTACHMENT_SIZE),
+  durationMs: z
+    .number()
+    .int()
+    .positive()
+    .max(24 * 60 * 60 * 1000),
+});
+
+/** The longest question about a note. */
+export const MAX_NOTE_QUESTION_CHARS = 1_000;
+/** How many questions one person may ask about one note (each is a model call). */
+export const MAX_QUESTIONS_PER_NOTE = 30;
+/** How many earlier questions (yours) the model sees, for follow-ups. */
+export const NOTE_QUESTION_HISTORY = 10;
+
+/** `POST /notes/{callId}/ask`. */
+export const AskNoteSchema = z.object({
+  question: z.string().trim().min(1).max(MAX_NOTE_QUESTION_CHARS),
+});
+export type AskNoteInput = z.infer<typeof AskNoteSchema>;
+
+/** One question about a note and its answer (only the person who asked sees it). */
+export interface NoteQuestion {
+  question: string;
+  answer: string;
+  /** Epoch ms. */
+  askedAt: number;
+}
+
+/** `GET /notes/{callId}`: the full notes of a call, for one of its participants. */
+export interface NoteDetail {
+  callId: string;
+  /** The transcript as the browsers heard it: `[mm:ss] Name: text` lines. */
+  rawTranscript: string;
+  /** The polished minutes; `null` until the notes are written (or if they failed). */
+  polishedText: string | null;
+  /** Your questions, oldest first. */
+  questions: NoteQuestion[];
 }

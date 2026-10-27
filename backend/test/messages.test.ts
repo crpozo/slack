@@ -1,6 +1,7 @@
 import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import { DeleteObjectsCommand, S3Client } from "@aws-sdk/client-s3";
 import {
+  BatchWriteCommand,
   GetCommand,
   QueryCommand,
   ScanCommand,
@@ -308,6 +309,53 @@ describe("DELETE /messages/{channelId}/{sk}", () => {
         Delete: { TableName: "slack-test-meeting-notes", Key: { userId, sk: "100#n" } },
       })),
     );
+  });
+
+  it("Phase 40: takes a notes card's transcript, minutes, questions and recording with it", async () => {
+    const dm = dmChannelId(ALICE.userId, BOB.userId);
+    mockChannels(GENERAL, {
+      channelId: dm,
+      name: dm,
+      type: "dm",
+      createdBy: ALICE.userId,
+      createdAt: 1,
+      archived: false,
+      members: [ALICE.userId, BOB.userId],
+    });
+    stored(
+      message("100#n", {
+        channelId: dm,
+        kind: "ai_notes",
+        aiNotes: {
+          callId: "CALL1",
+          participants: [ALICE.userId, BOB.userId],
+          details: true,
+          audio: {
+            key: `attachments/${dm}/U/call.webm`,
+            contentType: "audio/webm",
+            size: 9,
+            durationMs: 9,
+          },
+        },
+      }),
+    );
+    ddbMock.on(QueryCommand, { TableName: "slack-test-note-details" }).resolves({
+      Items: [
+        { callId: "CALL1", sk: "polished" },
+        { callId: "CALL1", sk: `qa#${BOB.userId}#0000000000005` },
+        { callId: "CALL1", sk: "raw" },
+      ],
+    });
+    ddbMock.on(BatchWriteCommand).resolves({});
+    await del("100#n", ALICE, dm);
+    const keys = s3Mock.commandCalls(DeleteObjectsCommand)[0]!.args[0].input.Delete!.Objects;
+    expect(keys).toEqual([{ Key: `attachments/${dm}/U/call.webm` }]);
+    const write = ddbMock.commandCalls(BatchWriteCommand)[0]!.args[0].input.RequestItems!;
+    expect(write["slack-test-note-details"]!.map((r) => r.DeleteRequest!.Key)).toEqual([
+      { callId: "CALL1", sk: "polished" },
+      { callId: "CALL1", sk: `qa#${BOB.userId}#0000000000005` },
+      { callId: "CALL1", sk: "raw" },
+    ]);
   });
 
   it("lets an admin moderate others' messages; members only their own", async () => {

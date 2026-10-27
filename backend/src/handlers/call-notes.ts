@@ -1,20 +1,45 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
-import { BatchGetCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import {
+  BatchGetCommand,
+  QueryCommand,
+  TransactWriteCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
+import {
+  AskNoteSchema,
   aiNotesText,
   dmMembers,
+  MAX_QUESTIONS_PER_NOTE,
   newMessageSk,
+  NoteAudioSchema,
+  NOTE_QUESTION_HISTORY,
   NOTES_PAGE_SIZE,
   SummarizeCallSchema,
   type AiNotes,
   type Channel,
   type MeetingNoteIndexItem,
   type Message,
+  type NoteDetail,
+  type NoteQuestion,
   type NotesPage,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
 import { deliver, listConnections } from "../lib/broadcast";
-import { settleNotesCard, type NotesJob } from "../lib/callNotes";
+import { settleNotesCard, transcriptFor, type NotesJob } from "../lib/callNotes";
+import { bedrockModel, type ClaudeModel } from "../lib/claude";
+import {
+  countQuestions,
+  getPolished,
+  listQuestions,
+  participantNote,
+  putQuestion,
+  questionSk,
+  RAW_SK,
+  type NoteRawRow,
+} from "../lib/noteDetails";
+import { answerFrom, questionRequest } from "../lib/noteQuestions";
 import { channelAudience, getAccessibleChannel } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import { requireEnv } from "../lib/env";
@@ -24,6 +49,7 @@ import {
   json,
   notFound,
   parseBody,
+  pathParam,
   type HttpCaller,
   type HttpEvent,
   type HttpResult,
@@ -31,8 +57,11 @@ import {
 import { errorFields, log } from "../lib/logger";
 import { findSentMessage, toWireMessage } from "../lib/messages";
 
-/** Async invocations carry at most 256 KB; the job stays well under it. */
-const MAX_JOB_BYTES = 240_000;
+/**
+ * The transcript row stays under DynamoDB's 400 KB item limit with room to
+ * spare (the transcript's own limit, in characters, keeps it there anyway).
+ */
+const MAX_TRANSCRIPT_BYTES = 350_000;
 
 let lambda: LambdaClient | null = null;
 const lambdaClient = () => (lambda ??= new LambdaClient({}));
@@ -66,6 +95,12 @@ async function summarizeCall(event: HttpEvent, caller: HttpCaller): Promise<Http
     return json(202, { message: existing });
   }
 
+  // Phase 40: the transcript is kept (the `raw` row), as the people in it will read it.
+  const transcript = await transcriptFor(input.segments, input.startedAt);
+  if (Buffer.byteLength(transcript, "utf8") > MAX_TRANSCRIPT_BYTES) {
+    throw new HttpError(413, "The transcript is too long to summarize");
+  }
+
   const now = Date.now();
   const notes: AiNotes = {
     callId: input.callId,
@@ -74,6 +109,7 @@ async function summarizeCall(event: HttpEvent, caller: HttpCaller): Promise<Http
     startedAt: input.startedAt,
     endedAt: input.endedAt,
     participants,
+    details: true,
   };
   const message: Message = {
     messageId: ulid(now),
@@ -97,15 +133,22 @@ async function summarizeCall(event: HttpEvent, caller: HttpCaller): Promise<Http
       members: participants,
     },
     notes,
-    segments: input.segments,
   };
-  const payload = JSON.stringify(job);
-  if (Buffer.byteLength(payload, "utf8") > MAX_JOB_BYTES) {
-    throw new HttpError(413, "The transcript is too long to summarize");
-  }
+  const raw: NoteRawRow = {
+    callId: input.callId,
+    sk: RAW_SK,
+    channelId: message.channelId,
+    cardSk: message.sk,
+    messageId: message.messageId,
+    participants,
+    text: transcript,
+    createdAt: now,
+  };
 
-  // The card and its pointers in the AI Notes hub of each person (Phase 29),
-  // together: neither exists without the other.
+  // The card, its pointers in the AI Notes hub of each person (Phase 29) and
+  // its transcript (Phase 40), together: none exists without the others. A
+  // call's transcript is never overwritten (by another conversation's request
+  // naming the same call).
   const pointers: MeetingNoteIndexItem[] = participants.map((userId) => ({
     userId,
     sk: message.sk,
@@ -113,20 +156,34 @@ async function summarizeCall(event: HttpEvent, caller: HttpCaller): Promise<Http
     callId: input.callId,
     endedAt: input.endedAt,
   }));
-  await ddb.send(
-    new TransactWriteCommand({
-      TransactItems: [
-        {
-          Put: {
-            TableName: tables.messages,
-            Item: message,
-            ConditionExpression: "attribute_not_exists(sk)",
+  await ddb
+    .send(
+      new TransactWriteCommand({
+        TransactItems: [
+          {
+            Put: {
+              TableName: tables.messages,
+              Item: message,
+              ConditionExpression: "attribute_not_exists(sk)",
+            },
           },
-        },
-        ...pointers.map((Item) => ({ Put: { TableName: tables.meetingNotes, Item } })),
-      ],
-    }),
-  );
+          ...pointers.map((Item) => ({ Put: { TableName: tables.meetingNotes, Item } })),
+          {
+            Put: {
+              TableName: tables.noteDetails,
+              Item: raw,
+              ConditionExpression: "attribute_not_exists(callId)",
+            },
+          },
+        ],
+      }),
+    )
+    .catch((err: unknown) => {
+      if (err instanceof Error && err.name === "TransactionCanceledException") {
+        throw new HttpError(409, "These call notes were already requested");
+      }
+      throw err;
+    });
   log.info("notes card posted", {
     channelId: message.channelId,
     callId: input.callId,
@@ -147,7 +204,7 @@ async function summarizeCall(event: HttpEvent, caller: HttpCaller): Promise<Http
       new InvokeCommand({
         FunctionName: requireEnv("NOTES_WORKER_FUNCTION"),
         InvocationType: "Event",
-        Payload: new TextEncoder().encode(payload),
+        Payload: new TextEncoder().encode(JSON.stringify(job)),
       }),
     );
   } catch (err) {
@@ -245,9 +302,162 @@ async function listNotes(event: HttpEvent, caller: HttpCaller): Promise<HttpResu
   return json(200, page);
 }
 
+// --- Phase 40: the recording, the full notes and questions about them ---------------
+
+/** The call in the path: `callId`s are ulids. */
+function callIdOf(event: HttpEvent): string {
+  const callId = pathParam(event, "callId");
+  if (!/^[\w-]{1,64}$/.test(callId)) throw notFound("Notes not found");
+  return callId;
+}
+
+/**
+ * `PUT /calls/{callId}/audio`: the caller's app, once the recording is
+ * uploaded (presign + PUT, like any attachment), attaches it to the card.
+ * Anyone in the call may; the file must be in the conversation's own folder.
+ * The conversation hears `message.updated`.
+ */
+async function attachAudio(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const callId = callIdOf(event);
+  const input = parseBody(NoteAudioSchema, event);
+  const raw = await participantNote(callId, caller.userId);
+  if (!input.key.startsWith(`attachments/${raw.channelId}/`) || input.key.includes("..")) {
+    throw new HttpError(400, "key: not an upload of this conversation");
+  }
+  let card: Message;
+  try {
+    const { Attributes } = await ddb.send(
+      new UpdateCommand({
+        TableName: tables.messages,
+        Key: { channelId: raw.channelId, sk: raw.cardSk },
+        UpdateExpression: "SET aiNotes.audio = :audio",
+        ConditionExpression:
+          "kind = :kind AND attribute_exists(aiNotes) AND attribute_not_exists(deletedAt)",
+        ExpressionAttributeValues: { ":audio": input, ":kind": "ai_notes" },
+        ReturnValues: "ALL_NEW",
+      }),
+    );
+    card = Attributes as Message;
+  } catch (err) {
+    if (err instanceof ConditionalCheckFailedException) throw notFound("Notes not found");
+    throw err;
+  }
+  log.info("call recording attached", {
+    channelId: raw.channelId,
+    callId,
+    bytes: input.size,
+    durationMs: input.durationMs,
+  });
+  try {
+    const members = new Set(raw.participants);
+    await deliver(await listConnections(), (c) =>
+      members.has(c.userId)
+        ? {
+            type: "message.updated",
+            channelId: card.channelId,
+            sk: card.sk,
+            messageId: card.messageId,
+            text: card.text,
+            aiNotes: card.aiNotes,
+          }
+        : null,
+    );
+  } catch (err) {
+    log.error("recording broadcast failed", { channelId: raw.channelId, ...errorFields(err) });
+  }
+  return json(200, { aiNotes: card.aiNotes });
+}
+
+/**
+ * `GET /notes/{callId}`: the full notes, for someone who was in the call: the
+ * raw transcript, the polished minutes (once written) and only your own
+ * questions about them.
+ */
+async function getNote(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const callId = callIdOf(event);
+  const raw = await participantNote(callId, caller.userId);
+  const [polishedText, questions] = await Promise.all([
+    getPolished(callId),
+    listQuestions(callId, caller.userId),
+  ]);
+  const detail: NoteDetail = { callId, rawTranscript: raw.text, polishedText, questions };
+  return json(200, detail);
+}
+
+let questionModel: ClaudeModel | null = null;
+
+/** Tests swap the model. */
+export function useQuestionModel(next: ClaudeModel | null): void {
+  questionModel = next;
+}
+
+/** One try, inside API Gateway's 30 seconds. */
+const QUESTION_TIMEOUT_MS = 24_000;
+
+/**
+ * `POST /notes/{callId}/ask`: answers a question about the call from its
+ * polished minutes (Claude Haiku 5.5, with your earlier questions for
+ * follow-ups). The question and answer are kept for you alone.
+ */
+async function askNote(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const callId = callIdOf(event);
+  const { question } = parseBody(AskNoteSchema, event);
+  await participantNote(callId, caller.userId);
+  const polished = await getPolished(callId);
+  if (!polished) throw new HttpError(409, "These notes aren't ready for questions yet");
+  if ((await countQuestions(callId, caller.userId)) >= MAX_QUESTIONS_PER_NOTE) {
+    throw new HttpError(
+      429,
+      `You can ask up to ${MAX_QUESTIONS_PER_NOTE} questions about one call's notes`,
+    );
+  }
+  const history = await listQuestions(callId, caller.userId, NOTE_QUESTION_HISTORY);
+  const started = Date.now();
+  let response: Anthropic.Message;
+  try {
+    response = await (questionModel ??= bedrockModel(QUESTION_TIMEOUT_MS, 0)).create(
+      questionRequest(polished, history, question),
+    );
+  } catch (err) {
+    log.error("note question failed", {
+      callId,
+      ms: Date.now() - started,
+      ...(err instanceof Anthropic.APIError && { status: err.status }),
+      ...errorFields(err),
+    });
+    throw new HttpError(
+      err instanceof Anthropic.RateLimitError ? 503 : 502,
+      "The question couldn't be answered right now. Try again.",
+    );
+  }
+  const answer = answerFrom(response);
+  log.info("note question answered", {
+    callId,
+    ok: answer !== null,
+    stopReason: response.stop_reason,
+    inputTokens: response.usage.input_tokens,
+    cachedTokens: response.usage.cache_read_input_tokens ?? 0,
+    outputTokens: response.usage.output_tokens,
+    ms: Date.now() - started,
+  });
+  if (!answer) throw new HttpError(502, "No answer came back. Try asking another way.");
+  const askedAt = Date.now();
+  const asked: NoteQuestion = { question, answer, askedAt };
+  await putQuestion({
+    callId,
+    sk: questionSk(caller.userId, askedAt),
+    userId: caller.userId,
+    ...asked,
+  });
+  return json(200, asked);
+}
+
 const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<HttpResult>> = {
   "POST /calls/summary": summarizeCall,
   "GET /notes": listNotes,
+  "PUT /calls/{callId}/audio": attachAudio,
+  "GET /notes/{callId}": getNote,
+  "POST /notes/{callId}/ask": askNote,
 };
 
 export const handler = httpHandler(async (event, caller) => {

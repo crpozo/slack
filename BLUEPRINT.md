@@ -742,7 +742,7 @@ Uploads already go straight to S3 with a presigned **PUT** whose signature pins 
    - The system prompt treats the transcript as content only. The user turn is the requested instruction ("Summarize the following meeting transcript. Provide a brief summary paragraph and a bulleted list of Action Items. Output in markdown.") followed by `<transcript>` with `[mm:ss] Name: text` lines.
    - `stop_reason` `refusal` or `max_tokens` mark the card as failed.
    - `settleNotesCard` updates the message only while it is still pending (conditional update) and pushes `message.updated` with `aiNotes`. Errors never throw: they become a failed card with a reason.
-   - The transcript is never written anywhere; only the summary is stored.
+   - The transcript is never written anywhere; only the summary is stored. (Phase 40 changes this: see below.)
 6. **IAM (CDK grants only, no models provisioned):** the worker gets `bedrock:InvokeModel` on the inference profile (stack account and region) and on the foundation model in any region the profile routes to (`notesModelResources` in `infra/lib/tasks-api.ts`); the endpoint gets `lambda:InvokeFunction` on the worker.
    - Model access to Claude Haiku 5.5 is enabled once in the Bedrock console (Model catalog → Request access).
 7. **Card:** `AiNotesCard`.
@@ -1108,6 +1108,30 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
 - On a slow connection nothing goes out before the first image is up; the server stores them in the order sent.
 - A confirmed image doesn't blink.
 - A failed upload shows "Failed to send · Click to retry" while the next message still goes out; Retry sends it.
+
+### Phase 40 — "Wispr Flow" call notes: recording, polished minutes, private Q&A
+
+**Branch:** `feature/f39-wispr-flow` (named before the phase number was settled). Call notes only (1:1 calls); cards from before Phase 40 are left as they are. No external speech-to-text: the browser's `SpeechRecognition` plus `MediaRecorder`.
+
+1. **Capture (web):**
+   - Speech recognition is always `es-EC` (`SPEECH_LANG`): with an English browser's `en-US`, Spanish speech and background noise came out as random English words.
+   - The caller (who submits the notes) records both voices while notes are on (`lib/callRecorder.ts`): the mic and the remote audio mixed with Web Audio into `MediaRecorder`, Opus at 32 kbps (`audio/mp4` on Safari). It pauses while notes are off, follows a new microphone, and the notice tells both people the call is recorded.
+   - On hang-up the transcript goes out at once (`POST /calls/summary`, as before). The recording uploads in the background (presign + PUT, the attachment pipeline, under `attachments/<dm>/`), then `PUT /calls/{callId}/audio` attaches it to the card (`message.updated`). No card, no recording.
+2. **Storage:** a call's full notes can't ride on the card (cards travel in history pages over the WebSocket, 128 KB a frame), so `note-details` (`callId` + `sk`) holds:
+   - `raw`: the `[mm:ss] Name: text` transcript, the card's place and the participants (who may read any of it), written in the same transaction as the card, never overwritten (`attribute_not_exists(callId)`, 409);
+   - `polished`: the minutes;
+   - `qa#<userId>#<askedAt>`: one question and its answer, only ever read back for that user.
+   The card keeps the summary and gains `details: true` and `audio: {key, contentType, size, durationMs}`. Deleting the card deletes the rows and the recording.
+3. **Editor (worker):** Claude Haiku 5.5 as an "intelligent dictation editor". One streamed request (`max_tokens` 64,000, effort `low`, worker 15 min) returns `<polished>` (the whole conversation as clean minutes: recognition errors fixed, fillers gone, 100% of the substance kept, `[inaudible]` rather than guesses) and `<summary>` (the Phase 28 instruction verbatim, so Send to Board still finds the action items). The worker reads the transcript from `raw` (the async job stays small) and settles the card field by field, so a recording attached meanwhile stays.
+4. **Questions:** `POST /notes/{callId}/ask {question}` (≤ 1,000 characters, 30 per person per note). Haiku 5.5 answers from the minutes only: they sit in a `<context>` block of the system prompt (cached), the asker's last 10 questions are the conversation so far, effort `low`, 2,048 tokens, one try within API Gateway's 30 s. `GET /notes/{callId}` returns the transcript, the minutes and only the caller's own questions.
+5. **Card:** the summary (and Send to Board) as before, with the recording's player (speed control as voice messages). **Open full notes** loads the minutes as the main content, **View original transcript**, and "Ask a question about this note…" with your own thread ("Only you see these").
+
+**Phase 40 acceptance criteria:**
+- With an English browser, a Spanish call is transcribed in Spanish.
+- After a call with notes, the card gets a recording that plays both voices, only for the time notes were on.
+- **Open full notes** shows polished minutes with every fact of the call, and the raw transcript one click away.
+- A question is answered from the minutes; "something not in the call" gets "the notes don't say". The other person never sees your questions.
+- Deleting the card removes its transcript, minutes, questions and recording.
 
 ### Phase 35 (planned) — Customer channels (guest access to shared channels)
 

@@ -60,6 +60,10 @@ export const CALENDAR_ROUTES: Array<{ method: HttpMethod; path: string }> = [
 export const CALL_NOTES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/calls/summary" },
   { method: HttpMethod.GET, path: "/notes" },
+  // Phase 40: the recording, the full notes, and private questions about them.
+  { method: HttpMethod.PUT, path: "/calls/{callId}/audio" },
+  { method: HttpMethod.GET, path: "/notes/{callId}" },
+  { method: HttpMethod.POST, path: "/notes/{callId}/ask" },
 ];
 
 /**
@@ -285,6 +289,8 @@ export class TasksApi extends Construct {
 
     // AI call notes: the endpoint answers at once (202) and hands the
     // transcript to the worker, which may take longer than API Gateway's 30 s.
+    // Phase 40: polished minutes run about as long as the call's transcript,
+    // streamed for minutes on a long call.
     this.callNotesWorker = lambda(
       "CallNotesWorkerFn",
       "call-notes-worker",
@@ -292,20 +298,29 @@ export class TasksApi extends Construct {
         MESSAGES_TABLE: data.messages.tableName,
         USERS_TABLE: data.users.tableName,
         CONNECTIONS_TABLE: data.connections.tableName,
+        NOTE_DETAILS_TABLE: data.noteDetails.tableName,
         WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
       },
-      Duration.minutes(2),
+      Duration.minutes(15),
     );
     // Errors become a failed card inside the worker; an async retry would only repeat them.
     this.callNotesWorker.configureAsyncInvoke({ retryAttempts: 0, maxEventAge: Duration.hours(1) });
-    this.callNotesHandler = lambda("CallNotesFn", "call-notes", {
-      MESSAGES_TABLE: data.messages.tableName,
-      CHANNELS_TABLE: data.channels.tableName,
-      CONNECTIONS_TABLE: data.connections.tableName,
-      WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
-      NOTES_WORKER_FUNCTION: this.callNotesWorker.functionName,
-      MEETING_NOTES_TABLE: data.meetingNotes.tableName,
-    });
+    // Phase 40: answering a question about a call (Claude) takes up to API Gateway's 30 s.
+    this.callNotesHandler = lambda(
+      "CallNotesFn",
+      "call-notes",
+      {
+        MESSAGES_TABLE: data.messages.tableName,
+        CHANNELS_TABLE: data.channels.tableName,
+        CONNECTIONS_TABLE: data.connections.tableName,
+        USERS_TABLE: data.users.tableName,
+        WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+        NOTES_WORKER_FUNCTION: this.callNotesWorker.functionName,
+        MEETING_NOTES_TABLE: data.meetingNotes.tableName,
+        NOTE_DETAILS_TABLE: data.noteDetails.tableName,
+      },
+      Duration.seconds(30),
+    );
 
     this.archiveHandler = lambda(
       "ArchiveFn",
@@ -324,6 +339,7 @@ export class TasksApi extends Construct {
       CHANNELS_TABLE: data.channels.tableName,
       CONNECTIONS_TABLE: data.connections.tableName,
       MEETING_NOTES_TABLE: data.meetingNotes.tableName,
+      NOTE_DETAILS_TABLE: data.noteDetails.tableName,
       CHANNEL_MEDIA_TABLE: data.channelMedia.tableName,
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
       WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
@@ -518,18 +534,36 @@ export class TasksApi extends Construct {
     data.connections.grant(this.callNotesHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.callNotesHandler);
     this.callNotesWorker.grantInvoke(this.callNotesHandler);
-    // call-notes-worker: speakers' names (GetItem), settling the card (UpdateItem),
-    // its push, and the model on Amazon Bedrock. No model is provisioned here.
-    const notesModelPolicy = () =>
+    // call-notes-worker: settling the card (UpdateItem), its push, and the model on
+    // Amazon Bedrock (no model is provisioned here). Phase 40: it reads the call's
+    // transcript (GetItem) and stores the polished minutes (PutItem).
+    const notesModelPolicy = (streaming = false) =>
       new PolicyStatement({
-        actions: ["bedrock:InvokeModel"],
+        // The worker streams its long answer (Phase 40), which is its own action.
+        actions: [
+          "bedrock:InvokeModel",
+          ...(streaming ? ["bedrock:InvokeModelWithResponseStream"] : []),
+        ],
         resources: notesModelResources(Stack.of(this)),
       });
     data.users.grant(this.callNotesWorker, "dynamodb:GetItem");
     data.messages.grant(this.callNotesWorker, "dynamodb:UpdateItem");
+    data.noteDetails.grant(this.callNotesWorker, "dynamodb:GetItem", "dynamodb:PutItem");
     data.connections.grant(this.callNotesWorker, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.callNotesWorker);
-    this.callNotesWorker.addToRolePolicy(notesModelPolicy());
+    this.callNotesWorker.addToRolePolicy(notesModelPolicy(true));
+    // Phase 40, call-notes: the speakers' names for the stored transcript (users
+    // GetItem); the transcript row (PutItem, with the card), reading the notes and
+    // questions (GetItem, Query) and storing a question (PutItem); attaching the
+    // recording (messages UpdateItem, granted above); answering on Amazon Bedrock.
+    data.users.grant(this.callNotesHandler, "dynamodb:GetItem");
+    data.noteDetails.grant(
+      this.callNotesHandler,
+      "dynamodb:PutItem",
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+    );
+    this.callNotesHandler.addToRolePolicy(notesModelPolicy());
 
     // news-insights-worker: the day's row (PutItem) and the model on Amazon
     // Bedrock; it reads the feed over the internet. news-insights: the newest
@@ -569,6 +603,8 @@ export class TasksApi extends Construct {
       "dynamodb:Query",
     );
     data.meetingNotes.grant(this.messagesHandler, "dynamodb:DeleteItem");
+    // Phase 40: a deleted notes card's transcript, minutes and questions (Query, BatchWriteItem).
+    data.noteDetails.grant(this.messagesHandler, "dynamodb:Query", "dynamodb:BatchWriteItem");
     data.connections.grant(this.messagesHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.messagesHandler);
     grantDeleteFiles(this.messagesHandler, props.attachments);

@@ -22,6 +22,7 @@ import {
   mediaErrorText,
   saveMediaPrefs,
 } from "./media";
+import { CallRecorder, type CallRecording } from "./callRecorder";
 import { startRinging, stopRinging } from "./sounds";
 import {
   canTranscribeOnDevice,
@@ -255,6 +256,8 @@ interface NotesSession {
   transcriber: Transcriber | null;
   local: TranscriberState;
   onDevice: boolean;
+  /** Phase 40: the caller's recording of both voices while notes are on (`null` elsewhere). */
+  recorder: CallRecorder | null;
 }
 
 export interface CallDeps {
@@ -266,6 +269,11 @@ export interface CallDeps {
   notify: (text: string) => void;
   /** Sends a finished call's transcript for AI notes (caller only, see `postsCallSummary`). */
   submitNotes: (input: SummarizeCallInput) => void;
+  /** Phase 40: uploads the call's recording and attaches it to its notes card, once it's ready. */
+  submitRecording?: (
+    call: { callId: string; channelId: string },
+    recording: Promise<CallRecording | null>,
+  ) => void;
   /** Phase 36: in a channel call already (one call at a time). */
   busyElsewhere?: () => boolean;
 }
@@ -802,6 +810,7 @@ export class CallManager {
         transcriber: null,
         local: { kind: "off" },
         onDevice: false,
+        recorder: null,
       },
     };
     this.session = session;
@@ -879,6 +888,7 @@ export class CallManager {
       // so the screen is told apart by its position, not by a stored reference.
       const target = isScreenTransceiver(pc, transceiver) ? session.remoteScreen : session.remote;
       if (!target.getTracks().includes(track)) target.addTrack(track);
+      this.syncRecorder(session); // the other voice joins the recording
       this.publish();
     });
 
@@ -1216,6 +1226,9 @@ export class CallManager {
     if (!this.isCurrent(session)) return;
     this.session = null;
     session.notes.transcriber?.dispose();
+    const recorder = session.notes.recorder;
+    session.notes.recorder = null;
+    let submitted = false;
     if (postsCallSummary(session.role, session.connectedAt)) {
       const endedAt = Date.now();
       const startedAt = session.connectedAt ?? endedAt;
@@ -1223,7 +1236,16 @@ export class CallManager {
         session.channelId,
         callSummaryText(session.media, endedAt - startedAt),
       );
-      this.submitNotes(session, startedAt, endedAt);
+      submitted = this.submitNotes(session, startedAt, endedAt);
+    }
+    // The recording goes with the notes it belongs to, or nowhere.
+    if (recorder && submitted && this.deps?.submitRecording) {
+      this.deps.submitRecording(
+        { callId: session.callId, channelId: session.channelId },
+        recorder.stop(),
+      );
+    } else {
+      recorder?.dispose();
     }
     stopRinging();
     session.timers.forEach((t) => clearTimeout(t));
@@ -1275,11 +1297,19 @@ export class CallManager {
     if (on) {
       deps?.notify(
         mine
-          ? "✨ AI notes are on. What you both say is transcribed for a summary when the call ends."
-          : `✨ ${name} turned on AI notes. What you say is transcribed for a summary when the call ends.`,
+          ? "✨ AI notes are on. The call is recorded and what you both say is transcribed for notes when it ends."
+          : `✨ ${name} turned on AI notes. The call is recorded and what you say is transcribed for notes when it ends.`,
       );
     } else {
       deps?.notify(mine ? "AI notes are off." : `${name} turned off AI notes.`);
+    }
+
+    // Phase 40: the caller (who submits the notes) records both voices for them.
+    if (on && session.role === "caller" && !notes.recorder) {
+      notes.recorder = CallRecorder.create();
+      if (!notes.recorder) {
+        deps?.notify("✨ This browser can't record the call: the notes will have no audio.");
+      }
     }
 
     if (on && !notes.transcriber) {
@@ -1319,10 +1349,19 @@ export class CallManager {
   /** Listens exactly while notes are on, the call is connected and you aren't muted. */
   private syncTranscriber(session: Session): void {
     const { notes } = session;
+    this.syncRecorder(session);
     if (!notes.transcriber) return;
     const wanted =
       notes.on && !notes.full && session.phase === "connected" && !!session.mic?.enabled;
     notes.transcriber.setWanted(wanted, session.mic);
+  }
+
+  /** Records both voices (mine, theirs) while notes are on and the call is connected. */
+  private syncRecorder(session: Session): void {
+    const { recorder, on } = session.notes;
+    if (!recorder) return;
+    recorder.setSources([session.mic, ...session.remote.getAudioTracks()]);
+    recorder.setRecording(on && session.phase === "connected");
   }
 
   private ownPhrase(session: Session, text: string, at: number): void {
@@ -1351,12 +1390,12 @@ export class CallManager {
   }
 
   /** On hang-up, the caller sends the merged transcript (if notes were ever on). */
-  private submitNotes(session: Session, startedAt: number, endedAt: number): void {
+  private submitNotes(session: Session, startedAt: number, endedAt: number): boolean {
     const { notes } = session;
-    if (!notes.used) return;
+    if (!notes.used) return false;
     if (notes.segments.length === 0) {
       this.deps?.notify("✨ Nothing was transcribed, so there are no AI notes for this call.");
-      return;
+      return false;
     }
     this.deps?.submitNotes({
       callId: session.callId,
@@ -1365,6 +1404,7 @@ export class CallManager {
       endedAt,
       segments: notes.segments.map((s) => ({ ...s, at: Math.round(s.at) })),
     });
+    return true;
   }
 
   private publish(): void {

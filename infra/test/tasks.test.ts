@@ -103,6 +103,7 @@ describe("task manager API", () => {
       "GET /news",
       "GET /news/insights",
       "GET /notes",
+      "GET /notes/{callId}",
       "GET /push/key",
       "POST /boards",
       "POST /boards/{id}/invites",
@@ -112,11 +113,13 @@ describe("task manager API", () => {
       "POST /calendar/events",
       "POST /calls/summary",
       "POST /news/insights",
+      "POST /notes/{callId}/ask",
       "POST /push/subscribe",
       "PUT /boards/{id}",
       "PUT /calendar/balances/{userId}/{year}",
       "PUT /calendar/events/{id}",
       "PUT /calendar/vacations/{id}/status",
+      "PUT /calls/{callId}/audio",
       "PUT /tasks/{taskId}",
     ]);
     expect(routes.every((r) => r.AuthorizationType === "JWT")).toBe(true);

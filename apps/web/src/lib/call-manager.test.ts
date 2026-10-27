@@ -4,6 +4,7 @@ vi.mock("./sounds", () => ({
   startRinging: vi.fn(),
   stopRinging: vi.fn(),
 }));
+import { CallRecorder } from "./callRecorder";
 import { startRinging, stopRinging } from "./sounds";
 import {
   CallManager,
@@ -504,6 +505,86 @@ describe("AI call notes", () => {
     rec().say("hello");
     manager.hangUp();
     expect(deps.submitNotes).not.toHaveBeenCalled();
+  });
+
+  it("Phase 40: recognizes Spanish (Ecuador) whatever the browser's own language", async () => {
+    vi.stubGlobal("navigator", {
+      language: "en-US",
+      mediaDevices: { getUserMedia, getDisplayMedia },
+    });
+    const { manager, rec } = await notesCall();
+    await manager.toggleNotes();
+    expect(rec().lang).toBe("es-EC");
+  });
+
+  describe("Phase 40: the call's recording", () => {
+    function fakeRecorder() {
+      const clip = Promise.resolve({
+        blob: new Blob(["x"]),
+        mimeType: "audio/webm",
+        durationMs: 5,
+      });
+      const recorder = {
+        setSources: vi.fn(),
+        setRecording: vi.fn(),
+        stop: vi.fn(() => clip),
+        dispose: vi.fn(),
+      };
+      const create = vi
+        .spyOn(CallRecorder, "create")
+        .mockReturnValue(recorder as unknown as CallRecorder);
+      return { recorder, create, clip };
+    }
+    afterEach(() => vi.restoreAllMocks());
+
+    it("the caller records both voices while notes are on and hands the clip over with the notes", async () => {
+      const { recorder, create, clip } = fakeRecorder();
+      const h = await notesCall();
+      const submitRecording = vi.fn();
+      h.manager.attach({ ...h.deps, submitRecording });
+      await h.manager.toggleNotes();
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(recorder.setRecording).toHaveBeenLastCalledWith(true);
+      // My microphone is in the mix.
+      expect(recorder.setSources.mock.calls.at(-1)![0][0]).toMatchObject({ kind: "audio" });
+      expect(h.deps.notify).toHaveBeenCalledWith(expect.stringContaining("The call is recorded"));
+
+      await h.manager.toggleNotes(); // off: paused
+      expect(recorder.setRecording).toHaveBeenLastCalledWith(false);
+      await h.manager.toggleNotes();
+      h.rec().say("Hola.");
+      h.manager.hangUp();
+      expect(submitRecording).toHaveBeenCalledWith(
+        { callId: expect.any(String), channelId: DM },
+        clip,
+      );
+      expect(recorder.dispose).not.toHaveBeenCalled();
+    });
+
+    it("the callee never records; a call whose notes aren't sent drops its recording", async () => {
+      const callee = fakeRecorder();
+      const h = await notesCall("callee");
+      h.channel.deliver({ type: "notes", on: true, at: Date.now() });
+      await vi.waitFor(() => expect(h.rec().running).toBe(true));
+      expect(callee.create).not.toHaveBeenCalled();
+      vi.restoreAllMocks();
+
+      const { recorder } = fakeRecorder();
+      const caller = await notesCall();
+      const submitRecording = vi.fn();
+      caller.manager.attach({ ...caller.deps, submitRecording });
+      await caller.manager.toggleNotes();
+      caller.manager.hangUp(); // nothing transcribed: no notes
+      expect(submitRecording).not.toHaveBeenCalled();
+      expect(recorder.dispose).toHaveBeenCalled();
+    });
+
+    it("tells the caller when the browser can't record (the notes still work)", async () => {
+      vi.spyOn(CallRecorder, "create").mockReturnValue(null);
+      const { manager, deps } = await notesCall();
+      await manager.toggleNotes();
+      expect(deps.notify).toHaveBeenCalledWith(expect.stringContaining("can't record the call"));
+    });
   });
 
   it("muting stops the transcription and unmuting resumes it", async () => {
