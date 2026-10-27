@@ -112,8 +112,11 @@ export const isInlineAttachment = (a: Pick<Attachment, "contentType">) =>
 /** Longest quoted text kept with a reply. */
 export const REPLY_PREVIEW_LENGTH = 140;
 
-/** Secret messages (passwords, API keys) are deleted by DynamoDB a week after they're sent. */
-export const SECRET_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * Secret messages (passwords, API keys) expire 24 hours after they're sent:
+ * hidden everywhere from then on, and deleted by DynamoDB (its TTL) soon after.
+ */
+export const SECRET_TTL_MS = 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Threads (Phase 23). A reply lives in its channel's partition under a sort
@@ -130,9 +133,29 @@ export const MAX_THREAD_AVATARS = 5;
 /** What a secret looks like anywhere but its own body: previews, quotes, notifications. */
 export const SECRET_PREVIEW = "🔒 Secret";
 
+/**
+ * When a secret expires (epoch ms): its TTL, and never later than
+ * `SECRET_TTL_MS` after it was sent (secrets stored when the TTL was a week
+ * expire on the 24-hour rule too). `undefined` for anything that isn't a secret.
+ */
+export function secretExpiresAt(
+  message: Pick<Message, "expiresAt" | "createdAt">,
+): number | undefined {
+  if (message.expiresAt === undefined) return undefined;
+  const stored = message.expiresAt * 1000;
+  // A row without its creation time (never written so) keeps its own TTL.
+  return Number.isFinite(message.createdAt)
+    ? Math.min(stored, message.createdAt + SECRET_TTL_MS)
+    : stored;
+}
+
 /** Gone (or about to be): DynamoDB deletes expired rows within a few days, so don't wait for it. */
-export function isExpired(message: Pick<Message, "expiresAt">, now = Date.now()): boolean {
-  return message.expiresAt !== undefined && message.expiresAt * 1000 <= now;
+export function isExpired(
+  message: Pick<Message, "expiresAt" | "createdAt">,
+  now = Date.now(),
+): boolean {
+  const at = secretExpiresAt(message);
+  return at !== undefined && at <= now;
 }
 
 /** The quoted text of a reply: whitespace collapsed, cut at `REPLY_PREVIEW_LENGTH` with "…". */
@@ -453,7 +476,7 @@ export const MessageActionSchema = z.object({
   text: z.string().max(MAX_TEXT_LENGTH),
   attachments: z.array(AttachmentSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
   clientId: z.string().min(1).max(64),
-  /** A secret (text only): stored with a 7-day TTL and shown masked. */
+  /** A secret (text only): stored with a 24-hour TTL and shown masked. */
   isSecret: z.boolean().optional(),
   /** Answers this message of the same channel (the server copies a snapshot of it). */
   replyTo: z

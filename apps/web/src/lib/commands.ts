@@ -10,7 +10,7 @@ export interface SlashCommand {
   /** Shown after the name, e.g. "[text]". */
   usage?: string;
   /**
-   * `secret`: the rest of the line is sent as a secret (masked, 7-day TTL).
+   * `secret`: the rest of the line is sent as a secret (masked, 24-hour TTL).
    * `shrug`: appends ¯\_(ツ)_/¯ to the text. `clear`: empties the composer.
    */
   effect: "secret" | "shrug" | "clear";
@@ -19,7 +19,7 @@ export interface SlashCommand {
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
   {
     name: "secret",
-    description: "Send a password or key masked, deleted after 7 days",
+    description: "Send a password or key masked, deleted after 24 hours",
     usage: "[text]",
     effect: "secret",
   },

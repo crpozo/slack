@@ -29,6 +29,7 @@ import {
   useVoiceRecorder,
   type VoiceClip,
 } from "../lib/voice";
+import { detectCredentials } from "../lib/credentials";
 import { useUploadState, type UploadTask } from "../lib/outbox";
 import { formatBytes, MAX_SIZE_LABEL, startUpload, validateFile } from "../lib/upload";
 import { MOBILE_QUERY, useMediaQuery } from "../lib/hooks";
@@ -214,8 +215,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const editing = useChat((s) => s.editing[channelId]);
   const setEditing = useChat((s) => s.setEditing);
   const nameOf = useNameOf();
-  /** Secret mode: the message is sent masked, text only, and deleted after a week. */
+  /** Secret mode: the message is sent masked, text only, and deleted after 24 hours. */
   const [secret, setSecret] = useState(false);
+  // "Send as normal text" on the auto-detect hint: this message isn't a credential.
+  const [plainAnyway, setPlainAnyway] = useState(false);
   // Direct messages: schedule a meeting with the other person from here.
   const [scheduling, setScheduling] = useState(false);
   const dm = isDmChannel(channelId) && !thread;
@@ -416,6 +419,27 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     });
   }
 
+  /**
+   * Looks like a password or key (`detectCredentials`): sent as a secret unless
+   * the person says it isn't. Not for files or thread replies (secrets are text
+   * only, and never replies), nor a slash command.
+   */
+  const autoSecret = useMemo(
+    () =>
+      !secret &&
+      !editing &&
+      !thread &&
+      !disabled &&
+      uploads.length === 0 &&
+      !text.trimStart().startsWith("/") &&
+      detectCredentials(text),
+    [secret, editing, thread, disabled, uploads.length, text],
+  );
+  // A new message gets checked anew.
+  useEffect(() => {
+    if (!text.trim()) setPlainAnyway(false);
+  }, [text]);
+
   function submit() {
     if (editing) {
       const next = text.trim();
@@ -441,6 +465,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         return;
       }
     }
+    // A credential typed as a normal message goes out as a secret anyway.
+    const detected = !command && autoSecret && !plainAnyway;
+    if (detected) asSecret = true;
     chat.sendMessage(
       channelId,
       outgoing,
@@ -451,6 +478,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     );
     if (replyTo) setReplyTo(channelId, null);
     setText("");
+    setPlainAnyway(false);
+    if (detected) {
+      showToast("🔒 Sent as a secret: it looked like a password. It's deleted in 24 hours.");
+    }
     if (secret) setSecret(false);
     else {
       uploadsRef.current = []; // the outbox has them now: not this composer's to free
@@ -541,7 +572,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       onChange={(e) => handleChange(e.target.value)}
       onKeyDown={handleKeyDown}
       onPaste={handlePaste}
-      placeholder={secret ? "Password or API key (deleted in 7 days)" : placeholder}
+      placeholder={secret ? "Password or API key (deleted in 24 hours)" : placeholder}
       disabled={disabled}
       aria-label={secret ? "Secret" : "Message"}
       className={`max-h-[200px] flex-1 resize-none bg-transparent text-base text-ink focus:outline-none disabled:cursor-not-allowed ${
@@ -630,7 +661,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             <LockIcon className="shrink-0 text-warning" />
             <p className="min-w-0 flex-1 truncate text-ink-secondary">
               <strong className="text-ink">Secret:</strong> shown as ••••••• until revealed, and
-              deleted after 7 days. Text only.
+              deleted after 24 hours. Text only.
             </p>
             <button
               type="button"
@@ -640,6 +671,30 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               className="shrink-0 rounded-md p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink"
             >
               <CloseIcon />
+            </button>
+          </div>
+        )}
+        {autoSecret && !plainAnyway && (
+          <div
+            className="flex items-center gap-2 border-b border-line bg-warning/10 px-3 py-2 text-sm"
+            role="status"
+            data-auto-secret
+          >
+            <LockIcon className="shrink-0 text-warning" />
+            <p className="min-w-0 flex-1 text-ink-secondary">
+              <strong className="text-ink">Looks like a password:</strong> it will be sent as a
+              secret, masked and deleted after 24 hours.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setPlainAnyway(true);
+                textareaRef.current?.focus();
+              }}
+              className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-ink-secondary hover:bg-surface-hover hover:text-ink"
+              data-send-plain
+            >
+              Send as normal text
             </button>
           </div>
         )}
@@ -779,7 +834,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                         key: "secret",
                         icon: <LockIcon />,
                         label: secret ? "Send as a normal message" : "Send a secret",
-                        hint: "Masked until revealed, deleted in 7 days",
+                        hint: "Masked until revealed, deleted in 24 hours",
                         off: !!editing,
                         run: toggleSecret,
                       },
@@ -825,7 +880,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 }`}
                 aria-label={secret ? "Secret mode on" : "Send a secret"}
                 title={
-                  secret ? "Secret: sent masked, deleted in 7 days" : "Send a secret (/secret)"
+                  secret ? "Secret: sent masked, deleted in 24 hours" : "Send a secret (/secret)"
                 }
               >
                 <LockIcon />
