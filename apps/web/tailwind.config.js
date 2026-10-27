@@ -5,12 +5,13 @@ const token = (name) => `rgb(var(--c-${name}) / <alpha-value>)`;
 
 /**
  * MindfulTech design system. Values live in src/styles.css as CSS variables:
- * one dark theme everywhere (Phase 37b), Slack's palette with purple accents.
+ * one dark theme everywhere (Phase 37b), with the brand green #40B375 as accent.
  *
- * `primary` is split: fills (`bg-primary`, #611F69) use `--c-primary`, with
+ * `primary` is split: fills (`bg-primary`) use `--c-primary`, with
  * `on-primary` (white) text on them; text, borders, rings, underlines and
- * icon strokes use `--c-primary-fg` (lilac #E3B0F0), which is readable on the
- * dark background where the fill purple isn't. Text on sky, green, amber and
+ * icon strokes use `--c-primary-fg`. Both are #40B375 today; they stay
+ * separate tokens so a fill and a foreground can differ again if the
+ * palette needs it (Phase 37's purple did). Text on sky, green, amber and
  * red uses `on-accent` (the dark ink).
  * @type {import('tailwindcss').Config}
  */
@@ -44,12 +45,12 @@ export default {
         error: token("error"),
         /** Text on sky, green, amber and red: the dark ink #0E0D12. */
         "on-accent": token("on-accent"),
-        /** Text on a solid primary fill (white on the purple). */
+        /** Text on a solid primary fill (white on the green). */
         "on-primary": token("on-primary"),
         /** Modal and drawer backdrops. */
         scrim: token("scrim"),
       },
-      // Primary as a foreground (see above): the readable lilac.
+      // Primary as a foreground (see above).
       textColor: { primary: { DEFAULT: token("primary-fg"), hover: token("primary-fg") } },
       borderColor: { primary: { DEFAULT: token("primary-fg"), hover: token("primary-fg") } },
       ringColor: { primary: { DEFAULT: token("primary-fg"), hover: token("primary-fg") } },

@@ -19,10 +19,10 @@ import {
   ArchiveIcon,
   ArrowDownIcon,
   HashIcon,
-  LinkIcon,
   LockIcon,
   MenuIcon,
   MoreHorizontalIcon,
+  PaperclipIcon,
   PencilIcon,
   PhoneIcon,
   PinIcon,
@@ -163,6 +163,14 @@ function CallButtons({
   );
 }
 
+/** One button of the header's resources group: green while its panel is open. */
+const segment = (active: boolean) =>
+  `flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+    active
+      ? "bg-primary/15 text-primary"
+      : "text-ink-secondary hover:bg-surface-hover hover:text-ink"
+  }`;
+
 function ChannelHeader({
   channelId,
   channel,
@@ -174,6 +182,7 @@ function ChannelHeader({
   onInvite,
   onDetails,
   onPins,
+  panel,
 }: Readonly<{
   channelId: string;
   channel: Channel | undefined;
@@ -187,6 +196,8 @@ function ChannelHeader({
   onDetails: (tab?: DetailsTab) => void;
   /** Opens its pinned messages (Phase 38). */
   onPins: () => void;
+  /** What's open now, so its button shows as pressed. */
+  panel: "pins" | DetailsTab | null;
 }>) {
   const { dm, isPrivate, peer } = access;
   const KindIcon = isPrivate ? LockIcon : HashIcon;
@@ -252,17 +263,44 @@ function ChannelHeader({
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {channel && (
-          <button
-            type="button"
-            onClick={onPins}
-            className="flex items-center gap-1 rounded-md p-2 text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink"
-            aria-label={`Pinned messages (${pinCount})`}
-            title="Pinned messages"
-            data-pins-button
+          // The conversation's resources, one click away: what's been shared, what's pinned.
+          <div
+            role="group"
+            aria-label="Conversation resources"
+            className="mr-1 flex items-center rounded-lg border border-white/10 bg-white/[0.04] p-0.5"
+            data-resources
           >
-            <PinIcon />
-            {pinCount > 0 && <span className="text-xs font-semibold tabular-nums">{pinCount}</span>}
-          </button>
+            <button
+              type="button"
+              onClick={() => onDetails("media")}
+              aria-pressed={panel === "media"}
+              className={segment(panel === "media")}
+              title="Files & Links"
+              data-files-button
+            >
+              <PaperclipIcon aria-hidden="true" />
+              <span className="hidden lg:inline">Files &amp; Links</span>
+              <span className="sr-only lg:hidden">Files &amp; Links</span>
+            </button>
+            <span className="mx-0.5 h-5 w-px bg-white/10" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={onPins}
+              aria-pressed={panel === "pins"}
+              className={segment(panel === "pins")}
+              aria-label={`Pinned messages (${pinCount})`}
+              title="Pinned messages"
+              data-pins-button
+            >
+              <PinIcon aria-hidden="true" />
+              <span className="hidden lg:inline">Pins</span>
+              {pinCount > 0 && (
+                <span className="min-w-[1.25rem] rounded-full bg-primary/20 px-1.5 text-center text-[11px] font-semibold leading-5 tabular-nums text-primary">
+                  {pinCount}
+                </span>
+              )}
+            </button>
+          </div>
         )}
         {access.canCall && peer && <CallButtons channelId={channelId} peer={peer} label={label} />}
         {access.canRoomCall && <ChannelCallButtons channelId={channelId} label={label} />}
@@ -307,17 +345,6 @@ function ChannelHeader({
               >
                 {sidebarPinned ? <PinOffIcon /> : <PinIcon />}
                 {sidebarPinned ? "Unpin from the sidebar" : "Pin to the top of the sidebar"}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className={menuItem}
-                onClick={() => {
-                  setMoreAnchor(null);
-                  onDetails("media");
-                }}
-              >
-                <LinkIcon /> Files &amp; Links
               </button>
               <button
                 type="button"
@@ -494,6 +521,7 @@ export function ChannelView({
           onInvite={() => setInviting(true)}
           onDetails={(tab) => setPanel(tab ?? "about")}
           onPins={() => setPanel("pins")}
+          panel={panel}
         />
       )}
       {/* Under the floating header: the archived note and an ongoing call, when

@@ -4,16 +4,15 @@
 
 @layer base {
   /* MindfulTech tokens as "R G B" (see tailwind.config.js). Phase 37b: one dark
-     theme everywhere, Slack's palette (Phase 37 brought it to phones). Purple
-     plays two parts, because no single purple is both a fill under white text
-     and readable text on #1A1D21: #611F69 for fills (`bg-primary`, white
-     `on-primary` text on it), lilac #E3B0F0 for active icons, text, borders and
-     rings (`text-primary`…, `--c-primary-fg`). Sky blue stays as the second
-     accent (others' avatars, unread counts). */
+     theme everywhere. The accent is the brand green #40B375 (since Phase 38's
+     polish, replacing Slack's purple): fills (`bg-primary`, with white
+     `on-primary` text) and active icons, text, borders and rings
+     (`text-primary`…, `--c-primary-fg`, readable on #1A1D21 at 6.4:1). Sky blue
+     stays as the second accent (others' avatars, unread counts). */
   :root {
-    --c-primary: 97 31 105; /* #611F69 */
-    --c-primary-hover: 122 42 132; /* #7A2A84 */
-    --c-primary-fg: 227 176 240; /* #E3B0F0 */
+    --c-primary: 64 179 117; /* #40B375 */
+    --c-primary-hover: 54 156 101; /* #369C65 */
+    --c-primary-fg: 64 179 117; /* #40B375 */
     --c-on-primary: 255 255 255;
     --c-sky: 133 191 233; /* #85BFE9 */
     --c-ink: 248 248 248; /* #F8F8F8 */
@@ -52,7 +51,7 @@
   }
 
   /* The ambient background (Phase 37b): mostly #1A1D21, with very faint deep
-     purple and blue light in the corners, for the glass to sit on. A fixed
+     green and blue light in the corners, for the glass to sit on. A fixed
      layer rather than `background-attachment: fixed` (which stutters on iOS);
      radial gradients are soft already, so no costly full-screen blur filter. */
   body::before {
@@ -62,9 +61,9 @@
     z-index: -1;
     pointer-events: none;
     background:
-      radial-gradient(60vmax 45vmax at 0% 0%, rgb(97 31 105 / 0.42), transparent 70%),
+      radial-gradient(60vmax 45vmax at 0% 0%, rgb(64 179 117 / 0.16), transparent 70%),
       radial-gradient(55vmax 45vmax at 100% 100%, rgb(18 100 163 / 0.26), transparent 70%),
-      radial-gradient(40vmax 32vmax at 100% 0%, rgb(74 21 75 / 0.3), transparent 70%),
+      radial-gradient(40vmax 32vmax at 100% 0%, rgb(20 83 60 / 0.3), transparent 70%),
       radial-gradient(38vmax 30vmax at 0% 100%, rgb(54 197 240 / 0.08), transparent 70%);
   }
 
