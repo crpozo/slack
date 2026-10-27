@@ -77,7 +77,7 @@ describe("call notes worker", () => {
     expect(create).toHaveBeenCalledTimes(1);
     const params = create.mock.calls[0]![0] as Anthropic.MessageCreateParamsNonStreaming;
     expect(params).toMatchObject({
-      model: "anthropic.claude-haiku-5-5",
+      model: "us.anthropic.claude-haiku-5-5",
       max_tokens: 4096,
       output_config: { effort: "low" },
       system: NOTES_SYSTEM,

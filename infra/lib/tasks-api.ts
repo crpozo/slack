@@ -87,17 +87,28 @@ export const NEWS_INSIGHTS_ROUTES: Array<{ method: HttpMethod; path: string }> =
  */
 export const NEWS_INSIGHTS_SCHEDULE = { hour: "12", minute: "7" };
 
-/** The notes model: Claude Haiku 5.5 on Claude in Amazon Bedrock (the Mantle endpoint). */
-export const NOTES_MODEL_ID = "anthropic.claude-haiku-5-5";
+/**
+ * The notes model: Claude Haiku 5.5 on Amazon Bedrock, as the US cross-region
+ * inference profile the workers invoke (`NOTES_MODEL` in backend/src/lib/callNotes.ts).
+ * Through the standard runtime (`bedrock:InvokeModel`), not the Mantle endpoint:
+ * Mantle doesn't serve Haiku 5.5 for this account.
+ */
+export const NOTES_MODEL_ID = "us.anthropic.claude-haiku-5-5";
+
+/** The foundation model behind `NOTES_MODEL_ID`, which the profile routes to in each US region. */
+export const NOTES_FOUNDATION_MODEL_ID = "anthropic.claude-haiku-5-5";
 
 /**
- * What `bedrock-mantle:CreateInference` is granted on. The model-scoped ARN
- * format for Claude in Amazon Bedrock wasn't verifiable when this was written
- * (the AWS service authorization reference lists it), so the action is
- * granted on all resources: the worker only ever names `NOTES_MODEL_ID`.
- * Narrow this to the Haiku 5.5 model ARN once confirmed.
+ * What `bedrock:InvokeModel` is granted on: the inference profile in the
+ * stack's account and region, and the foundation model in whichever region
+ * the profile routes the request to (foundation-model ARNs carry no account).
  */
-export const NOTES_MODEL_RESOURCES = ["*"];
+export function notesModelResources(stack: Stack): string[] {
+  return [
+    `arn:aws:bedrock:${stack.region}:${stack.account}:inference-profile/${NOTES_MODEL_ID}`,
+    `arn:aws:bedrock:*::foundation-model/${NOTES_FOUNDATION_MODEL_ID}`,
+  ];
+}
 
 /**
  * Deleting messages (Phase 32), by their author or an admin; a conversation's
@@ -508,28 +519,23 @@ export class TasksApi extends Construct {
     wsApi.webSocketApi.grantManageConnections(this.callNotesHandler);
     this.callNotesWorker.grantInvoke(this.callNotesHandler);
     // call-notes-worker: speakers' names (GetItem), settling the card (UpdateItem),
-    // its push, and the model on Claude in Amazon Bedrock. No model is provisioned here.
+    // its push, and the model on Amazon Bedrock. No model is provisioned here.
+    const notesModelPolicy = () =>
+      new PolicyStatement({
+        actions: ["bedrock:InvokeModel"],
+        resources: notesModelResources(Stack.of(this)),
+      });
     data.users.grant(this.callNotesWorker, "dynamodb:GetItem");
     data.messages.grant(this.callNotesWorker, "dynamodb:UpdateItem");
     data.connections.grant(this.callNotesWorker, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.callNotesWorker);
-    this.callNotesWorker.addToRolePolicy(
-      new PolicyStatement({
-        actions: ["bedrock-mantle:CreateInference"],
-        resources: NOTES_MODEL_RESOURCES,
-      }),
-    );
+    this.callNotesWorker.addToRolePolicy(notesModelPolicy());
 
-    // news-insights-worker: the day's row (PutItem) and the model on Claude in
-    // Amazon Bedrock; it reads the feed over the internet. news-insights: the
-    // newest row (Query) and starting the worker (admins).
+    // news-insights-worker: the day's row (PutItem) and the model on Amazon
+    // Bedrock; it reads the feed over the internet. news-insights: the newest
+    // row (Query) and starting the worker (admins).
     data.newsInsights.grant(this.newsInsightsWorker, "dynamodb:PutItem");
-    this.newsInsightsWorker.addToRolePolicy(
-      new PolicyStatement({
-        actions: ["bedrock-mantle:CreateInference"],
-        resources: NOTES_MODEL_RESOURCES,
-      }),
-    );
+    this.newsInsightsWorker.addToRolePolicy(notesModelPolicy());
     data.newsInsights.grant(this.newsInsightsHandler, "dynamodb:Query");
     this.newsInsightsWorker.grantInvoke(this.newsInsightsHandler);
 

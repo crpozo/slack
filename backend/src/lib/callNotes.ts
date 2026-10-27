@@ -14,12 +14,17 @@ import { defaultDisplayName } from "./users";
 
 // ---------------------------------------------------------------------------
 // AI call notes (Phase 28): the prompt, the request to Claude Haiku 5.5 on
-// Amazon Bedrock (the Messages-API endpoint, through `AnthropicBedrockMantle`)
-// and the card the worker writes back.
+// Amazon Bedrock (the standard runtime, through `AnthropicBedrock`) and the
+// card the worker writes back.
 // ---------------------------------------------------------------------------
 
-/** Claude Haiku 5.5 on Claude in Amazon Bedrock (`anthropic.`-prefixed model IDs). */
-export const NOTES_MODEL = "anthropic.claude-haiku-5-5";
+/**
+ * Claude Haiku 5.5 on Amazon Bedrock: the US cross-region inference profile
+ * (`us.`-prefixed), which Bedrock requires for on-demand use of this model.
+ * Kept in step with `NOTES_MODEL_ID` in `infra/lib/tasks-api.ts`, which scopes
+ * the worker's `bedrock:InvokeModel` grant to it.
+ */
+export const NOTES_MODEL = "us.anthropic.claude-haiku-5-5";
 
 /** The instruction the product asked for, verbatim. */
 export const NOTES_INSTRUCTION =

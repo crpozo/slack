@@ -62,7 +62,8 @@ describe("AI Insights (Phase 39)", () => {
   it("the worker may only write the row and call the model; the endpoint only read it and start the worker", () => {
     const worker = statementsOf("TasksApiNewsInsightsWorkerFnServiceRoleDefaultPolicy");
     expect(actionsOn(worker, "DataNewsInsights")).toEqual(["dynamodb:PutItem"]);
-    expect(worker.flatMap((st) => [st.Action].flat())).toContain("bedrock-mantle:CreateInference");
+    expect(worker.flatMap((st) => [st.Action].flat())).toContain("bedrock:InvokeModel");
+    expect(JSON.stringify(worker)).toMatch(/inference-profile\/us\.anthropic\.claude-haiku-5-5/);
     expect(JSON.stringify(worker)).not.toMatch(/Messages|Channels|Users|s3:/);
 
     const endpoint = statementsOf("TasksApiNewsInsightsFnServiceRoleDefaultPolicy");
