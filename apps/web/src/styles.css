@@ -289,3 +289,48 @@
     display: none;
   }
 }
+
+/* The toast slides up as it arrives and fades as it goes; no motion for those
+   who asked the OS for less. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.toast-in {
+  animation: toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.toast-out {
+  animation: toast-out 160ms ease-in forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-in,
+  .toast-out {
+    animation-duration: 1ms;
+  }
+}
+
+/* The audio player's seek bar is an invisible range over the drawn one: a
+   zero-width thumb makes a click land exactly where the drawn bar shows it. */
+.seek-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0;
+  height: 16px;
+}
+.seek-range::-moz-range-thumb {
+  width: 0;
+  height: 16px;
+  border: 0;
+}

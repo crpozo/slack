@@ -16,8 +16,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **Copy just the password:** a revealed secret with several parts (an email and a password, or
   several lines) has a Copy button for each.
 
+### Changed
+
+- **Toasts match what happened:** a green ✓ for done ("Copied", "Event updated."), a neutral ⓘ
+  for information, red only for errors (no more red dot on every toast). They slide in on frosted
+  glass, go after 3.5 s (success), 5 s (info) or 7 s (errors), and errors are announced at once
+  to screen readers.
+- **A new audio player for voice messages and audio files:** a round green Play/Pause, a progress
+  bar you can click, drag or move with the arrow keys, the time played and the length, and the
+  1× / 1.5× / 2× speed button, on a dark glass card instead of the browser's own controls.
+  Starting one clip pauses any other, and a voice message shows its length before it has loaded.
+
 ### Fixed
 
+- **"Couldn't open the link" after the link had opened:** a browser answers `window.open` with
+  `null` when the link opens in a new tab without access back to the app (`noopener`), and the
+  desktop app does the same when it hands the link to the system browser, so Open link, file
+  downloads and task attachments reported a failure (and tried to copy the link) every time.
+  Opening a link no longer reports anything; the desktop app falls back to the browser only when
+  its opener is missing, never opening a link twice.
 - **AI Insights was cut off:** Claude Haiku 5.5 thinks before it writes and the thinking counts
   toward the response ceiling, so the 2048-token ceiling ran out before the page was done and the
   morning analysis was never saved. The ceiling is now 8192; the page itself stays under 400 words.

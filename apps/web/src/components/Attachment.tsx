@@ -6,13 +6,14 @@ import { localPreview, releaseLocalPreview } from "../lib/outbox";
 import { renderNotesMarkdown } from "../lib/markdown";
 import { formatBytes, getDownloadUrl, isUsableUrl, rememberDownloadUrl } from "../lib/upload";
 import {
+  clipSeconds,
   formatDuration,
   formatPlaybackRate,
   nextPlaybackRate,
   usePlaybackRate,
 } from "../lib/voice";
 import { useChat } from "../store";
-import { DownloadIcon, FileIcon, MicIcon } from "./icons";
+import { DownloadIcon, FileIcon, MicIcon, PauseIcon, PlayIcon } from "./icons";
 import { Lightbox } from "./Lightbox";
 import { PdfViewer } from "./PdfViewer";
 
@@ -186,7 +187,7 @@ export async function downloadAttachment(
   if (isDesktopApp()) {
     // The desktop app hands it to the OS's browser (a tab here would trap it).
     try {
-      await openExternal(await getDownloadUrl(attachment.key, attachment.url), { notify });
+      await openExternal(await getDownloadUrl(attachment.key, attachment.url));
     } catch (err) {
       notify(err instanceof Error ? err.message : "Couldn't download the file.");
     }
@@ -276,18 +277,26 @@ function usePlayableUrl(attachment: AttachmentData) {
   return { url, failed, onError };
 }
 
+/** The player sounding right now: starting another one pauses it. */
+let nowPlaying: HTMLAudioElement | null = null;
+
 /**
- * Voice messages and other audio: a native player, so it plays inline with the
- * platform's controls (lock-screen controls on phones included), plus a speed
- * button (Phase 36): 1× → 1.5× → 2×, remembered on this device and shared by
- * every player. `defaultPlaybackRate` keeps the speed when a refreshed link
- * reloads the audio.
+ * Voice messages and other audio: our own controls over a hidden `<audio>`
+ * (so the platform's lock-screen controls still work on phones). A round
+ * Play/Pause, a progress bar to click, drag or arrow through, the time, and
+ * the speed button (Phase 36): 1× → 1.5× → 2×, remembered on this device and
+ * shared by every player. `defaultPlaybackRate` keeps the speed when a
+ * refreshed link reloads the audio. One clip plays at a time.
  */
 function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
   const { url, failed, onError } = usePlayableUrl(attachment);
   const voice = attachment.name.startsWith("voice-");
+  const label = voice ? "Voice message" : attachment.name;
   const audioRef = useRef<HTMLAudioElement>(null);
   const [rate, setRate] = usePlaybackRate();
+  const [playing, setPlaying] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [duration, setDuration] = useState(() => clipSeconds(NaN, attachment.durationMs));
 
   useEffect(() => {
     const el = audioRef.current;
@@ -296,49 +305,143 @@ function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
     el.playbackRate = rate;
   }, [rate, url]);
 
+  // `timeupdate` comes a few times a second: follow the playhead every frame
+  // while playing so the bar glides.
+  useEffect(() => {
+    if (!playing) return;
+    let frame = requestAnimationFrame(function follow() {
+      if (audioRef.current) setPosition(audioRef.current.currentTime);
+      frame = requestAnimationFrame(follow);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [playing]);
+
+  useEffect(
+    () => () => {
+      if (nowPlaying === audioRef.current) nowPlaying = null;
+    },
+    [],
+  );
+
+  function toggle() {
+    const el = audioRef.current;
+    if (!el) return;
+    // A rejected play() (an autoplay rule, a source swap) leaves it paused; the
+    // element's own events keep the button right.
+    if (el.paused) el.play().catch(() => undefined);
+    else el.pause();
+  }
+
+  function seek(seconds: number) {
+    const el = audioRef.current;
+    if (!el) return;
+    el.currentTime = seconds;
+    setPosition(seconds);
+  }
+
   if (failed) return <FileAttachment attachment={attachment} />;
+  const progress = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
+  const started = playing || position > 0;
   return (
-    <div className="flex w-80 max-w-full flex-col gap-1 rounded-2xl border border-line bg-surface p-2">
-      <p className="flex items-center gap-1.5 px-1 text-xs text-ink-secondary">
-        <MicIcon className="text-primary" />
-        <span className="truncate">{voice ? "Voice message" : attachment.name}</span>
-        {attachment.durationMs !== undefined && (
-          <span className="ml-auto tabular-nums">{formatDuration(attachment.durationMs)}</span>
-        )}
-      </p>
+    <div
+      className="flex w-80 max-w-full items-center gap-2.5 rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.08] to-white/[0.03] p-2 pr-2.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_8px_24px_-12px_rgb(0_0_0/0.6)]"
+      data-audio-player
+    >
       {url ? (
-        <div className="flex items-center gap-1.5">
+        <>
           <audio
             ref={audioRef}
-            controls
             preload="metadata"
             src={url}
             onError={onError}
             // A reload (fresh link) starts from the default rate; this is the chosen one.
             onLoadedMetadata={(e) => {
               e.currentTarget.playbackRate = rate;
+              setDuration(clipSeconds(e.currentTarget.duration, attachment.durationMs));
             }}
-            className="h-10 min-w-0 flex-1"
-            aria-label={voice ? "Voice message" : attachment.name}
+            onDurationChange={(e) =>
+              setDuration(clipSeconds(e.currentTarget.duration, attachment.durationMs))
+            }
+            onPlay={(e) => {
+              if (nowPlaying && nowPlaying !== e.currentTarget) nowPlaying.pause();
+              nowPlaying = e.currentTarget;
+              setPlaying(true);
+            }}
+            onPause={(e) => {
+              if (nowPlaying === e.currentTarget) nowPlaying = null;
+              setPlaying(false);
+              setPosition(e.currentTarget.currentTime);
+            }}
+            onTimeUpdate={(e) => !playing && setPosition(e.currentTarget.currentTime)}
+            onEnded={(e) => {
+              e.currentTarget.currentTime = 0;
+              setPosition(0);
+            }}
+            className="hidden"
           >
             <track kind="captions" />
           </audio>
           <button
             type="button"
+            onClick={toggle}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-lg text-on-primary shadow-[0_4px_14px_-4px_rgb(64_179_117/0.7)] transition-transform hover:brightness-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            aria-label={`${playing ? "Pause" : "Play"} ${label}`}
+            data-audio-toggle={playing ? "pause" : "play"}
+          >
+            {playing ? <PauseIcon /> : <PlayIcon className="translate-x-px" />}
+          </button>
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <div className="relative flex h-4 items-center">
+              <input
+                type="range"
+                min={0}
+                max={duration || 0}
+                step="any"
+                value={Math.min(position, duration || 0)}
+                onChange={(e) => seek(Number(e.target.value))}
+                disabled={duration === 0}
+                className="seek-range peer absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-default"
+                aria-label={`Seek ${label}`}
+                aria-valuetext={`${formatDuration(position * 1000)} of ${formatDuration(duration * 1000)}`}
+              />
+              <div className="relative h-1 w-full rounded-full bg-white/15 peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface">
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full bg-primary"
+                  style={{ width: `${progress}%` }}
+                />
+                <div
+                  className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_4px_rgb(0_0_0/0.5)]"
+                  style={{ left: `${progress}%` }}
+                  aria-hidden="true"
+                />
+              </div>
+            </div>
+            <p className="flex items-center gap-1.5 text-[11px] leading-none text-ink-secondary">
+              <MicIcon className="shrink-0 text-primary" />
+              <span className="truncate">{label}</span>
+              <span className="ml-auto shrink-0 tabular-nums" data-audio-time>
+                {started
+                  ? `${formatDuration(position * 1000)} / ${formatDuration(duration * 1000)}`
+                  : formatDuration(duration * 1000)}
+              </span>
+            </p>
+          </div>
+          <button
+            type="button"
             onClick={() => setRate(nextPlaybackRate(rate))}
-            className="h-8 w-12 shrink-0 rounded-full border border-line text-xs font-semibold tabular-nums text-ink hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="h-7 min-w-[2.75rem] shrink-0 rounded-full bg-white/10 px-2 text-xs font-semibold tabular-nums text-ink hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={`Playback speed ${formatPlaybackRate(rate)}. Change speed`}
             title="Playback speed"
             data-playback-rate={rate}
           >
             {formatPlaybackRate(rate)}
           </button>
-        </div>
+        </>
       ) : (
-        <div
-          className="h-10 w-full animate-pulse rounded-full bg-surface-hover"
-          aria-hidden="true"
-        />
+        <>
+          <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-white/10" />
+          <div className="h-1 flex-1 animate-pulse rounded-full bg-white/10" aria-hidden="true" />
+        </>
       )}
     </div>
   );

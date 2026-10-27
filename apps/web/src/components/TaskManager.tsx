@@ -172,6 +172,7 @@ function ShareBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: (
         result.created
           ? `Invitation sent to ${email.trim()}. They'll get an email with a temporary password.`
           : `${email.trim()} now has access to "${board.name}".`,
+        "success",
       );
       setEmail("");
       setBusy(false);
