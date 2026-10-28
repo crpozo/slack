@@ -4,8 +4,9 @@ import { errorFields, log } from "../lib/logger";
 import { getNews } from "../lib/news";
 
 /**
- * `GET /news` (Phase 35b): the latest TechCrunch AI articles, read live from
- * the RSS feed. Stateless: no table, no bucket (this Lambda has no data
+ * `GET /news` (Phase 35b; several sources since Phase 41): the latest AI
+ * articles from TechCrunch, VentureBeat, The Verge and InfoQ, read live from
+ * their feeds and merged. Stateless: no table, no bucket (this Lambda has no data
  * permissions at all); the parsed list stays in the warm container for 30
  * minutes, and browsers are told to keep the response for whatever is left
  * of that (API Gateway HTTP APIs have no response cache of their own).
@@ -22,9 +23,11 @@ export const handler = httpHandler(async (event, caller): Promise<HttpResult> =>
     result = await getNews(fetch, now, refresh);
   } catch (err) {
     log.error("news feed unreachable", { ...errorFields(err) });
-    throw new HttpError(502, "Couldn't reach TechCrunch right now. Try again in a minute.");
+    throw new HttpError(502, "Couldn't reach the news sources right now. Try again in a minute.");
   }
-  const { response, fromCache, expiresAt } = result;
+  const { response, fromCache, expiresAt, failed } = result;
+  // A source that's down is left out of the list; worth knowing which, and why.
+  if (failed && failed.length > 0) log.warn("news sources unreachable", { failed });
   log.info("news served", {
     articles: response.articles.length,
     fromCache,

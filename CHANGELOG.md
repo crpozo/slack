@@ -5,6 +5,30 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Added
+
+- **The AI News dashboard:** the News view is now the "AI News Dashboard" design. It has a glass
+  card for each of the day's four top stories (thumbnail, a Spanish headline and summary, the
+  source and how long ago). Below them come **Tendencias** with the key phrases highlighted, the
+  glowing **Qué significa para MindfulTech** callout of takeaways, and every other story under
+  **Más historias**. It replaces the analysis that was one block of Markdown text.
+- **Four news sources:** TechCrunch, VentureBeat, The Verge and InfoQ, read at once and merged
+  (newest first, the same story once, at most 8 per source). The Verge's Atom feed is read too,
+  and only its AI stories are kept. A source that's down or returns garbage is left out, and a
+  missing image never looks broken: the thumbnail keeps its square, rounded box and shows a faint
+  brand-green-to-slate gradient with a muted Lucide icon (a chip for hardware stories, a newspaper
+  otherwise). The same happens for an image that fails to load or is a tracking pixel, and a slow
+  image fades in over that tile once it has loaded.
+
+### Changed
+
+- **AI Insights are structured:** Claude Haiku 5.5 returns the dashboard as JSON held to a schema
+  (structured outputs on Bedrock). It names its top stories by their number in the list, so links,
+  thumbnails, sources and dates always come from the feeds, never from the model. Picks out of
+  range or repeated are dropped, and over-long text is cut. Rows from before the change aren't
+  shown: until the next morning's run (or an admin's **Generar análisis**), the dashboard shows
+  the newest stories as they are.
+
 ### Security
 
 - **Secrets expire after 24 hours** instead of a week, including ones sent before this change

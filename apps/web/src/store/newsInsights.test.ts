@@ -5,8 +5,11 @@ import { createNewsInsightsStore, INSIGHTS_POLL_MS } from "./newsInsights";
 
 const insights = (generatedAt: number): NewsInsights => ({
   day: "2026-10-27",
-  analysis: "## Lo esencial\n\n- algo",
   generatedAt,
+  storyCount: 1,
+  stories: [],
+  trends: [{ topic: "Agentes", text: "algo" }],
+  takeaways: [{ lead: "Probar", body: "algo" }],
   articles: [{ title: "A", link: "https://techcrunch.com/a" }],
   source: "TechCrunch",
 });

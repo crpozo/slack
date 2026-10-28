@@ -1147,6 +1147,28 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
    URLs, emails, mentions, hashtags, file names, versions, issue keys, identifiers and numbers never count. Ordinary sentences with a keyword ("the password is wrong") don't either: a false positive would hide someone's message and delete it a day later. In the composer a match shows "Looks like a password: it will be sent as a secret", with **Send as normal text**; on send the message goes out with `isSecret` and a toast says so. Not for files, thread replies (secrets can't be either) or slash commands.
 3. **Per-part copy:** `secretParts(text)` splits a revealed secret into lines, "Label: value" lines by label, and 2–3-token lines with an email, username or password per token (labelled Email / User / Password). Each part has its own Copy button (✓ for a moment); Copy all stays. A single value shows as before.
 
+### Phase 41 — AI News dashboard: four sources, structured insights
+
+**Branch:** `feature/ui-ux-polish`
+
+1. **Sources:** `NEWS_FEEDS` lists the sources: TechCrunch (AI), VentureBeat (AI feed, then
+   FeedBurner), The Verge (Atom; only its AI stories) and InfoQ (AI/ML). They're read at once with
+   4 s each. The parser reads RSS 2.0, RSS 1.0 and Atom, skips a malformed item, and keeps the
+   complete stories of a feed that was cut off. The merge is newest first, by link or title once,
+   at most 8 per source and 24 in all, each story carrying its `sourceName`. A source that's down
+   is logged and left out, and a list missing one is kept 5 minutes instead of 30.
+2. **Insights as JSON:** the worker asks Haiku 5.5 for `{stories, trends, takeaways}` with
+   `output_config.format` (a JSON schema). Stories are picked by their number in the list, then
+   joined to the feed's link, thumbnail, source and date. The result is checked with zod: picks out
+   of range or repeated are dropped and over-long text is cut. The row keeps `storyCount`, `stories`
+   (headline, summary, `thumbnailUrl`, `sourceName`…), `trends` (`topic`, `text` with `**marks**`)
+   and `takeaways` (`lead`, `body`). A row from before this phase is answered as none.
+3. **Dashboard:** `NewsDashboard` (presentational, from the design's `AI News Dashboard.dc.html`)
+   is fed by `NewsView`. Its sections are the header (Spanish date, story count, Refresh news), Lo
+   esencial (2×2 glass cards), Tendencias, the Qué significa para MindfulTech callout (glow) and
+   Más historias. Without an analysis it shows the newest four stories, and the callout says when
+   the analysis comes (with Generar análisis for admins).
+
 ### Phase 35 (planned) — Customer channels (guest access to shared channels)
 
 Deferred from Phase 34: it moves the guest security boundary, so it gets its own phase and tests. Today guests are boards-only. They're blocked from every WebSocket action but `ping`, `presign` and `user` (`GUEST_ROUTES`), receive only `board.*` events (`guestMayReceive`), and see only board co-members. Needed:

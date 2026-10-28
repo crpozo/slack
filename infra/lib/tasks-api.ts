@@ -67,8 +67,8 @@ export const CALL_NOTES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
 ];
 
 /**
- * AI News (Phase 35b): the latest TechCrunch AI articles, read live from the
- * RSS feed by a stateless Lambda with no data permissions at all.
+ * AI News (Phase 35b): the latest AI articles from a few publishers, read live
+ * from their feeds by a stateless Lambda with no data permissions at all.
  */
 export const NEWS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/news" },
@@ -244,10 +244,11 @@ export class TasksApi extends Construct {
       // A deleted board's files (Phase 32).
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
     });
-    // AI News (Phase 35b): reads a public RSS feed over the internet and keeps
-    // it in memory; deliberately given no environment and no grants, so it
-    // can't touch any table or bucket. The feed gets 5 s; the Lambda 10.
-    this.newsHandler = lambda("NewsFn", "news", {});
+    // AI News (Phase 35b; several sources since Phase 41): reads public RSS and
+    // Atom feeds over the internet and keeps the list in memory; deliberately
+    // given no environment and no grants, so it can't touch any table or
+    // bucket. Each feed gets 4 s (8 with a second address); the Lambda 15.
+    this.newsHandler = lambda("NewsFn", "news", {}, Duration.seconds(15));
     // AI Insights (Phase 39): the worker reads the feed and the model, and
     // writes one row; the endpoint reads that row and, for admins, starts the
     // worker. The feed gets 5 s, the model up to 50; the worker 2 minutes.

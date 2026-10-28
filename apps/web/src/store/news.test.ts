@@ -7,7 +7,14 @@ const response = (title = "Story"): NewsResponse => ({
   source: "TechCrunch",
   fetchedAt: 1,
   articles: [
-    { title, link: "https://techcrunch.com/a", snippet: "s", pubDate: null, imageUrl: null },
+    {
+      title,
+      link: "https://techcrunch.com/a",
+      snippet: "s",
+      pubDate: null,
+      imageUrl: null,
+      sourceName: "TechCrunch",
+    },
   ],
 });
 
