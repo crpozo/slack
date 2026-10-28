@@ -3,7 +3,6 @@ import { useEffect, useMemo } from "react";
 import { useNow } from "../lib/hooks";
 import { dashboardDateLabel, dashboardStories } from "../lib/newsDashboard";
 import { tasksApiConfigured } from "../lib/tasksApi";
-import { useChat } from "../store";
 import { useNews } from "../store/news";
 import { useNewsInsights } from "../store/newsInsights";
 import { MenuIcon, RefreshIcon } from "./icons";
@@ -13,9 +12,11 @@ import { UnreadAlertsDot } from "./NotificationBell";
 /**
  * The AI News app view (`/app/news`; the dashboard since Phase 41): the live
  * stories from every source (`GET /news`, cached 30 minutes) and the
- * morning's analysis (`GET /news/insights`) as one dashboard. Until there is
- * an analysis, "Lo esencial" shows the newest stories as they are and the
- * callout says when the first one comes; an admin can ask for it now.
+ * morning's analysis (`GET /news/insights`) as one dashboard. "Refresh news"
+ * reads the feeds again and starts a new analysis right away
+ * (`POST /news/refresh`), shown when it's written, about half a minute later.
+ * Until there is an analysis, "Lo esencial" shows the newest stories as they
+ * are and the callout says when the first one comes.
  */
 export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => void }>) {
   const { status, data, error, load } = useNews();
@@ -74,24 +75,26 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
               takeaways={insights?.takeaways ?? []}
               moreStories={more}
               now={now}
-              refreshing={status === "loading" || insightsState.status === "loading"}
+              refreshing={status === "loading" || insightsState.generating}
               onRefresh={() => {
                 void load(true);
-                void loadInsights(true);
+                void insightsState.generate();
               }}
               banner={
-                (data?.stale || error) && (
-                  <p
-                    role="status"
-                    className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-ink"
-                  >
-                    {data?.stale
-                      ? "The news sources couldn't be reached just now: these are the latest stories we had."
-                      : `Couldn't refresh: ${error}`}
-                  </p>
-                )
+                <>
+                  {(data?.stale || error) && (
+                    <p
+                      role="status"
+                      className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-ink"
+                    >
+                      {data?.stale
+                        ? "The news sources couldn't be reached just now: these are the latest stories we had."
+                        : `Couldn't refresh: ${error}`}
+                    </p>
+                  )}
+                  <RefreshStatus />
+                </>
               }
-              insightsAction={<GenerateButton />}
               insightsNotice={<InsightsNotice />}
             />
           )}
@@ -101,47 +104,44 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
   );
 }
 
-/** Admins only: a fresh analysis of the current stories now (about half a minute). */
-function GenerateButton() {
-  const admin = useChat((s) => s.me?.role === "admin");
-  const { insights, generating, generate } = useNewsInsights();
-  if (!admin) return null;
+/** What "Refresh news" is doing with the analysis: writing it, not needed yet, or failed. */
+function RefreshStatus() {
+  const { generating, generateNotice, generateError } = useNewsInsights();
+  const text = generating
+    ? "Leyendo las historias de hoy y escribiendo el análisis con IA: cerca de medio minuto…"
+    : (generateError ?? generateNotice);
+  if (!text) return null;
   return (
-    <button
-      type="button"
-      onClick={() => void generate()}
-      disabled={generating}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-2.5 py-1.5 text-xs font-semibold text-ink-secondary hover:border-primary/50 hover:text-ink disabled:opacity-60"
-      title="Ask the AI for a fresh analysis of the current stories"
-      data-generate-insights
+    <p
+      role={generateError && !generating ? "alert" : "status"}
+      className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm ${
+        generateError && !generating
+          ? "border-warning/40 bg-warning/10 text-ink"
+          : "border-primary/30 bg-primary/[0.08] text-ink/85"
+      }`}
+      data-news-refresh-status
     >
-      <RefreshIcon className={generating ? "animate-spin" : ""} aria-hidden="true" />
-      {generating ? "Analizando…" : insights ? "Generar de nuevo" : "Generar análisis"}
-    </button>
+      {generating && (
+        <RefreshIcon className="shrink-0 animate-spin text-primary" aria-hidden="true" />
+      )}
+      {text}
+    </p>
   );
 }
 
 /** The callout before the first analysis, while one is written, or when it failed. */
 function InsightsNotice() {
-  const admin = useChat((s) => s.me?.role === "admin");
-  const { status, insights, error, generating, generateError, load } = useNewsInsights();
+  const { status, insights, error, generating, load } = useNewsInsights();
   const text = generating
     ? "Leyendo las historias de hoy y escribiendo el análisis: cerca de medio minuto."
     : status === "error" && !insights
       ? `No se pudo cargar el análisis${error ? `: ${error}` : "."}`
       : status === "loading" || status === "idle"
         ? "Cargando el análisis…"
-        : `Aún no hay análisis. El primero llega mañana a las ${NEWS_INSIGHTS_LOCAL_TIME}${
-            admin ? ", o pídelo ahora." : "."
-          }`;
+        : `Aún no hay análisis. Llega cada mañana a las ${NEWS_INSIGHTS_LOCAL_TIME}, o pulsa Refresh news para pedirlo ahora.`;
   return (
     <div className="flex flex-col gap-2 text-sm text-ink-secondary" data-news-insights-notice>
       <p role="status">{text}</p>
-      {generateError && (
-        <p role="alert" className="text-warning">
-          {generateError}
-        </p>
-      )}
       {status === "error" && !insights && (
         <button
           type="button"

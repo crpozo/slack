@@ -45,10 +45,10 @@ describe("AI Insights (Phase 39)", () => {
     });
   });
 
-  it("runs the worker every morning at 07:07 in Ecuador (12:07 UTC), with retries", () => {
+  it("runs the worker every morning at 08:00 in Ecuador (13:00 UTC), with retries", () => {
     template.hasResourceProperties("AWS::Events::Rule", {
       Name: "slack-dev-news-insights",
-      ScheduleExpression: "cron(7 12 * * ? *)",
+      ScheduleExpression: "cron(0 13 * * ? *)",
       State: "ENABLED",
       Targets: [Match.objectLike({ RetryPolicy: { MaximumRetryAttempts: 2 } })],
     });
@@ -59,7 +59,7 @@ describe("AI Insights (Phase 39)", () => {
     );
   });
 
-  it("the worker may only write the row and call the model; the endpoint only read it and start the worker", () => {
+  it("the worker may only write the row and call the model; the endpoint read it, claim a refresh and start the worker", () => {
     const worker = statementsOf("TasksApiNewsInsightsWorkerFnServiceRoleDefaultPolicy");
     expect(actionsOn(worker, "DataNewsInsights")).toEqual(["dynamodb:PutItem"]);
     expect(worker.flatMap((st) => [st.Action].flat())).toContain("bedrock:InvokeModel");
@@ -67,14 +67,17 @@ describe("AI Insights (Phase 39)", () => {
     expect(JSON.stringify(worker)).not.toMatch(/Messages|Channels|Users|s3:/);
 
     const endpoint = statementsOf("TasksApiNewsInsightsFnServiceRoleDefaultPolicy");
-    expect(actionsOn(endpoint, "DataNewsInsights")).toEqual(["dynamodb:Query"]);
+    expect(actionsOn(endpoint, "DataNewsInsights")).toEqual([
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+    ]);
     const invoke = endpoint.filter((st) => [st.Action].flat().includes("lambda:InvokeFunction"));
     expect(JSON.stringify(invoke)).toMatch(/NewsInsightsWorkerFn/);
     expect(JSON.stringify(endpoint)).not.toMatch(/bedrock/);
   });
 
-  it("serves GET and POST /news/insights behind the JWT authorizer from the endpoint Lambda", () => {
-    for (const key of ["GET /news/insights", "POST /news/insights"]) {
+  it("serves /news/insights and POST /news/refresh behind the JWT authorizer from the endpoint Lambda", () => {
+    for (const key of ["GET /news/insights", "POST /news/insights", "POST /news/refresh"]) {
       const route = Object.values(
         template.findResources("AWS::ApiGatewayV2::Route", { Properties: { RouteKey: key } }),
       )[0]?.Properties as { AuthorizationType: string; Target: unknown };

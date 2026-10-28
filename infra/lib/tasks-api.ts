@@ -76,20 +76,22 @@ export const NEWS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
 
 /**
  * AI Insights (Phase 39): the morning's analysis of the news, written by a
- * scheduled worker; an admin may ask for a fresh one.
+ * scheduled worker; "Refresh news" (`POST /news/refresh`) starts a fresh one
+ * at once (members at most every 5 minutes), as did an admin's
+ * `POST /news/insights` (kept for tabs opened before it).
  */
 export const NEWS_INSIGHTS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/news/insights" },
   { method: HttpMethod.POST, path: "/news/insights" },
+  { method: HttpMethod.POST, path: "/news/refresh" },
 ];
 
 /**
- * When the morning analysis runs: 07:07 in Ecuador (UTC-5, no daylight
+ * When the morning analysis runs: 08:00 in Ecuador (UTC-5, no daylight
  * saving), i.e. `NEWS_INSIGHTS_LOCAL_TIME` in `NEWS_INSIGHTS_TIME_ZONE` of
- * @mindfultech/shared, which the view shows. Off the hour so it doesn't queue
- * behind everyone else's on-the-hour jobs.
+ * @mindfultech/shared, which the view shows.
  */
-export const NEWS_INSIGHTS_SCHEDULE = { hour: "12", minute: "7" };
+export const NEWS_INSIGHTS_SCHEDULE = { hour: "13", minute: "0" };
 
 /**
  * The notes model: Claude Haiku 5.5 on Amazon Bedrock, as the US cross-region
@@ -265,7 +267,7 @@ export class TasksApi extends Construct {
     new Rule(this, "NewsInsightsSchedule", {
       ruleName: `slack-${stage}-news-insights`,
       description: "Writes the morning's AI Insights on the AI news",
-      schedule: Schedule.cron(NEWS_INSIGHTS_SCHEDULE), // daily, 07:07 in Ecuador
+      schedule: Schedule.cron(NEWS_INSIGHTS_SCHEDULE), // daily, 08:00 in Ecuador
       targets: [new LambdaFunction(this.newsInsightsWorker, { retryAttempts: 2 })],
     });
     this.pushHandler = lambda("PushFn", "push", {
@@ -568,10 +570,11 @@ export class TasksApi extends Construct {
 
     // news-insights-worker: the day's row (PutItem) and the model on Amazon
     // Bedrock; it reads the feed over the internet. news-insights: the newest
-    // row (Query) and starting the worker (admins).
+    // row (Query), the refresh cooldown's own row (UpdateItem) and starting
+    // the worker.
     data.newsInsights.grant(this.newsInsightsWorker, "dynamodb:PutItem");
     this.newsInsightsWorker.addToRolePolicy(notesModelPolicy());
-    data.newsInsights.grant(this.newsInsightsHandler, "dynamodb:Query");
+    data.newsInsights.grant(this.newsInsightsHandler, "dynamodb:Query", "dynamodb:UpdateItem");
     this.newsInsightsWorker.grantInvoke(this.newsInsightsHandler);
 
     // archive-tasks: find done tasks (Scan) and flag them (UpdateItem). Nothing else.

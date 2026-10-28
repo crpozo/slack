@@ -26,8 +26,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   (structured outputs on Bedrock). It names its top stories by their number in the list, so links,
   thumbnails, sources and dates always come from the feeds, never from the model. Picks out of
   range or repeated are dropped, and over-long text is cut. Rows from before the change aren't
-  shown: until the next morning's run (or an admin's **Generar análisis**), the dashboard shows
-  the newest stories as they are.
+  shown: until the next morning's run (or a **Refresh news**), the dashboard shows the newest
+  stories as they are.
+- **Refresh news starts a new analysis:** besides reading the feeds again, the button now runs
+  the AI analysis at once (`POST /news/refresh`), whatever the time, and the dashboard shows it
+  about half a minute later. Members can start one every 5 minutes (enforced on the server, so a
+  burst of clicks is one run), and admins any time. The admin-only **Generar análisis** button is
+  gone.
+- **The morning analysis runs at 08:00** (Ecuador) instead of 07:07.
+- **AI News has an outline icon** in the sidebar, the phone apps and the More sheet, like Task
+  Manager, Calendar and AI Notes, instead of the 📰 emoji.
 
 ### Security
 

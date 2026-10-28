@@ -1167,7 +1167,9 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
    is fed by `NewsView`. Its sections are the header (Spanish date, story count, Refresh news), Lo
    esencial (2×2 glass cards), Tendencias, the Qué significa para MindfulTech callout (glow) and
    Más historias. Without an analysis it shows the newest four stories, and the callout says when
-   the analysis comes (with Generar análisis for admins).
+   the analysis comes. "Refresh news" (`POST /news/refresh`) reads the feeds and starts a new
+   analysis at once: a conditional write on a lock row (`feed = "news-refresh"`) lets members
+   start one every 5 minutes, admins any time. The morning run is at 08:00 (13:00 UTC).
 
 ### Phase 35 (planned) — Customer channels (guest access to shared channels)
 
