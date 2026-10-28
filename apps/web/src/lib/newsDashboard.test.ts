@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   dashboardDateLabel,
   dashboardStories,
+  fallbackIconFor,
   highlightParts,
   storyOf,
   timeAgo,
@@ -94,5 +95,18 @@ describe("dates", () => {
     expect(timeAgo("2026-10-26T12:00:00Z", now)).toBe("hace 2 d");
     expect(timeAgo("2026-10-01T12:00:00Z", now)).toMatch(/^1 oct/);
     expect(timeAgo(null, now)).toBe("");
+  });
+});
+
+describe("fallbackIconFor", () => {
+  it("gives hardware stories a chip and everything else a newspaper", () => {
+    const icon = (headline: string, summary = "") => fallbackIconFor({ headline, summary });
+    expect(icon("Nvidia's next chips are sold out")).toBe("cpu");
+    expect(icon("Una startup", "abre un centro de datos en Quito")).toBe("cpu");
+    expect(icon("New GPUs for inference")).toBe("cpu");
+    expect(icon("OpenAI ships agents for everyone")).toBe("newspaper");
+    expect(icon("La UE publica la guía del AI Act")).toBe("newspaper");
+    // A word that merely contains "chip" or "AMD" isn't hardware.
+    expect(icon("Microchipped pets and Amdahl's law")).toBe("newspaper");
   });
 });

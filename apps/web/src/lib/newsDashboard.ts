@@ -108,3 +108,20 @@ export function timeAgo(iso: string | null, now = Date.now()): string {
   if (ago < 7 * DAY) return `hace ${Math.floor(ago / DAY)} d`;
   return shortFmt.format(at).replace(".", "");
 }
+
+/** Stories about chips and the machines that run AI (in English or Spanish). */
+const HARDWARE =
+  /\b(?:chips?|GPUs?|TPUs?|Nvidia|AMD|Intel|semiconduct\w*|hardware|data ?cent(?:er|re)s?|centros? de datos|procesador(?:es)?|servidor(?:es)?|supercomputador\w*)\b/i;
+
+/** Which icon a story without an image gets: a chip for hardware stories, a newspaper otherwise. */
+export function fallbackIconFor(
+  story: Pick<NewsStory, "headline" | "summary">,
+): "cpu" | "newspaper" {
+  return HARDWARE.test(`${story.headline} ${story.summary}`) ? "cpu" : "newspaper";
+}
+
+/**
+ * Smaller than this on either side, a "thumbnail" is a tracking pixel or a
+ * spacer, not a picture: the card shows its fallback instead.
+ */
+export const MIN_THUMBNAIL_PX = 40;

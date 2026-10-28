@@ -1,10 +1,10 @@
 import type { NewsStory, NewsTakeaway, NewsTrend } from "@mindfultech/shared";
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useState, type MouseEvent, type ReactNode } from "react";
 import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
 import { fullDate } from "../lib/news";
-import { highlightParts, timeAgo } from "../lib/newsDashboard";
-import { RefreshIcon } from "./icons";
+import { fallbackIconFor, highlightParts, MIN_THUMBNAIL_PX, timeAgo } from "../lib/newsDashboard";
+import { CpuIcon, NewspaperIcon, RefreshIcon } from "./icons";
 
 export interface NewsDashboardProps {
   /** "Mié 28 oct 2026" */
@@ -252,7 +252,8 @@ function StoryCard({
       className="group flex w-full gap-4 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4 shadow-[0_10px_30px_rgb(0_0_0/0.25),inset_0_1px_0_rgb(255_255_255/0.04)] backdrop-blur-lg transition duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       data-news-card={compact ? "more" : "top"}
     >
-      <Thumbnail src={story.thumbnailUrl} label={story.sourceName} />
+      {/* A new address starts over (loading, then the image or the fallback). */}
+      <Thumbnail key={story.thumbnailUrl ?? "none"} story={story} />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <h3 className="text-[15px] font-bold leading-[1.3] text-ink [text-wrap:pretty]">
           {story.headline}
@@ -281,33 +282,64 @@ function StoryCard({
   );
 }
 
-/** The story's image, or the design's striped tile with the source's name when it has none. */
-function Thumbnail({ src, label }: Readonly<{ src: string | null; label: string }>) {
-  const [failed, setFailed] = useState(false);
-  const box = "h-[84px] w-[84px] shrink-0 overflow-hidden rounded-xl border border-white/[0.08]";
-  if (!src || failed) {
-    return (
-      <div
-        className={`${box} flex items-center justify-center bg-[repeating-linear-gradient(135deg,rgb(255_255_255/0.07)_0_6px,rgb(255_255_255/0.02)_6px_12px)] p-1.5 text-center font-mono text-[10px] leading-tight text-ink-secondary/80`}
-        aria-hidden="true"
-        data-news-thumb="placeholder"
-      >
-        {label}
-      </div>
+type ThumbState = "loading" | "image" | "fallback";
+
+/**
+ * The story's image in a fixed square, or a deliberate fallback: a faint
+ * brand-green gradient into dark slate with a muted icon (a chip for
+ * hardware stories, a newspaper otherwise). The fallback is the box's own
+ * background, so while an image loads it shows there, and an image fades in
+ * over it only once it has loaded. No image, one that fails, or a tracking
+ * pixel (under `MIN_THUMBNAIL_PX`) all leave the fallback. The box is the
+ * same in every case: 84 × 84, square, rounded.
+ */
+function Thumbnail({ story }: Readonly<{ story: NewsStory }>) {
+  const src = story.thumbnailUrl;
+  const [state, setState] = useState<ThumbState>(src ? "loading" : "fallback");
+  const Fallback = fallbackIconFor(story) === "cpu" ? CpuIcon : NewspaperIcon;
+
+  const settle = (img: HTMLImageElement) =>
+    setState(
+      img.naturalWidth >= MIN_THUMBNAIL_PX && img.naturalHeight >= MIN_THUMBNAIL_PX
+        ? "image"
+        : "fallback",
     );
-  }
+  // An image already in the browser's cache can finish before React listens
+  // for `load`. (The card keys this by its address, so it runs once per image.)
+  const imgRef = useCallback((img: HTMLImageElement | null) => {
+    if (!img?.complete) return;
+    if (img.naturalWidth > 0) settle(img);
+    else if (img.currentSrc) setState("fallback");
+  }, []);
+
   return (
-    <div className={`${box} bg-white/[0.04]`}>
-      <img
-        src={src}
-        alt=""
-        loading="lazy"
-        decoding="async"
-        referrerPolicy="no-referrer"
-        onError={() => setFailed(true)}
-        className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.06]"
-        data-news-thumb="image"
-      />
+    <div
+      className="relative aspect-square h-[84px] w-[84px] shrink-0 self-start overflow-hidden rounded-xl border border-white/[0.08] bg-[linear-gradient(135deg,rgb(64_179_117/0.10)_0%,rgb(30_41_59/0.55)_55%,rgb(15_23_42/0.85)_100%)] shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]"
+      data-news-thumb={state === "image" ? "image" : "fallback"}
+    >
+      <span
+        className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${
+          state === "image" ? "opacity-0" : "opacity-100"
+        }`}
+        aria-hidden="true"
+      >
+        <Fallback className="h-7 w-7 text-white/30" strokeWidth={1.5} />
+      </span>
+      {src && state !== "fallback" && (
+        <img
+          ref={imgRef}
+          src={src}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onLoad={(e) => settle(e.currentTarget)}
+          onError={() => setState("fallback")}
+          className={`absolute inset-0 h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.06] ${
+            state === "image" ? "opacity-100" : "opacity-0"
+          }`}
+        />
+      )}
     </div>
   );
 }

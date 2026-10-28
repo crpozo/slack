@@ -15,7 +15,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **Four news sources:** TechCrunch, VentureBeat, The Verge and InfoQ, read at once and merged
   (newest first, the same story once, at most 8 per source). The Verge's Atom feed is read too,
   and only its AI stories are kept. A source that's down or returns garbage is left out, and a
-  missing image falls back to a striped tile with the source's name.
+  missing image never looks broken: the thumbnail keeps its square, rounded box and shows a faint
+  brand-green-to-slate gradient with a muted Lucide icon (a chip for hardware stories, a newspaper
+  otherwise). The same happens for an image that fails to load or is a tracking pixel, and a slow
+  image fades in over that tile once it has loaded.
 
 ### Changed
 
