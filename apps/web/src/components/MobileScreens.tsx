@@ -606,7 +606,7 @@ export function MoreSheet({
         <SheetRow
           icon={<span aria-hidden="true">📰</span>}
           label="AI News"
-          hint="The latest from TechCrunch"
+          hint="The latest from the AI press"
           onClick={onOpenNews}
         />
         <SheetRow

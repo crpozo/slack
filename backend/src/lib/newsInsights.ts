@@ -3,7 +3,7 @@ import { PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import {
   NEWS_INSIGHTS_FEED,
   NEWS_INSIGHTS_LANGUAGE,
-  NEWS_SOURCE,
+  NEWS_MAX_ARTICLES,
   type NewsArticle,
   type NewsInsights,
 } from "@mindfultech/shared";
@@ -27,8 +27,8 @@ export const INSIGHTS_MODEL = NOTES_MODEL;
  */
 export const INSIGHTS_MAX_TOKENS = 8192;
 
-/** How many of the feed's stories the model reads (the view shows the same). */
-export const INSIGHTS_MAX_ARTICLES = 15;
+/** How many of the merged stories the model reads (all of them: the view shows the same). */
+export const INSIGHTS_MAX_ARTICLES = NEWS_MAX_ARTICLES;
 
 export const INSIGHTS_SYSTEM =
   "You are the AI analyst of MindfulTech, a small software company in Ecuador that builds " +
@@ -49,14 +49,14 @@ export const INSIGHTS_INSTRUCTION =
   "4. **Para seguir de cerca**: 2 to 3 bullets on what to watch next.\n" +
   "Keep the whole thing under 400 words. No introduction, no closing line.";
 
-/** The stories as the model reads them: title, when, the snippet, the link. */
+/** The stories as the model reads them: source, title, when, the snippet, the link. */
 export function articlesText(articles: NewsArticle[]): string {
   return articles
     .slice(0, INSIGHTS_MAX_ARTICLES)
     .map((a) => {
       const when = a.pubDate ? ` (${a.pubDate.slice(0, 16).replace("T", " ")} UTC)` : "";
       const snippet = a.snippet ? `\n  ${a.snippet}` : "";
-      return `- ${a.title}${when}${snippet}\n  ${a.link}`;
+      return `- [${a.sourceName}] ${a.title}${when}${snippet}\n  ${a.link}`;
     })
     .join("\n");
 }
@@ -118,7 +118,7 @@ export function insightsItem(
     analysis,
     generatedAt,
     articles: articles.slice(0, INSIGHTS_MAX_ARTICLES).map(({ title, link }) => ({ title, link })),
-    source: NEWS_SOURCE,
+    source: [...new Set(articles.map((a) => a.sourceName))].join(", "),
   };
 }
 

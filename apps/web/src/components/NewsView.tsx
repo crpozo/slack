@@ -18,7 +18,7 @@ import { ExternalLinkIcon, MenuIcon, RefreshIcon, SparklesIcon } from "./icons";
 import { UnreadAlertsDot } from "./NotificationBell";
 
 /**
- * The AI News app view (`/app/news`, Phase 35b): the latest TechCrunch AI
+ * The AI News app view (`/app/news`, Phase 35b): the latest AI
  * stories as cards, newest first, the first one featured. Read live through
  * `GET /news` (a stateless proxy; nothing is stored), cached 30 minutes by
  * the server and the browser. Every card opens the article in a new tab (the
@@ -66,7 +66,7 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-lg font-bold leading-tight text-ink">AI News</h1>
           <p className="truncate text-xs text-ink-secondary">
-            Latest from {data?.source ?? "TechCrunch"}
+            Latest from {data?.source || "the AI press"}
             {data &&
               ` · Updated ${relativeTime(new Date(data.fetchedAt).toISOString(), now).toLowerCase()}`}
           </p>
@@ -78,7 +78,7 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
           disabled={status === "loading" || !configured}
           className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-sm font-semibold text-ink hover:bg-surface-hover disabled:opacity-50"
           aria-label="Refresh news"
-          title="Read the latest stories from TechCrunch now"
+          title="Read the latest stories from every source now"
           data-refresh-news
         >
           <RefreshIcon
@@ -109,7 +109,7 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
                   className="mb-4 rounded-xl border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-ink"
                 >
                   {data?.stale
-                    ? "TechCrunch couldn't be reached just now: these are the latest stories we had."
+                    ? "The news sources couldn't be reached just now: these are the latest stories we had."
                     : `Couldn't refresh: ${error}`}
                 </p>
               )}
@@ -128,8 +128,7 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
                 </ul>
               )}
               <p className="mt-8 text-center text-xs text-ink-secondary">
-                Stories and images belong to {data?.source ?? "TechCrunch"}. Each opens on their
-                site.
+                Stories and images belong to their publishers. Each opens on their site.
               </p>
             </>
           )}
@@ -287,7 +286,7 @@ function Meta({ article, now }: Readonly<{ article: NewsArticle; now: number }>)
   return (
     <p className="flex items-center gap-2 text-xs text-ink-secondary">
       <span className="rounded-full bg-primary/15 px-2 py-0.5 font-semibold text-ink">
-        TechCrunch
+        {article.sourceName}
       </span>
       {when && (
         <time dateTime={article.pubDate ?? undefined} title={fullDate(article.pubDate)}>

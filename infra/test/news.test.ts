@@ -34,7 +34,7 @@ describe("AI News (Phase 35b)", () => {
     expect(JSON.stringify(route.Target)).toMatch(/NewsIntegration/);
     expect(lambda()?.[1].Properties).toMatchObject({
       Runtime: "nodejs22.x",
-      Timeout: 10,
+      Timeout: 15,
       Environment: { Variables: { STAGE: "dev", LOG_LEVEL: "info" } },
     });
   });

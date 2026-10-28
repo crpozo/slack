@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { calendarDay } from "@mindfultech/shared";
 import { bedrockModel, type ClaudeModel } from "../lib/claude";
 import { errorFields, log } from "../lib/logger";
-import { fetchFeed, parseFeed } from "../lib/news";
+import { readAllSources } from "../lib/news";
 import { insightsFrom, insightsItem, insightsRequest, saveInsights } from "../lib/newsInsights";
 
 let model: ClaudeModel | null = null;
@@ -24,7 +24,7 @@ export interface InsightsRun {
  * Writes the day's AI Insights (Phase 39). Run every morning by an
  * EventBridge schedule, and on demand by `POST /news/insights` (an admin's
  * "Generate now"); the event's contents don't matter. It reads the feed
- * itself (the `news` Lambda's cache is its own), asks Claude Haiku 5.5 for
+ * itself (every source; the `news` Lambda's cache is its own), asks Claude Haiku 5.5 for
  * the analysis and keeps it as today's row, replacing an earlier one from the
  * same day. Any failure throws, so the schedule's retries get another go:
  * nothing is half-written, since the row is put in one piece at the end.
@@ -32,8 +32,9 @@ export interface InsightsRun {
 export const handler = async (): Promise<InsightsRun> => {
   const started = Date.now();
   const day = calendarDay(started);
-  const articles = parseFeed(await fetchFeed());
-  if (articles.length === 0) throw new Error("the feed has no stories");
+  const { articles, failed } = await readAllSources();
+  if (failed.length > 0) log.warn("news sources unreachable", { day, failed });
+  if (articles.length === 0) throw new Error("the feeds have no stories");
   let response: Anthropic.Message;
   try {
     response = await (model ?? (model = bedrockModel())).create(insightsRequest(articles, day));

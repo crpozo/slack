@@ -1,34 +1,48 @@
 import {
   NEWS_CACHE_SECONDS,
-  NEWS_FEED_URL,
+  NEWS_FEEDS,
   NEWS_MAX_ARTICLES,
+  NEWS_MAX_PER_SOURCE,
   NEWS_REFRESH_MIN_SECONDS,
   NEWS_SNIPPET_CHARS,
-  NEWS_SOURCE,
   type NewsArticle,
+  type NewsFeed,
   type NewsResponse,
 } from "@mindfultech/shared";
 import { XMLParser } from "fast-xml-parser";
 
 // ---------------------------------------------------------------------------
-// AI News (Phase 35b): reads the TechCrunch AI RSS feed and turns it into a
-// clean list of articles. Stateless: the parsed list lives in this module
-// (one copy per warm Lambda container) for `NEWS_CACHE_SECONDS`, and the last
-// good list is served when the feed can't be read. Nothing is written
-// anywhere.
+// AI News (Phase 35b; several sources since Phase 41): reads each source's
+// RSS or Atom feed at once and merges them into one clean list of articles.
+// A source that's down, slow or answers garbage is left out; the rest still
+// make the list. Stateless: the list lives in this module (one copy per warm
+// Lambda container) for `NEWS_CACHE_SECONDS`, and the last good list is
+// served when no feed can be read. Nothing is written anywhere.
 // ---------------------------------------------------------------------------
 
-/** How long the feed may take to answer. */
-export const FEED_TIMEOUT_MS = 5_000;
-/** The most feed we read (TechCrunch's is ~100 KB). */
+/**
+ * How long one feed may take to answer. A source with a second address can
+ * take two tries: 8 s, inside the Lambda's 15.
+ */
+export const FEED_TIMEOUT_MS = 4_000;
+/** The most feed we read (most are 50–300 KB). */
 export const MAX_FEED_BYTES = 3 * 1024 * 1024;
 /** After a failed read, the last good list is served this long before trying again. */
 export const RETRY_AFTER_FAILURE_MS = 60_000;
+/** A list missing a source (it was down) is kept this long, then every feed is read again. */
+export const RETRY_PARTIAL_MS = 5 * 60_000;
 
 type XmlNode = Record<string, unknown>;
 
 /** Elements that may repeat: always arrays, so one item reads like many. */
-const ARRAYS = new Set(["item", "media:content", "media:thumbnail", "enclosure", "category"]);
+const ARRAYS = new Set([
+  "item",
+  "entry",
+  "media:content",
+  "media:thumbnail",
+  "enclosure",
+  "category",
+]);
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -165,41 +179,181 @@ export function imageOf(item: XmlNode): string | null {
   return firstImageIn(textOf(item["content:encoded"])) ?? firstImageIn(textOf(item["description"]));
 }
 
-/** RFC 822 (`Mon, 26 Oct 2026 14:05:00 +0000`) to ISO, or `null`. */
+/** RFC 822 (`Mon, 26 Oct 2026 14:05:00 +0000`) or ISO 8601 (Atom) to ISO, or `null`. */
 export function isoDate(value: string): string | null {
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
-/** The feed's articles, newest first, at most `NEWS_MAX_ARTICLES`. Throws on XML that isn't RSS. */
-export function parseFeed(xml: string): NewsArticle[] {
-  const doc = parser.parse(xml) as XmlNode;
-  const channel = (doc["rss"] as XmlNode | undefined)?.["channel"] as XmlNode | undefined;
-  if (!channel) throw new Error("not an RSS feed");
-  const articles: NewsArticle[] = [];
-  for (const item of asList(channel["item"])) {
-    const title = plainText(textOf(item["title"]));
-    const link = httpsUrl(textOf(item["link"]) || textOf(item["guid"]));
-    if (!title || !link) continue;
-    const summary =
-      plainText(textOf(item["description"])) || plainText(textOf(item["content:encoded"]));
-    articles.push({
-      title,
-      link,
-      snippet: clip(summary),
-      pubDate: isoDate(textOf(item["pubDate"])),
-      imageUrl: imageOf(item),
-    });
+/** An Atom entry's page: the `rel="alternate"` link (or one with no `rel`), else its id. */
+function atomLink(entry: XmlNode): string | null {
+  const links = asList(entry["link"]);
+  const page =
+    links.find((l) => l["@_rel"] === "alternate") ?? links.find((l) => l["@_rel"] === undefined);
+  return httpsUrl(page?.["@_href"]) ?? httpsUrl(textOf(entry["id"]));
+}
+
+/** An Atom entry's image: as for RSS, plus a `<link rel="enclosure">` that's an image. */
+function atomImage(entry: XmlNode): string | null {
+  const image = imageOf({
+    ...entry,
+    "content:encoded": entry["content"],
+    description: entry["summary"],
+  });
+  if (image) return image;
+  for (const link of asList(entry["link"])) {
+    const url = httpsUrl(link["@_href"]);
+    if (
+      link["@_rel"] === "enclosure" &&
+      url &&
+      (isImageType(link["@_type"]) || IMAGE_EXT.test(url))
+    ) {
+      return url;
+    }
   }
-  return articles
-    .sort((a, b) => (b.pubDate ?? "").localeCompare(a.pubDate ?? ""))
-    .slice(0, NEWS_MAX_ARTICLES);
+  return null;
+}
+
+/** An item's categories: RSS text (`<category>AI</category>`) or Atom terms (`term="AI"`). */
+function categoriesOf(item: XmlNode): string[] {
+  const values = Array.isArray(item["category"]) ? (item["category"] as unknown[]) : [];
+  return values
+    .map((c) => textOf(c) || String((c as XmlNode | null)?.["@_term"] ?? ""))
+    .map((c) => plainText(c))
+    .filter(Boolean);
+}
+
+/** One story, as read from the feed, before the source is known to be about AI. */
+interface FeedStory extends NewsArticle {
+  categories: string[];
+}
+
+/** An RSS `<item>` as an article, or `null` without a title or an https link. */
+function rssStory(item: XmlNode, sourceName: string): FeedStory | null {
+  const title = plainText(textOf(item["title"]));
+  const link = httpsUrl(textOf(item["link"]) || textOf(item["guid"]));
+  if (!title || !link) return null;
+  const summary =
+    plainText(textOf(item["description"])) || plainText(textOf(item["content:encoded"]));
+  return {
+    title,
+    link,
+    snippet: clip(summary),
+    pubDate: isoDate(textOf(item["pubDate"]) || textOf(item["dc:date"])),
+    imageUrl: imageOf(item),
+    sourceName,
+    categories: categoriesOf(item),
+  };
+}
+
+/** An Atom `<entry>` as an article, or `null` without a title or an https link. */
+function atomStory(entry: XmlNode, sourceName: string): FeedStory | null {
+  const title = plainText(textOf(entry["title"]));
+  const link = atomLink(entry);
+  if (!title || !link) return null;
+  const summary = plainText(textOf(entry["summary"])) || plainText(textOf(entry["content"]));
+  return {
+    title,
+    link,
+    snippet: clip(summary),
+    pubDate: isoDate(textOf(entry["published"]) || textOf(entry["updated"])),
+    imageUrl: atomImage(entry),
+    sourceName,
+    categories: categoriesOf(entry),
+  };
+}
+
+/** Words that make a story from a general tech feed an AI story. */
+const AI_TOPIC =
+  /\b(?:A\.?I\.?|AGI|LLMs?|GPT[\w.-]*|ML|artificial intelligence|machine learning|deep learning|neural|generative|chatbots?|ChatGPT|OpenAI|Anthropic|Claude|Gemini|DeepMind|Copilot|Llama|Mistral|xAI|Grok|Perplexity|Nvidia|agentic|AI agents?)\b/;
+
+/** Whether a story from a general feed is about AI: its title, categories or snippet say so. */
+export function isAboutAi(story: Pick<FeedStory, "title" | "snippet" | "categories">): boolean {
+  return [story.title, ...story.categories, story.snippet].some((text) => AI_TOPIC.test(text));
+}
+
+/**
+ * A feed's articles (RSS 2.0, RSS 1.0 or Atom), newest first, at most
+ * `NEWS_MAX_ARTICLES`, each marked with `sourceName`. A malformed item is
+ * skipped, not fatal; `general` keeps only the AI stories. Throws on a
+ * document that isn't a feed at all (an error page, a login wall).
+ */
+export function parseFeed(
+  xml: string,
+  sourceName: string,
+  { general = false }: { general?: boolean } = {},
+): NewsArticle[] {
+  const doc = parser.parse(xml) as XmlNode;
+  const rss = (doc["rss"] as XmlNode | undefined)?.["channel"] as XmlNode | undefined;
+  const rdf = doc["rdf:RDF"] as XmlNode | undefined;
+  const atom = doc["feed"] as XmlNode | undefined;
+  const items: { node: XmlNode; read: typeof rssStory }[] = rss
+    ? asList(rss["item"]).map((node) => ({ node, read: rssStory }))
+    : rdf
+      ? asList(rdf["item"]).map((node) => ({ node, read: rssStory }))
+      : atom
+        ? asList(atom["entry"]).map((node) => ({ node, read: atomStory }))
+        : [];
+  if (!rss && !rdf && !atom) throw new Error("not an RSS or Atom feed");
+  const articles: NewsArticle[] = [];
+  for (const { node, read } of items) {
+    let story: FeedStory | null;
+    try {
+      story = read(node, sourceName);
+    } catch {
+      continue; // one odd item doesn't cost the feed
+    }
+    if (!story || (general && !isAboutAi(story))) continue;
+    const { title, link, snippet, pubDate, imageUrl } = story;
+    articles.push({ title, link, snippet, pubDate, imageUrl, sourceName });
+  }
+  return newestFirst(articles).slice(0, NEWS_MAX_ARTICLES);
+}
+
+const newestFirst = (articles: NewsArticle[]) =>
+  [...articles].sort((a, b) => (b.pubDate ?? "").localeCompare(a.pubDate ?? ""));
+
+/** A link without what varies between feeds for the same page (tracking query, `#`, trailing `/`). */
+function canonicalLink(link: string): string {
+  const url = new URL(link);
+  return `${url.host.replace(/^www\./, "")}${url.pathname.replace(/\/+$/, "")}`.toLowerCase();
+}
+
+const titleKey = (title: string) =>
+  title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+
+/**
+ * Every source's articles as one list: newest first, the same story once
+ * (by link or title, the first source's copy kept), at most
+ * `NEWS_MAX_PER_SOURCE` from each source and `NEWS_MAX_ARTICLES` in all.
+ */
+export function mergeArticles(lists: NewsArticle[][]): NewsArticle[] {
+  const links = new Set<string>();
+  const titles = new Set<string>();
+  const perSource = new Map<string, number>();
+  const merged: NewsArticle[] = [];
+  for (const article of newestFirst(lists.flat())) {
+    const link = canonicalLink(article.link);
+    const title = titleKey(article.title);
+    if (links.has(link) || titles.has(title)) continue;
+    const count = perSource.get(article.sourceName) ?? 0;
+    if (count >= NEWS_MAX_PER_SOURCE) continue;
+    links.add(link);
+    titles.add(title);
+    perSource.set(article.sourceName, count + 1);
+    merged.push(article);
+    if (merged.length === NEWS_MAX_ARTICLES) break;
+  }
+  return merged;
 }
 
 /** Downloads the feed, refusing what's slow, huge or not XML. */
 export async function fetchFeed(
   fetchImpl: typeof fetch = fetch,
-  url = NEWS_FEED_URL,
+  url = NEWS_FEEDS[0]!.urls[0]!.url,
 ): Promise<string> {
   const response = await fetchImpl(url, {
     headers: {
@@ -211,12 +365,68 @@ export async function fetchFeed(
   });
   if (!response.ok) throw new Error(`feed answered ${response.status}`);
   const type = response.headers.get("content-type") ?? "";
-  if (type && !/xml|rss/i.test(type)) throw new Error(`feed isn't XML (${type})`);
+  if (type && !/xml|rss|atom/i.test(type)) throw new Error(`feed isn't XML (${type})`);
   const length = Number(response.headers.get("content-length") ?? 0);
   if (length > MAX_FEED_BYTES) throw new Error("feed too large");
   const text = await response.text();
   if (text.length > MAX_FEED_BYTES) throw new Error("feed too large");
   return text;
+}
+
+/** One source's articles: its first address that reads as a feed, else the last error. */
+export async function readSource(
+  feed: NewsFeed,
+  fetchImpl: typeof fetch = fetch,
+): Promise<NewsArticle[]> {
+  let failure: unknown = new Error(`${feed.name} has no feed address`);
+  for (const { url, general } of feed.urls) {
+    try {
+      return parseFeed(await fetchFeed(fetchImpl, url), feed.name, { general });
+    } catch (err) {
+      failure = err;
+    }
+  }
+  throw failure;
+}
+
+export interface NewsRead {
+  articles: NewsArticle[];
+  /** The sources that answered, in `NEWS_FEEDS` order. */
+  sources: string[];
+  /** The ones that didn't, and why. */
+  failed: { source: string; error: string }[];
+}
+
+/**
+ * Every source at once, merged. Throws only when none could be read (the
+ * first source's error); otherwise the ones that failed are in `failed`.
+ */
+export async function readAllSources(
+  fetchImpl: typeof fetch = fetch,
+  feeds: readonly NewsFeed[] = NEWS_FEEDS,
+): Promise<NewsRead> {
+  const results = await Promise.allSettled(feeds.map((feed) => readSource(feed, fetchImpl)));
+  const read: NewsRead = { articles: [], sources: [], failed: [] };
+  const lists: NewsArticle[][] = [];
+  results.forEach((result, i) => {
+    const source = feeds[i]!.name;
+    if (result.status === "fulfilled") {
+      read.sources.push(source);
+      lists.push(result.value);
+    } else {
+      const reason: unknown = result.reason;
+      read.failed.push({
+        source,
+        error: reason instanceof Error ? reason.message : String(reason),
+      });
+    }
+  });
+  if (read.sources.length === 0) {
+    const first = results[0];
+    throw first?.status === "rejected" ? first.reason : new Error("no news sources");
+  }
+  read.articles = mergeArticles(lists);
+  return read;
 }
 
 // --- The warm container's copy ------------------------------------------------------
@@ -229,30 +439,37 @@ export function resetNewsCache(): void {
 }
 
 /**
- * The articles: this container's copy while it's fresh, else the feed read
- * now. `refresh` ("Refresh news") reads the feed again even while the copy
- * is fresh, unless it was read within `NEWS_REFRESH_MIN_SECONDS`. When the
- * feed can't be read, the last good list is served marked `stale` (and tried
- * again on the next request); with none yet, it throws.
+ * The articles: this container's copy while it's fresh, else every feed read
+ * now. `refresh` ("Refresh news") reads them again even while the copy is
+ * fresh, unless they were read within `NEWS_REFRESH_MIN_SECONDS`. A list
+ * missing a source that was down is kept only `RETRY_PARTIAL_MS`. When no
+ * feed can be read, the last good list is served marked `stale` (and tried
+ * again a minute later); with none yet, it throws.
  */
 export async function getNews(
   fetchImpl: typeof fetch = fetch,
   now = Date.now(),
   refresh = false,
-): Promise<{ response: NewsResponse; fromCache: boolean; expiresAt: number }> {
+): Promise<{
+  response: NewsResponse;
+  fromCache: boolean;
+  expiresAt: number;
+  failed?: NewsRead["failed"];
+}> {
   const fresh = cached && now < cached.until;
   const justRead = cached && now - cached.readAt < NEWS_REFRESH_MIN_SECONDS * 1000;
   if (cached && (refresh ? justRead : fresh)) {
     return { response: cached.response, fromCache: true, expiresAt: cached.until };
   }
   try {
-    const articles = parseFeed(await fetchFeed(fetchImpl));
-    const response: NewsResponse = { articles, source: NEWS_SOURCE, fetchedAt: now };
-    cached = { response, until: now + NEWS_CACHE_SECONDS * 1000, readAt: now };
-    return { response, fromCache: false, expiresAt: cached.until };
+    const { articles, sources, failed } = await readAllSources(fetchImpl);
+    const response: NewsResponse = { articles, source: sources.join(", "), fetchedAt: now };
+    const until = now + (failed.length > 0 ? RETRY_PARTIAL_MS : NEWS_CACHE_SECONDS * 1000);
+    cached = { response, until, readAt: now };
+    return { response, fromCache: false, expiresAt: until, failed };
   } catch (err) {
     if (!cached) throw err;
-    // Don't make every request wait for a feed that's down: try again in a minute.
+    // Don't make every request wait for feeds that are down: try again in a minute.
     cached = { ...cached, until: now + RETRY_AFTER_FAILURE_MS };
     return {
       response: { ...cached.response, stale: true },
