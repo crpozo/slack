@@ -80,11 +80,12 @@ export interface NewsResponse {
 }
 
 // ---------------------------------------------------------------------------
-// AI Insights (Phase 39): every morning a worker reads the same feeds and asks
-// Claude Haiku 5.5 on Amazon Bedrock for an analysis of the day's stories:
-// what matters, the trends behind them and what they mean for the team. One
-// row per day is kept (`slack-<stage>-news-insights`); the News view shows
-// the latest, and an admin can ask for a fresh one.
+// AI Insights (Phase 39; structured since Phase 41): every morning a worker
+// reads the same feeds and asks Claude Haiku 5.5 on Amazon Bedrock for the
+// day's dashboard as JSON: the top stories (headline and summary in Spanish),
+// the trends behind them and what they mean for the team. One row per day is
+// kept (`slack-<stage>-news-insights`); the News view shows the latest, and
+// an admin can ask for a fresh one.
 // ---------------------------------------------------------------------------
 
 /** The language the analysis is written in (the team's). */
@@ -108,15 +109,63 @@ export interface NewsInsightsArticle {
   link: string;
 }
 
+/** How many stories "Lo esencial" picks. */
+export const NEWS_INSIGHTS_TOP_STORIES = 4;
+/** How many trends "Tendencias" has, at most. */
+export const NEWS_INSIGHTS_MAX_TRENDS = 3;
+/** How many takeaways "Qué significa para MindfulTech" has, at most. */
+export const NEWS_INSIGHTS_MAX_TAKEAWAYS = 4;
+
+/**
+ * A story as the dashboard shows it: the headline and summary are the
+ * model's (in Spanish); the rest is the feed's, never the model's.
+ */
+export interface NewsStory {
+  headline: string;
+  /** One or two sentences. */
+  summary: string;
+  /** The publisher ("InfoQ"). */
+  sourceName: string;
+  /** The article on the publisher's site (https). */
+  link: string;
+  /** https; `null` when the feed had no image for it. */
+  thumbnailUrl: string | null;
+  /** ISO 8601, or `null`. */
+  pubDate: string | null;
+}
+
+/** A pattern behind the day's stories. */
+export interface NewsTrend {
+  /** One or two words ("Agentes"). */
+  topic: string;
+  /** A short paragraph; the key phrases are marked `**like this**` (plain text otherwise). */
+  text: string;
+}
+
+/** What the news means for the team: a bold lead and the rest of the sentence. */
+export interface NewsTakeaway {
+  /** "Evaluar modelos on-device" */
+  lead: string;
+  /** "para la app de bienestar: reduce costos de API…" */
+  body: string;
+}
+
 export interface NewsInsights {
   /** `YYYY-MM-DD` in `NEWS_INSIGHTS_TIME_ZONE`. */
   day: string;
-  /** Markdown from the model. */
-  analysis: string;
   /** When it was written (epoch ms). */
   generatedAt: number;
+  /** How many stories the model read. */
+  storyCount: number;
+  /** "Lo esencial": the day's top stories, most important first. */
+  stories: NewsStory[];
+  /** "Tendencias". */
+  trends: NewsTrend[];
+  /** "Qué significa para MindfulTech". */
+  takeaways: NewsTakeaway[];
   /** The stories it read, newest first. */
   articles: NewsInsightsArticle[];
+  /** The publishers they came from, comma-separated. */
   source: string;
 }
 

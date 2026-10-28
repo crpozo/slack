@@ -21,11 +21,12 @@ export interface InsightsRun {
 }
 
 /**
- * Writes the day's AI Insights (Phase 39). Run every morning by an
+ * Writes the day's AI Insights (Phase 39; the dashboard's JSON since Phase 41). Run every morning by an
  * EventBridge schedule, and on demand by `POST /news/insights` (an admin's
  * "Generate now"); the event's contents don't matter. It reads the feed
- * itself (every source; the `news` Lambda's cache is its own), asks Claude Haiku 5.5 for
- * the analysis and keeps it as today's row, replacing an earlier one from the
+ * itself (every source; the `news` Lambda's cache is its own), asks Claude
+ * Haiku 5.5 for the dashboard (top stories, trends, takeaways) and keeps it
+ * as today's row, replacing an earlier one from the
  * same day. Any failure throws, so the schedule's retries get another go:
  * nothing is half-written, since the row is put in one piece at the end.
  */
@@ -47,7 +48,7 @@ export const handler = async (): Promise<InsightsRun> => {
     });
     throw err;
   }
-  const outcome = insightsFrom(response);
+  const outcome = insightsFrom(response, articles);
   const run: InsightsRun = {
     day,
     articles: articles.length,
@@ -58,7 +59,7 @@ export const handler = async (): Promise<InsightsRun> => {
     log.error("news insights not written", { ...run, stopReason: response.stop_reason });
     throw new Error(`News insights for ${day}: ${outcome.error}`);
   }
-  await saveInsights(insightsItem(day, outcome.analysis, articles, Date.now()));
+  await saveInsights(insightsItem(day, outcome.dashboard, articles, Date.now()));
   log.info("news insights written", { ...run, ms: Date.now() - started });
   return run;
 };

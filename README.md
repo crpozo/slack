@@ -514,22 +514,27 @@ messages are skipped. Your AWS credentials need `dynamodb:Scan` on the messages 
 `dynamodb:BatchWriteItem` on the new one. Re-running rewrites identical rows. Until it has run,
 the tab only shows what was shared after the deploy.
 
-The header's **Refresh news** button reads the feed again right away, past the 30-minute cache
+The header's **Refresh news** button reads the feeds again right away, past the 30-minute cache
 (at most once a minute per server container).
 
 ### 8. AI Insights (the morning analysis of the AI news)
 
-The AI News view (`/app/news`) opens with **AI Insights**: an analysis of the day's TechCrunch AI
-stories written by **Claude Haiku 5.5** on Amazon Bedrock, in Spanish, with what matters, the
-trends behind the stories, what they mean for MindfulTech and what to watch next. A scheduled
-worker (`news-insights-worker`, EventBridge, every day at 07:07 in Ecuador) reads the feed, asks
-the model and keeps the analysis as that day's row in `slack-<stage>-news-insights`; the view
-reads the newest one through `GET /news/insights`. It needs the same Bedrock model access as the
-call notes (step 7) and nothing else to set up.
+The AI News view (`/app/news`) is a dashboard over the AI stories of **TechCrunch, VentureBeat,
+The Verge and InfoQ** (read at once and merged; a source that's down is left out). **Claude Haiku
+5.5** on Amazon Bedrock writes its analysis, in Spanish, as JSON held to a schema (structured
+outputs): **Lo esencial** (the day's four top stories, with a headline and summary of its own;
+link, thumbnail, source and date always come from the feed), **Tendencias** (three trends, key
+phrases highlighted) and **Qué significa para MindfulTech** (takeaways for the team). Every other
+story is listed below. A scheduled worker (`news-insights-worker`, EventBridge, every day at 07:07
+in Ecuador) reads the feeds, asks the model and keeps the dashboard as that day's row in
+`slack-<stage>-news-insights`; the view reads the newest one through `GET /news/insights`. It
+needs the same Bedrock model access as the call notes (step 7) and nothing else to set up.
 
-Before the first morning run after a deploy, the section says so; an **admin** can ask for one at
-once with **Generate now** (also **Generate again** later in the day), which starts the worker and
-shows the analysis when it's ready, about half a minute later. Each analysis is one request of a
+Until the first run after the deploy that brought the dashboard (an older row is a Markdown page
+the dashboard can't show), "Lo esencial" shows the newest stories as they are and the callout
+says when the analysis comes; an **admin** can ask for one at once with **Generar análisis** (also
+**Generar de nuevo** later in the day), which starts the worker and shows the result when it's
+ready, about half a minute later. Each analysis is one request of a
 few thousand tokens: cents a month. A failed run (the feed down, the model busy) is retried twice
 by the schedule and writes nothing, so the view keeps showing the previous day's analysis.
 
