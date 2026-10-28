@@ -93,7 +93,7 @@ export const NEWS_INSIGHTS_LANGUAGE = "Spanish";
 /** The team's time zone: decides which calendar day an analysis belongs to. */
 export const NEWS_INSIGHTS_TIME_ZONE = "America/Guayaquil";
 /** When the morning analysis runs, in that time zone (the infra's schedule says the same). */
-export const NEWS_INSIGHTS_LOCAL_TIME = "07:07";
+export const NEWS_INSIGHTS_LOCAL_TIME = "08:00";
 /**
  * The partition key of every row. It named the one feed there was; it stays
  * as it is now that the analysis reads every source, so the rows already
@@ -167,6 +167,20 @@ export interface NewsInsights {
   articles: NewsInsightsArticle[];
   /** The publishers they came from, comma-separated. */
   source: string;
+}
+
+/**
+ * "Refresh news" (`POST /news/refresh`) starts a new analysis at once, but
+ * not more often than this for members (admins aren't held to it): every
+ * click is a model run, and an analysis takes about half a minute.
+ */
+export const NEWS_REFRESH_COOLDOWN_SECONDS = 5 * 60;
+
+/** `POST /news/refresh`: a new analysis was started, or one was started too recently. */
+export interface NewsRefreshResponse {
+  queued: boolean;
+  /** When `queued` is false: how long until the next one may be started. */
+  retryAfterSeconds?: number;
 }
 
 /** `GET /news/insights`: the latest analysis, or `null` before the first one. */

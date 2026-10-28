@@ -19,7 +19,7 @@ describe("news insights store", () => {
     let t = 1_000_000;
     const api: NewsInsightsApi = {
       latest: vi.fn(async () => ({ insights: insights(1) })),
-      generate: vi.fn(async () => ({ queued: true as const })),
+      refresh: vi.fn(async () => ({ queued: true })),
     };
     const store = createNewsInsightsStore(api, () => t);
     await store.getState().load();
@@ -36,7 +36,7 @@ describe("news insights store", () => {
   it("before the first analysis, ready with nothing; a failed load with nothing is an error", async () => {
     const empty: NewsInsightsApi = {
       latest: vi.fn(async () => ({ insights: null })),
-      generate: vi.fn(),
+      refresh: vi.fn(),
     };
     const store = createNewsInsightsStore(empty);
     await store.getState().load();
@@ -44,11 +44,26 @@ describe("news insights store", () => {
 
     const down: NewsInsightsApi = {
       latest: vi.fn(async () => Promise.reject(new Error("offline"))),
-      generate: vi.fn(),
+      refresh: vi.fn(),
     };
     const failed = createNewsInsightsStore(down);
     await failed.getState().load();
     expect(failed.getState()).toMatchObject({ status: "error", error: "offline" });
+  });
+
+  it("generate: when one was started a moment ago, says when the next may be asked for", async () => {
+    const api: NewsInsightsApi = {
+      latest: vi.fn(async () => ({ insights: insights(1) })),
+      refresh: vi.fn(async () => ({ queued: false, retryAfterSeconds: 170 })),
+    };
+    const store = createNewsInsightsStore(api);
+    await store.getState().generate();
+    expect(store.getState()).toMatchObject({
+      generating: false,
+      generateError: null,
+      generateNotice: "El análisis se pidió hace un momento: podrás pedir otro en 3 min.",
+    });
+    expect(api.latest).toHaveBeenCalled(); // shows the one that's being written, once it's there
   });
 
   it("generate: asks the server, then polls until a newer analysis appears", async () => {
@@ -60,7 +75,7 @@ describe("news insights store", () => {
       .mockResolvedValueOnce({ insights: insights(2) }); // the new one
     const api: NewsInsightsApi = {
       latest,
-      generate: vi.fn(async () => ({ queued: true as const })),
+      refresh: vi.fn(async () => ({ queued: true })),
     };
     const sleep = vi.fn(async (ms: number) => {
       t += ms;
@@ -68,7 +83,7 @@ describe("news insights store", () => {
     const store = createNewsInsightsStore(api, () => t, sleep);
     await store.getState().load();
     await store.getState().generate();
-    expect(api.generate).toHaveBeenCalledTimes(1);
+    expect(api.refresh).toHaveBeenCalledTimes(1);
     expect(sleep).toHaveBeenCalledWith(INSIGHTS_POLL_MS);
     expect(store.getState()).toMatchObject({
       generating: false,
@@ -81,7 +96,7 @@ describe("news insights store", () => {
     let t = 1_000_000;
     const api: NewsInsightsApi = {
       latest: vi.fn(async () => ({ insights: insights(1) })),
-      generate: vi.fn(async () => ({ queued: true as const })),
+      refresh: vi.fn(async () => ({ queued: true })),
     };
     const store = createNewsInsightsStore(
       api,
@@ -93,19 +108,17 @@ describe("news insights store", () => {
     await store.getState().load(); // the one on screen; the worker never writes a newer one
     await store.getState().generate();
     expect(store.getState()).toMatchObject({ generating: false, insights: insights(1) });
-    expect(store.getState().generateError).toMatch(/longer than usual/);
+    expect(store.getState().generateError).toMatch(/tardando más de lo normal/);
 
     const refused: NewsInsightsApi = {
       latest: vi.fn(),
-      generate: vi.fn(async () =>
-        Promise.reject(new Error("Only an admin can ask for a new analysis")),
-      ),
+      refresh: vi.fn(async () => Promise.reject(new Error("Service Unavailable"))),
     };
     const other = createNewsInsightsStore(refused);
     await other.getState().generate();
     expect(other.getState()).toMatchObject({
       generating: false,
-      generateError: "Only an admin can ask for a new analysis",
+      generateError: "Service Unavailable",
     });
   });
 });

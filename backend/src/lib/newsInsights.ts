@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
+import { PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import {
   NEWS_INSIGHTS_FEED,
   NEWS_INSIGHTS_LANGUAGE,
@@ -7,6 +8,7 @@ import {
   NEWS_INSIGHTS_MAX_TRENDS,
   NEWS_INSIGHTS_TOP_STORIES,
   NEWS_MAX_ARTICLES,
+  NEWS_REFRESH_COOLDOWN_SECONDS,
   type NewsArticle,
   type NewsInsights,
   type NewsStory,
@@ -279,4 +281,52 @@ export async function latestInsights(): Promise<NewsInsights | null> {
     articles: articles ?? [],
     source: source ?? "",
   };
+}
+
+// --- "Refresh news": a new analysis now, at most every few minutes --------------------
+
+/**
+ * The cooldown's row: same table, its own partition, so `latestInsights`
+ * (which reads only `NEWS_INSIGHTS_FEED`) never sees it.
+ */
+export const REFRESH_LOCK_KEY = { feed: "news-refresh", day: "lock" } as const;
+
+export type RefreshClaim = { ok: true } | { ok: false; retryAfterSeconds: number };
+
+/**
+ * Claims the right to start an analysis now: one atomic write that succeeds
+ * only when the last start was `NEWS_REFRESH_COOLDOWN_SECONDS` ago or more,
+ * so many clicks at once start one run. `force` (admins) always claims.
+ */
+export async function claimRefresh(
+  userId: string,
+  now: number,
+  force = false,
+): Promise<RefreshClaim> {
+  const cooldownMs = NEWS_REFRESH_COOLDOWN_SECONDS * 1000;
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: tables.newsInsights,
+        Key: REFRESH_LOCK_KEY,
+        UpdateExpression: "SET requestedAt = :now, requestedBy = :by",
+        ...(!force && {
+          ConditionExpression: "attribute_not_exists(requestedAt) OR requestedAt <= :cutoff",
+          ReturnValuesOnConditionCheckFailure: "ALL_OLD",
+        }),
+        ExpressionAttributeValues: {
+          ":now": now,
+          ":by": userId,
+          ...(!force && { ":cutoff": now - cooldownMs }),
+        },
+      }),
+    );
+    return { ok: true };
+  } catch (err) {
+    if (!(err instanceof ConditionalCheckFailedException)) throw err;
+    // The row as it was (raw attribute values: the document client doesn't convert errors).
+    const last = Number(err.Item?.requestedAt?.N);
+    const left = Number.isFinite(last) ? last + cooldownMs - now : cooldownMs;
+    return { ok: false, retryAfterSeconds: Math.max(1, Math.ceil(left / 1000)) };
+  }
 }

@@ -28,15 +28,16 @@ import { Popover } from "./Popover";
 import {
   AppsIcon,
   ArchiveIcon,
+  CalendarIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ChevronUpIcon,
   DmsIcon,
   HashIcon,
-  CalendarIcon,
   KanbanIcon,
   LogOutIcon,
   MoreHorizontalIcon,
+  NewspaperIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   PencilIcon,
@@ -515,8 +516,8 @@ const PHONE_APPS: PhoneApp[] = [
   {
     path: "/app/news",
     label: "AI News",
-    tile: "bg-white text-[#1A1D21]",
-    icon: <span aria-hidden="true">📰</span>,
+    tile: "bg-gradient-to-br from-[#40B375] to-[#1F6E47] text-white",
+    icon: <NewspaperIcon />,
   },
 ];
 
@@ -1080,11 +1081,7 @@ export function Sidebar({
               <NavItem
                 compact={compact}
                 label="AI News"
-                icon={
-                  <span className="text-[15px] leading-none" aria-hidden="true">
-                    📰
-                  </span>
-                }
+                icon={<NewspaperIcon className="text-ink-secondary" />}
                 active={activeChannelId === "news"}
                 unread={0}
                 onClick={() => navigate("/app/news")}

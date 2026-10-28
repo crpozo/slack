@@ -25,6 +25,7 @@ import {
   LogOutIcon,
   MessageIcon,
   MoreHorizontalIcon,
+  NewspaperIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
@@ -604,7 +605,7 @@ export function MoreSheet({
           onClick={onOpenNotes}
         />
         <SheetRow
-          icon={<span aria-hidden="true">📰</span>}
+          icon={<NewspaperIcon className="text-primary" />}
           label="AI News"
           hint="The latest from the AI press"
           onClick={onOpenNews}

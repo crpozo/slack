@@ -1,5 +1,6 @@
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
-import { PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
+import { PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import type Anthropic from "@anthropic-ai/sdk";
 import { calendarDay, NEWS_INSIGHTS_FEED, type NewsArticle } from "@mindfultech/shared";
 import { mockClient } from "aws-sdk-client-mock";
@@ -384,6 +385,48 @@ describe("GET and POST /news/insights", () => {
     });
     expect((await call(event("POST /news/insights"))).status).toBe(403);
     expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(1);
+  });
+
+  it("POST /news/refresh starts the worker for a member at most every 5 minutes, atomically", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    ddbMock.on(UpdateCommand).resolves({});
+    expect(await call(event("POST /news/refresh"))).toEqual({
+      status: 202,
+      body: { queued: true },
+    });
+    const claim = ddbMock.commandCalls(UpdateCommand)[0]!.args[0].input;
+    expect(claim).toMatchObject({
+      TableName: TABLE,
+      Key: { feed: "news-refresh", day: "lock" },
+      ConditionExpression: "attribute_not_exists(requestedAt) OR requestedAt <= :cutoff",
+      ExpressionAttributeValues: { ":now": NOW, ":by": ALICE.userId, ":cutoff": NOW - 300_000 },
+    });
+    const invoke = lambdaMock.commandCalls(InvokeCommand)[0]!.args[0].input;
+    expect(invoke).toMatchObject({ InvocationType: "Event" });
+
+    // Two minutes after the last start: not yet, and no worker.
+    ddbMock.on(UpdateCommand).rejects(
+      new ConditionalCheckFailedException({
+        message: "The conditional request failed",
+        $metadata: {},
+        Item: { requestedAt: { N: String(NOW - 120_000) } },
+      }),
+    );
+    expect(await call(event("POST /news/refresh"))).toEqual({
+      status: 200,
+      body: { queued: false, retryAfterSeconds: 180 },
+    });
+    expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
+  it("POST /news/refresh: an admin isn't held to the cooldown", async () => {
+    ddbMock.on(UpdateCommand).resolves({});
+    expect((await call(event("POST /news/refresh", ["admins"]))).status).toBe(202);
+    const claim = ddbMock.commandCalls(UpdateCommand)[0]!.args[0].input;
+    expect(claim.ConditionExpression).toBeUndefined();
+    expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(1);
+    expect((await call(event("POST /news/refresh", ["guests"]))).status).toBe(403);
   });
 
   it("is closed to guests and to unknown routes", async () => {
