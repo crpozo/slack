@@ -52,6 +52,13 @@ export const tables = {
   get callRooms() {
     return requireEnv("CALL_ROOMS_TABLE");
   },
+  /**
+   * Phase 42: the message search index: per conversation, one row per term
+   * of each message (`<term>#<message sk>`), kept by the stream processor.
+   */
+  get messageSearch() {
+    return requireEnv("MESSAGE_SEARCH_TABLE");
+  },
   /** Phase 38: per conversation, one row per shared file, link and pinned message. */
   get channelMedia() {
     return requireEnv("CHANNEL_MEDIA_TABLE");

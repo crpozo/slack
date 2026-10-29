@@ -12,6 +12,8 @@ import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations
 import { Rule, Schedule } from "aws-cdk-lib/aws-events";
 import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
 import { PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { StartingPosition } from "aws-cdk-lib/aws-lambda";
+import { DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import type { IBucket } from "aws-cdk-lib/aws-s3";
@@ -127,6 +129,11 @@ export const MESSAGES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/channels/{channelId}/pins" },
 ];
 
+/** Message search (Phase 42): its own small Lambda, reading the index and the messages. */
+export const SEARCH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/search" },
+];
+
 /** Web Push subscriptions (Phase 8), served by their own small Lambda on the same API. */
 export const PUSH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/push/key" },
@@ -189,6 +196,10 @@ export class TasksApi extends Construct {
   readonly messagesHandler: NodejsFunction;
   /** `news`: the AI News proxy (Phase 35b); no table, bucket or parameter. */
   readonly newsHandler: NodejsFunction;
+  /** `search`: message search (Phase 42). */
+  readonly searchHandler: NodejsFunction;
+  /** `search-indexer`: keeps the search index in step with the messages table's stream. */
+  readonly searchIndexer: NodejsFunction;
   /** `news-insights`: the latest analysis, and an admin's request for a new one (Phase 39). */
   readonly newsInsightsHandler: NodejsFunction;
   /** `news-insights-worker`: writes the day's analysis (the morning schedule, or on request). */
@@ -347,6 +358,32 @@ export class TasksApi extends Construct {
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
       WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
     });
+    // Message search (Phase 42): the endpoint reads the conversations (to know
+    // which the caller sees), the index and the matching messages; the indexer
+    // follows the messages table's stream and writes only the index.
+    this.searchHandler = lambda("SearchFn", "search", {
+      CHANNELS_TABLE: data.channels.tableName,
+      MESSAGES_TABLE: data.messages.tableName,
+      MESSAGE_SEARCH_TABLE: data.messageSearch.tableName,
+    });
+    this.searchIndexer = lambda(
+      "SearchIndexerFn",
+      "search-indexer",
+      { MESSAGE_SEARCH_TABLE: data.messageSearch.tableName },
+      Duration.seconds(60),
+    );
+    this.searchIndexer.addEventSource(
+      new DynamoEventSource(data.messages, {
+        startingPosition: StartingPosition.LATEST,
+        batchSize: 100,
+        maxBatchingWindow: Duration.seconds(1),
+        // A batch that keeps failing is split to find the bad record, retried a
+        // few times, then skipped (the index misses one message, nothing else).
+        bisectBatchOnError: true,
+        retryAttempts: 5,
+        reportBatchItemFailures: false,
+      }),
+    );
     new Rule(this, "ArchiveSchedule", {
       ruleName: `slack-${stage}-archive-done-tasks`,
       description: "Archives Kanban tasks that have been Done for over a week",
@@ -387,6 +424,10 @@ export class TasksApi extends Construct {
     );
     for (const { method, path } of MESSAGES_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: messagesIntegration });
+    }
+    const searchIntegration = new HttpLambdaIntegration("SearchIntegration", this.searchHandler);
+    for (const { method, path } of SEARCH_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: searchIntegration });
     }
     const pushIntegration = new HttpLambdaIntegration("PushIntegration", this.pushHandler);
     for (const { method, path } of PUSH_ROUTES) {
@@ -593,6 +634,14 @@ export class TasksApi extends Construct {
     data.tasks.grant(this.archiveHandler, "dynamodb:Query", "dynamodb:BatchWriteItem");
     data.channels.grant(this.archiveHandler, "dynamodb:Scan", "dynamodb:UpdateItem");
     grantDeleteFiles(this.archiveHandler, props.attachments, { list: true });
+
+    // search (Phase 42): which conversations the caller sees (Scan, < 50 rows), the
+    // index (Query) and the candidates (BatchGetItem). search-indexer: the index rows
+    // (BatchWriteItem); the event source grants it the stream.
+    data.channels.grant(this.searchHandler, "dynamodb:Scan");
+    data.messageSearch.grant(this.searchHandler, "dynamodb:Query");
+    data.messages.grant(this.searchHandler, "dynamodb:BatchGetItem");
+    data.messageSearch.grant(this.searchIndexer, "dynamodb:BatchWriteItem");
 
     // messages (Phase 32): the conversation (GetItem), the message (GetItem), deleting it
     // or making it a tombstone and recounting its thread (DeleteItem, UpdateItem in one

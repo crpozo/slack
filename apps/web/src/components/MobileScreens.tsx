@@ -1,6 +1,7 @@
 import { isDmChannel, type Board } from "@mindfultech/shared";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { chat } from "../lib/chat";
 import { channelLabel, dmPeer, formatDay, formatTime } from "../lib/channels";
 import { useGroupCall } from "../lib/groupCall";
 import { loadRecents } from "../lib/recents";
@@ -33,6 +34,7 @@ import {
 } from "./icons";
 import { Logo } from "./LoginPage";
 import { Modal } from "./Modal";
+import { MessageRow, shownResults, useMessageSearch } from "./MessageSearchResults";
 import { useSwitcherItems } from "./QuickSwitcher";
 
 const NewTaskModal = lazy(() =>
@@ -703,27 +705,49 @@ export function ActivityScreen() {
   );
 }
 
-/** The quick switcher as a screen: channels (archived ones too) and people. */
+/**
+ * Search as a screen: the conversations whose name matches (archived ones
+ * too) and, from two letters on, the messages that contain what's typed
+ * (Phase 42, `GET /search` after a 300 ms pause). A message opens its
+ * conversation scrolled to it.
+ */
 export function SearchScreen() {
+  const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const items = useSwitcherItems(query, () => {});
+  const canSearch = tasksApiConfigured();
+  const [search, searcher] = useMessageSearch();
+  const { results } = shownResults(search);
+  const typed = query.trim().length > 0;
+  const shownItems = typed ? items.slice(0, 5) : items;
   return (
     <MobileScreen title="Search">
-      <div className="sticky top-0 bg-surface px-4 py-3">
+      <div className="sticky top-0 z-10 bg-surface px-4 py-3">
         <label className="flex items-center gap-2 rounded-full border border-line bg-surface-raised px-4">
           <SearchIcon className="text-ink-secondary" />
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search channels or people…"
+            onChange={(e) => {
+              setQuery(e.target.value);
+              if (canSearch) searcher.update(e.target.value);
+            }}
+            placeholder="Search messages, channels or people…"
             aria-label="Search"
             autoFocus
             className="w-full bg-transparent py-3 text-base text-ink placeholder:text-ink-secondary focus:outline-none"
           />
+          {search.status === "loading" && (
+            <span
+              className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-primary/30 border-t-primary"
+              role="status"
+              aria-label="Searching"
+            />
+          )}
         </label>
       </div>
       <ul role="listbox" className="py-1">
-        {items.map((item) => (
+        {typed && shownItems.length > 0 && <PhoneSectionTitle>Conversations</PhoneSectionTitle>}
+        {shownItems.map((item) => (
           <li key={item.key} role="option" aria-selected={false}>
             <button
               type="button"
@@ -742,10 +766,47 @@ export function SearchScreen() {
             </button>
           </li>
         ))}
-        {items.length === 0 && (
-          <li className="px-4 py-6 text-center text-base text-ink-secondary">No results</li>
+        {results.length > 0 && <PhoneSectionTitle>Messages</PhoneSectionTitle>}
+        {results.map((result) => (
+          <li key={`${result.channelId}:${result.sk}`} role="option" aria-selected={false}>
+            <button
+              type="button"
+              onClick={() => {
+                navigate(`/app/${result.channelId}`);
+                chat.jumpTo({
+                  channelId: result.channelId,
+                  sk: result.sk,
+                  parentSk: result.parentSk,
+                });
+              }}
+              className="flex w-full items-start gap-3 px-4 py-3 text-left active:bg-surface-hover"
+              data-omni-entry="message"
+            >
+              <MessageRow result={result} />
+            </button>
+          </li>
+        ))}
+        {shownItems.length === 0 && results.length === 0 && (
+          <li className="px-4 py-6 text-center text-base text-ink-secondary">
+            {search.status === "loading"
+              ? "Searching messages…"
+              : search.status === "error"
+                ? `Couldn't search messages: ${search.error}`
+                : "No results"}
+          </li>
         )}
       </ul>
     </MobileScreen>
+  );
+}
+
+function PhoneSectionTitle({ children }: Readonly<{ children: ReactNode }>) {
+  return (
+    <li
+      role="presentation"
+      className="px-4 pb-1 pt-3 text-xs font-bold uppercase tracking-[0.12em] text-primary"
+    >
+      {children}
+    </li>
   );
 }

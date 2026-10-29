@@ -14,6 +14,7 @@ Object.assign(process.env, {
   VACATION_BALANCES_TABLE: "slack-test-vacation-balances",
   CALL_ROOMS_TABLE: "slack-test-call-rooms",
   CHANNEL_MEDIA_TABLE: "slack-test-channel-media",
+  MESSAGE_SEARCH_TABLE: "slack-test-message-search",
   MEETING_NOTES_TABLE: "slack-test-meeting-notes",
   NOTE_DETAILS_TABLE: "slack-test-note-details",
   NOTES_WORKER_FUNCTION: "slack-test-call-notes-worker",
