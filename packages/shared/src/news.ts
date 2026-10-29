@@ -45,6 +45,15 @@ export const NEWS_FEEDS: readonly NewsFeed[] = [
 export const NEWS_MAX_ARTICLES = 24;
 /** The most stories one source may have in the list, so a busy one can't crowd out the rest. */
 export const NEWS_MAX_PER_SOURCE = 8;
+/**
+ * Only news: a story published longer ago than this (or with no date we can
+ * read) is dropped as the feed is read, before any limit and before the
+ * daily AI Insights see it. Feeds keep weeks of stories; this keeps them out.
+ */
+export const NEWS_MAX_AGE_HOURS = 48;
+export const NEWS_MAX_AGE_MS = NEWS_MAX_AGE_HOURS * 60 * 60 * 1000;
+/** A date further ahead than this is a feed's mistake, not news: treated as no date. */
+export const NEWS_FUTURE_TOLERANCE_MS = 60 * 60 * 1000;
 /** How long a fetched list is reused (Lambda memory, browser cache). */
 export const NEWS_CACHE_SECONDS = 30 * 60;
 /**

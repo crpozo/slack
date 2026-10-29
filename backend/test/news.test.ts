@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NEWS_FEEDS, NEWS_MAX_AGE_MS } from "@mindfultech/shared";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handler } from "../src/handlers/news";
 import type { HttpEvent } from "../src/lib/http";
 import {
   clip,
+  feedTime,
   getNews,
   imageOf,
   isAboutAi,
@@ -10,11 +12,24 @@ import {
   parseFeed as parseAnyFeed,
   plainText,
   readAllSources,
+  readFeed,
   resetNewsCache,
   RETRY_AFTER_FAILURE_MS,
   RETRY_PARTIAL_MS,
 } from "../src/lib/news";
 import { resetMocks } from "./helpers";
+
+/**
+ * "Now" for every test: the morning after the fixtures' stories (26 Oct
+ * 2026), so they're inside the 48-hour window.
+ */
+const NOW = Date.parse("2026-10-27T08:00:00Z");
+beforeEach(() => {
+  vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const rss = (items: string) => `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"
@@ -22,6 +37,8 @@ const rss = (items: string) => `<?xml version="1.0" encoding="UTF-8"?>
 <channel><title>AI News | TechCrunch</title><link>https://techcrunch.com</link>${items}</channel></rss>`;
 
 const item = (fields: string) => `<item>${fields}</item>`;
+/** A publication date two hours before `NOW`. */
+const FRESH = "<pubDate>Tue, 27 Oct 2026 06:00:00 GMT</pubDate>";
 const parseFeed = (xml: string) => parseAnyFeed(xml, "TechCrunch");
 
 /** A WordPress-style item: CDATA description with entities and the footer, an image in media:content. */
@@ -86,36 +103,136 @@ describe("parseFeed", () => {
   });
 
   it("orders newest first, skips items without a title or an https link, keeps 24", () => {
+    // One story an hour over the last 30 hours.
     const many = Array.from({ length: 30 }, (_, i) =>
       item(
-        `<title>Story ${i}</title><link>https://techcrunch.com/${i}</link><pubDate>Mon, ${String(
-          (i % 28) + 1,
-        ).padStart(2, "0")} Sep 2026 10:00:00 +0000</pubDate>`,
+        `<title>Story ${i}</title><link>https://techcrunch.com/${i}</link><pubDate>${new Date(
+          NOW - (i + 1) * 3_600_000,
+        ).toUTCString()}</pubDate>`,
       ),
     );
     const bad = [
-      item(`<title></title><link>https://techcrunch.com/x</link>`),
-      item(`<title>Insecure</title><link>http://techcrunch.com/y</link>`),
-      item(`<title>No link</title>`),
+      item(`<title></title><link>https://techcrunch.com/x</link>${FRESH}`),
+      item(`<title>Insecure</title><link>http://techcrunch.com/y</link>${FRESH}`),
+      item(`<title>No link</title>${FRESH}`),
     ];
     const articles = parseFeed(rss([...bad, ...many].join("")));
     expect(articles).toHaveLength(24);
-    expect(articles[0]?.title).toBe("Story 27"); // the 28th of September
+    expect(articles[0]?.title).toBe("Story 0"); // an hour ago
     expect(articles.map((a) => a.pubDate)).toEqual(
       [...articles.map((a) => a.pubDate)].sort().reverse(),
     );
     // A title that looks like a number stays a string.
     expect(
-      parseFeed(rss(item(`<title>2026</title><link>https://techcrunch.com/z</link>`)))[0],
+      parseFeed(rss(item(`<title>2026</title><link>https://techcrunch.com/z</link>${FRESH}`)))[0],
     ).toMatchObject({
       title: "2026",
-      pubDate: null,
+      pubDate: "2026-10-27T06:00:00.000Z",
       snippet: "",
     });
   });
 
   it("refuses what isn't a feed", () => {
     expect(() => parseFeed("<html><body>Blocked</body></html>")).toThrow("not an RSS or Atom feed");
+  });
+});
+
+describe("only news: the 48-hour window", () => {
+  const story = (title: string, date: string) =>
+    item(`<title>${title}</title><link>https://techcrunch.com/${title}</link>${date}`);
+
+  it("drops stories older than 48 hours, and undated ones, before the feed's cap", () => {
+    const september = Array.from({ length: 30 }, (_, i) =>
+      story(
+        `old-${i}`,
+        `<pubDate>Mon, ${String((i % 28) + 1).padStart(2, "0")} Sep 2026 10:00:00 +0000</pubDate>`,
+      ),
+    );
+    const read = readFeed(
+      rss(
+        [
+          ...september,
+          story("fresh", FRESH),
+          story("undated", ""),
+          story("garbled", "<pubDate>sometime last week</pubDate>"),
+          story("far-future", "<pubDate>Fri, 01 Jan 2049 00:00:00 GMT</pubDate>"),
+        ].join(""),
+      ),
+      "TechCrunch",
+    );
+    expect(read.articles.map((a) => a.title)).toEqual(["fresh"]);
+    expect(read).toMatchObject({ stale: 30, undated: 3 });
+  });
+
+  it("keeps a story exactly 48 hours old, not a second older", () => {
+    const at = (ms: number) => `<pubDate>${new Date(ms).toUTCString()}</pubDate>`;
+    const titles = parseFeed(
+      rss(
+        story("edge", at(NOW - NEWS_MAX_AGE_MS)) + story("past", at(NOW - NEWS_MAX_AGE_MS - 1000)),
+      ),
+    ).map((a) => a.title);
+    expect(titles).toEqual(["edge"]);
+    // A few minutes ahead (a clock running fast) is still news.
+    expect(parseFeed(rss(story("soon", at(NOW + 10 * 60_000))))).toHaveLength(1);
+  });
+
+  it("measures the window from the time given (the reader's `now`)", () => {
+    const xml = rss(MEDIA_ITEM); // 26 Oct 14:05 UTC
+    expect(
+      readFeed(xml, "TechCrunch", { now: Date.parse("2026-10-28T14:05:00Z") }).articles,
+    ).toHaveLength(1);
+    expect(readFeed(xml, "TechCrunch", { now: Date.parse("2026-10-28T14:06:00Z") }).stale).toBe(1);
+  });
+
+  it("applies to every source before merging, and says what each one dropped", async () => {
+    const old = rss(
+      story("Last month on AI", "<pubDate>Tue, 29 Sep 2026 09:00:00 +0000</pubDate>") +
+        story("AI yesterday", FRESH),
+    );
+    const read = await readAllSources(feedsFetch({ [TC]: old, [INFOQ]: INFOQ_FEED }));
+    expect(read.articles.map((a) => a.title)).toEqual([
+      "AI yesterday",
+      "Meta Open-Sources a Framework for Agent Evaluation",
+    ]);
+    expect(read.discarded).toEqual([{ source: "TechCrunch", stale: 1, undated: 0 }]);
+    // The same feeds two days later: nothing is news any more.
+    const later = await readAllSources(
+      feedsFetch({ [TC]: old, [INFOQ]: INFOQ_FEED }),
+      NEWS_FEEDS,
+      NOW + 3 * 24 * 3_600_000,
+    );
+    expect(later.articles).toEqual([]);
+  });
+
+  it("reads every date format the feeds use", () => {
+    const utc = (iso: string) => Date.parse(iso);
+    const cases: Array<[string, string | null]> = [
+      // RSS (RFC 822 / 2822): TechCrunch, VentureBeat, InfoQ.
+      ["Mon, 26 Oct 2026 14:05:00 +0000", "2026-10-26T14:05:00Z"],
+      ["Mon, 26 Oct 2026 12:00:00 GMT", "2026-10-26T12:00:00Z"],
+      ["Mon, 26 Oct 2026 10:05:00 EDT", "2026-10-26T14:05:00Z"],
+      ["Mon, 26 Oct 2026 09:05:00 -0500", "2026-10-26T14:05:00Z"],
+      ["Mon, 26 Oct 2026 16:05:00 +02:00", "2026-10-26T14:05:00Z"],
+      ["26 Oct 2026 14:05 UT", "2026-10-26T14:05:00Z"], // no weekday, no seconds
+      ["Tue, 26 Oct 2026 14:05:00 +0000", "2026-10-26T14:05:00Z"], // the wrong weekday
+      ["Monday, 26 October 2026 14:05:00 PST", "2026-10-26T22:05:00Z"],
+      ["Mon, 6 Oct 26 14:05:00 GMT", "2026-10-06T14:05:00Z"], // one-digit day, two-digit year
+      ["  Mon,  26 Oct 2026\n 14:05:00 +0000 ", "2026-10-26T14:05:00Z"],
+      // Atom and dc:date (ISO 8601): The Verge, some RSS.
+      ["2026-10-26T15:30:00-04:00", "2026-10-26T19:30:00Z"],
+      ["2026-10-26T19:30:00Z", "2026-10-26T19:30:00Z"],
+      ["2026-10-26T19:30:00.123+00:00", "2026-10-26T19:30:00Z"],
+      ["2026-10-26 19:30:00", "2026-10-26T19:30:00Z"], // no zone: UTC, not the server's
+      ["2026-10-26", "2026-10-26T00:00:00Z"],
+      // Unreadable.
+      ["", null],
+      ["yesterday", null],
+      ["Mon, 45 Oct 2026 14:05:00 +0000", null],
+      ["2026-13-01T00:00:00Z", null],
+    ];
+    for (const [text, expected] of cases) {
+      expect([text, feedTime(text)]).toEqual([text, expected === null ? null : utc(expected)]);
+    }
   });
 });
 
@@ -247,14 +364,14 @@ describe("each source's feed", () => {
   it("survives malformed XML: broken items are skipped, a cut-off feed keeps what arrived", () => {
     // A stray ampersand or an unclosed tag inside an item doesn't cost the other items.
     const messy = rss(
-      item(`<title>Good one</title><link>https://example.com/good</link>`) +
-        item(`<title>Bad & unescaped <b>title</title><link>not a url</link>`),
+      item(`<title>Good one</title><link>https://example.com/good</link>${FRESH}`) +
+        item(`<title>Bad & unescaped <b>title</title><link>not a url</link>${FRESH}`),
     );
     expect(parseAnyFeed(messy, "X").map((a) => a.title)).toEqual(["Good one"]);
     // A download cut short: the complete stories are still there.
     const cut =
-      "<rss><channel><item><title>A</title><link>https://a.example/1</link></item>" +
-      "<item><title>B</title><link>https://a.example/2</link>";
+      `<rss><channel><item><title>A</title><link>https://a.example/1</link>${FRESH}</item>` +
+      `<item><title>B</title><link>https://a.example/2</link>${FRESH}`;
     expect(parseAnyFeed(cut, "X").map((a) => a.title)).toEqual(["A", "B"]);
     expect(parseAnyFeed("<rss><channel><item><title>x", "X")).toEqual([]);
     // Not a feed at all.
@@ -355,9 +472,11 @@ describe("readAllSources", () => {
   it("tries VentureBeat's second address, keeping only its AI stories", async () => {
     const general = rss(
       item(
-        `<title>Anthropic ships Claude for Excel</title><link>https://venturebeat.com/ai/x</link>`,
+        `<title>Anthropic ships Claude for Excel</title><link>https://venturebeat.com/ai/x</link>${FRESH}`,
       ) +
-        item(`<title>The best gaming laptops</title><link>https://venturebeat.com/games/y</link>`),
+        item(
+          `<title>The best gaming laptops</title><link>https://venturebeat.com/games/y</link>${FRESH}`,
+        ),
     );
     const read = await readAllSources(
       feedsFetch({ [VB]: new Error("down"), [VB_FALLBACK]: general }),
@@ -376,7 +495,7 @@ describe("getNews (the warm container's copy)", () => {
 
   it("reads every feed once per 30 minutes", async () => {
     const fetchMock = allFeeds();
-    const t0 = 1_800_000_000_000;
+    const t0 = NOW;
     const first = await getNews(fetchMock, t0);
     expect(first).toMatchObject({ fromCache: false, expiresAt: t0 + 1_800_000, failed: [] });
     expect(first.response).toMatchObject({
@@ -392,7 +511,7 @@ describe("getNews (the warm container's copy)", () => {
   });
 
   it("keeps a list missing a source only 5 minutes", async () => {
-    const t0 = 1_800_000_000_000;
+    const t0 = NOW;
     const partial = await getNews(feedsFetch({ [TC]: rss(MEDIA_ITEM) }), t0);
     expect(partial.expiresAt).toBe(t0 + RETRY_PARTIAL_MS);
     expect(partial.response.source).toBe("TechCrunch");
@@ -400,7 +519,7 @@ describe("getNews (the warm container's copy)", () => {
   });
 
   it("serves the last good list, marked stale, when every feed fails; tries again a minute later", async () => {
-    const t0 = 1_800_000_000_000;
+    const t0 = NOW;
     await getNews(allFeeds(), t0);
     const down = vi.fn(async () => new Response("nope", { status: 503 }));
     const later = t0 + 31 * 60_000;
@@ -411,6 +530,15 @@ describe("getNews (the warm container's copy)", () => {
     const calls = down.mock.calls.length;
     await getNews(down, later + 30_000); // within the minute: no new attempt
     expect(down).toHaveBeenCalledTimes(calls);
+  });
+
+  it("drops stories from the kept list as they age past 48 hours", async () => {
+    await getNews(allFeeds(), NOW); // the stories of 26 Oct, 12:00 to 19:30 UTC
+    const down = vi.fn(async () => new Response("nope", { status: 503 }));
+    const stale = await getNews(down, Date.parse("2026-10-28T15:00:00Z"));
+    expect(stale.response.stale).toBe(true);
+    // TechCrunch (14:05) and InfoQ (12:00) are now more than 48 hours old.
+    expect(stale.response.articles.map((a) => a.sourceName)).toEqual(["The Verge", "VentureBeat"]);
   });
 
   it("throws when every feed fails and nothing was ever read, or they answer with something else", async () => {
@@ -458,7 +586,7 @@ describe("GET /news", () => {
   beforeEach(() => {
     resetMocks();
     resetNewsCache();
-    vi.useFakeTimers({ now: 1_800_000_000_000, toFake: ["Date"] });
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
   });
 
   it("answers the articles with a browser cache for what's left of the 30 minutes", async () => {
@@ -470,7 +598,7 @@ describe("GET /news", () => {
       JSON.parse(first.body).articles.map((a: { sourceName: string }) => a.sourceName),
     ).toEqual(["The Verge", "VentureBeat", "TechCrunch", "InfoQ"]);
 
-    vi.setSystemTime(1_800_000_000_000 + 10 * 60_000);
+    vi.setSystemTime(NOW + 10 * 60_000);
     const second = await call(event());
     expect(second.headers["cache-control"]).toBe(
       "public, max-age=1200, stale-while-revalidate=600",
@@ -481,17 +609,17 @@ describe("GET /news", () => {
   it("?refresh=1 reads the feed again, uncached by the browser, at most once a minute", async () => {
     const fetchImpl = allFeeds();
     vi.stubGlobal("fetch", fetchImpl);
-    vi.setSystemTime(1_800_000_000_000);
+    vi.setSystemTime(NOW);
     await call(event());
-    vi.setSystemTime(1_800_000_000_000 + 30_000);
+    vi.setSystemTime(NOW + 30_000);
     const soon = await call(event("GET /news", undefined, true));
     expect(soon.headers["cache-control"]).toBe("no-store");
     expect(fetchImpl).toHaveBeenCalledTimes(4); // read 30 s ago: served from memory
-    vi.setSystemTime(1_800_000_000_000 + 90_000);
+    vi.setSystemTime(NOW + 90_000);
     const later = await call(event("GET /news", undefined, true));
     expect(later.headers["cache-control"]).toBe("no-store");
     expect(fetchImpl).toHaveBeenCalledTimes(8); // the fresh read
-    expect(JSON.parse(later.body).fetchedAt).toBe(1_800_000_000_000 + 90_000);
+    expect(JSON.parse(later.body).fetchedAt).toBe(NOW + 90_000);
     // A plain request afterwards is the refreshed copy, cached for a full 30 minutes again.
     const plain = await call(event());
     expect(fetchImpl).toHaveBeenCalledTimes(8);

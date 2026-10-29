@@ -33,8 +33,10 @@ export interface InsightsRun {
 export const handler = async (): Promise<InsightsRun> => {
   const started = Date.now();
   const day = calendarDay(started);
-  const { articles, failed } = await readAllSources();
+  // Only the last NEWS_MAX_AGE_HOURS of stories reach the model.
+  const { articles, failed, discarded } = await readAllSources();
   if (failed.length > 0) log.warn("news sources unreachable", { day, failed });
+  if (discarded.length > 0) log.info("old news discarded", { day, discarded });
   if (articles.length === 0) throw new Error("the feeds have no stories");
   let response: Anthropic.Message;
   try {
