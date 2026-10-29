@@ -42,6 +42,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   otherwise). The same happens for an image that fails to load or is a tracking pixel, and a slow
   image fades in over that tile once it has loaded.
 
+### Fixed
+
+- **AI News shows only news:** stories published more than 48 hours ago (weeks-old ones the feeds
+  still carry) no longer reach the list or the morning analysis. Each feed's stories are dropped as
+  they're read, before the per-source limit, and so are the ones whose date can't be read. Dates
+  are read the way each source writes them (RSS's `pubDate` with any time zone, Atom's ISO dates,
+  and a few near-misses). A list kept in memory loses its stories as they pass 48 hours.
+
 ### Changed
 
 - **AI Insights are structured:** Claude Haiku 5.5 returns the dashboard as JSON held to a schema

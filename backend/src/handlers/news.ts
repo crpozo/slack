@@ -25,9 +25,11 @@ export const handler = httpHandler(async (event, caller): Promise<HttpResult> =>
     log.error("news feed unreachable", { ...errorFields(err) });
     throw new HttpError(502, "Couldn't reach the news sources right now. Try again in a minute.");
   }
-  const { response, fromCache, expiresAt, failed } = result;
+  const { response, fromCache, expiresAt, failed, discarded } = result;
   // A source that's down is left out of the list; worth knowing which, and why.
   if (failed && failed.length > 0) log.warn("news sources unreachable", { failed });
+  // Stories older than NEWS_MAX_AGE_HOURS (or undated) never make the list.
+  if (discarded && discarded.length > 0) log.info("old news discarded", { discarded });
   log.info("news served", {
     articles: response.articles.length,
     fromCache,

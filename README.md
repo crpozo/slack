@@ -555,7 +555,10 @@ sent after the deploy.
 ### 8. AI Insights (the morning analysis of the AI news)
 
 The AI News view (`/app/news`) is a dashboard over the AI stories of **TechCrunch, VentureBeat,
-The Verge and InfoQ** (read at once and merged; a source that's down is left out). **Claude Haiku
+The Verge and InfoQ** (read at once and merged; a source that's down is left out). Only news: as
+each feed is read, a story published more than 48 hours ago (`NEWS_MAX_AGE_HOURS`), or whose
+date can't be read, is dropped before any limit, so neither the list nor the analysis ever sees
+it. How many each source lost is logged as `old news discarded`. **Claude Haiku
 5.5** on Amazon Bedrock writes its analysis, in Spanish, as JSON held to a schema (structured
 outputs): **Lo esencial** (the day's four top stories, with a headline and summary of its own;
 link, thumbnail, source and date always come from the feed), **Tendencias** (three trends, key

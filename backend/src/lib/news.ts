@@ -1,6 +1,8 @@
 import {
   NEWS_CACHE_SECONDS,
   NEWS_FEEDS,
+  NEWS_FUTURE_TOLERANCE_MS,
+  NEWS_MAX_AGE_MS,
   NEWS_MAX_ARTICLES,
   NEWS_MAX_PER_SOURCE,
   NEWS_REFRESH_MIN_SECONDS,
@@ -179,10 +181,109 @@ export function imageOf(item: XmlNode): string | null {
   return firstImageIn(textOf(item["content:encoded"])) ?? firstImageIn(textOf(item["description"]));
 }
 
-/** RFC 822 (`Mon, 26 Oct 2026 14:05:00 +0000`) or ISO 8601 (Atom) to ISO, or `null`. */
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/** Zone names RFC 822 allows (and a few feeds use), as offsets in minutes. */
+const ZONES: Record<string, number> = {
+  UT: 0,
+  UTC: 0,
+  GMT: 0,
+  Z: 0,
+  EST: -300,
+  EDT: -240,
+  CST: -360,
+  CDT: -300,
+  MST: -420,
+  MDT: -360,
+  PST: -480,
+  PDT: -420,
+  BST: 60,
+  CET: 60,
+  CEST: 120,
+};
+
+/** `+0530`, `-04:00` or a zone name as minutes east of UTC; missing or unknown is UTC. */
+function zoneOffset(zone: string | undefined): number {
+  if (!zone) return 0;
+  const numeric = /^([+-])(\d{2}):?(\d{2})$/.exec(zone);
+  if (numeric) {
+    const minutes = Number(numeric[2]) * 60 + Number(numeric[3]);
+    return numeric[1] === "-" ? -minutes : minutes;
+  }
+  return ZONES[zone.toUpperCase()] ?? 0;
+}
+
+/** Epoch ms from date parts, or `null` when they aren't a real date and time. */
+function utcTime(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  offsetMinutes: number,
+): number | null {
+  if (month < 0 || month > 11 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 60) {
+    return null;
+  }
+  const ms =
+    Date.UTC(year, month, day, hour, minute, Math.min(second, 59)) - offsetMinutes * 60_000;
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** ISO 8601 / RFC 3339 (Atom, `dc:date`): a missing zone is UTC, a date alone is midnight UTC. */
+const ISO_DATE =
+  /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?)?$/i;
+/**
+ * RFC 822 / 2822 (RSS `pubDate`), leniently: the weekday is optional and
+ * ignored (feeds get it wrong), months may be spelled out, two-digit years
+ * are this century, seconds are optional, the zone is numeric or a name.
+ */
+const RFC822_DATE =
+  /^(?:[a-z]+\.?,?\s*)?(\d{1,2})[\s-]+([a-z]{3})[a-z]*\.?[\s-]+(\d{4}|\d{2})[\sT]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([+-]\d{2}:?\d{2}|[a-z]{1,4})?\b/i;
+
+/**
+ * When a story was published (epoch ms), from any of the date formats the
+ * feeds use: RSS's RFC 822 (`Mon, 26 Oct 2026 14:05:00 +0000`, `… GMT`,
+ * `… EDT`), Atom's ISO 8601 (`2026-10-26T15:30:00-04:00`) and the near-misses
+ * seen in the wild (no zone, a space instead of `T`, a spelled-out month).
+ * Anything else that `Date.parse` understands is the last resort; `null`
+ * when nothing does.
+ */
+export function feedTime(value: string): number | null {
+  const text = value.trim().replace(/\s+/g, " ");
+  if (!text) return null;
+  const iso = ISO_DATE.exec(text);
+  if (iso) {
+    const [, y, mo, d, h = "0", mi = "0", s = "0", zone] = iso;
+    return utcTime(+y!, +mo! - 1, +d!, +h, +mi, +s, zoneOffset(zone));
+  }
+  const rfc = RFC822_DATE.exec(text);
+  if (rfc) {
+    const [, d, mon, y, h, mi, s = "0", zone] = rfc;
+    const month = MONTHS.indexOf(mon!.toLowerCase());
+    if (month < 0) return null;
+    const year = y!.length === 2 ? 2000 + Number(y) : Number(y);
+    return utcTime(year, month, +d!, +h!, +mi!, +s, zoneOffset(zone));
+  }
+  const ms = Date.parse(text);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** A feed date as ISO 8601 (UTC), or `null` when it can't be read. */
 export function isoDate(value: string): string | null {
-  const ms = Date.parse(value);
-  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+  const ms = feedTime(value);
+  return ms === null ? null : new Date(ms).toISOString();
+}
+
+/**
+ * Whether a story is news at `now`: published within `NEWS_MAX_AGE_MS`
+ * (and not implausibly in the future). No date, no way to know: not news.
+ */
+export function isRecent(pubDate: string | null, now: number): boolean {
+  if (!pubDate) return false;
+  const ms = Date.parse(pubDate);
+  return ms >= now - NEWS_MAX_AGE_MS && ms <= now + NEWS_FUTURE_TOLERANCE_MS;
 }
 
 /** An Atom entry's page: the `rel="alternate"` link (or one with no `rel`), else its id. */
@@ -272,17 +373,28 @@ export function isAboutAi(story: Pick<FeedStory, "title" | "snippet" | "categori
   return [story.title, ...story.categories, story.snippet].some((text) => AI_TOPIC.test(text));
 }
 
+/** A feed's stories, and how many were dropped as too old or undated. */
+export interface FeedRead {
+  articles: NewsArticle[];
+  /** Published more than `NEWS_MAX_AGE_HOURS` before `now`. */
+  stale: number;
+  /** No publication date that could be read (or one far in the future). */
+  undated: number;
+}
+
 /**
  * A feed's articles (RSS 2.0, RSS 1.0 or Atom), newest first, at most
- * `NEWS_MAX_ARTICLES`, each marked with `sourceName`. A malformed item is
- * skipped, not fatal; `general` keeps only the AI stories. Throws on a
- * document that isn't a feed at all (an error page, a login wall).
+ * `NEWS_MAX_ARTICLES`, each marked with `sourceName`. Only news: a story
+ * published more than `NEWS_MAX_AGE_HOURS` before `now`, or with no date that
+ * can be read, is dropped first, before the cap. A malformed item is skipped,
+ * not fatal; `general` keeps only the AI stories. Throws on a document that
+ * isn't a feed at all (an error page, a login wall).
  */
-export function parseFeed(
+export function readFeed(
   xml: string,
   sourceName: string,
-  { general = false }: { general?: boolean } = {},
-): NewsArticle[] {
+  { general = false, now = Date.now() }: { general?: boolean; now?: number } = {},
+): FeedRead {
   const doc = parser.parse(xml) as XmlNode;
   const rss = (doc["rss"] as XmlNode | undefined)?.["channel"] as XmlNode | undefined;
   const rdf = doc["rdf:RDF"] as XmlNode | undefined;
@@ -295,7 +407,7 @@ export function parseFeed(
         ? asList(atom["entry"]).map((node) => ({ node, read: atomStory }))
         : [];
   if (!rss && !rdf && !atom) throw new Error("not an RSS or Atom feed");
-  const articles: NewsArticle[] = [];
+  const result: FeedRead = { articles: [], stale: 0, undated: 0 };
   for (const { node, read } of items) {
     let story: FeedStory | null;
     try {
@@ -305,9 +417,24 @@ export function parseFeed(
     }
     if (!story || (general && !isAboutAi(story))) continue;
     const { title, link, snippet, pubDate, imageUrl } = story;
-    articles.push({ title, link, snippet, pubDate, imageUrl, sourceName });
+    if (!isRecent(pubDate, now)) {
+      if (pubDate && Date.parse(pubDate) < now) result.stale++;
+      else result.undated++;
+      continue;
+    }
+    result.articles.push({ title, link, snippet, pubDate, imageUrl, sourceName });
   }
-  return newestFirst(articles).slice(0, NEWS_MAX_ARTICLES);
+  result.articles = newestFirst(result.articles).slice(0, NEWS_MAX_ARTICLES);
+  return result;
+}
+
+/** `readFeed`'s articles alone. */
+export function parseFeed(
+  xml: string,
+  sourceName: string,
+  options: { general?: boolean; now?: number } = {},
+): NewsArticle[] {
+  return readFeed(xml, sourceName, options).articles;
 }
 
 const newestFirst = (articles: NewsArticle[]) =>
@@ -373,15 +500,16 @@ export async function fetchFeed(
   return text;
 }
 
-/** One source's articles: its first address that reads as a feed, else the last error. */
+/** One source's recent articles: its first address that reads as a feed, else the last error. */
 export async function readSource(
   feed: NewsFeed,
   fetchImpl: typeof fetch = fetch,
-): Promise<NewsArticle[]> {
+  now = Date.now(),
+): Promise<FeedRead> {
   let failure: unknown = new Error(`${feed.name} has no feed address`);
   for (const { url, general } of feed.urls) {
     try {
-      return parseFeed(await fetchFeed(fetchImpl, url), feed.name, { general });
+      return readFeed(await fetchFeed(fetchImpl, url), feed.name, { general, now });
     } catch (err) {
       failure = err;
     }
@@ -395,24 +523,30 @@ export interface NewsRead {
   sources: string[];
   /** The ones that didn't, and why. */
   failed: { source: string; error: string }[];
+  /** Stories each source had that were left out as older than `NEWS_MAX_AGE_HOURS` or undated. */
+  discarded: { source: string; stale: number; undated: number }[];
 }
 
 /**
- * Every source at once, merged. Throws only when none could be read (the
- * first source's error); otherwise the ones that failed are in `failed`.
+ * Every source at once, only their stories of the last `NEWS_MAX_AGE_HOURS`
+ * (at `now`), merged. Throws only when none could be read (the first
+ * source's error); otherwise the ones that failed are in `failed`.
  */
 export async function readAllSources(
   fetchImpl: typeof fetch = fetch,
   feeds: readonly NewsFeed[] = NEWS_FEEDS,
+  now = Date.now(),
 ): Promise<NewsRead> {
-  const results = await Promise.allSettled(feeds.map((feed) => readSource(feed, fetchImpl)));
-  const read: NewsRead = { articles: [], sources: [], failed: [] };
+  const results = await Promise.allSettled(feeds.map((feed) => readSource(feed, fetchImpl, now)));
+  const read: NewsRead = { articles: [], sources: [], failed: [], discarded: [] };
   const lists: NewsArticle[][] = [];
   results.forEach((result, i) => {
     const source = feeds[i]!.name;
     if (result.status === "fulfilled") {
+      const { articles, stale, undated } = result.value;
       read.sources.push(source);
-      lists.push(result.value);
+      lists.push(articles);
+      if (stale + undated > 0) read.discarded.push({ source, stale, undated });
     } else {
       const reason: unknown = result.reason;
       read.failed.push({
@@ -432,6 +566,12 @@ export async function readAllSources(
 // --- The warm container's copy ------------------------------------------------------
 
 let cached: { response: NewsResponse; until: number; readAt: number } | null = null;
+
+/** The cached list at `now`: a story that has aged past `NEWS_MAX_AGE_HOURS` since is gone. */
+const cachedAt = (response: NewsResponse, now: number): NewsResponse => ({
+  ...response,
+  articles: response.articles.filter((a) => isRecent(a.pubDate, now)),
+});
 
 /** Forget the cached list (tests). */
 export function resetNewsCache(): void {
@@ -455,24 +595,29 @@ export async function getNews(
   fromCache: boolean;
   expiresAt: number;
   failed?: NewsRead["failed"];
+  discarded?: NewsRead["discarded"];
 }> {
   const fresh = cached && now < cached.until;
   const justRead = cached && now - cached.readAt < NEWS_REFRESH_MIN_SECONDS * 1000;
   if (cached && (refresh ? justRead : fresh)) {
-    return { response: cached.response, fromCache: true, expiresAt: cached.until };
+    return { response: cachedAt(cached.response, now), fromCache: true, expiresAt: cached.until };
   }
   try {
-    const { articles, sources, failed } = await readAllSources(fetchImpl);
+    const { articles, sources, failed, discarded } = await readAllSources(
+      fetchImpl,
+      NEWS_FEEDS,
+      now,
+    );
     const response: NewsResponse = { articles, source: sources.join(", "), fetchedAt: now };
     const until = now + (failed.length > 0 ? RETRY_PARTIAL_MS : NEWS_CACHE_SECONDS * 1000);
     cached = { response, until, readAt: now };
-    return { response, fromCache: false, expiresAt: until, failed };
+    return { response, fromCache: false, expiresAt: until, failed, discarded };
   } catch (err) {
     if (!cached) throw err;
     // Don't make every request wait for feeds that are down: try again in a minute.
     cached = { ...cached, until: now + RETRY_AFTER_FAILURE_MS };
     return {
-      response: { ...cached.response, stale: true },
+      response: { ...cachedAt(cached.response, now), stale: true },
       fromCache: true,
       expiresAt: cached.until,
     };
