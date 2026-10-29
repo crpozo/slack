@@ -517,6 +517,22 @@ the tab only shows what was shared after the deploy.
 The header's **Refresh news** button reads the feeds again right away, past the 30-minute cache
 (at most once a minute per server container).
 
+**Message search (Phase 42), once per stage after deploying it:** **Ctrl K** (**⌘ K** on a Mac),
+the sidebar's **Search…** button and the phones' Search tab search every message you can see.
+Search reads an index table (`slack-<stage>-message-search`, one small row per word of each
+message) that a stream processor (`search-indexer`) keeps current as messages are sent, edited and
+deleted. Messages from before the deploy need indexing once:
+
+```bash
+pnpm --filter infra backfill-search prod            # dry run: counts messages and rows, writes nothing
+pnpm --filter infra backfill-search prod --apply    # writes the rows (safe to repeat)
+```
+
+It scans the messages table once and writes exactly the rows the stream processor would. Secrets
+and deleted messages are never indexed. Your AWS credentials need `dynamodb:Scan` on the messages
+table and `dynamodb:BatchWriteItem` on the new one. Until it has run, search only finds messages
+sent after the deploy.
+
 ### 8. AI Insights (the morning analysis of the AI news)
 
 The AI News view (`/app/news`) is a dashboard over the AI stories of **TechCrunch, VentureBeat,
@@ -661,7 +677,11 @@ is mostly fixed (the Route 53 hosted zone, if any, is USD 0.50/month) and storag
   either way, and the free tier covers 400,000 GB-seconds a month). Logs are kept one week.
 - **DynamoDB**: every table is on-demand (`PAY_PER_REQUEST`): no provisioned capacity to pay for
   while nobody is online, and the tables are small. Expiring rows (connections, secrets, call
-  rooms) leave through TTL, which is free.
+  rooms) leave through TTL, which is free. Message search keeps an inverted index instead of
+  paying for a search cluster: about one small write per new word of each message (common words
+  like "the" or "de" are skipped), read by `begins_with` queries per conversation, so a search
+  costs a few cents per thousand and nothing runs between them. The messages table's stream
+  that feeds it is free to read for the Lambda that processes it.
 - **S3**: attachments larger than 128 KB move to Glacier Instant Retrieval after 90 days (a sixth
   of the Standard price, same instant download); smaller ones stay in Standard, where they are
   cheaper than Glacier IR's 128 KB minimum billable size. Abandoned multipart uploads are removed
@@ -679,6 +699,6 @@ load balancers, provisioned concurrency or always-on instances to pay for.
 
 ## Roadmap
 
-Threads · rename and archive channels · edit and delete messages · search ·
+Threads · rename and archive channels · edit and delete messages ·
 "typing…" · system notifications and `@` mentions · TURN relay for calls · code-signed desktop builds ·
 integration and E2E tests · AI agent with Bedrock (AI call notes shipped in Phase 28).

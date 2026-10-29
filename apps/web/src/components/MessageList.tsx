@@ -35,6 +35,14 @@ const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Dat
  * (new messages keep the list pinned to the bottom when it was there) and
  * keeps the viewport still when older pages are prepended above it or a row
  * changes height (an image loading). Rows are measured, never guessed twice.
+ *
+ * Scroll anchoring: whatever changes height above the viewport (a prepended
+ * page's rows going from estimate to measured, the first loaded message
+ * losing its date line once older ones of the same day arrive above it, an
+ * image loading) moves `scrollTop` by the same amount, so the message being
+ * read stays exactly where it was. On touch screens the virtualizer holds the
+ * correction until the finger and the momentum stop (writing `scrollTop`
+ * mid-fling would cut it short), then applies it.
  */
 export function MessageList({
   channelId,
@@ -85,6 +93,14 @@ export function MessageList({
     followOnAppend: true,
     scrollEndThreshold: BOTTOM_THRESHOLD_PX,
   });
+
+  // The library compensates a row above the viewport changing height only when
+  // scrolling down; scrolling up to read history is exactly when older pages
+  // land and rows above change (the date line, measured heights), so the
+  // message being read jumped (72 px a page). Compensate in both directions
+  // for every row that starts above the viewport's top.
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
+    item.start < (instance.scrollOffset ?? 0);
 
   const setListAtBottom = useChat((s) => s.setListAtBottom);
   const setAtBottom = useCallback(
@@ -211,11 +227,10 @@ export function MessageList({
     if (nowAtBottom) setShowNewPill(false);
   }
 
+  // "Loading earlier messages…" floats over the list (below) instead of sitting
+  // in its first row: appearing and going, it would change that row's height.
   const topContent = (
     <>
-      {loadingOlder && (
-        <p className="py-3 text-center text-xs text-ink-secondary">Loading earlier messages…</p>
-      )}
       {loaded && cursor === null && intro?.(messages.length > 0)}
       {loaded && cursor === null && !intro && (
         <div className="px-4 pb-2 pt-8">
@@ -300,6 +315,16 @@ export function MessageList({
           </div>
         </div>
       </div>
+
+      {loadingOlder && messages.length > 0 && (
+        <p
+          role="status"
+          className="pointer-events-none absolute left-1/2 top-[calc(var(--list-inset,0px)+0.5rem)] z-10 -translate-x-1/2 rounded-full border border-white/10 px-3 py-1 text-xs text-ink-secondary shadow-sm glass-strong"
+          data-loading-older
+        >
+          Loading earlier messages…
+        </p>
+      )}
 
       {showNewPill && (
         <button

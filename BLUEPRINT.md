@@ -1171,6 +1171,32 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
    analysis at once: a conditional write on a lock row (`feed = "news-refresh"`) lets members
    start one every 5 minutes, admins any time. The morning run is at 08:00 (13:00 UTC).
 
+### Phase 42 — Omni-search and scroll anchoring
+
+**Branch:** `feature/omni-search-and-scroll`
+
+1. **Scroll anchoring:** the virtualizer compensated size changes above the viewport only when
+   scrolling down, so reading history (scrolling up) jumped 72 px a page. There were two causes:
+   the loading line inside row 0, and row 0's date line vanishing once older same-day messages
+   arrived. Now `shouldAdjustScrollPositionOnItemSizeChange` compensates every row that starts
+   above the viewport, in both directions. The library defers the write during iOS momentum
+   scrolling. "Loading earlier messages…" is an overlay pill.
+2. **Index:** `messages` has a stream (`NEW_AND_OLD_IMAGES`). `search-indexer` diffs each change's
+   terms (`messageSearchTerms`: text, file names, a meeting's title, an AI notes summary; accent-
+   and case-folded, words of 2+ letters minus EN/ES stop words; never secrets or deleted
+   messages) and writes or deletes rows in `message-search` (`channelId`, `sk` =
+   `<term>#<message sk>`). This covers every writer (send, edit, cards, delete, tombstone).
+   `backfill-search` indexes the history.
+3. **Search:** `GET /search?q=&channelId?` (guests refused) scans the channels (< 50) for the ones
+   the caller sees. It then runs one `begins_with(sk, <longest term>)` query per conversation
+   (newest first, 200 rows) and reads the newest 100 candidates in one BatchGet. It keeps those
+   whose words start with every term and returns 30, each with a snippet and highlight ranges.
+4. **UI:** `OmniSearch` replaces the quick switcher on Ctrl/Cmd+K and the sidebar's Search…
+   button. It shows conversations first (instant), then messages (`createMessageSearch`: 300 ms
+   debounce, stale answers dropped, recent queries cached). Arrow keys and Enter work, and a
+   message opens through `chat.jumpTo`, which loads older pages, highlights it, and opens the
+   thread for a reply. The phones' Search tab shows the same message results.
+
 ### Phase 35 (planned) — Customer channels (guest access to shared channels)
 
 Deferred from Phase 34: it moves the guest security boundary, so it gets its own phase and tests. Today guests are boards-only. They're blocked from every WebSocket action but `ping`, `presign` and `user` (`GUEST_ROUTES`), receive only `board.*` events (`guestMayReceive`), and see only board co-members. Needed:

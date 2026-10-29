@@ -1,4 +1,10 @@
-import { AttributeType, BillingMode, ProjectionType, Table } from "aws-cdk-lib/aws-dynamodb";
+import {
+  AttributeType,
+  BillingMode,
+  ProjectionType,
+  StreamViewType,
+  Table,
+} from "aws-cdk-lib/aws-dynamodb";
 import { Construct } from "constructs";
 import { removalPolicyFor, type Stage } from "./stage";
 
@@ -38,6 +44,12 @@ export class Data extends Construct {
    */
   readonly channelMedia: Table;
   /**
+   * Message search (Phase 42): an inverted index. Per conversation, one tiny
+   * row per term of each message (`<term>#<message sk>`), kept in step with
+   * `messages` by its stream (`search-indexer`). See @mindfultech/shared search.ts.
+   */
+  readonly messageSearch: Table;
+  /**
    * AI Insights (Phase 39): one row per day with the morning's analysis of the
    * AI news (`feed` + `day`, so the newest is one query). See
    * backend/src/lib/newsInsights.ts.
@@ -58,6 +70,8 @@ export class Data extends Construct {
       sortKey: { name: "sk", type: AttributeType.STRING },
       // Secret messages carry `expiresAt` (epoch seconds, 7 days out); nothing else does.
       timeToLiveAttribute: "expiresAt",
+      // Phase 42: every change, before and after, for the search index.
+      stream: StreamViewType.NEW_AND_OLD_IMAGES,
     });
 
     this.connections = new Table(this, "Connections", {
@@ -165,6 +179,13 @@ export class Data extends Construct {
     this.channelMedia = new Table(this, "ChannelMedia", {
       ...common,
       tableName: `slack-${props.stage}-channel-media`,
+      partitionKey: { name: "channelId", type: AttributeType.STRING },
+      sortKey: { name: "sk", type: AttributeType.STRING },
+    });
+
+    this.messageSearch = new Table(this, "MessageSearch", {
+      ...common,
+      tableName: `slack-${props.stage}-message-search`,
       partitionKey: { name: "channelId", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
     });

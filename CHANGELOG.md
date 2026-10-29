@@ -7,6 +7,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Search every message (Ctrl K / ⌘ K):** the palette now finds messages as well as channels and
+  people, in every conversation you can see. It searches while you type, after a short pause,
+  ignoring accents and case ("reunion" finds "reunión"), and finds a word from its start ("logi"
+  finds "login"). Matches are highlighted, and arrow keys and Enter open a result: its
+  conversation, scrolled to the message and highlighted, or its thread for a reply. The sidebar
+  button reads **Search…** and the phones' Search tab finds messages too. Secrets and deleted
+  messages are never searchable. After deploying, index the existing history once with
+  `pnpm --filter infra backfill-search <stage> --apply`.
+
 - **The AI News dashboard:** the News view is now the "AI News Dashboard" design. It has a glass
   card for each of the day's four top stories (thumbnail, a Spanish headline and summary, the
   source and how long ago). Below them come **Tendencias** with the key phrases highlighted, the
@@ -60,6 +69,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   Starting one clip pauses any other, and a voice message shows its length before it has loaded.
 
 ### Fixed
+
+- **Scrolling up through history no longer jumps:** loading an older page moved the message you
+  were reading by about 72 px each time, on phones and desktop. The "Loading earlier messages…"
+  line sat inside the first row and changed its height, and so did that row's date line once
+  older messages of the same day arrived above it. Nothing above the viewport moves what you're
+  reading now, including images loading up there. On touch screens the correction waits for the
+  scroll's momentum to end.
 
 - **"Couldn't open the link" after the link had opened:** a browser answers `window.open` with
   `null` when the link opens in a new tab without access back to the app (`noopener`), and the
