@@ -10,3 +10,4 @@ export * from "./actionItems";
 export * from "./news";
 export * from "./media";
 export * from "./search";
+export * from "./skills";

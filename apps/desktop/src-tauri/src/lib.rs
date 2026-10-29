@@ -2,6 +2,9 @@
 //! There is no second frontend; everything the app shows comes from
 //! `https://slack.mindfultech.ec` (see `tauri.conf.json`).
 
+use std::path::{Component, Path, PathBuf};
+
+use serde::Deserialize;
 use tauri::webview::{NewWindowResponse, PermissionKind, PermissionResponse};
 use tauri::window::{Color, Effect, EffectState, EffectsBuilder};
 use tauri::{Manager, Theme, Url, WebviewWindowBuilder};
@@ -94,6 +97,122 @@ fn effects_for(glass: Glass) -> tauri::utils::config::WindowEffectsConfig {
         .build()
 }
 
+// --- AI Skills (Phase 44): one-click install into ~/.claude/skills -------------
+
+/// One file of a skill, by its path inside the skill's folder.
+#[derive(Debug, Deserialize)]
+struct SkillFile {
+    path: String,
+    content: String,
+}
+
+/// Claude Code's limit for a skill's name, and what the catalog allows.
+const MAX_SLUG: usize = 64;
+const MAX_FILES: usize = 51;
+const MAX_TOTAL_BYTES: usize = 2_000_000;
+
+/// Lowercase letters, numbers and single hyphens: the skill's folder name.
+fn valid_slug(slug: &str) -> bool {
+    !slug.is_empty()
+        && slug.len() <= MAX_SLUG
+        && !slug.starts_with('-')
+        && !slug.ends_with('-')
+        && !slug.contains("--")
+        && slug
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// `path` as a relative path inside the skill's folder, or `None` for anything
+/// that could land elsewhere: absolute paths, `..`, backslashes, drive
+/// prefixes, hidden or empty parts.
+fn safe_relative_path(path: &str) -> Option<PathBuf> {
+    if path.is_empty() || path.len() > 200 || path.contains('\\') || path.contains(':') {
+        return None;
+    }
+    let mut out = PathBuf::new();
+    for part in path.split('/') {
+        if part.is_empty() || part.starts_with('.') || part.len() > 100 {
+            return None;
+        }
+        let ok = part
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+        if !ok {
+            return None;
+        }
+        out.push(part);
+    }
+    // Belt and braces: only plain names made it through.
+    out.components()
+        .all(|c| matches!(c, Component::Normal(_)))
+        .then_some(out)
+}
+
+/// Writes the skill's folder at `skills/<slug>`: into a fresh temporary folder
+/// first, then swapped in, so a failure never leaves half a skill (or an old
+/// one gone). Returns where it went.
+fn write_skill(skills: &Path, slug: &str, files: &[SkillFile]) -> Result<PathBuf, String> {
+    if !valid_slug(slug) {
+        return Err(format!("not a skill name: {slug}"));
+    }
+    if files.is_empty() || files.len() > MAX_FILES {
+        return Err("a skill has SKILL.md and at most 50 other files".into());
+    }
+    if !files.iter().any(|f| f.path == "SKILL.md") {
+        return Err("the skill has no SKILL.md".into());
+    }
+    let total: usize = files.iter().map(|f| f.content.len()).sum();
+    if total > MAX_TOTAL_BYTES {
+        return Err("the skill is too large".into());
+    }
+    let mut planned = Vec::with_capacity(files.len());
+    for file in files {
+        let rel = safe_relative_path(&file.path)
+            .ok_or_else(|| format!("not a safe file path: {}", file.path))?;
+        planned.push((rel, file.content.as_bytes()));
+    }
+
+    let io = |what: &str, err: std::io::Error| format!("{what}: {err}");
+    std::fs::create_dir_all(skills).map_err(|e| io("creating ~/.claude/skills", e))?;
+    let target = skills.join(slug);
+    let staging = skills.join(format!(".{slug}.installing-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&staging);
+    let written = (|| -> Result<(), String> {
+        for (rel, bytes) in &planned {
+            let path = staging.join(rel);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| io("creating a folder", e))?;
+            }
+            std::fs::write(&path, bytes).map_err(|e| io("writing a file", e))?;
+        }
+        Ok(())
+    })();
+    if let Err(err) = written {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(err);
+    }
+    if target.exists() {
+        std::fs::remove_dir_all(&target).map_err(|e| io("replacing the old version", e))?;
+    }
+    std::fs::rename(&staging, &target).map_err(|e| io("moving the skill into place", e))?;
+    Ok(target)
+}
+
+/// `install_skill` (Phase 44): the AI Skills view's one-click install. Writes
+/// the skill into `~/.claude/skills/<slug>/`, where Claude Code loads it for
+/// every project (Windows: `%USERPROFILE%\.claude\skills`).
+#[tauri::command]
+fn install_skill<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    slug: String,
+    files: Vec<SkillFile>,
+) -> Result<String, String> {
+    let home = app.path().home_dir().map_err(|e| e.to_string())?;
+    let target = write_skill(&home.join(".claude").join("skills"), &slug, &files)?;
+    Ok(target.display().to_string())
+}
+
 fn open_in_browser<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url: &Url) {
     if let Err(err) = app.opener().open_url(url.as_str(), None::<&str>) {
         eprintln!("couldn't open {url}: {err}");
@@ -114,6 +233,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .invoke_handler(tauri::generate_handler![install_skill])
         .setup(|app| {
             // The window is declared in tauri.conf.json with `create: false` and
             // built here, so the navigation handlers can be attached to it.
@@ -239,6 +359,114 @@ mod tests {
             r#"window.__MINDFULTECH_GLASS__ = "mica";"#
         );
         assert_eq!(glass_script(None), "window.__MINDFULTECH_GLASS__ = null;");
+    }
+
+    #[test]
+    fn skill_names_are_folder_names_claude_code_accepts() {
+        assert!(valid_slug("security-audit"));
+        assert!(valid_slug("a1"));
+        for bad in [
+            "",
+            "Security",
+            "a--b",
+            "-a",
+            "a-",
+            "a/b",
+            "..",
+            "a b",
+            &"a".repeat(65),
+        ] {
+            assert!(!valid_slug(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn skill_files_stay_inside_the_skill_folder() {
+        assert_eq!(
+            safe_relative_path("scripts/check.sh"),
+            Some(PathBuf::from("scripts").join("check.sh"))
+        );
+        assert_eq!(
+            safe_relative_path("SKILL.md"),
+            Some(PathBuf::from("SKILL.md"))
+        );
+        for bad in [
+            "",
+            "../x",
+            "a/../../x",
+            "/etc/passwd",
+            "C:/Windows/x",
+            "a\\b",
+            ".git/config",
+            "a//b",
+            "a/./b",
+            "a b.md",
+        ] {
+            assert_eq!(safe_relative_path(bad), None, "{bad}");
+        }
+    }
+
+    fn file(path: &str, content: &str) -> SkillFile {
+        SkillFile {
+            path: path.into(),
+            content: content.into(),
+        }
+    }
+
+    #[test]
+    fn installs_a_skill_and_replaces_an_older_one() {
+        let home = std::env::temp_dir().join(format!("skills-test-{}", std::process::id()));
+        let skills = home.join(".claude").join("skills");
+        let _ = std::fs::remove_dir_all(&home);
+
+        let target = write_skill(
+            &skills,
+            "cdk-iam",
+            &[
+                file("SKILL.md", "---\nname: cdk-iam\n---\n"),
+                file("scripts/scan.sh", "echo scan"),
+                file("old.md", "old"),
+            ],
+        )
+        .unwrap();
+        assert_eq!(target, skills.join("cdk-iam"));
+        assert_eq!(
+            std::fs::read_to_string(target.join("scripts").join("scan.sh")).unwrap(),
+            "echo scan"
+        );
+
+        // A new version replaces the folder: files it no longer has are gone.
+        write_skill(&skills, "cdk-iam", &[file("SKILL.md", "v2")]).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(target.join("SKILL.md")).unwrap(),
+            "v2"
+        );
+        assert!(!target.join("old.md").exists());
+        assert!(!target.join("scripts").exists());
+
+        // Refused before anything is written: the old version stays.
+        assert!(write_skill(
+            &skills,
+            "cdk-iam",
+            &[file("SKILL.md", "x"), file("../evil", "x")]
+        )
+        .is_err());
+        assert!(write_skill(&skills, "../x", &[file("SKILL.md", "x")]).is_err());
+        assert!(write_skill(&skills, "no-skill-md", &[file("README.md", "x")]).is_err());
+        assert_eq!(
+            std::fs::read_to_string(target.join("SKILL.md")).unwrap(),
+            "v2"
+        );
+        assert!(!home.join("evil").exists());
+        // No staging folder left behind.
+        let leftovers: Vec<_> = std::fs::read_dir(&skills)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(leftovers, vec![std::ffi::OsString::from("cdk-iam")]);
+
+        std::fs::remove_dir_all(&home).unwrap();
     }
 
     #[test]

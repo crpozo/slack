@@ -60,6 +60,7 @@ const CalendarView = lazy(() =>
 );
 const NotesHub = lazy(() => import("./NotesHub").then((m) => ({ default: m.NotesHub })));
 const NewsView = lazy(() => import("./NewsView").then((m) => ({ default: m.NewsView })));
+const SkillsView = lazy(() => import("./SkillsView").then((m) => ({ default: m.SkillsView })));
 const SettingsModal = lazy(() =>
   import("./SettingsModal").then((m) => ({ default: m.SettingsModal })),
 );
@@ -83,6 +84,8 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const notesMatch = useMatch("/app/notes");
   // `/app/news`: AI News (Phase 35b).
   const newsMatch = useMatch("/app/news");
+  // `/app/skills`: AI Skills (Phase 44).
+  const skillsMatch = useMatch("/app/skills");
   const navigate = useNavigate();
   // Phones' tabs and a thread's own screen are routes too.
   const threadMatch = useMatch("/app/:channelId/thread/:messageId");
@@ -100,7 +103,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           ? "search"
           : null;
   const channelId =
-    tasksMatch || calendarMatch || notesMatch || newsMatch || tab
+    tasksMatch || calendarMatch || notesMatch || newsMatch || skillsMatch || tab
       ? null
       : (threadMatch?.params.channelId ?? params.channelId ?? GENERAL_CHANNEL_ID);
   const threadId = threadMatch?.params.messageId;
@@ -387,6 +390,14 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           <NewsView />
         </Suspense>
       );
+    } else if (skillsMatch) {
+      screen = (
+        <Suspense
+          fallback={<div className="flex-1" aria-busy="true" aria-label="Loading skills" />}
+        >
+          <SkillsView />
+        </Suspense>
+      );
     } else if (notesMatch) {
       screen = (
         <Suspense fallback={<div className="flex-1" aria-busy="true" aria-label="Loading notes" />}>
@@ -470,6 +481,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
             onClose={closeSheet}
             onOpenNotes={() => go("/app/notes")}
             onOpenNews={() => go("/app/news")}
+            onOpenSkills={() => go("/app/skills")}
             onOpenSettings={() => {
               setSheet(null);
               setSettingsOpen(true);
@@ -525,7 +537,15 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         <Sidebar
           activeChannelId={
             channelId ??
-            (calendarMatch ? "calendar" : notesMatch ? "notes" : newsMatch ? "news" : "tasks")
+            (calendarMatch
+              ? "calendar"
+              : notesMatch
+                ? "notes"
+                : newsMatch
+                  ? "news"
+                  : skillsMatch
+                    ? "skills"
+                    : "tasks")
           }
           collapsed={collapsed}
           onToggleCollapsed={isDesktop ? toggleCollapsed : undefined}
@@ -564,6 +584,12 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
               onOpenThread={openThread}
               onCloseThread={closeThread}
             />
+          ) : skillsMatch ? (
+            <Suspense
+              fallback={<div className="flex-1" aria-busy="true" aria-label="Loading skills" />}
+            >
+              <SkillsView onOpenSidebar={() => setSidebarOpen(true)} />
+            </Suspense>
           ) : newsMatch ? (
             <Suspense
               fallback={<div className="flex-1" aria-busy="true" aria-label="Loading news" />}

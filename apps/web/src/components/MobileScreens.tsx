@@ -27,6 +27,7 @@ import {
   MessageIcon,
   MoreHorizontalIcon,
   NewspaperIcon,
+  PuzzleIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
@@ -561,17 +562,19 @@ export function ShortcutCards({ onOpenHuddles }: Readonly<{ onOpenHuddles: () =>
   );
 }
 
-/** The More tab's sheet (and the workspace menu): who you are, AI Notes, AI News, settings and sign out. */
+/** The More tab's sheet (and the workspace menu): who you are, AI Notes, AI News, AI Skills, settings and sign out. */
 export function MoreSheet({
   onClose,
   onOpenNotes,
   onOpenNews,
+  onOpenSkills,
   onOpenSettings,
   onSignOut,
 }: Readonly<{
   onClose: () => void;
   onOpenNotes: () => void;
   onOpenNews: () => void;
+  onOpenSkills?: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
 }>) {
@@ -612,6 +615,14 @@ export function MoreSheet({
           hint="The latest from the AI press"
           onClick={onOpenNews}
         />
+        {onOpenSkills && (
+          <SheetRow
+            icon={<PuzzleIcon className="text-primary" />}
+            label="AI Skills"
+            hint="Claude Code skills for the team"
+            onClick={onOpenSkills}
+          />
+        )}
         <SheetRow
           icon={<SettingsIcon />}
           label="Settings"

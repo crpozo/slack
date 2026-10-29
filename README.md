@@ -577,6 +577,38 @@ esencial" shows the newest stories as they are. Each analysis is one request of 
 few thousand tokens: cents a month. A failed run (the feed down, the model busy) is retried twice
 by the schedule and writes nothing, so the view keeps showing the previous day's analysis.
 
+### 9. AI Skills (the team's Claude Code skills)
+
+**AI Skills** (`/app/skills`, under APPS) is the team's catalog of
+[Claude Code skills](https://docs.claude.com/en/docs/claude-code/skills): a folder with a
+`SKILL.md` (YAML frontmatter `name` and `description`, then instructions) and any companion files,
+that Claude Code loads from `.claude/skills/<name>/` (one project) or `~/.claude/skills/<name>/`
+(every project). Browse and search it, open a skill (rendered `SKILL.md`, every file), and put it
+in Claude Code with a copied command (bash/zsh or PowerShell, project or global), a `.zip`
+(`<name>/SKILL.md` and its files), or, in the desktop app 0.3.0 and later, **one click**
+(it writes `~/.claude/skills/<name>/` itself).
+
+- **Importar de GitHub:** a public repository, or a skill's folder in one
+  (`…/tree/<branch>/<path>`); the skill's files and the repository's licence are read through
+  GitHub's API and raw files. **Sync from GitHub** reads it again.
+- **Crear Skill:** write or upload a `SKILL.md`, or describe an idea and **Generar con IA**:
+  Claude Haiku 5.5 on Bedrock writes it (the same model access as step 7, nothing else).
+- The catalog starts with Cloudflare's
+  [security-audit](https://github.com/cloudflare/security-audit-skill) skill (MIT), from a
+  snapshot built into the backend (`backend/src/lib/skillSeeds/`, refreshed with
+  `backend/scripts/snapshot-github-skill.mjs`), so it's there even before GitHub is reachable;
+  **Sync from GitHub** brings it up to date. An admin can remove it, and it isn't added back.
+
+Everything comes with the deploy (the `slack-<stage>-skills` table, the `skills` Lambda and its
+routes). **Optional, once per stage:** GitHub allows 60 unauthenticated API requests an hour per
+IP, shared with everything else on Lambda's IPs, and an import uses two. A token lifts that to
+5,000. Create a fine-grained token with no permissions (public repositories only), and store it
+yourself:
+
+```bash
+aws ssm put-parameter --name /slack/prod/github-token --type SecureString --value "github_pat_..."
+```
+
 ### Deploys and open tabs
 
 Every deploy uploads a new `index.html` naming a new, hashed app bundle. A tab opened before the
@@ -638,6 +670,13 @@ The builds aren't code-signed yet:
   notifications.
 
 Rust is only needed to build it yourself: `pnpm --filter desktop tauri dev`.
+
+### Desktop app: release after Phase 44 (0.3.0)
+
+The AI Skills view's one-click install calls the desktop app's `install_skill` command
+(`apps/desktop/src-tauri/src/lib.rs`, allowed by `allow-install-skill` in the capability file).
+Desktop apps before 0.3.0 don't have it: the view offers the copied command and the download
+instead. Release 0.3.0 (_Actions → Desktop → Run workflow_) after deploying Phase 44.
 
 ### Desktop app: release after Phase 33
 

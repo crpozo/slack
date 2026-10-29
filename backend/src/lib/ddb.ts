@@ -67,6 +67,13 @@ export const tables = {
   get newsInsights() {
     return requireEnv("NEWS_INSIGHTS_TABLE");
   },
+  /**
+   * Phase 44: the AI Skills catalog, by `skillId` + `sk`: `meta` (everything
+   * but the companion files) and `file#<path>` (one per file).
+   */
+  get skills() {
+    return requireEnv("SKILLS_TABLE");
+  },
 };
 
 /** Row of the `connections` table. */

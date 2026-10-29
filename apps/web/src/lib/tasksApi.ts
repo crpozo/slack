@@ -79,6 +79,29 @@ export async function request<T>(
   return (await response.json()) as T;
 }
 
+/** One authenticated GET whose answer is a file (a skill's .zip), as a Blob. */
+export async function requestBlob(path: string): Promise<Blob> {
+  if (!baseUrl) throw new TasksApiError(0, "The Task Manager isn't configured on this deployment.");
+  const token = await getIdToken();
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, { headers: { authorization: `Bearer ${token}` } });
+  } catch {
+    throw new TasksApiError(0, "Couldn't reach the server. Check your connection.");
+  }
+  if (!response.ok) {
+    let message = `Request failed (${response.status})`;
+    try {
+      const data = (await response.json()) as { message?: unknown };
+      if (typeof data.message === "string") message = data.message;
+    } catch {
+      // Not JSON.
+    }
+    throw new TasksApiError(response.status, message);
+  }
+  return response.blob();
+}
+
 export const tasksApi = {
   listBoards: () => request<{ boards: Board[] }>("GET", "/boards").then((r) => r.boards),
   createBoard: (name: string) =>

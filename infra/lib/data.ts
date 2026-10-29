@@ -55,6 +55,11 @@ export class Data extends Construct {
    * backend/src/lib/newsInsights.ts.
    */
   readonly newsInsights: Table;
+  /**
+   * AI Skills (Phase 44): the catalog of Claude Code skills, `skillId` + `sk`
+   * (`meta`, one `file#<path>` per companion file). See backend/src/lib/skills.ts.
+   */
+  readonly skills: Table;
 
   constructor(scope: Construct, id: string, props: { stage: Stage }) {
     super(scope, id);
@@ -198,6 +203,13 @@ export class Data extends Construct {
       tableName: `slack-${props.stage}-news-insights`,
       partitionKey: { name: "feed", type: AttributeType.STRING },
       sortKey: { name: "day", type: AttributeType.STRING },
+    });
+
+    this.skills = new Table(this, "Skills", {
+      ...common,
+      tableName: `slack-${props.stage}-skills`,
+      partitionKey: { name: "skillId", type: AttributeType.STRING },
+      sortKey: { name: "sk", type: AttributeType.STRING },
     });
   }
 }
