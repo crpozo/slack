@@ -172,6 +172,21 @@ export function orderChannels(channels: Channel[]): Channel[] {
 }
 
 /**
+ * Where to go when the open channel can't stay open (you archived it): #general,
+ * else the first channel that's still active (`leaving` excluded).
+ */
+export function fallbackChannelId(channels: Channel[], leaving: string): string {
+  const active = channels.filter((c) => c.type !== "dm" && !c.archived && c.channelId !== leaving);
+  return orderChannels(active)[0]?.channelId ?? GENERAL_CHANNEL_ID;
+}
+
+/** Whether the route at `pathname` shows `channelId` (the channel, or a thread in it). */
+export function showsChannel(pathname: string, channelId: string): boolean {
+  const base = `/app/${encodeURIComponent(channelId)}`;
+  return pathname === base || pathname.startsWith(`${base}/`);
+}
+
+/**
  * The DM list: pinned chats first (in pin order), then conversations by
  * recent activity, then the people you've never written to, in the
  * alphabetical order `entries` came in.

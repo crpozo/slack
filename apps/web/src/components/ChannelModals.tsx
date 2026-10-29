@@ -12,8 +12,11 @@ import {
   type Channel,
 } from "@mindfultech/shared";
 import { useEffect, useState, type FormEvent } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
+import { fallbackChannelId, showsChannel } from "../lib/channels";
 import { chat, type ChannelEdit } from "../lib/chat";
+import { forgetRecent } from "../lib/recents";
 import {
   projectBoardOf,
   projectChoiceOf,
@@ -451,9 +454,22 @@ export function EditChannelModal({
   // Phase 32: the channel's creator too, not only admins.
   const canArchive = !!me && canArchiveChannel(channel, me.userId, me.role);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const showToast = useChat((s) => s.showToast);
   function toggleArchive() {
-    chat.updateChannel(channel.channelId, { archived: !channel.archived });
+    const archiving = !channel.archived;
+    chat.updateChannel(channel.channelId, { archived: archiving });
     onClose();
+    if (!archiving) return;
+    // Archived from inside it: on to #general (or the first active channel),
+    // and it's no longer a recent place to go back to.
+    if (me) forgetRecent(me.userId, channel.channelId);
+    if (showsChannel(pathname, channel.channelId)) {
+      const next = fallbackChannelId(useChat.getState().channels, channel.channelId);
+      void navigate(`/app/${encodeURIComponent(next)}`, { replace: true });
+    }
+    showToast(`#${channel.name} archived. It's under Archived in the sidebar.`, "success");
   }
 
   if (!canEdit) {

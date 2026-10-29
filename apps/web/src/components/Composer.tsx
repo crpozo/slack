@@ -1,4 +1,4 @@
-import { isDmChannel, MAX_TEXT_LENGTH } from "@mindfultech/shared";
+import { canArchiveChannel, isDmChannel, MAX_TEXT_LENGTH } from "@mindfultech/shared";
 import {
   applyCommand,
   commandQuery,
@@ -190,8 +190,50 @@ function RecordingBar({
   );
 }
 
-export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
-  { channelId, placeholder, disabled = false, thread, readOnly = false },
+/**
+ * The message box, or, in an archived channel, a note saying so. Two
+ * components rather than an early return: the archived flag can flip while
+ * this is on screen (the channel archived just now, or the channel list
+ * arriving after opening an archived channel's link), and a component's hooks
+ * must be the same on every render. The early return crashed the whole app.
+ */
+export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(props, ref) {
+  return props.readOnly ? (
+    <ArchivedNotice channelId={props.channelId} />
+  ) : (
+    <ComposerInput {...props} ref={ref} />
+  );
+});
+
+/** In place of the composer in an archived channel: it can be read, and restored by who may. */
+function ArchivedNotice({ channelId }: Readonly<{ channelId: string }>) {
+  const channel = useChat((s) => s.channels.find((c) => c.channelId === channelId));
+  const me = useChat((s) => s.me);
+  const canRestore = !!channel && !!me && canArchiveChannel(channel, me.userId, me.role);
+  return (
+    <div
+      className="mx-2 mb-[max(0.5rem,env(safe-area-inset-bottom))] flex flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-xl border border-line bg-surface-sidebar px-4 py-3 text-sm text-ink-secondary"
+      role="status"
+      data-archived-notice
+    >
+      <span className="flex items-center gap-2">
+        <ArchiveIcon /> This channel is archived. You can read it, but not post.
+      </span>
+      {canRestore && (
+        <button
+          type="button"
+          onClick={() => chat.updateChannel(channelId, { archived: false })}
+          className="rounded-md border border-line px-2.5 py-1 text-xs font-semibold text-ink hover:bg-surface-hover"
+        >
+          Unarchive
+        </button>
+      )}
+    </div>
+  );
+}
+
+const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function ComposerInput(
+  { channelId, placeholder, disabled = false, thread },
   ref,
 ) {
   const showToast = useChat((s) => s.showToast);
@@ -397,17 +439,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   );
   const voice = useVoiceRecorder(sendVoice);
   const recording = voice.state !== "idle";
-
-  if (readOnly) {
-    return (
-      <div
-        className="mx-2 mb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-center gap-2 rounded-xl border border-line bg-surface-sidebar px-4 py-3 text-sm text-ink-secondary"
-        role="status"
-      >
-        <ArchiveIcon /> This channel is archived. You can read it, but not post.
-      </div>
-    );
-  }
 
   function startRecording() {
     voice.start().catch((err: unknown) => {

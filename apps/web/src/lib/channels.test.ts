@@ -1,6 +1,8 @@
 import { dmChannelId, type Channel, compareIds } from "@mindfultech/shared";
 import { describe, expect, it } from "vitest";
 import {
+  fallbackChannelId,
+  showsChannel,
   channelLabel,
   dmEntries,
   type DmEntry,
@@ -236,5 +238,42 @@ describe("priority chats", () => {
       "Cy",
     ]);
     expect(orderDms(entries, channels, []).map((e) => e.name)).toEqual(["Bob", "Dan", "Ana", "Cy"]);
+  });
+});
+
+describe("leaving a channel you archived", () => {
+  const ch = (channelId: string, patch: Partial<Channel> = {}): Channel => ({
+    channelId,
+    name: channelId.replace("ch_", ""),
+    type: "public",
+    createdBy: "u",
+    createdAt: 1,
+    archived: false,
+    ...patch,
+  });
+
+  it("goes to #general, else the first channel still active (never a DM or the one left)", () => {
+    expect(fallbackChannelId([ch("ch_x"), ch("ch_general"), ch("ch_b")], "ch_x")).toBe(
+      "ch_general",
+    );
+    expect(
+      fallbackChannelId(
+        [
+          ch("ch_x"),
+          ch("ch_old", { archived: true }),
+          ch("ch_b"),
+          ch(dmChannelId("u1", "u2"), { type: "dm" }),
+        ],
+        "ch_x",
+      ),
+    ).toBe("ch_b");
+    expect(fallbackChannelId([ch("ch_x")], "ch_x")).toBe("ch_general");
+  });
+
+  it("knows whether the route shows the channel or one of its threads", () => {
+    expect(showsChannel("/app/ch_x", "ch_x")).toBe(true);
+    expect(showsChannel("/app/ch_x/thread/m1", "ch_x")).toBe(true);
+    expect(showsChannel("/app/ch_xy", "ch_x")).toBe(false);
+    expect(showsChannel("/app/tasks", "ch_x")).toBe(false);
   });
 });
