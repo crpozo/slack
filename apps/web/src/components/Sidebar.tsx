@@ -224,14 +224,22 @@ function NavItem({
   );
 }
 
+/**
+ * A sidebar section. With `toggle`, the whole title row is the button that
+ * folds it (title, chevron and the space between: a click anywhere on the
+ * row counts), as in an accordion; `action` is then only used on the
+ * collapsed rail.
+ */
 function Section({
   title,
   action,
+  toggle,
   compact,
   children,
 }: Readonly<{
   title: string;
   action?: ReactNode;
+  toggle?: { open: boolean; onToggle: () => void; label: string };
   compact: boolean;
   children: ReactNode;
 }>) {
@@ -239,6 +247,22 @@ function Section({
     <section className={compact ? "mt-3 border-t border-white/10 pt-3 first:border-0" : "mt-4"}>
       {compact ? (
         action && <div className="mb-1 flex justify-center">{action}</div>
+      ) : toggle ? (
+        <h2 className="pb-1">
+          <button
+            type="button"
+            onClick={toggle.onToggle}
+            aria-expanded={toggle.open}
+            title={toggle.label}
+            className="flex w-full items-center justify-between rounded-md px-4 py-1 text-left text-xs font-semibold uppercase tracking-wide text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <span>{title}</span>
+            <ChevronDownIcon
+              className={`transition-transform ${toggle.open ? "rotate-180" : ""}`}
+              aria-hidden="true"
+            />
+          </button>
+        </h2>
       ) : (
         <div className="flex items-center justify-between px-4 pb-1">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">
@@ -991,6 +1015,14 @@ export function Sidebar({
           <Section
             title="Archived"
             compact={compact}
+            // The whole row folds the section, not only the chevron.
+            toggle={{
+              open: showArchived,
+              onToggle: () => setShowArchived((v) => !v),
+              label: showArchived
+                ? "Hide archived channels"
+                : `Show archived channels (${archivedChannels.length})`,
+            }}
             action={
               <button
                 type="button"
