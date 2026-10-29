@@ -156,6 +156,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   every day at 07:07 (Ecuador) from the same TechCrunch feed and keeps one per day; the view
   shows the newest. Admins can ask for one now with **Generate now** (and **Generate again**
   later in the day).
+- **Channel icons:** private channels show an icon for what they are about instead of the
+  padlock, read from their name: a browser window for a website, a newspaper for news, layers
+  for a platform, a pen for design, code brackets, coins for payments, a life buoy for support,
+  a database, a megaphone for marketing, a phone for apps. A project channel with no such word
+  gets a board; any other private channel, a group of people. Public channels keep the `#`.
+  Screen readers still hear "Private channel".
+- **Board icon:** Task Manager and "Mark this channel as a Project" use a proper board icon
+  (three columns of cards) instead of three bars.
 - **Archived:** the whole "Archived" row in the sidebar now opens and closes the section,
   not only its chevron.
 - **Sidebar:** opens 288 px wide (was 256), so the header shows the logo and "MindfulTech"

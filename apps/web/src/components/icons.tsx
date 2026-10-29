@@ -257,9 +257,93 @@ export const RepeatIcon = (p: IconProps) => (
     <path d="M21 13v1a4 4 0 0 1-4 4H3" />
   </Icon>
 );
+/** A board: three columns of cards (Task Manager, project channels). */
 export const KanbanIcon = (p: IconProps) => (
   <Icon {...p}>
-    <path d="M5 3v16M12 3v10M19 3v7" />
+    <rect x="3" y="3" width="18" height="18" rx="3" />
+    <path d="M9 3v18M15 3v18" />
+    <path
+      d="M5.5 7h1.5M11.5 7h1.5M17.5 7h1.5M5.5 11h1.5M11.5 11h1.5M5.5 15h1.5"
+      strokeWidth={2.4}
+    />
+  </Icon>
+);
+
+// --- Channel glyphs (Phase 40): what a channel is about, from its name ---------------
+
+/** A website: a browser window. */
+export const BrowserIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="3" />
+    <path d="M3 9h18M7 6.5h.01M10 6.5h.01" strokeWidth={2.4} />
+  </Icon>
+);
+/** A platform or product: stacked layers. */
+export const LayersIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m12 3 9 5-9 5-9-5 9-5z" />
+    <path d="m3 13 9 5 9-5M3 17.5l9 5 9-5" />
+  </Icon>
+);
+/** Drawing and design: a pen nib. */
+export const PenToolIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m12 19 7-7 3 3-7 7-3-3z" />
+    <path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+    <path d="m2 2 7.6 7.6" />
+    <circle cx="11" cy="11" r="2" />
+  </Icon>
+);
+/** Code, APIs, apps. */
+export const CodeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />
+  </Icon>
+);
+/** A group of people: a private channel about nothing in particular. */
+export const UsersIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+  </Icon>
+);
+/** Marketing, launches, announcements. */
+export const MegaphoneIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z" />
+    <path d="M15 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10" />
+    <path d="M7 14v5a1 1 0 0 0 1 1h1" />
+  </Icon>
+);
+/** Finance, payments, billing. */
+export const CoinsIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M14.5 9.5A2.5 2.5 0 0 0 12 8h-.5a2 2 0 0 0 0 4h1a2 2 0 0 1 0 4H12a2.5 2.5 0 0 1-2.5-1.5M12 6.5V8M12 16v1.5" />
+  </Icon>
+);
+/** Support, help desks. */
+export const LifeBuoyIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="10" />
+    <circle cx="12" cy="12" r="4" />
+    <path d="m4.9 4.9 4.3 4.3M14.8 14.8l4.3 4.3M14.8 9.2l4.3-4.3M4.9 19.1l4.3-4.3" />
+  </Icon>
+);
+/** Data, databases, analytics. */
+export const DatabaseIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <ellipse cx="12" cy="5" rx="8" ry="3" />
+    <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5" />
+    <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+  </Icon>
+);
+/** Phones and mobile apps. */
+export const SmartphoneIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="6" y="2" width="12" height="20" rx="3" />
+    <path d="M12 18h.01" strokeWidth={2.6} />
   </Icon>
 );
 export const TrashIcon = (p: IconProps) => (
