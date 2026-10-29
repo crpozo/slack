@@ -12,6 +12,7 @@ import {
   aiNotesText,
   dmMembers,
   MAX_QUESTIONS_PER_NOTE,
+  MAX_TRANSCRIPT_CHARS,
   newMessageSk,
   NoteAudioSchema,
   NOTE_QUESTION_HISTORY,
@@ -24,6 +25,7 @@ import {
   type NoteDetail,
   type NoteQuestion,
   type NotesPage,
+  type TranscriptSegment,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
 import { deliver, listConnections } from "../lib/broadcast";
@@ -32,6 +34,7 @@ import { bedrockModel, type ClaudeModel } from "../lib/claude";
 import {
   countQuestions,
   getPolished,
+  listClips,
   listQuestions,
   participantNote,
   putQuestion,
@@ -67,8 +70,31 @@ let lambda: LambdaClient | null = null;
 const lambdaClient = () => (lambda ??= new LambdaClient({}));
 
 /**
+ * Phase 43: the call's transcript from the clips Whisper heard (in this
+ * conversation, of its people), phrase by phrase in time order. A very long
+ * call keeps its first `MAX_TRANSCRIPT_CHARS`.
+ */
+async function whisperSegments(
+  callId: string,
+  channelId: string,
+  participants: string[],
+): Promise<TranscriptSegment[]> {
+  const segments = (await listClips(callId))
+    .filter((clip) => clip.channelId === channelId && participants.includes(clip.speaker))
+    .flatMap((clip) => clip.lines.map(({ at, text }) => ({ userId: clip.speaker, text, at })))
+    .sort((a, b) => a.at - b.at);
+  let chars = 0;
+  const kept = segments.filter((s) => (chars += s.text.length) <= MAX_TRANSCRIPT_CHARS);
+  if (kept.length < segments.length) {
+    log.warn("call transcript cut", { callId, phrases: segments.length, kept: kept.length });
+  }
+  return kept;
+}
+
+/**
  * `POST /calls/summary` (Phase 28): the caller's app sends the call's merged
- * transcript when a DM call with AI notes ends. A pending ✨ card is posted
+ * transcript when a DM call with AI notes ends (from Phase 43, `source:
+ * "whisper"`: the transcript is built here from the clips Whisper heard). A pending ✨ card is posted
  * in the DM at once (`message.new` to both people), the worker is started
  * asynchronously to write the notes, and the answer is 202: the summary
  * arrives as `message.updated` (generation can outlast API Gateway's 30 s).
@@ -81,7 +107,7 @@ async function summarizeCall(event: HttpEvent, caller: HttpCaller): Promise<Http
   if (!members || !channel || channel.type !== "dm") throw notFound("Conversation not found");
   const participants = [...new Set(members)].sort((a, b) => a.localeCompare(b));
   // Only the two people of the call can have spoken in it.
-  if (input.segments.some((s) => !participants.includes(s.userId))) {
+  if ((input.segments ?? []).some((s) => !participants.includes(s.userId))) {
     throw new HttpError(400, "segments: a speaker isn't part of this conversation");
   }
 
@@ -95,8 +121,15 @@ async function summarizeCall(event: HttpEvent, caller: HttpCaller): Promise<Http
     return json(202, { message: existing });
   }
 
+  const whisper = input.source === "whisper";
+  const segments = whisper
+    ? await whisperSegments(input.callId, input.channelId, participants)
+    : (input.segments ?? []);
+  if (segments.length === 0) {
+    throw new HttpError(422, "Nothing was heard in this call to take notes from");
+  }
   // Phase 40: the transcript is kept (the `raw` row), as the people in it will read it.
-  const transcript = await transcriptFor(input.segments, input.startedAt);
+  const transcript = await transcriptFor(segments, input.startedAt);
   if (Buffer.byteLength(transcript, "utf8") > MAX_TRANSCRIPT_BYTES) {
     throw new HttpError(413, "The transcript is too long to summarize");
   }
@@ -143,6 +176,7 @@ async function summarizeCall(event: HttpEvent, caller: HttpCaller): Promise<Http
     participants,
     text: transcript,
     createdAt: now,
+    ...(whisper && { source: "whisper", keepAudio: input.keepAudio === true }),
   };
 
   // The card, its pointers in the AI Notes hub of each person (Phase 29) and
@@ -187,8 +221,10 @@ async function summarizeCall(event: HttpEvent, caller: HttpCaller): Promise<Http
   log.info("notes card posted", {
     channelId: message.channelId,
     callId: input.callId,
-    segments: input.segments.length,
-    chars: input.segments.reduce((n, s) => n + s.text.length, 0),
+    source: whisper ? "whisper" : "browser",
+    keepAudio: whisper ? input.keepAudio === true : undefined,
+    segments: segments.length,
+    chars: segments.reduce((n, s) => n + s.text.length, 0),
   });
   try {
     const inAudience = channelAudience(channel);
@@ -315,12 +351,16 @@ function callIdOf(event: HttpEvent): string {
  * `PUT /calls/{callId}/audio`: the caller's app, once the recording is
  * uploaded (presign + PUT, like any attachment), attaches it to the card.
  * Anyone in the call may; the file must be in the conversation's own folder.
- * The conversation hears `message.updated`.
+ * The conversation hears `message.updated`. Phase 43: for notes from Whisper,
+ * only if someone in the call asked to keep the original audio.
  */
 async function attachAudio(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const callId = callIdOf(event);
   const input = parseBody(NoteAudioSchema, event);
   const raw = await participantNote(callId, caller.userId);
+  if (raw.source === "whisper" && raw.keepAudio !== true) {
+    throw new HttpError(409, "No one in the call asked to keep its audio");
+  }
   if (!input.key.startsWith(`attachments/${raw.channelId}/`) || input.key.includes("..")) {
     throw new HttpError(400, "key: not an upload of this conversation");
   }

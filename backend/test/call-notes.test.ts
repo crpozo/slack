@@ -237,6 +237,82 @@ describe("POST /calls/summary", () => {
       ":error": "The notes couldn't be started.",
     });
   });
+
+  describe("Phase 43: from the clips Whisper heard", () => {
+    const CALL = "01CALLCALLCALLCALLCALLCALL";
+    const clipRow = (speaker: string, startedAt: number, lines: string[], channelId = DM) => ({
+      callId: CALL,
+      sk: `clip#${String(startedAt).padStart(13, "0")}#${speaker}`,
+      channelId,
+      speaker,
+      startedAt,
+      durationMs: 240_000,
+      lines: lines.map((text, i) => ({ at: startedAt + i * 5000, text })),
+      by: ALICE.userId,
+      createdAt: NOW,
+      expiresAt: NOW / 1000 + 604_800,
+    });
+    const whisper = (patch: Record<string, unknown> = {}) => ({
+      ...summary({ segments: undefined, source: "whisper" }),
+      ...patch,
+    });
+
+    beforeEach(() => {
+      ddbMock.on(QueryCommand, { TableName: "slack-test-note-details" }).resolves({
+        Items: [
+          clipRow(ALICE.userId, NOW - 590_000, ["Hagamos el deploy del backend.", "¿Listo?"]),
+          clipRow(BOB.userId, NOW - 588_000, ["Sí, el endpoint ya está."]),
+          // Another conversation naming the same call: not this call's audio.
+          clipRow(BOB.userId, NOW - 589_000, ["intruso"], GENERAL_CHANNEL_ID),
+        ],
+      });
+    });
+
+    it("builds the transcript from the call's clips, in time order, and records the choice", async () => {
+      const { status } = await call(whisper({ keepAudio: false }));
+      expect(status).toBe(202);
+      const query = ddbMock.commandCalls(QueryCommand, {
+        TableName: "slack-test-note-details",
+      })[0]!.args[0].input;
+      expect(query.ExpressionAttributeValues).toEqual({ ":c": CALL, ":p": "clip#" });
+      const raw = ddbMock
+        .commandCalls(TransactWriteCommand)[0]!
+        .args[0].input.TransactItems!.at(-1)!.Put!.Item!;
+      expect(raw).toMatchObject({
+        sk: "raw",
+        source: "whisper",
+        keepAudio: false,
+        text:
+          "[00:10] Alice: Hagamos el deploy del backend.\n" +
+          "[00:12] bob: Sí, el endpoint ya está.\n" +
+          "[00:15] Alice: ¿Listo?",
+      });
+      expect(raw.text).not.toContain("intruso");
+      expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(1);
+    });
+
+    it("keeps the audio only when asked", async () => {
+      await call(whisper({ keepAudio: true }));
+      const raw = ddbMock
+        .commandCalls(TransactWriteCommand)[0]!
+        .args[0].input.TransactItems!.at(-1)!.Put!.Item!;
+      expect(raw.keepAudio).toBe(true);
+    });
+
+    it("answers 422, posting nothing, when Whisper heard nothing", async () => {
+      ddbMock.on(QueryCommand, { TableName: "slack-test-note-details" }).resolves({ Items: [] });
+      const { status, body } = await call(whisper());
+      expect(status).toBe(422);
+      expect(body.message).toContain("Nothing was heard");
+      expect(ddbMock.commandCalls(TransactWriteCommand)).toHaveLength(0);
+      expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(0);
+    });
+
+    it("wants either the segments or the clips, not both", async () => {
+      expect((await call(summary({ source: "whisper" }))).status).toBe(400);
+      expect((await call(summary({ segments: undefined }))).status).toBe(400);
+    });
+  });
 });
 
 describe("GET /notes (AI Notes hub)", () => {
@@ -463,6 +539,24 @@ describe("Phase 40: the recording, the full notes and private questions", () => 
       .on(UpdateCommand)
       .rejects(new ConditionalCheckFailedException({ message: "gone", $metadata: {} }));
     expect((await route("PUT /calls/{callId}/audio", AUDIO)).status).toBe(404);
+  });
+
+  it("Phase 43: refuses a recording for Whisper notes no one asked to keep", async () => {
+    ddbMock
+      .on(GetCommand, { TableName: DETAILS, Key: { callId: CALL, sk: "raw" } })
+      .resolves({ Item: { ...RAW, source: "whisper", keepAudio: false } });
+    const { status, body } = await route("PUT /calls/{callId}/audio", AUDIO);
+    expect(status).toBe(409);
+    expect(body.message).toContain("keep its audio");
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+
+    ddbMock
+      .on(GetCommand, { TableName: DETAILS, Key: { callId: CALL, sk: "raw" } })
+      .resolves({ Item: { ...RAW, source: "whisper", keepAudio: true } });
+    ddbMock.on(UpdateCommand).resolves({
+      Attributes: { messageId: "m5", channelId: DM, sk: "5#m5", aiNotes: { audio: AUDIO } },
+    });
+    expect((await route("PUT /calls/{callId}/audio", AUDIO)).status).toBe(200);
   });
 
   it("GET returns the transcript, the minutes and only your own questions", async () => {

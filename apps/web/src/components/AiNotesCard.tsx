@@ -170,7 +170,7 @@ export function AiNotesCard({ message, mine }: Readonly<{ message: Message; mine
         <p className="text-xs text-ink-secondary">
           {people} · {formatCallDuration(notes.endedAt - notes.startedAt)}
         </p>
-        {/* Phase 40: the call's recording (both voices, while notes were on). */}
+        {/* The call's original audio: only when someone in it chose to keep it (Phase 43). */}
         {notes.audio && (
           <div className="mt-2" data-note-audio>
             <Attachment

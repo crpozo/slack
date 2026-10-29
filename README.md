@@ -463,17 +463,36 @@ per-account model lineup and doesn't serve Haiku 5.5 for this account (every req
 `404 not_found_error`). If access isn't enabled, cards end with "Something went wrong writing the
 notes" and the worker's CloudWatch log shows the Bedrock error.
 
-What leaves the browser: speech recognition runs on the device when Chrome has the language pack
-(`SpeechRecognition.available` with `processLocally`). Otherwise the browser's speech service
-(Google's servers, in Chrome) hears your own microphone while notes are on. It always recognizes
-Spanish (Ecuador, `es-EC`), whatever the browser's language.
+**Transcription with OpenAI Whisper (Phase 43), once per stage:** the speech itself is
+transcribed by OpenAI's `whisper-1`, in Spanish, with a prompt that names the team's English
+technical terms (backend, deploy, endpoints…) so the Spanglish comes out right. Only the
+`call-transcribe` Lambda can read the API key. It lives encrypted in Parameter Store, never in a
+template or the function's configuration. Put your key there yourself, once per stage (paste it
+into your own terminal, nowhere else):
 
-What is kept (Phase 40): while notes are on, the caller's app also records the call (both voices)
-and uploads it to the attachments bucket under the DM's folder when the call ends. The
-transcript, the polished minutes Claude writes from it, and each person's own questions about
-them are kept in `slack-<stage>-note-details`, readable only by the two people in the call (and
-each question only by whoever asked it). Deleting the ✨ card deletes all of it, recording
-included. Each call is one streamed request to Haiku of about twice the transcript's length, and
+```bash
+aws ssm put-parameter --name /slack/prod/openai-api-key --type SecureString --value "sk-..."
+# rotating it later: add --overwrite (the Lambda picks the new key up within minutes)
+```
+
+The Lambda reads `OPENAI_API_KEY` from its environment first, which is how it runs locally, and
+otherwise reads that parameter (`OPENAI_API_KEY_PARAMETER`). Until the key exists, turning on
+notes still works, but every clip answers "Transcription isn't set up yet" and no notes come out.
+The Lambdas run outside any VPC, so they reach `api.openai.com` with no network setup.
+
+What leaves the browser: while notes are on, the caller's app records each voice on its own (its
+microphone, the other side's audio) in clips of up to 4 minutes. It sends each clip with speech in
+it to `POST /calls/{callId}/clips`, which hands it from memory to Whisper and keeps only the text
+(one row per clip in `slack-<stage>-note-details`, deleted after a week). The audio itself is
+never stored, in S3 or anywhere else. Silent clips never leave the browser.
+
+What is kept: the transcript, the polished minutes Claude writes from it, and each person's own
+questions about them are kept in `slack-<stage>-note-details`. Only the two people in the call can
+read them, and each question only whoever asked it. The original audio is kept only if someone in
+the call turns on **Guardar audio original como respaldo** (off by default). The caller's app then
+also records the mixed call and uploads it to the attachments bucket under the DM's folder, and
+the ✨ card shows a player for it. Without it the card has no player. Deleting the ✨ card deletes
+all of it, recording included. Each call is one streamed request to Haiku of about twice the transcript's length, and
 each question one short request; at this team's volume that is still cents a month. No manual
 step: the table, routes and grants come with the deploy (the worker also needs
 `bedrock:InvokeModelWithResponseStream`, granted on the same profile).
@@ -693,6 +712,8 @@ is mostly fixed (the Route 53 hosted zone, if any, is USD 0.50/month) and storag
   cent per million.
 - **Bedrock**: AI notes are one short Claude Haiku 5.5 request per call at low effort: cents a
   month.
+- **OpenAI Whisper**: $0.006 per minute of each voice's speech (silent clips aren't sent), so a
+  one-hour call with notes costs at most about $0.72.
 
 Nothing here is provisioned, reserved or running continuously: there are no NAT gateways, VPCs,
 load balancers, provisioned concurrency or always-on instances to pay for.
