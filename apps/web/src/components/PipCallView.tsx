@@ -8,6 +8,7 @@ import {
   MicIcon,
   MicOffIcon,
   PhoneOffIcon,
+  ScreenShareIcon,
   SparklesIcon,
   VideoIcon,
   VideoOffIcon,
@@ -28,6 +29,12 @@ export interface PipCallProps {
   peerSharing: boolean;
   /** AI call notes are on (both sides are being transcribed). */
   notesOn?: boolean;
+  /** You're sharing your screen. */
+  sharing?: boolean;
+  /** Screen sharing can start from here (connected, and the call has a screen track). */
+  canShare?: boolean;
+  /** Starts or stops sharing your screen; without it there's no button. */
+  onScreenShare?: () => void;
   /** Phase 34: the connection is being restored until then (epoch ms); `null` when connected. */
   reconnectingUntil?: number | null;
   /** The peer's camera and shared screen, when flowing. */
@@ -180,6 +187,15 @@ export function PipCallView(props: Readonly<PipCallProps>) {
         >
           {props.camOn ? <VideoIcon /> : <VideoOffIcon />}
         </Control>
+        {props.onScreenShare && props.canShare && (
+          <Control
+            label={props.sharing ? "Stop sharing screen" : "Share screen"}
+            highlight={!!props.sharing}
+            onClick={props.onScreenShare}
+          >
+            <ScreenShareIcon />
+          </Control>
+        )}
         <Control label="Back to the app" onClick={props.onBack}>
           <MaximizeIcon />
         </Control>

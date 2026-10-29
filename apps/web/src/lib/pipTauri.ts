@@ -10,9 +10,14 @@ import type { PipAdapter } from "./pip";
 // window sends its button presses back the same way. Audio stays in the main
 // window, which keeps playing in the background.
 //
-//   main ──call-pip:state──▶ pip      (who, phase, mic/camera flags)
+//   main ──call-pip:state──▶ pip      (who, phase, mic/camera/sharing flags)
 //   main ◀─call-pip:signal─▶ pip      (ready, offer/answer, ICE, bye)
-//   main ◀─call-pip:command── pip     (mic, camera, hangup, focus, close)
+//   main ◀─call-pip:command── pip     (mic, camera, share, hangup, focus, close)
+//
+// Sharing the screen from the small window: the screen picker opens only for
+// a click in the page that asks, so the small window captures the screen
+// itself and sends it back over the same loopback (its third transceiver);
+// the main window shares that track in the call (`calls.shareScreenTrack`).
 // ---------------------------------------------------------------------------
 
 export const PIP_LABEL = "call-pip";
@@ -26,7 +31,19 @@ export type PipSignal =
   | { kind: "ice"; candidate: RTCIceCandidateInit }
   | { kind: "bye" };
 
-export type PipCommand = "mic" | "camera" | "hangup" | "focus" | "close";
+export type PipCommand =
+  | "mic"
+  | "camera"
+  | "hangup"
+  | "focus"
+  | "close"
+  /** The small window is sending its screen capture: share it in the call. */
+  | "share-start"
+  /** Stop sharing the screen (whichever window started it). */
+  | "share-stop";
+
+/** Sharing a screen captured in the small window: plenty for text over a local loopback. */
+const LOOPBACK_SCREEN_BITRATE = 8_000_000;
 
 /** What the small window shows besides the video. */
 export interface PipCallState {
@@ -39,14 +56,26 @@ export interface PipCallState {
   peerMicOn: boolean;
   peerCamOn: boolean;
   peerSharing: boolean;
+  /** You're sharing your screen (from either window). */
+  sharing: boolean;
+  /** ...and it's the small window's capture (it stops it when the share ends). */
+  sharingFromWindow: boolean;
+  /** Sharing can start (connected, and the call negotiated a screen track). */
+  canShare: boolean;
   /** AI call notes are on: the small window says so too. */
   notesOn: boolean;
   /** Phase 34: being reconnected until then (epoch ms), `null` while connected. */
   reconnectingUntil: number | null;
 }
 
-export function pipStateOf(call: CallView, name: string): PipCallState {
+export function pipStateOf(
+  call: CallView,
+  name: string,
+  /** The small window's screen capture, as the main window receives it. */
+  windowScreen: MediaStreamTrack | null = null,
+): PipCallState {
   const connected = call.phase === "connected";
+  const shared = call.localScreen?.getVideoTracks()[0] ?? null;
   return {
     name,
     media: call.media,
@@ -57,6 +86,9 @@ export function pipStateOf(call: CallView, name: string): PipCallState {
     peerMicOn: connected && call.peer.micOn,
     peerCamOn: connected && call.peer.camOn && !!call.remoteStream,
     peerSharing: connected && call.peer.sharing && !!call.remoteScreen,
+    sharing: call.sharing,
+    sharingFromWindow: call.sharing && !!windowScreen && shared === windowScreen,
+    canShare: connected && call.canShare,
     notesOn: call.notes.on,
     reconnectingUntil: call.reconnecting?.deadline ?? null,
   };
@@ -65,12 +97,23 @@ export function pipStateOf(call: CallView, name: string): PipCallState {
 /** What the main window does with a button pressed in the small one. */
 export function runPipCommand(
   command: PipCommand,
-  api: Pick<typeof calls, "toggleMic" | "toggleCamera" | "hangUp"> = calls,
+  api: Pick<
+    typeof calls,
+    "toggleMic" | "toggleCamera" | "hangUp" | "shareScreenTrack" | "stopSharing"
+  > = calls,
   focusMain: () => Promise<void> = focusMainWindow,
   /** Close (Phase 33): the controller's `dismiss`, which closes the window without moving focus. */
   closeWindow: () => Promise<void> | void = () => {},
+  /** The small window's screen capture, as it arrives over the loopback. */
+  windowScreen: () => MediaStreamTrack | null = () => null,
 ): Promise<void> | void {
   switch (command) {
+    case "share-start": {
+      const track = windowScreen();
+      return track ? api.shareScreenTrack(track) : undefined;
+    }
+    case "share-stop":
+      return api.stopSharing();
     case "mic":
       return api.toggleMic();
     case "camera":
@@ -176,6 +219,8 @@ class LoopbackSender {
   private pc: RTCPeerConnection | null = null;
   private camera: RTCRtpSender | null = null;
   private screen: RTCRtpSender | null = null;
+  /** The small window's screen capture coming back (its third transceiver). */
+  windowScreen: MediaStreamTrack | null = null;
 
   constructor(private readonly emit: (signal: PipSignal) => Promise<void>) {}
 
@@ -185,6 +230,10 @@ class LoopbackSender {
     this.pc = pc;
     this.camera = pc.addTransceiver("video", { direction: "sendonly" }).sender;
     this.screen = pc.addTransceiver("video", { direction: "sendonly" }).sender;
+    const back = pc.addTransceiver("video", { direction: "recvonly" });
+    pc.ontrack = ({ track, transceiver }) => {
+      if (transceiver === back) this.windowScreen = track;
+    };
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) void this.emit({ kind: "ice", candidate: candidate.toJSON() });
     };
@@ -217,6 +266,7 @@ class LoopbackSender {
     this.pc = null;
     this.camera = null;
     this.screen = null;
+    this.windowScreen = null;
   }
 }
 
@@ -237,7 +287,12 @@ export function createTauriPipAdapter(
     await tauri()?.event?.emitTo(PIP_LABEL, event, payload);
   };
   const sendState = (call: CallView | null) =>
-    call ? emitTo("call-pip:state", pipStateOf(call, nameOf(call.peerId))) : Promise.resolve();
+    call
+      ? emitTo(
+          "call-pip:state",
+          pipStateOf(call, nameOf(call.peerId), sender?.windowScreen ?? null),
+        )
+      : Promise.resolve();
 
   async function teardown(): Promise<void> {
     for (const stop of stops) stop();
@@ -268,7 +323,13 @@ export function createTauriPipAdapter(
           } else void loop.handle(payload);
         }),
         events.listen<PipCommand>("call-pip:command", ({ payload }) => {
-          void runPipCommand(payload, calls, focusMainWindow, onCloseRequested);
+          void runPipCommand(
+            payload,
+            calls,
+            focusMainWindow,
+            onCloseRequested,
+            () => loop.windowScreen,
+          );
         }),
         win.once("tauri://destroyed", () => {
           win = null;
@@ -305,6 +366,10 @@ export interface PipPageHandlers {
  */
 export function startPipPage(handlers: PipPageHandlers): {
   send(command: PipCommand): void;
+  /** Starts sharing the screen from here (call it from the click: it opens the picker). */
+  shareScreen(): Promise<void>;
+  /** Stops sharing the screen, whichever window started it. */
+  stopScreen(): void;
   stop(): void;
 } {
   const events = tauri()?.event;
@@ -314,6 +379,31 @@ export function startPipPage(handlers: PipPageHandlers): {
   let pc: RTCPeerConnection | null = null;
   const streams = { camera: null as MediaStream | null, screen: null as MediaStream | null };
   const unlisten: Array<() => void> = [];
+  /** The screen this window captured, and the transceiver that carries it to the main window. */
+  let capture: MediaStreamTrack | null = null;
+  let back: RTCRtpTransceiver | null = null;
+  /** The main window has shared our capture; once it says it no longer does, we stop it. */
+  let confirmed = false;
+  let unconfirmedTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function endCapture(): void {
+    clearTimeout(unconfirmedTimer);
+    const track = capture;
+    capture = null;
+    confirmed = false;
+    track?.stop();
+    void back?.sender.replaceTrack(null).catch(() => {});
+  }
+
+  async function attachCapture(): Promise<void> {
+    if (!back) return;
+    await back.sender.replaceTrack(capture);
+    const params = back.sender.getParameters();
+    if (params.encodings?.[0]) {
+      params.encodings[0].maxBitrate = LOOPBACK_SCREEN_BITRATE;
+      await back.sender.setParameters(params).catch(() => {});
+    }
+  }
 
   async function onSignal(signal: PipSignal): Promise<void> {
     if (signal.kind === "offer") {
@@ -330,9 +420,14 @@ export function startPipPage(handlers: PipPageHandlers): {
         handlers.onStreams({ ...streams });
       };
       await pc.setRemoteDescription({ type: "offer", sdp: signal.sdp });
+      // The third transceiver carries our screen capture back (an older main
+      // window offers only two).
+      back = pc.getTransceivers().find((t) => t.mid === "2") ?? null;
+      if (back) back.direction = "sendonly";
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await emit("call-pip:signal", { kind: "answer", sdp: answer.sdp ?? "" });
+      if (capture) await attachCapture();
     } else if (signal.kind === "ice") {
       await pc?.addIceCandidate(signal.candidate).catch((err: unknown) => trace("ice", err));
     } else if (signal.kind === "bye") {
@@ -340,21 +435,74 @@ export function startPipPage(handlers: PipPageHandlers): {
     }
   }
 
+  let stopped = false;
   void (async () => {
     if (!events) return;
     unlisten.push(
       await events.listen<PipSignal>("call-pip:signal", ({ payload }) => void onSignal(payload)),
-      await events.listen<PipCallState>("call-pip:state", ({ payload }) =>
-        handlers.onState(payload),
-      ),
+      await events.listen<PipCallState>("call-pip:state", ({ payload }) => {
+        // Our capture is shared until the main window says otherwise (stopped
+        // there, or by the browser's own "Stop sharing").
+        if (capture && payload.sharingFromWindow) {
+          confirmed = true;
+          clearTimeout(unconfirmedTimer);
+        } else if (capture && confirmed) {
+          endCapture();
+        }
+        handlers.onState(payload);
+      }),
     );
+    // Stopped while the listeners were being registered (React mounts twice in
+    // development): they'd answer every offer a second time.
+    if (stopped) {
+      for (const stop of unlisten.splice(0)) stop();
+      return;
+    }
     await emit("call-pip:signal", { kind: "ready" } satisfies PipSignal);
   })();
 
+  const send = (command: PipCommand) => void emit("call-pip:command", command);
+
   return {
-    send: (command) => void emit("call-pip:command", command),
+    send,
+    async shareScreen() {
+      if (!back) {
+        // An older desktop app: the main window has no way back for the screen.
+        send("focus");
+        return;
+      }
+      let track: MediaStreamTrack | undefined;
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        track = stream.getVideoTracks()[0];
+      } catch (err) {
+        trace("getDisplayMedia", err); // the picker closed, or capture is refused
+        return;
+      }
+      if (!track) return;
+      endCapture();
+      capture = track;
+      track.contentHint = "detail";
+      track.addEventListener("ended", () => {
+        if (capture !== track) return;
+        endCapture();
+        send("share-stop");
+      });
+      await attachCapture();
+      send("share-start");
+      // Not shared after all (the call ended meanwhile): don't keep capturing.
+      unconfirmedTimer = setTimeout(() => {
+        if (capture === track && !confirmed) endCapture();
+      }, 10_000);
+    },
+    stopScreen() {
+      endCapture();
+      send("share-stop");
+    },
     stop: () => {
-      for (const stop of unlisten) stop();
+      stopped = true;
+      for (const stop of unlisten.splice(0)) stop();
+      endCapture();
       pc?.close();
       pc = null;
     },

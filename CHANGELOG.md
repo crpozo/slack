@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Share your screen from the small call windows:** the floating call (shown while you're
+  elsewhere in the app), the browser's picture-in-picture window and the desktop app's
+  always-on-top call window now have a **Share screen** button next to the microphone and camera,
+  so there's no need to go back to the full call. In the desktop app the small window captures the
+  screen itself (the OS picker opens for that click) and hands it to the call. The same button
+  stops sharing, whichever window started it.
+
 - **AI notes now use OpenAI Whisper:** a call's speech is transcribed by Whisper instead of the
   browser. Whisper is told it's a MindfulTech software meeting in Spanish with English technical
   terms, so "deploy", "endpoints" or "dashboard" come out as said. Each voice is recorded on its
@@ -44,6 +51,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **An expanded call fits the window:** expanding a call (the ⤢ button) in a short window, such as
+  a maximized desktop app above the taskbar, pushed the call's controls below the bottom edge. The
+  call now shrinks to the space there is, with its controls always in view.
 - **AI News shows only news:** stories published more than 48 hours ago (weeks-old ones the feeds
   still carry) no longer reach the list or the morning analysis. Each feed's stories are dropped as
   they're read, before the per-source limit, and so are the ones whose date can't be read. Dates

@@ -38,6 +38,9 @@ describe("the desktop call window's bridge", () => {
       peerMicOn: false,
       peerCamOn: true,
       peerSharing: true,
+      sharing: false,
+      sharingFromWindow: false,
+      canShare: true,
       notesOn: false,
       reconnectingUntil: null,
     });
@@ -55,7 +58,13 @@ describe("the desktop call window's bridge", () => {
   });
 
   it("runs the small window's buttons against the call, and focus against the main window", async () => {
-    const api = { toggleMic: vi.fn(), toggleCamera: vi.fn(async () => {}), hangUp: vi.fn() };
+    const api = {
+      toggleMic: vi.fn(),
+      toggleCamera: vi.fn(async () => {}),
+      hangUp: vi.fn(),
+      shareScreenTrack: vi.fn(async () => {}),
+      stopSharing: vi.fn(async () => {}),
+    };
     const focus = vi.fn(async () => {});
     runPipCommand("mic", api, focus);
     await runPipCommand("camera", api, focus);
@@ -68,5 +77,58 @@ describe("the desktop call window's bridge", () => {
     expect(api.toggleCamera).toHaveBeenCalledTimes(1);
     expect(api.hangUp).toHaveBeenCalledTimes(1);
     expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares the screen the small window captured, and stops sharing on its word", async () => {
+    const api = {
+      toggleMic: vi.fn(),
+      toggleCamera: vi.fn(async () => {}),
+      hangUp: vi.fn(),
+      shareScreenTrack: vi.fn(async () => {}),
+      stopSharing: vi.fn(async () => {}),
+    };
+    const focus = vi.fn(async () => {});
+    const track = { kind: "video" } as MediaStreamTrack;
+    await runPipCommand(
+      "share-start",
+      api,
+      focus,
+      () => {},
+      () => track,
+    );
+    expect(api.shareScreenTrack).toHaveBeenCalledWith(track);
+    // Nothing has arrived over the loopback yet: nothing to share.
+    await runPipCommand(
+      "share-start",
+      api,
+      focus,
+      () => {},
+      () => null,
+    );
+    expect(api.shareScreenTrack).toHaveBeenCalledTimes(1);
+    await runPipCommand("share-stop", api, focus);
+    expect(api.stopSharing).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells the small window whether you're sharing, and whether it's its own capture", () => {
+    const fromWindow = { kind: "video" } as MediaStreamTrack;
+    const elsewhere = { kind: "video" } as MediaStreamTrack;
+    const sharing = (track: MediaStreamTrack) =>
+      call({
+        sharing: true,
+        localScreen: { getVideoTracks: () => [track] } as unknown as MediaStream,
+      });
+    expect(pipStateOf(sharing(fromWindow), "Ana", fromWindow)).toMatchObject({
+      sharing: true,
+      sharingFromWindow: true,
+    });
+    expect(pipStateOf(sharing(elsewhere), "Ana", fromWindow)).toMatchObject({
+      sharing: true,
+      sharingFromWindow: false,
+    });
+    expect(pipStateOf(call(), "Ana", fromWindow).sharingFromWindow).toBe(false);
+    // Only a connected call with a screen transceiver can share.
+    expect(pipStateOf(call({ phase: "connecting" }), "Ana").canShare).toBe(false);
+    expect(pipStateOf(call({ canShare: false }), "Ana").canShare).toBe(false);
   });
 });

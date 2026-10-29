@@ -527,7 +527,15 @@ export function ChannelView({
       {/* Under the floating header: the archived note and an ongoing call, when
           there are any. With none, the conversation itself starts under the
           header instead (`--list-inset`), so it scrolls beneath the glass. */}
-      <div className={phone || mobileThread ? "" : "peer pt-14 empty:pt-0"} data-top-stack>
+      {/* An expanded call fills the column: this stack becomes the flex column it
+          shrinks in, so the call's controls stay inside the window however short
+          it is (a maximized desktop window ends at the taskbar). */}
+      <div
+        className={`${phone || mobileThread ? "" : "peer pt-14 empty:pt-0"} ${
+          callExpanded ? "flex min-h-0 flex-1 flex-col" : ""
+        }`}
+        data-top-stack
+      >
         {archived && !mobileThread && (
           <div
             className="flex items-center justify-center gap-2 border-b border-line bg-warning/15 px-4 py-1.5 text-xs font-medium text-ink"
