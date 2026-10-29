@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { create } from "zustand";
@@ -138,6 +147,10 @@ function DocumentPipCall({ call }: Readonly<{ call: CallView }>) {
       reconnectingUntil={call.reconnecting?.deadline ?? null}
       camera={call.remoteStream}
       screen={call.remoteScreen}
+      sharing={call.sharing}
+      canShare={connected && call.canShare && supportsScreenShare()}
+      // The click in the Picture-in-Picture window counts for the page that opened it.
+      onScreenShare={() => void calls.toggleScreenShare()}
       onMic={() => calls.toggleMic()}
       onCamera={() => void calls.toggleCamera()}
       onHangUp={() => calls.hangUp()}
@@ -193,6 +206,9 @@ function statusText(call: CallView, elapsed: string): string {
   }
 }
 
+/** The floating mini-window's controls: smaller, so six fit across it. */
+const CompactControls = createContext(false);
+
 function ControlButton({
   label,
   highlight = false,
@@ -210,6 +226,7 @@ function ControlButton({
   onClick: () => void;
   children: ReactNode;
 }>) {
+  const compact = useContext(CompactControls);
   let tone = "bg-white/15 text-white hover:bg-white/25";
   if (danger) tone = "bg-error text-white hover:bg-error/85";
   else if (highlight) tone = "bg-white text-[#0E0D12] hover:bg-white/85";
@@ -220,7 +237,9 @@ function ControlButton({
       disabled={disabled}
       aria-label={label}
       title={label}
-      className={`flex h-11 w-11 items-center justify-center rounded-full text-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-40 ${tone}`}
+      className={`flex shrink-0 items-center justify-center rounded-full transition-colors ${
+        compact ? "h-9 w-9 text-lg" : "h-11 w-11 text-xl"
+      } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-40 ${tone}`}
     >
       {children}
     </button>
@@ -823,29 +842,42 @@ function FloatingCall({ call }: Readonly<{ call: CallView }>) {
           {connected && !call.peer.micOn && " · Muted"}
         </p>
       </div>
-      <div className="flex items-center justify-center gap-2 px-3 py-2.5">
-        <ControlButton
-          label={call.micOn ? "Mute microphone" : "Unmute microphone"}
-          highlight={!call.micOn}
-          onClick={() => calls.toggleMic()}
-        >
-          {call.micOn ? <MicIcon /> : <MicOffIcon />}
-        </ControlButton>
-        <ControlButton
-          label={call.camOn ? "Turn camera off" : "Turn camera on"}
-          highlight={!call.camOn}
-          onClick={() => void calls.toggleCamera()}
-        >
-          {call.camOn ? <VideoIcon /> : <VideoOffIcon />}
-        </ControlButton>
-        <PopOutButton />
-        <ControlButton label="Back to the call" onClick={back}>
-          <MaximizeIcon />
-        </ControlButton>
-        <ControlButton label="Hang up" danger onClick={() => calls.hangUp()}>
-          <PhoneOffIcon />
-        </ControlButton>
-      </div>
+      <CompactControls.Provider value>
+        <div className="flex items-center justify-center gap-2 px-3 py-2.5" data-floating-controls>
+          <ControlButton
+            label={call.micOn ? "Mute microphone" : "Unmute microphone"}
+            highlight={!call.micOn}
+            onClick={() => calls.toggleMic()}
+          >
+            {call.micOn ? <MicIcon /> : <MicOffIcon />}
+          </ControlButton>
+          <ControlButton
+            label={call.camOn ? "Turn camera off" : "Turn camera on"}
+            highlight={!call.camOn}
+            onClick={() => void calls.toggleCamera()}
+          >
+            {call.camOn ? <VideoIcon /> : <VideoOffIcon />}
+          </ControlButton>
+          {/* Share straight from here, without going back to the call. */}
+          {supportsScreenShare() && (
+            <ControlButton
+              label={call.sharing ? "Stop sharing screen" : "Share screen"}
+              highlight={call.sharing}
+              disabled={!connected || !call.canShare}
+              onClick={() => void calls.toggleScreenShare()}
+            >
+              <ScreenShareIcon />
+            </ControlButton>
+          )}
+          <PopOutButton />
+          <ControlButton label="Back to the call" onClick={back}>
+            <MaximizeIcon />
+          </ControlButton>
+          <ControlButton label="Hang up" danger onClick={() => calls.hangUp()}>
+            <PhoneOffIcon />
+          </ControlButton>
+        </div>
+      </CompactControls.Provider>
     </div>
   );
 }

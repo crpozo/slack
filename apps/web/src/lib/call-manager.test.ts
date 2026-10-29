@@ -746,6 +746,39 @@ describe("camera and screen as separate tracks", () => {
     expect(pc.sender("camera").replaceTrack).not.toHaveBeenCalled();
   });
 
+  it("shares a screen captured in the desktop call window, never stopping its capture", async () => {
+    const { manager, pc } = await connectedCall("video");
+    pc.channel!.open();
+    const fromWindow = new FakeTrack("video", "window-screen");
+    await manager.shareScreenTrack(fromWindow as unknown as MediaStreamTrack);
+    expect(pc.sender("screen").track).toBe(fromWindow);
+    expect(useCall.getState().call?.sharing).toBe(true);
+    expect(pc.channel!.sent.map((d) => JSON.parse(d) as { sharing?: boolean }).at(-1)).toEqual(
+      expect.objectContaining({ sharing: true }),
+    );
+
+    await manager.stopSharing();
+    expect(pc.sender("screen").track).toBeNull();
+    expect(useCall.getState().call?.sharing).toBe(false);
+    expect(fromWindow.stopped).toBe(false); // the small window stops its own capture
+
+    // Sharing from the main window again is ours to stop.
+    await manager.toggleScreenShare();
+    const own = pc.sender("screen").track!;
+    await manager.stopSharing();
+    expect(own.stopped).toBe(true);
+  });
+
+  it("a capture from the call window replaces the screen being shared", async () => {
+    const { manager, pc } = await connectedCall("video");
+    await manager.toggleScreenShare();
+    const own = pc.sender("screen").track!;
+    const fromWindow = new FakeTrack("video", "window-screen");
+    await manager.shareScreenTrack(fromWindow as unknown as MediaStreamTrack);
+    expect(own.stopped).toBe(true);
+    expect(pc.sender("screen").track).toBe(fromWindow);
+  });
+
   it("turning the camera off while sharing leaves the screen untouched", async () => {
     const { manager, pc } = await connectedCall("video");
     await manager.toggleScreenShare();

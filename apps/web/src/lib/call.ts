@@ -203,6 +203,11 @@ interface Session {
   mic: MediaStreamTrack | null;
   camera: MediaStreamTrack | null;
   screen: MediaStreamTrack | null;
+  /**
+   * The shared screen was captured here (and is stopped with the share), not
+   * handed over by the desktop app's call window, which owns its capture.
+   */
+  screenOwned: boolean;
   audioSender: RTCRtpSender | null;
   videoSender: RTCRtpSender | null;
   screenSender: RTCRtpSender | null;
@@ -577,12 +582,46 @@ export class CallManager {
       track.stop();
       return;
     }
+    await this.startScreenShare(session, track, true);
+  }
+
+  /**
+   * Shares a screen captured somewhere else: the desktop app's small call
+   * window, which must capture it itself (the screen picker opens only for a
+   * click in the page that asks). Replaces whatever is being shared.
+   */
+  async shareScreenTrack(track: MediaStreamTrack): Promise<void> {
+    const session = this.session;
+    if (!session || session.phase !== "connected") return;
+    if (!session.screenSender) {
+      this.deps?.notify("Screen sharing isn't available in this call.");
+      return;
+    }
+    if (session.screen === track) return;
+    if (session.screen) await this.stopScreenShare(session);
+    if (!this.isCurrent(session)) return;
+    await this.startScreenShare(session, track, false);
+  }
+
+  /** Stops sharing the screen, if it is. */
+  async stopSharing(): Promise<void> {
+    const session = this.session;
+    if (session?.screen) await this.stopScreenShare(session);
+  }
+
+  private async startScreenShare(
+    session: Session,
+    track: MediaStreamTrack,
+    owned: boolean,
+  ): Promise<void> {
+    if (!session.screenSender) return;
     track.contentHint = "detail";
     // The browser's own "Stop sharing" button ends the track.
     track.addEventListener("ended", () => {
       if (session.screen === track) void this.stopScreenShare(session);
     });
     session.screen = track;
+    session.screenOwned = owned;
     await session.screenSender.replaceTrack(track);
     this.publish();
     this.sendMediaState(session);
@@ -795,6 +834,7 @@ export class CallManager {
       mic: null,
       camera: null,
       screen: null,
+      screenOwned: false,
       audioSender: null,
       videoSender: null,
       screenSender: null,
@@ -1192,8 +1232,10 @@ export class CallManager {
   }
 
   private async stopScreenShare(session: Session): Promise<void> {
-    session.screen?.stop();
+    // A screen handed over by the desktop call window is its to stop.
+    if (session.screenOwned) session.screen?.stop();
     session.screen = null;
+    session.screenOwned = false;
     await session.screenSender?.replaceTrack(null);
     if (!this.isCurrent(session)) return;
     this.publish();

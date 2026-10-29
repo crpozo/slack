@@ -40,6 +40,8 @@ export function CallPipPage() {
       {...state}
       camera={streams.camera}
       screen={streams.screen}
+      // The screen is captured here (the picker needs this click) and sent to the main window.
+      onScreenShare={() => (state.sharing ? bridge?.stopScreen() : void bridge?.shareScreen())}
       onMic={() => bridge?.send("mic")}
       onCamera={() => bridge?.send("camera")}
       onHangUp={() => bridge?.send("hangup")}
