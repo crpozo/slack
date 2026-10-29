@@ -28,15 +28,16 @@ import { Popover } from "./Popover";
 import {
   AppsIcon,
   ArchiveIcon,
+  CalendarIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ChevronUpIcon,
   DmsIcon,
   HashIcon,
-  CalendarIcon,
   KanbanIcon,
   LogOutIcon,
   MoreHorizontalIcon,
+  NewspaperIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   PencilIcon,
@@ -50,7 +51,9 @@ import {
 } from "./icons";
 import { Logo } from "./LoginPage";
 
-const SHORTCUT = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘ K" : "Ctrl K";
+/** The search palette's shortcut as this keyboard writes it. */
+export const SEARCH_SHORTCUT = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘ K" : "Ctrl K";
+const SHORTCUT = SEARCH_SHORTCUT;
 
 const STATUS: Record<WsStatus, { dot: string; label: string }> = {
   idle: { dot: "bg-warning", label: "Connecting…" },
@@ -539,8 +542,8 @@ const PHONE_APPS: PhoneApp[] = [
   {
     path: "/app/news",
     label: "AI News",
-    tile: "bg-white text-[#1A1D21]",
-    icon: <span aria-hidden="true">📰</span>,
+    tile: "bg-gradient-to-br from-[#40B375] to-[#1F6E47] text-white",
+    icon: <NewspaperIcon />,
   },
 ];
 
@@ -959,8 +962,8 @@ export function Sidebar({
           <button
             type="button"
             onClick={onOpenSwitcher}
-            title={compact ? `Jump to… (${SHORTCUT})` : undefined}
-            aria-label="Jump to a channel"
+            title={compact ? `Search… (${SHORTCUT})` : undefined}
+            aria-label="Search messages, channels and people"
             className={
               compact
                 ? iconButton
@@ -970,7 +973,7 @@ export function Sidebar({
             <SearchIcon />
             {!compact && (
               <>
-                <span className="flex-1 text-left">Jump to…</span>
+                <span className="flex-1 text-left">Search…</span>
                 <kbd className="rounded border border-line px-1 text-[10px]">{SHORTCUT}</kbd>
               </>
             )}
@@ -1112,11 +1115,7 @@ export function Sidebar({
               <NavItem
                 compact={compact}
                 label="AI News"
-                icon={
-                  <span className="text-[15px] leading-none" aria-hidden="true">
-                    📰
-                  </span>
-                }
+                icon={<NewspaperIcon className="text-ink-secondary" />}
                 active={activeChannelId === "news"}
                 unread={0}
                 onClick={() => navigate("/app/news")}

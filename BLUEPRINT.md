@@ -742,7 +742,7 @@ Uploads already go straight to S3 with a presigned **PUT** whose signature pins 
    - The system prompt treats the transcript as content only. The user turn is the requested instruction ("Summarize the following meeting transcript. Provide a brief summary paragraph and a bulleted list of Action Items. Output in markdown.") followed by `<transcript>` with `[mm:ss] Name: text` lines.
    - `stop_reason` `refusal` or `max_tokens` mark the card as failed.
    - `settleNotesCard` updates the message only while it is still pending (conditional update) and pushes `message.updated` with `aiNotes`. Errors never throw: they become a failed card with a reason.
-   - The transcript is never written anywhere; only the summary is stored.
+   - The transcript is never written anywhere; only the summary is stored. (Phase 40 changes this: see below.)
 6. **IAM (CDK grants only, no models provisioned):** the worker gets `bedrock:InvokeModel` on the inference profile (stack account and region) and on the foundation model in any region the profile routes to (`notesModelResources` in `infra/lib/tasks-api.ts`); the endpoint gets `lambda:InvokeFunction` on the worker.
    - Model access to Claude Haiku 5.5 is enabled once in the Bedrock console (Model catalog → Request access).
 7. **Card:** `AiNotesCard`.
@@ -1108,6 +1108,125 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
 - On a slow connection nothing goes out before the first image is up; the server stores them in the order sent.
 - A confirmed image doesn't blink.
 - A failed upload shows "Failed to send · Click to retry" while the next message still goes out; Retry sends it.
+
+### Phase 40 — "Wispr Flow" call notes: recording, polished minutes, private Q&A
+
+**Branch:** `feature/f39-wispr-flow` (named before the phase number was settled). Call notes only (1:1 calls); cards from before Phase 40 are left as they are. No external speech-to-text: the browser's `SpeechRecognition` plus `MediaRecorder`.
+
+1. **Capture (web):**
+   - Speech recognition is always `es-EC` (`SPEECH_LANG`): with an English browser's `en-US`, Spanish speech and background noise came out as random English words.
+   - The caller (who submits the notes) records both voices while notes are on (`lib/callRecorder.ts`): the mic and the remote audio mixed with Web Audio into `MediaRecorder`, Opus at 32 kbps (`audio/mp4` on Safari). It pauses while notes are off, follows a new microphone, and the notice tells both people the call is recorded.
+   - On hang-up the transcript goes out at once (`POST /calls/summary`, as before). The recording uploads in the background (presign + PUT, the attachment pipeline, under `attachments/<dm>/`), then `PUT /calls/{callId}/audio` attaches it to the card (`message.updated`). No card, no recording.
+2. **Storage:** a call's full notes can't ride on the card (cards travel in history pages over the WebSocket, 128 KB a frame), so `note-details` (`callId` + `sk`) holds:
+   - `raw`: the `[mm:ss] Name: text` transcript, the card's place and the participants (who may read any of it), written in the same transaction as the card, never overwritten (`attribute_not_exists(callId)`, 409);
+   - `polished`: the minutes;
+   - `qa#<userId>#<askedAt>`: one question and its answer, only ever read back for that user.
+   The card keeps the summary and gains `details: true` and `audio: {key, contentType, size, durationMs}`. Deleting the card deletes the rows and the recording.
+3. **Editor (worker):** Claude Haiku 5.5 as an "intelligent dictation editor". One streamed request (`max_tokens` 64,000, effort `low`, worker 15 min) returns `<polished>` (the whole conversation as clean minutes: recognition errors fixed, fillers gone, 100% of the substance kept, `[inaudible]` rather than guesses) and `<summary>` (the Phase 28 instruction verbatim, so Send to Board still finds the action items). The worker reads the transcript from `raw` (the async job stays small) and settles the card field by field, so a recording attached meanwhile stays.
+4. **Questions:** `POST /notes/{callId}/ask {question}` (≤ 1,000 characters, 30 per person per note). Haiku 5.5 answers from the minutes only: they sit in a `<context>` block of the system prompt (cached), the asker's last 10 questions are the conversation so far, effort `low`, 2,048 tokens, one try within API Gateway's 30 s. `GET /notes/{callId}` returns the transcript, the minutes and only the caller's own questions.
+5. **Card:** the summary (and Send to Board) as before, with the recording's player (speed control as voice messages). **Open full notes** loads the minutes as the main content, **View original transcript**, and "Ask a question about this note…" with your own thread ("Only you see these").
+
+**Phase 40 acceptance criteria:**
+- With an English browser, a Spanish call is transcribed in Spanish.
+- After a call with notes, the card gets a recording that plays both voices, only for the time notes were on.
+- **Open full notes** shows polished minutes with every fact of the call, and the raw transcript one click away.
+- A question is answered from the minutes; "something not in the call" gets "the notes don't say". The other person never sees your questions.
+- Deleting the card removes its transcript, minutes, questions and recording.
+
+### Urgent — Secrets: 24-hour TTL, credential auto-detection, per-part copy
+
+**Branch:** `feature/urgent-secret-autodetect`.
+
+1. **TTL:** `SECRET_TTL_MS` is 24 hours. `secretExpiresAt()` caps every secret at `createdAt + 24h`, so secrets stored with the old week-long `expiresAt` are hidden at 24 hours by `isExpired` (history's server-side filter and the list's). `pnpm --filter infra shorten-secret-ttl <stage> [--apply]` brings their stored TTL down too (conditional on the TTL read), so DynamoDB deletes them on the new schedule.
+2. **Auto-detection (`apps/web/src/lib/credentials.ts`):** `detectCredentials(text)` is true for:
+   - an email, then whitespace or a line break, then a password-looking value;
+   - a common username (`admin`, `root`, `user`, `usuario`, `postgres`…), then a password-looking value;
+   - a keyword (`contraseña`, `password`, `pwd`, `clave`, `pass`, `token`, `api key`…) followed by a password-looking value, or by `:`/`=` and a value that ends its line;
+   - a message that is one high-entropy string (8+ characters, lowercase plus two of uppercase/digits/symbols and ≥ 2.5 bits per character, or 20+ characters of two kinds with ≥ 3.5 bits: API keys);
+   - a URL with a login (`scheme://user:pass@host`).
+   URLs, emails, mentions, hashtags, file names, versions, issue keys, identifiers and numbers never count. Ordinary sentences with a keyword ("the password is wrong") don't either: a false positive would hide someone's message and delete it a day later. In the composer a match shows "Looks like a password: it will be sent as a secret", with **Send as normal text**; on send the message goes out with `isSecret` and a toast says so. Not for files, thread replies (secrets can't be either) or slash commands.
+3. **Per-part copy:** `secretParts(text)` splits a revealed secret into lines, "Label: value" lines by label, and 2–3-token lines with an email, username or password per token (labelled Email / User / Password). Each part has its own Copy button (✓ for a moment); Copy all stays. A single value shows as before.
+
+### Phase 41 — AI News dashboard: four sources, structured insights
+
+**Branch:** `feature/ui-ux-polish`
+
+1. **Sources:** `NEWS_FEEDS` lists the sources: TechCrunch (AI), VentureBeat (AI feed, then
+   FeedBurner), The Verge (Atom; only its AI stories) and InfoQ (AI/ML). They're read at once with
+   4 s each. The parser reads RSS 2.0, RSS 1.0 and Atom, skips a malformed item, and keeps the
+   complete stories of a feed that was cut off. The merge is newest first, by link or title once,
+   at most 8 per source and 24 in all, each story carrying its `sourceName`. A source that's down
+   is logged and left out, and a list missing one is kept 5 minutes instead of 30.
+2. **Insights as JSON:** the worker asks Haiku 5.5 for `{stories, trends, takeaways}` with
+   `output_config.format` (a JSON schema). Stories are picked by their number in the list, then
+   joined to the feed's link, thumbnail, source and date. The result is checked with zod: picks out
+   of range or repeated are dropped and over-long text is cut. The row keeps `storyCount`, `stories`
+   (headline, summary, `thumbnailUrl`, `sourceName`…), `trends` (`topic`, `text` with `**marks**`)
+   and `takeaways` (`lead`, `body`). A row from before this phase is answered as none.
+3. **Dashboard:** `NewsDashboard` (presentational, from the design's `AI News Dashboard.dc.html`)
+   is fed by `NewsView`. Its sections are the header (Spanish date, story count, Refresh news), Lo
+   esencial (2×2 glass cards), Tendencias, the Qué significa para MindfulTech callout (glow) and
+   Más historias. Without an analysis it shows the newest four stories, and the callout says when
+   the analysis comes. "Refresh news" (`POST /news/refresh`) reads the feeds and starts a new
+   analysis at once: a conditional write on a lock row (`feed = "news-refresh"`) lets members
+   start one every 5 minutes, admins any time. The morning run is at 08:00 (13:00 UTC).
+
+### Phase 42 — Omni-search and scroll anchoring
+
+**Branch:** `feature/omni-search-and-scroll`
+
+1. **Scroll anchoring:** the virtualizer compensated size changes above the viewport only when
+   scrolling down, so reading history (scrolling up) jumped 72 px a page. There were two causes:
+   the loading line inside row 0, and row 0's date line vanishing once older same-day messages
+   arrived. Now `shouldAdjustScrollPositionOnItemSizeChange` compensates every row that starts
+   above the viewport, in both directions. The library defers the write during iOS momentum
+   scrolling. "Loading earlier messages…" is an overlay pill.
+2. **Index:** `messages` has a stream (`NEW_AND_OLD_IMAGES`). `search-indexer` diffs each change's
+   terms (`messageSearchTerms`: text, file names, a meeting's title, an AI notes summary; accent-
+   and case-folded, words of 2+ letters minus EN/ES stop words; never secrets or deleted
+   messages) and writes or deletes rows in `message-search` (`channelId`, `sk` =
+   `<term>#<message sk>`). This covers every writer (send, edit, cards, delete, tombstone).
+   `backfill-search` indexes the history.
+3. **Search:** `GET /search?q=&channelId?` (guests refused) scans the channels (< 50) for the ones
+   the caller sees. It then runs one `begins_with(sk, <longest term>)` query per conversation
+   (newest first, 200 rows) and reads the newest 100 candidates in one BatchGet. It keeps those
+   whose words start with every term and returns 30, each with a snippet and highlight ranges.
+4. **UI:** `OmniSearch` replaces the quick switcher on Ctrl/Cmd+K and the sidebar's Search…
+   button. It shows conversations first (instant), then messages (`createMessageSearch`: 300 ms
+   debounce, stale answers dropped, recent queries cached). Arrow keys and Enter work, and a
+   message opens through `chat.jumpTo`, which loads older pages, highlights it, and opens the
+   thread for a reply. The phones' Search tab shows the same message results.
+
+### Phase 43 — OpenAI Whisper and private audio
+
+**Branch:** `feature/openai-whisper-integration`
+
+1. **Clips:** while notes are on, the caller's app records each voice on its own (`VoiceClipRecorder`:
+   its microphone, not while muted; the remote audio track). Each clip is a fresh MediaRecorder file
+   (Opus, 32 kbps) of `NOTES_CLIP_MS` (4 min, about 1 MB, under Lambda's 6 MB request limit and
+   Whisper's 25 MB). An AnalyserNode drops clips with under 0.8 s of speech. Clips go one after
+   another to `POST /calls/{callId}/clips?channelId&speaker&startedAt&durationMs` as the raw body,
+   with two retries. Leaving the page while one is pending asks first.
+2. **Whisper:** `call-transcribe` (its own Lambda, the only one with the key: `OPENAI_API_KEY`, else
+   the SecureString `/slack/<stage>/openai-api-key`) checks the DM, the speaker, the size and type,
+   and that the notes weren't requested yet. It counts the clip (`clips` row, at most
+   `MAX_NOTES_CLIPS`, bound to the conversation) and sends it from memory to
+   `audio.transcriptions.create` (`whisper-1`, `es`, `WHISPER_PROMPT`, `verbose_json`). It drops
+   silent segments (`no_speech_prob` > 0.6 with `avg_logprob` < -1), repetition loops
+   (`compression_ratio` > 2.4), subtitle credits ("Amara.org", "Gracias por ver el video"), the
+   prompt read back and repeats. It stores `clip#<startedAt>#<speaker>` with timed lines (TTL a
+   week). Nothing is written to S3 or `/tmp`.
+3. **Summary:** `POST /calls/summary` with `source: "whisper"` builds the transcript from the call's
+   clip rows (this DM, its people, time order, first 120,000 characters) into the `raw` row, with
+   `keepAudio`. The worker is unchanged (Haiku 5.5). Its system prompt now says the transcript is
+   Whisper's and that English technical terms stay in English. `segments` is still accepted from
+   older apps.
+4. **Consent:** `{type:"backup", keep, at}` on the data channel syncs **Guardar audio original
+   como respaldo** (default off; the newer choice wins). Only while it's on does the caller record
+   the mixed call (Phase 40's `CallRecorder`), uploaded and attached after the notes. Turning it
+   off drops what was recorded, and `PUT /calls/{callId}/audio` refuses audio for Whisper notes
+   unless `keepAudio`. `AiNotesCard` shows the player only when `aiNotes.audio` exists. The Web
+   Speech `Transcriber` is gone, and older apps' `transcript` messages are ignored.
 
 ### Phase 35 (planned) — Customer channels (guest access to shared channels)
 

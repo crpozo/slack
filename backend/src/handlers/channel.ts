@@ -3,7 +3,6 @@ import {
   DeleteCommand,
   GetCommand,
   paginateQuery,
-  paginateScan,
   PutCommand,
   QueryCommand,
   TransactWriteCommand,
@@ -34,31 +33,13 @@ import {
 import { ulid } from "ulid";
 import { boardAudience, boardRows, getAccessibleBoard } from "../lib/boards";
 import { broadcast, deliver, listConnections } from "../lib/broadcast";
-import { channelAudience } from "../lib/channels";
+import { channelAudience, scanChannels, visibleTo } from "../lib/channels";
 import { batchDelete, ddb, tables } from "../lib/ddb";
 import { forgetChannel } from "../lib/media";
 import { wsHandler, type Caller } from "../lib/handler";
 import { errorFields, log } from "../lib/logger";
 import { badRequest, ok, reply, replyError } from "../lib/response";
 import { guestsAmong, unknownUsers } from "../lib/users";
-
-/** All channels (< 50 at this scale, so a Scan is fine), oldest first. */
-async function scanChannels(): Promise<Channel[]> {
-  const channels: Channel[] = [];
-  for await (const page of paginateScan({ client: ddb }, { TableName: tables.channels })) {
-    channels.push(...((page.Items ?? []) as Channel[]));
-  }
-  return channels.sort((a, b) => a.createdAt - b.createdAt);
-}
-
-/**
- * Public channels plus the private channels and DMs `userId` belongs to.
- * Archived channels are listed too (the client shows them under "Archived",
- * read-only); posting to them is refused by `getAccessibleChannel`.
- */
-export function visibleTo(channels: Channel[], userId: string): Channel[] {
-  return channels.filter((c) => isChannelMember(c, userId));
-}
 
 /** Sends every connection its own filtered `channel.list`. */
 async function broadcastChannelList(): Promise<void> {

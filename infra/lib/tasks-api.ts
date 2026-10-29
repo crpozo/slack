@@ -12,6 +12,8 @@ import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations
 import { Rule, Schedule } from "aws-cdk-lib/aws-events";
 import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
 import { PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { StartingPosition } from "aws-cdk-lib/aws-lambda";
+import { DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import type { IBucket } from "aws-cdk-lib/aws-s3";
@@ -20,8 +22,8 @@ import type { Api } from "./api";
 import type { Auth } from "./auth";
 import type { Data } from "./data";
 import { LAMBDA_ARCHITECTURE, LAMBDA_BUNDLING, LAMBDA_MEMORY_MB, LAMBDA_RUNTIME } from "./lambda";
-import { removalPolicyFor, vapidParameterName, type Stage } from "./stage";
-import { grantReadVapid } from "./vapid";
+import { openaiKeyParameterName, removalPolicyFor, vapidParameterName, type Stage } from "./stage";
+import { grantReadParameter, grantReadVapid } from "./vapid";
 
 const HANDLERS_DIR = fileURLToPath(new URL("../../backend/src/handlers/", import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -60,11 +62,23 @@ export const CALENDAR_ROUTES: Array<{ method: HttpMethod; path: string }> = [
 export const CALL_NOTES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/calls/summary" },
   { method: HttpMethod.GET, path: "/notes" },
+  // Phase 40: the recording, the full notes, and private questions about them.
+  { method: HttpMethod.PUT, path: "/calls/{callId}/audio" },
+  { method: HttpMethod.GET, path: "/notes/{callId}" },
+  { method: HttpMethod.POST, path: "/notes/{callId}/ask" },
 ];
 
 /**
- * AI News (Phase 35b): the latest TechCrunch AI articles, read live from the
- * RSS feed by a stateless Lambda with no data permissions at all.
+ * Phase 43: one clip of a call's audio to OpenAI Whisper, from its own Lambda
+ * (the only one that holds the OpenAI key).
+ */
+export const CALL_TRANSCRIBE_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.POST, path: "/calls/{callId}/clips" },
+];
+
+/**
+ * AI News (Phase 35b): the latest AI articles from a few publishers, read live
+ * from their feeds by a stateless Lambda with no data permissions at all.
  */
 export const NEWS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/news" },
@@ -72,20 +86,22 @@ export const NEWS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
 
 /**
  * AI Insights (Phase 39): the morning's analysis of the news, written by a
- * scheduled worker; an admin may ask for a fresh one.
+ * scheduled worker; "Refresh news" (`POST /news/refresh`) starts a fresh one
+ * at once (members at most every 5 minutes), as did an admin's
+ * `POST /news/insights` (kept for tabs opened before it).
  */
 export const NEWS_INSIGHTS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/news/insights" },
   { method: HttpMethod.POST, path: "/news/insights" },
+  { method: HttpMethod.POST, path: "/news/refresh" },
 ];
 
 /**
- * When the morning analysis runs: 07:07 in Ecuador (UTC-5, no daylight
+ * When the morning analysis runs: 08:00 in Ecuador (UTC-5, no daylight
  * saving), i.e. `NEWS_INSIGHTS_LOCAL_TIME` in `NEWS_INSIGHTS_TIME_ZONE` of
- * @mindfultech/shared, which the view shows. Off the hour so it doesn't queue
- * behind everyone else's on-the-hour jobs.
+ * @mindfultech/shared, which the view shows.
  */
-export const NEWS_INSIGHTS_SCHEDULE = { hour: "12", minute: "7" };
+export const NEWS_INSIGHTS_SCHEDULE = { hour: "13", minute: "0" };
 
 /**
  * The notes model: Claude Haiku 5.5 on Amazon Bedrock, as the US cross-region
@@ -119,6 +135,11 @@ export const MESSAGES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/channels/{channelId}/files" },
   { method: HttpMethod.GET, path: "/channels/{channelId}/links" },
   { method: HttpMethod.GET, path: "/channels/{channelId}/pins" },
+];
+
+/** Message search (Phase 42): its own small Lambda, reading the index and the messages. */
+export const SEARCH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/search" },
 ];
 
 /** Web Push subscriptions (Phase 8), served by their own small Lambda on the same API. */
@@ -179,10 +200,16 @@ export class TasksApi extends Construct {
   readonly calendarHandler: NodejsFunction;
   readonly callNotesHandler: NodejsFunction;
   readonly callNotesWorker: NodejsFunction;
+  /** `call-transcribe`: a call's audio clip to Whisper, keeping only the text (Phase 43). */
+  readonly callTranscribeHandler: NodejsFunction;
   /** `messages`: deleting a message (Phase 32). */
   readonly messagesHandler: NodejsFunction;
   /** `news`: the AI News proxy (Phase 35b); no table, bucket or parameter. */
   readonly newsHandler: NodejsFunction;
+  /** `search`: message search (Phase 42). */
+  readonly searchHandler: NodejsFunction;
+  /** `search-indexer`: keeps the search index in step with the messages table's stream. */
+  readonly searchIndexer: NodejsFunction;
   /** `news-insights`: the latest analysis, and an admin's request for a new one (Phase 39). */
   readonly newsInsightsHandler: NodejsFunction;
   /** `news-insights-worker`: writes the day's analysis (the morning schedule, or on request). */
@@ -240,10 +267,11 @@ export class TasksApi extends Construct {
       // A deleted board's files (Phase 32).
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
     });
-    // AI News (Phase 35b): reads a public RSS feed over the internet and keeps
-    // it in memory; deliberately given no environment and no grants, so it
-    // can't touch any table or bucket. The feed gets 5 s; the Lambda 10.
-    this.newsHandler = lambda("NewsFn", "news", {});
+    // AI News (Phase 35b; several sources since Phase 41): reads public RSS and
+    // Atom feeds over the internet and keeps the list in memory; deliberately
+    // given no environment and no grants, so it can't touch any table or
+    // bucket. Each feed gets 4 s (8 with a second address); the Lambda 15.
+    this.newsHandler = lambda("NewsFn", "news", {}, Duration.seconds(15));
     // AI Insights (Phase 39): the worker reads the feed and the model, and
     // writes one row; the endpoint reads that row and, for admins, starts the
     // worker. The feed gets 5 s, the model up to 50; the worker 2 minutes.
@@ -260,7 +288,7 @@ export class TasksApi extends Construct {
     new Rule(this, "NewsInsightsSchedule", {
       ruleName: `slack-${stage}-news-insights`,
       description: "Writes the morning's AI Insights on the AI news",
-      schedule: Schedule.cron(NEWS_INSIGHTS_SCHEDULE), // daily, 07:07 in Ecuador
+      schedule: Schedule.cron(NEWS_INSIGHTS_SCHEDULE), // daily, 08:00 in Ecuador
       targets: [new LambdaFunction(this.newsInsightsWorker, { retryAttempts: 2 })],
     });
     this.pushHandler = lambda("PushFn", "push", {
@@ -285,6 +313,8 @@ export class TasksApi extends Construct {
 
     // AI call notes: the endpoint answers at once (202) and hands the
     // transcript to the worker, which may take longer than API Gateway's 30 s.
+    // Phase 40: polished minutes run about as long as the call's transcript,
+    // streamed for minutes on a long call.
     this.callNotesWorker = lambda(
       "CallNotesWorkerFn",
       "call-notes-worker",
@@ -292,20 +322,42 @@ export class TasksApi extends Construct {
         MESSAGES_TABLE: data.messages.tableName,
         USERS_TABLE: data.users.tableName,
         CONNECTIONS_TABLE: data.connections.tableName,
+        NOTE_DETAILS_TABLE: data.noteDetails.tableName,
         WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
       },
-      Duration.minutes(2),
+      Duration.minutes(15),
     );
     // Errors become a failed card inside the worker; an async retry would only repeat them.
     this.callNotesWorker.configureAsyncInvoke({ retryAttempts: 0, maxEventAge: Duration.hours(1) });
-    this.callNotesHandler = lambda("CallNotesFn", "call-notes", {
-      MESSAGES_TABLE: data.messages.tableName,
-      CHANNELS_TABLE: data.channels.tableName,
-      CONNECTIONS_TABLE: data.connections.tableName,
-      WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
-      NOTES_WORKER_FUNCTION: this.callNotesWorker.functionName,
-      MEETING_NOTES_TABLE: data.meetingNotes.tableName,
-    });
+    // Phase 40: answering a question about a call (Claude) takes up to API Gateway's 30 s.
+    this.callNotesHandler = lambda(
+      "CallNotesFn",
+      "call-notes",
+      {
+        MESSAGES_TABLE: data.messages.tableName,
+        CHANNELS_TABLE: data.channels.tableName,
+        CONNECTIONS_TABLE: data.connections.tableName,
+        USERS_TABLE: data.users.tableName,
+        WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+        NOTES_WORKER_FUNCTION: this.callNotesWorker.functionName,
+        MEETING_NOTES_TABLE: data.meetingNotes.tableName,
+        NOTE_DETAILS_TABLE: data.noteDetails.tableName,
+      },
+      Duration.seconds(30),
+    );
+
+    // Phase 43: a clip (up to 4 MB) to Whisper takes up to 25 s, inside API
+    // Gateway's 30. The audio stays in memory; the key comes from Parameter Store.
+    this.callTranscribeHandler = lambda(
+      "CallTranscribeFn",
+      "call-transcribe",
+      {
+        CHANNELS_TABLE: data.channels.tableName,
+        NOTE_DETAILS_TABLE: data.noteDetails.tableName,
+        OPENAI_API_KEY_PARAMETER: openaiKeyParameterName(stage),
+      },
+      Duration.seconds(30),
+    );
 
     this.archiveHandler = lambda(
       "ArchiveFn",
@@ -324,10 +376,37 @@ export class TasksApi extends Construct {
       CHANNELS_TABLE: data.channels.tableName,
       CONNECTIONS_TABLE: data.connections.tableName,
       MEETING_NOTES_TABLE: data.meetingNotes.tableName,
+      NOTE_DETAILS_TABLE: data.noteDetails.tableName,
       CHANNEL_MEDIA_TABLE: data.channelMedia.tableName,
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
       WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
     });
+    // Message search (Phase 42): the endpoint reads the conversations (to know
+    // which the caller sees), the index and the matching messages; the indexer
+    // follows the messages table's stream and writes only the index.
+    this.searchHandler = lambda("SearchFn", "search", {
+      CHANNELS_TABLE: data.channels.tableName,
+      MESSAGES_TABLE: data.messages.tableName,
+      MESSAGE_SEARCH_TABLE: data.messageSearch.tableName,
+    });
+    this.searchIndexer = lambda(
+      "SearchIndexerFn",
+      "search-indexer",
+      { MESSAGE_SEARCH_TABLE: data.messageSearch.tableName },
+      Duration.seconds(60),
+    );
+    this.searchIndexer.addEventSource(
+      new DynamoEventSource(data.messages, {
+        startingPosition: StartingPosition.LATEST,
+        batchSize: 100,
+        maxBatchingWindow: Duration.seconds(1),
+        // A batch that keeps failing is split to find the bad record, retried a
+        // few times, then skipped (the index misses one message, nothing else).
+        bisectBatchOnError: true,
+        retryAttempts: 5,
+        reportBatchItemFailures: false,
+      }),
+    );
     new Rule(this, "ArchiveSchedule", {
       ruleName: `slack-${stage}-archive-done-tasks`,
       description: "Archives Kanban tasks that have been Done for over a week",
@@ -369,6 +448,10 @@ export class TasksApi extends Construct {
     for (const { method, path } of MESSAGES_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: messagesIntegration });
     }
+    const searchIntegration = new HttpLambdaIntegration("SearchIntegration", this.searchHandler);
+    for (const { method, path } of SEARCH_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: searchIntegration });
+    }
     const pushIntegration = new HttpLambdaIntegration("PushIntegration", this.pushHandler);
     for (const { method, path } of PUSH_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: pushIntegration });
@@ -379,6 +462,13 @@ export class TasksApi extends Construct {
     );
     for (const { method, path } of CALL_NOTES_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: callNotesIntegration });
+    }
+    const callTranscribeIntegration = new HttpLambdaIntegration(
+      "CallTranscribeIntegration",
+      this.callTranscribeHandler,
+    );
+    for (const { method, path } of CALL_TRANSCRIBE_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: callTranscribeIntegration });
     }
     const calendarIntegration = new HttpLambdaIntegration(
       "CalendarIntegration",
@@ -518,25 +608,55 @@ export class TasksApi extends Construct {
     data.connections.grant(this.callNotesHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.callNotesHandler);
     this.callNotesWorker.grantInvoke(this.callNotesHandler);
-    // call-notes-worker: speakers' names (GetItem), settling the card (UpdateItem),
-    // its push, and the model on Amazon Bedrock. No model is provisioned here.
-    const notesModelPolicy = () =>
+    // call-notes-worker: settling the card (UpdateItem), its push, and the model on
+    // Amazon Bedrock (no model is provisioned here). Phase 40: it reads the call's
+    // transcript (GetItem) and stores the polished minutes (PutItem).
+    const notesModelPolicy = (streaming = false) =>
       new PolicyStatement({
-        actions: ["bedrock:InvokeModel"],
+        // The worker streams its long answer (Phase 40), which is its own action.
+        actions: [
+          "bedrock:InvokeModel",
+          ...(streaming ? ["bedrock:InvokeModelWithResponseStream"] : []),
+        ],
         resources: notesModelResources(Stack.of(this)),
       });
     data.users.grant(this.callNotesWorker, "dynamodb:GetItem");
     data.messages.grant(this.callNotesWorker, "dynamodb:UpdateItem");
+    data.noteDetails.grant(this.callNotesWorker, "dynamodb:GetItem", "dynamodb:PutItem");
     data.connections.grant(this.callNotesWorker, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.callNotesWorker);
-    this.callNotesWorker.addToRolePolicy(notesModelPolicy());
+    this.callNotesWorker.addToRolePolicy(notesModelPolicy(true));
+    // Phase 40, call-notes: the speakers' names for the stored transcript (users
+    // GetItem); the transcript row (PutItem, with the card), reading the notes and
+    // questions (GetItem, Query) and storing a question (PutItem); attaching the
+    // recording (messages UpdateItem, granted above); answering on Amazon Bedrock.
+    data.users.grant(this.callNotesHandler, "dynamodb:GetItem");
+    data.noteDetails.grant(
+      this.callNotesHandler,
+      "dynamodb:PutItem",
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+    );
+    this.callNotesHandler.addToRolePolicy(notesModelPolicy());
+    // Phase 43, call-transcribe: the DM (GetItem); whether the notes were
+    // requested (GetItem), the call's clip counter (UpdateItem) and each
+    // clip's text (PutItem); the OpenAI key. No bucket: audio is never stored.
+    data.channels.grant(this.callTranscribeHandler, "dynamodb:GetItem");
+    data.noteDetails.grant(
+      this.callTranscribeHandler,
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+    );
+    grantReadParameter(this.callTranscribeHandler, openaiKeyParameterName(stage));
 
     // news-insights-worker: the day's row (PutItem) and the model on Amazon
     // Bedrock; it reads the feed over the internet. news-insights: the newest
-    // row (Query) and starting the worker (admins).
+    // row (Query), the refresh cooldown's own row (UpdateItem) and starting
+    // the worker.
     data.newsInsights.grant(this.newsInsightsWorker, "dynamodb:PutItem");
     this.newsInsightsWorker.addToRolePolicy(notesModelPolicy());
-    data.newsInsights.grant(this.newsInsightsHandler, "dynamodb:Query");
+    data.newsInsights.grant(this.newsInsightsHandler, "dynamodb:Query", "dynamodb:UpdateItem");
     this.newsInsightsWorker.grantInvoke(this.newsInsightsHandler);
 
     // archive-tasks: find done tasks (Scan) and flag them (UpdateItem). Nothing else.
@@ -556,6 +676,14 @@ export class TasksApi extends Construct {
     data.channels.grant(this.archiveHandler, "dynamodb:Scan", "dynamodb:UpdateItem");
     grantDeleteFiles(this.archiveHandler, props.attachments, { list: true });
 
+    // search (Phase 42): which conversations the caller sees (Scan, < 50 rows), the
+    // index (Query) and the candidates (BatchGetItem). search-indexer: the index rows
+    // (BatchWriteItem); the event source grants it the stream.
+    data.channels.grant(this.searchHandler, "dynamodb:Scan");
+    data.messageSearch.grant(this.searchHandler, "dynamodb:Query");
+    data.messages.grant(this.searchHandler, "dynamodb:BatchGetItem");
+    data.messageSearch.grant(this.searchIndexer, "dynamodb:BatchWriteItem");
+
     // messages (Phase 32): the conversation (GetItem), the message (GetItem), deleting it
     // or making it a tombstone and recounting its thread (DeleteItem, UpdateItem in one
     // transaction), its thread's replies and the quotes of it (Query), clearing those
@@ -569,6 +697,8 @@ export class TasksApi extends Construct {
       "dynamodb:Query",
     );
     data.meetingNotes.grant(this.messagesHandler, "dynamodb:DeleteItem");
+    // Phase 40: a deleted notes card's transcript, minutes and questions (Query, BatchWriteItem).
+    data.noteDetails.grant(this.messagesHandler, "dynamodb:Query", "dynamodb:BatchWriteItem");
     data.connections.grant(this.messagesHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.messagesHandler);
     grantDeleteFiles(this.messagesHandler, props.attachments);

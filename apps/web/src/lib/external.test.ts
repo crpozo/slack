@@ -58,24 +58,25 @@ describe("external links", () => {
     expect(openWindow).not.toHaveBeenCalled();
   });
 
-  it("an older desktop build falls back to window.open, then to copying the link", async () => {
+  it("an older desktop build falls back to window.open, and a null from it is no failure", async () => {
     const denied = vi.fn(async () => {
       throw new Error("opener.open_url not allowed");
     });
-    const routed = vi.fn(() => ({}) as Window);
+    const routed = vi.fn(() => null); // the desktop app opened it in the browser: no window here
     await openExternal("https://github.com", { desktop: true, invoke: denied, openWindow: routed });
     expect(routed).toHaveBeenCalledWith("https://github.com");
+    // Without the plugin at all, the same.
+    const fallback = vi.fn(() => null);
+    await openExternal("https://x.ec", { desktop: true, invoke: undefined, openWindow: fallback });
+    expect(fallback).toHaveBeenCalledTimes(1);
+  });
 
-    const copy = vi.fn(async () => {});
-    const notify = vi.fn();
-    await openExternal("https://github.com", {
-      desktop: true,
-      invoke: denied,
-      openWindow: () => null,
-      copy,
-      notify,
+  it("an opener that errors after running isn't followed by a second open", async () => {
+    const failedLate = vi.fn(async () => {
+      throw new Error("xdg-open exited with status 3");
     });
-    expect(copy).toHaveBeenCalledWith("https://github.com");
-    expect(notify).toHaveBeenCalledWith(expect.stringContaining("copied"));
+    const openWindow = vi.fn(() => null);
+    await openExternal("https://github.com", { desktop: true, invoke: failedLate, openWindow });
+    expect(openWindow).not.toHaveBeenCalled();
   });
 });

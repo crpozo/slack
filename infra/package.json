@@ -13,7 +13,9 @@
     "vapid": "tsx scripts/vapid.ts",
     "migrate-dev-to-prod": "tsx scripts/migrate-dev-to-prod.ts",
     "backfill-notes": "tsx scripts/backfill-notes.ts",
-    "backfill-media": "tsx scripts/backfill-media.ts"
+    "backfill-media": "tsx scripts/backfill-media.ts",
+    "backfill-search": "tsx scripts/backfill-search.ts",
+    "shorten-secret-ttl": "tsx scripts/shorten-secret-ttl.ts"
   },
   "dependencies": {
     "@mindfultech/shared": "workspace:*",

@@ -37,12 +37,27 @@ export const tables = {
   get meetingNotes() {
     return requireEnv("MEETING_NOTES_TABLE");
   },
+  /**
+   * Phase 40: a call's full notes by `callId` + `sk`: `raw` (the transcript),
+   * `polished` (the minutes) and `qa#<userId>#<askedAt>` (each person's own
+   * questions about it).
+   */
+  get noteDetails() {
+    return requireEnv("NOTE_DETAILS_TABLE");
+  },
   get vacationBalances() {
     return requireEnv("VACATION_BALANCES_TABLE");
   },
   /** Phase 36: one row per channel with a call going on. */
   get callRooms() {
     return requireEnv("CALL_ROOMS_TABLE");
+  },
+  /**
+   * Phase 42: the message search index: per conversation, one row per term
+   * of each message (`<term>#<message sk>`), kept by the stream processor.
+   */
+  get messageSearch() {
+    return requireEnv("MESSAGE_SEARCH_TABLE");
   },
   /** Phase 38: per conversation, one row per shared file, link and pinned message. */
   get channelMedia() {

@@ -6,11 +6,13 @@ import {
   replyPreview,
   SECRET_PREVIEW,
   SECRET_TTL_MS,
+  secretExpiresAt,
   type ReplySnapshot,
 } from "@mindfultech/shared";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { chat } from "../lib/chat";
+import { secretParts } from "../lib/credentials";
 import { outbox } from "../lib/outbox";
 import { formatDay, formatTime, seenByLine } from "../lib/channels";
 import { QUICK_REACTIONS } from "../lib/emoji";
@@ -28,6 +30,7 @@ import { MessageContextMenu } from "./MessageContextMenu";
 import { Avatar } from "./Avatar";
 import {
   CheckCheckIcon,
+  CheckIcon,
   CopyIcon,
   EyeIcon,
   EyeOffIcon,
@@ -207,7 +210,7 @@ function MessageActions({
           type="button"
           onClick={() => {
             void navigator.clipboard?.writeText(message.text).then(
-              () => useChat.getState().showToast("Copied"),
+              () => useChat.getState().showToast("Copied", "success"),
               () => {},
             );
             done();
@@ -248,46 +251,81 @@ function MessageActions({
 }
 
 /** The message a reply answers, above the reply; tap to jump to it. */
-/** "in 3 days", "in 2 hours", "soon": how long until DynamoDB deletes the secret. */
-function expiresIn(expiresAt: number | undefined, createdAt: number): string {
-  const at = expiresAt ? expiresAt * 1000 : createdAt + SECRET_TTL_MS;
+/** "in 23 hours", "in 40 minutes", "soon": how long until the secret expires. */
+function expiresIn(message: Pick<ChatMessage, "expiresAt" | "createdAt">): string {
+  const at = secretExpiresAt(message) ?? message.createdAt + SECRET_TTL_MS;
   const left = at - Date.now();
-  const hours = Math.ceil(left / 3_600_000);
-  if (hours <= 1) return "soon";
-  if (hours < 24) return `in ${hours} hours`;
-  const days = Math.round(left / 86_400_000);
-  return `in ${days} day${days === 1 ? "" : "s"}`;
+  const minutes = Math.ceil(left / 60_000);
+  if (minutes <= 1) return "soon";
+  if (minutes < 60) return `in ${minutes} minutes`;
+  const hours = Math.round(left / 3_600_000);
+  return `in ${hours} hour${hours === 1 ? "" : "s"}`;
+}
+
+const secretButton =
+  "shrink-0 rounded-md p-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
+
+/** Copies `value`; the icon turns into a check for a moment. */
+function CopyButton({ value, what }: Readonly<{ value: string; what: string }>) {
+  const showToast = useChat((s) => s.showToast);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
+  const copy = () =>
+    void navigator.clipboard?.writeText(value).then(
+      () => {
+        setCopied(true);
+        showToast(`Copied ${what.toLowerCase()}`, "success");
+      },
+      () => showToast("Couldn't copy"),
+    );
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className={secretButton}
+      aria-label={`Copy ${what.toLowerCase()}`}
+      title={`Copy ${what.toLowerCase()}`}
+      data-copy={what}
+    >
+      {copied ? <CheckIcon className="text-success" /> : <CopyIcon />}
+    </button>
+  );
 }
 
 /**
- * A password or API key: masked until the reader presses the eye (this
- * device only, and only until the conversation is reopened). Plain text, not
+ * A password or key: masked until the reader presses the eye (this device
+ * only, and only until the conversation is reopened). Plain text, not
  * Markdown, so nothing in it is ever turned into a link or formatting.
+ * Revealed, each part (an email, a password, each line) has its own Copy
+ * button, so the password can be copied without the email around it.
  */
 function SecretBody({ message, mine }: Readonly<{ message: ChatMessage; mine: boolean }>) {
   const [revealed, setRevealed] = useState(false);
-  const showToast = useChat((s) => s.showToast);
   // Masked again if the conversation re-renders this message anew (e.g. after a reload).
   useEffect(() => setRevealed(false), [message.messageId]);
-  const copy = () =>
-    void navigator.clipboard?.writeText(message.text).then(
-      () => showToast("Copied"),
-      () => showToast("Couldn't copy"),
-    );
-  const button =
-    "shrink-0 rounded-md p-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink";
+  const parts = useMemo(() => secretParts(message.text), [message.text]);
+  const single = parts.length === 1 && !parts[0]!.label;
   return (
     <div
       className={`mt-0.5 inline-flex max-w-full flex-col gap-1 rounded-2xl rounded-tl-sm border border-warning/40 px-3 py-2 text-sm ${
         mine ? "bg-primary/15" : "bg-surface-sidebar"
       } ${message.status === "failed" ? "ring-1 ring-error" : ""}`}
+      data-secret
     >
       <div className="flex min-w-0 items-center gap-2">
         <LockIcon className="shrink-0 text-warning" aria-label="Secret" />
-        {revealed ? (
+        {revealed && single ? (
           <code className="min-w-0 select-all whitespace-pre-wrap break-all font-mono text-ink">
             {message.text}
           </code>
+        ) : revealed ? (
+          <span className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-wide text-ink-secondary">
+            Secret · {parts.length} parts
+          </span>
         ) : (
           <span className="font-mono tracking-widest text-ink" aria-label="Hidden secret">
             ••••••••
@@ -296,28 +334,39 @@ function SecretBody({ message, mine }: Readonly<{ message: ChatMessage; mine: bo
         <button
           type="button"
           onClick={() => setRevealed((v) => !v)}
-          className={button}
+          className={secretButton}
           aria-pressed={revealed}
           aria-label={revealed ? "Hide secret" : "Reveal secret"}
           title={revealed ? "Hide" : "Reveal"}
         >
           {revealed ? <EyeOffIcon /> : <EyeIcon />}
         </button>
-        {revealed && (
-          <button
-            type="button"
-            onClick={copy}
-            className={button}
-            aria-label="Copy secret"
-            title="Copy"
-          >
-            <CopyIcon />
-          </button>
-        )}
+        {revealed && <CopyButton value={message.text} what={single ? "Secret" : "All"} />}
       </div>
-      <p className="text-xs text-ink-secondary">
-        Secret · deleted {expiresIn(message.expiresAt, message.createdAt)}
-      </p>
+      {revealed && !single && (
+        <ul className="flex min-w-0 flex-col gap-1" aria-label="Secret parts" data-secret-parts>
+          {parts.map((part, i) => {
+            const what = part.label ?? `Line ${i + 1}`;
+            return (
+              <li
+                key={`${i}:${part.value}`}
+                className="flex min-w-0 items-center gap-2 rounded-lg bg-surface/60 py-0.5 pl-2.5 pr-0.5"
+              >
+                {part.label && (
+                  <span className="w-20 shrink-0 truncate text-xs text-ink-secondary">
+                    {part.label}
+                  </span>
+                )}
+                <code className="min-w-0 flex-1 select-all break-all font-mono text-ink">
+                  {part.value}
+                </code>
+                <CopyButton value={part.value} what={what} />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <p className="text-xs text-ink-secondary">Secret · deleted {expiresIn(message)}</p>
     </div>
   );
 }

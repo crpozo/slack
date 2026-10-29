@@ -19,9 +19,11 @@
     "@aws-sdk/client-ssm": "^3.1151.0",
     "@aws-sdk/lib-dynamodb": "^3.1148.0",
     "@aws-sdk/s3-request-presigner": "^3.1148.0",
+    "@aws-sdk/util-dynamodb": "^3.996.9",
     "@mindfultech/shared": "workspace:*",
     "aws-jwt-verify": "^5.2.1",
     "fast-xml-parser": "^5.11.2",
+    "openai": "^7.45.1",
     "ulid": "^3.0.2",
     "web-push": "^3.6.7",
     "zod": "^4.6.5"

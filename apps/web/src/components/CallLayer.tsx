@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { create } from "zustand";
@@ -138,6 +147,10 @@ function DocumentPipCall({ call }: Readonly<{ call: CallView }>) {
       reconnectingUntil={call.reconnecting?.deadline ?? null}
       camera={call.remoteStream}
       screen={call.remoteScreen}
+      sharing={call.sharing}
+      canShare={connected && call.canShare && supportsScreenShare()}
+      // The click in the Picture-in-Picture window counts for the page that opened it.
+      onScreenShare={() => void calls.toggleScreenShare()}
       onMic={() => calls.toggleMic()}
       onCamera={() => void calls.toggleCamera()}
       onHangUp={() => calls.hangUp()}
@@ -193,6 +206,9 @@ function statusText(call: CallView, elapsed: string): string {
   }
 }
 
+/** The floating mini-window's controls: smaller, so six fit across it. */
+const CompactControls = createContext(false);
+
 function ControlButton({
   label,
   highlight = false,
@@ -210,6 +226,7 @@ function ControlButton({
   onClick: () => void;
   children: ReactNode;
 }>) {
+  const compact = useContext(CompactControls);
   let tone = "bg-white/15 text-white hover:bg-white/25";
   if (danger) tone = "bg-error text-white hover:bg-error/85";
   else if (highlight) tone = "bg-white text-[#0E0D12] hover:bg-white/85";
@@ -220,7 +237,9 @@ function ControlButton({
       disabled={disabled}
       aria-label={label}
       title={label}
-      className={`flex h-11 w-11 items-center justify-center rounded-full text-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-40 ${tone}`}
+      className={`flex shrink-0 items-center justify-center rounded-full transition-colors ${
+        compact ? "h-9 w-9 text-lg" : "h-11 w-11 text-xl"
+      } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-40 ${tone}`}
     >
       {children}
     </button>
@@ -231,14 +250,12 @@ function ControlButton({
 
 /** What the ✨ badge says about notes right now (its tooltip and screen-reader text). */
 export function notesStatusText(notes: CallView["notes"], micOn: boolean): string {
-  if (notes.full) return "AI notes: the transcript is full; later speech isn't included.";
-  const local = notes.local;
-  if (local.kind === "unavailable") return `AI notes are on. ${local.reason}`;
-  if (!micOn) return "AI notes are on. You're muted, so you aren't being transcribed.";
-  const where = notes.onDevice
-    ? "Your voice is transcribed on this device."
-    : "Your voice is transcribed by your browser's speech service.";
-  return `AI notes are on. ${where} A summary is posted to the chat when the call ends.`;
+  if (notes.unavailable) return `AI notes are on. ${notes.unavailable}`;
+  const muted = micOn ? "" : " You're muted, so you aren't in the notes.";
+  const audio = notes.keepAudio
+    ? "A backup of the original audio is saved with the notes."
+    : "The audio isn't saved.";
+  return `AI notes are on: the call's audio is sent to OpenAI for transcription, then discarded. ${audio}${muted} Notes are posted to the chat when the call ends.`;
 }
 
 /** ✨ toggle: notes on or off for both sides (the other side is told). */
@@ -246,7 +263,11 @@ function NotesButton({ call }: Readonly<{ call: CallView }>) {
   const on = call.notes.on;
   return (
     <ControlButton
-      label={on ? "Turn off AI notes" : "Turn on AI notes (transcribes both of you)"}
+      label={
+        on
+          ? "Turn off AI notes"
+          : "Turn on AI notes (both of you are transcribed by OpenAI Whisper)"
+      }
       highlight={on}
       disabled={call.phase !== "connected"}
       onClick={() => void calls.toggleNotes()}
@@ -260,7 +281,7 @@ function NotesButton({ call }: Readonly<{ call: CallView }>) {
 function NotesBadge({ call }: Readonly<{ call: CallView }>) {
   if (!call.notes.on) return null;
   const text = notesStatusText(call.notes, call.micOn);
-  const warn = call.notes.full || call.notes.local.kind === "unavailable";
+  const warn = call.notes.unavailable !== null;
   return (
     <span
       role="status"
@@ -273,6 +294,42 @@ function NotesBadge({ call }: Readonly<{ call: CallView }>) {
       AI notes
       <span className="sr-only">{text}</span>
     </span>
+  );
+}
+
+/**
+ * Phase 43: "Guardar audio original como respaldo" (save the original audio
+ * as a backup), shown while notes are on. Off by default: the audio is then
+ * only sent to Whisper and discarded. Either side may change it, for both.
+ */
+export function KeepAudioSwitch({ call }: Readonly<{ call: CallView }>) {
+  if (!call.notes.on) return null;
+  const keep = call.notes.keepAudio;
+  return (
+    <label
+      className="flex cursor-pointer items-center justify-center gap-2 pt-2 text-[11px] text-white/60 hover:text-white/85"
+      title={
+        keep
+          ? "The original audio is saved with the notes (and can be played from the ✨ card)."
+          : "The audio is only sent to OpenAI for transcription and then discarded."
+      }
+    >
+      <input
+        type="checkbox"
+        role="switch"
+        aria-checked={keep}
+        checked={keep}
+        disabled={call.phase !== "connected"}
+        onChange={() => calls.toggleKeepAudio()}
+        className="peer sr-only"
+        data-keep-audio
+      />
+      <span
+        aria-hidden="true"
+        className="relative h-3.5 w-6 shrink-0 rounded-full bg-white/20 transition-colors peer-checked:bg-primary peer-disabled:opacity-50 peer-focus-visible:ring-2 peer-focus-visible:ring-primary after:absolute after:left-0.5 after:top-0.5 after:h-2.5 after:w-2.5 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-2.5"
+      />
+      Guardar audio original como respaldo
+    </label>
   );
 }
 
@@ -601,6 +658,7 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
         {call.reconnecting && <ReconnectingOverlay deadline={call.reconnecting.deadline} />}
       </div>
 
+      <KeepAudioSwitch call={call} />
       <footer className="flex items-center justify-center gap-3 px-4 py-2.5">
         <div className="flex">
           <ControlButton
@@ -784,29 +842,42 @@ function FloatingCall({ call }: Readonly<{ call: CallView }>) {
           {connected && !call.peer.micOn && " · Muted"}
         </p>
       </div>
-      <div className="flex items-center justify-center gap-2 px-3 py-2.5">
-        <ControlButton
-          label={call.micOn ? "Mute microphone" : "Unmute microphone"}
-          highlight={!call.micOn}
-          onClick={() => calls.toggleMic()}
-        >
-          {call.micOn ? <MicIcon /> : <MicOffIcon />}
-        </ControlButton>
-        <ControlButton
-          label={call.camOn ? "Turn camera off" : "Turn camera on"}
-          highlight={!call.camOn}
-          onClick={() => void calls.toggleCamera()}
-        >
-          {call.camOn ? <VideoIcon /> : <VideoOffIcon />}
-        </ControlButton>
-        <PopOutButton />
-        <ControlButton label="Back to the call" onClick={back}>
-          <MaximizeIcon />
-        </ControlButton>
-        <ControlButton label="Hang up" danger onClick={() => calls.hangUp()}>
-          <PhoneOffIcon />
-        </ControlButton>
-      </div>
+      <CompactControls.Provider value>
+        <div className="flex items-center justify-center gap-2 px-3 py-2.5" data-floating-controls>
+          <ControlButton
+            label={call.micOn ? "Mute microphone" : "Unmute microphone"}
+            highlight={!call.micOn}
+            onClick={() => calls.toggleMic()}
+          >
+            {call.micOn ? <MicIcon /> : <MicOffIcon />}
+          </ControlButton>
+          <ControlButton
+            label={call.camOn ? "Turn camera off" : "Turn camera on"}
+            highlight={!call.camOn}
+            onClick={() => void calls.toggleCamera()}
+          >
+            {call.camOn ? <VideoIcon /> : <VideoOffIcon />}
+          </ControlButton>
+          {/* Share straight from here, without going back to the call. */}
+          {supportsScreenShare() && (
+            <ControlButton
+              label={call.sharing ? "Stop sharing screen" : "Share screen"}
+              highlight={call.sharing}
+              disabled={!connected || !call.canShare}
+              onClick={() => void calls.toggleScreenShare()}
+            >
+              <ScreenShareIcon />
+            </ControlButton>
+          )}
+          <PopOutButton />
+          <ControlButton label="Back to the call" onClick={back}>
+            <MaximizeIcon />
+          </ControlButton>
+          <ControlButton label="Hang up" danger onClick={() => calls.hangUp()}>
+            <PhoneOffIcon />
+          </ControlButton>
+        </div>
+      </CompactControls.Provider>
     </div>
   );
 }

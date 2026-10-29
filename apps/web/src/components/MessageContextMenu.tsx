@@ -116,7 +116,7 @@ export function MessageContextMenu({
 
   function copy(text: string, what = "Copied") {
     void navigator.clipboard?.writeText(text).then(
-      () => showToast(what),
+      () => showToast(what, "success"),
       () => showToast("Couldn't copy"),
     );
   }
@@ -129,7 +129,7 @@ export function MessageContextMenu({
       case "copy":
         return copy(message.text);
       case "open-link":
-        return context.link && void openExternal(context.link, { notify: showToast });
+        return context.link && void openExternal(context.link);
       case "copy-link":
         return context.link && copy(context.link, "Link copied");
       case "reply":

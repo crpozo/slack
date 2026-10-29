@@ -9,8 +9,8 @@ export const INSIGHTS_POLL_MS = 5_000;
 
 /**
  * The AI Insights section's data (Phase 39): the latest morning analysis,
- * loaded when the News view opens; and an admin's "Generate now", which
- * starts the worker and waits for the new row to appear.
+ * loaded when the News view opens; and "Refresh news" (or an admin's
+ * "Generar análisis"), which starts the worker and waits for the new row.
  */
 export interface NewsInsightsState {
   status: "idle" | "loading" | "ready" | "error";
@@ -21,6 +21,8 @@ export interface NewsInsightsState {
   generating: boolean;
   /** Why the last request didn't produce one (shown until the next attempt). */
   generateError: string | null;
+  /** The last request wasn't needed: one was started a moment ago. */
+  generateNotice: string | null;
   load: (force?: boolean) => Promise<void>;
   generate: () => Promise<void>;
   reset: () => void;
@@ -41,6 +43,7 @@ export function createNewsInsightsStore(
     loadedAt: 0,
     generating: false,
     generateError: null,
+    generateNotice: null,
     load: async (force = false) => {
       const s = get();
       if (s.status === "loading") return;
@@ -59,9 +62,18 @@ export function createNewsInsightsStore(
     generate: async () => {
       if (get().generating) return;
       const before = get().insights?.generatedAt ?? 0;
-      set({ generating: true, generateError: null });
+      set({ generating: true, generateError: null, generateNotice: null });
       try {
-        await api.generate();
+        const started = await api.refresh();
+        if (!started.queued) {
+          const minutes = Math.max(1, Math.ceil((started.retryAfterSeconds ?? 60) / 60));
+          set({
+            generating: false,
+            generateNotice: `El análisis se pidió hace un momento: podrás pedir otro en ${minutes} min.`,
+          });
+          void get().load(true);
+          return;
+        }
         const deadline = now() + NEWS_INSIGHTS_WAIT_MS;
         while (now() < deadline) {
           await sleep(INSIGHTS_POLL_MS);
@@ -73,10 +85,10 @@ export function createNewsInsightsStore(
         }
         set({
           generating: false,
-          generateError: "The analysis is taking longer than usual. Check back in a minute.",
+          generateError: "El análisis está tardando más de lo normal. Vuelve a mirar en un minuto.",
         });
       } catch (err) {
-        set({ generating: false, generateError: message(err, "Couldn't request the analysis.") });
+        set({ generating: false, generateError: message(err, "No se pudo pedir el análisis.") });
       }
     },
     reset: () =>
@@ -87,6 +99,7 @@ export function createNewsInsightsStore(
         loadedAt: 0,
         generating: false,
         generateError: null,
+        generateNotice: null,
       }),
   }));
 }

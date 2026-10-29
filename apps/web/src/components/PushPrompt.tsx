@@ -39,7 +39,7 @@ export function PushPrompt({ phone = false }: Readonly<{ phone?: boolean }>) {
   async function enable() {
     try {
       const result = await enablePush(me!.userId);
-      if (result === "on") showToast("Notifications are on for this device.");
+      if (result === "on") showToast("Notifications are on for this device.", "success");
       dismiss();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Couldn't turn on notifications.");

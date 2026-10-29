@@ -1,8 +1,5 @@
 import {
   MAX_ICE_CANDIDATES_PER_SIGNAL,
-  MAX_SEGMENT_CHARS,
-  MAX_SEGMENTS,
-  MAX_TRANSCRIPT_CHARS,
   parseNotesPeerMessage,
   type CallEndReason,
   type CallEvent,
@@ -11,7 +8,6 @@ import {
   type IceCandidate,
   type NotesPeerMessage,
   type SummarizeCallInput,
-  type TranscriptSegment,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
 import { create } from "zustand";
@@ -22,14 +18,9 @@ import {
   mediaErrorText,
   saveMediaPrefs,
 } from "./media";
+import { CallRecorder, type CallRecording } from "./callRecorder";
+import { VoiceClipRecorder, type NotesClip } from "./clipRecorder";
 import { startRinging, stopRinging } from "./sounds";
-import {
-  canTranscribeOnDevice,
-  speechLang,
-  speechRecognitionCtor,
-  Transcriber,
-  type TranscriberState,
-} from "./transcriber";
 import type { DistributiveOmit } from "./ws";
 
 /**
@@ -44,9 +35,11 @@ import type { DistributiveOmit } from "./ws";
  * an avatar instead of black video.
  *
  * AI call notes (Phase 28) ride the same data channel: either side can switch
- * them on for both (the other side is told at once), each side transcribes
- * only its own voice and sends each finished phrase across, and the caller
- * submits the merged timeline when the call ends.
+ * them on for both (the other side is told at once). From Phase 43 the
+ * caller's app records each voice in short clips, each sent to OpenAI Whisper
+ * as it ends (the audio is discarded once transcribed), and asks for the
+ * notes when the call ends. Either side can also choose to keep the original
+ * audio as a backup (the caller then records the mixed call, as in Phase 40).
  *
  * Network resilience (Phase 34): when a connected call's ICE goes
  * `disconnected` (Wi-Fi to cellular, a dead access point, a laptop lid) the
@@ -138,14 +131,10 @@ export interface CallNotesView {
   on: boolean;
   /** Who switched them on or off last. */
   changedBy: string | null;
-  /** Your own transcription: off while muted, `unavailable` without browser support. */
-  local: TranscriberState;
-  /** Recognized on this device rather than by the browser's speech service. */
-  onDevice: boolean;
-  /** Phrases captured so far, from both of you. */
-  phrases: number;
-  /** The transcript reached its size limit: later speech isn't kept. */
-  full: boolean;
+  /** Phase 43: "Guardar audio original como respaldo", chosen by either side (off by default). */
+  keepAudio: boolean;
+  /** Why this app (the caller's) can't record the call for notes; `null` when it can. */
+  unavailable: string | null;
 }
 
 /** What the call UI renders; `null` when there is no call. */
@@ -214,6 +203,11 @@ interface Session {
   mic: MediaStreamTrack | null;
   camera: MediaStreamTrack | null;
   screen: MediaStreamTrack | null;
+  /**
+   * The shared screen was captured here (and is stopped with the share), not
+   * handed over by the desktop app's call window, which owns its capture.
+   */
+  screenOwned: boolean;
   audioSender: RTCRtpSender | null;
   videoSender: RTCRtpSender | null;
   screenSender: RTCRtpSender | null;
@@ -243,18 +237,19 @@ interface Session {
 
 interface NotesSession {
   on: boolean;
-  /** Notes were on at some point, so the transcript is worth submitting. */
+  /** Notes were on at some point, so the call's clips are worth summarizing. */
   used: boolean;
   /** When `on` last changed (epoch ms): the later of two crossing toggles wins. */
   changedAt: number;
   changedBy: string | null;
-  /** Both voices, in arrival order (sorted when formatted). */
-  segments: TranscriptSegment[];
-  chars: number;
-  full: boolean;
-  transcriber: Transcriber | null;
-  local: TranscriberState;
-  onDevice: boolean;
+  /** Phase 43: keep the original audio with the notes; the later of two crossing choices wins. */
+  keepAudio: boolean;
+  keepChangedAt: number;
+  /** Phase 43: the caller's clips of each voice for Whisper (`null` elsewhere). */
+  clips: { mine: VoiceClipRecorder; theirs: VoiceClipRecorder } | null;
+  unavailable: string | null;
+  /** Phase 40: the caller's mixed recording, only while the original audio is to be kept. */
+  recorder: CallRecorder | null;
 }
 
 export interface CallDeps {
@@ -264,8 +259,21 @@ export interface CallDeps {
   myUserId: () => string | null;
   nameOf: (userId: string) => string;
   notify: (text: string) => void;
-  /** Sends a finished call's transcript for AI notes (caller only, see `postsCallSummary`). */
-  submitNotes: (input: SummarizeCallInput) => void;
+  /**
+   * Asks for a finished call's AI notes (caller only, see `postsCallSummary`)
+   * once `ready` (the last clips handed over) and every clip is transcribed.
+   */
+  submitNotes: (input: SummarizeCallInput, ready: Promise<void>) => void;
+  /** Phase 43: sends one clip of one voice (`speaker`) to be transcribed. */
+  uploadNotesClip?: (
+    call: { callId: string; channelId: string },
+    clip: NotesClip & { speaker: string },
+  ) => void;
+  /** Phase 40: uploads the call's recording and attaches it to its notes card, once it's ready. */
+  submitRecording?: (
+    call: { callId: string; channelId: string },
+    recording: Promise<CallRecording | null>,
+  ) => void;
   /** Phase 36: in a channel call already (one call at a time). */
   busyElsewhere?: () => boolean;
 }
@@ -479,7 +487,7 @@ export class CallManager {
     const session = this.session;
     if (!session?.mic) return;
     session.mic.enabled = !session.mic.enabled;
-    this.syncTranscriber(session); // muted means not transcribed, too
+    this.syncRecorder(session); // muted means not recorded for notes, too
     this.publish();
     this.sendMediaState(session);
   }
@@ -501,6 +509,25 @@ export class CallManager {
     const at = Date.now();
     this.sendNotesMessage(session, { type: "notes", on, at });
     await this.applyNotes(session, on, at, me);
+  }
+
+  /**
+   * Phase 43: "Guardar audio original como respaldo", for both sides (the
+   * other side is told). Off by default: the audio is then only ever sent to
+   * Whisper, and discarded.
+   */
+  toggleKeepAudio(): void {
+    const session = this.session;
+    const me = this.deps?.myUserId();
+    if (!session || !me || session.phase !== "connected") return;
+    if (session.control?.readyState !== "open") {
+      this.deps?.notify("Saving the audio needs the call to be fully connected.");
+      return;
+    }
+    const keep = !session.notes.keepAudio;
+    const at = Date.now();
+    this.sendNotesMessage(session, { type: "backup", keep, at });
+    this.applyKeepAudio(session, keep, at, me);
   }
 
   async toggleCamera(): Promise<void> {
@@ -555,12 +582,46 @@ export class CallManager {
       track.stop();
       return;
     }
+    await this.startScreenShare(session, track, true);
+  }
+
+  /**
+   * Shares a screen captured somewhere else: the desktop app's small call
+   * window, which must capture it itself (the screen picker opens only for a
+   * click in the page that asks). Replaces whatever is being shared.
+   */
+  async shareScreenTrack(track: MediaStreamTrack): Promise<void> {
+    const session = this.session;
+    if (!session || session.phase !== "connected") return;
+    if (!session.screenSender) {
+      this.deps?.notify("Screen sharing isn't available in this call.");
+      return;
+    }
+    if (session.screen === track) return;
+    if (session.screen) await this.stopScreenShare(session);
+    if (!this.isCurrent(session)) return;
+    await this.startScreenShare(session, track, false);
+  }
+
+  /** Stops sharing the screen, if it is. */
+  async stopSharing(): Promise<void> {
+    const session = this.session;
+    if (session?.screen) await this.stopScreenShare(session);
+  }
+
+  private async startScreenShare(
+    session: Session,
+    track: MediaStreamTrack,
+    owned: boolean,
+  ): Promise<void> {
+    if (!session.screenSender) return;
     track.contentHint = "detail";
     // The browser's own "Stop sharing" button ends the track.
     track.addEventListener("ended", () => {
       if (session.screen === track) void this.stopScreenShare(session);
     });
     session.screen = track;
+    session.screenOwned = owned;
     await session.screenSender.replaceTrack(track);
     this.publish();
     this.sendMediaState(session);
@@ -605,7 +666,7 @@ export class CallManager {
       track.enabled = current.enabled; // keep muted calls muted
       await session.audioSender?.replaceTrack(track);
       session.mic = track;
-      this.syncTranscriber(session); // listen on the new microphone
+      this.syncRecorder(session); // record the new microphone
     } else {
       await session.videoSender?.replaceTrack(track);
       session.camera = track;
@@ -773,6 +834,7 @@ export class CallManager {
       mic: null,
       camera: null,
       screen: null,
+      screenOwned: false,
       audioSender: null,
       videoSender: null,
       screenSender: null,
@@ -796,12 +858,11 @@ export class CallManager {
         used: false,
         changedAt: 0,
         changedBy: null,
-        segments: [],
-        chars: 0,
-        full: false,
-        transcriber: null,
-        local: { kind: "off" },
-        onDevice: false,
+        keepAudio: false,
+        keepChangedAt: 0,
+        clips: null,
+        unavailable: null,
+        recorder: null,
       },
     };
     this.session = session;
@@ -879,6 +940,7 @@ export class CallManager {
       // so the screen is told apart by its position, not by a stored reference.
       const target = isScreenTransceiver(pc, transceiver) ? session.remoteScreen : session.remote;
       if (!target.getTracks().includes(track)) target.addTrack(track);
+      this.syncRecorder(session); // the other voice joins the recording
       this.publish();
     });
 
@@ -1170,8 +1232,10 @@ export class CallManager {
   }
 
   private async stopScreenShare(session: Session): Promise<void> {
-    session.screen?.stop();
+    // A screen handed over by the desktop call window is its to stop.
+    if (session.screenOwned) session.screen?.stop();
     session.screen = null;
+    session.screenOwned = false;
     await session.screenSender?.replaceTrack(null);
     if (!this.isCurrent(session)) return;
     this.publish();
@@ -1215,7 +1279,10 @@ export class CallManager {
   private finish(session: Session, notice: string | null): void {
     if (!this.isCurrent(session)) return;
     this.session = null;
-    session.notes.transcriber?.dispose();
+    const { recorder, clips } = session.notes;
+    session.notes.recorder = null;
+    session.notes.clips = null;
+    let submitted = false;
     if (postsCallSummary(session.role, session.connectedAt)) {
       const endedAt = Date.now();
       const startedAt = session.connectedAt ?? endedAt;
@@ -1223,7 +1290,20 @@ export class CallManager {
         session.channelId,
         callSummaryText(session.media, endedAt - startedAt),
       );
-      this.submitNotes(session, startedAt, endedAt);
+      submitted = this.submitNotes(session, clips, startedAt, endedAt);
+    }
+    if (!submitted) {
+      clips?.mine.dispose();
+      clips?.theirs.dispose();
+    }
+    // The original audio goes with the notes it belongs to, if someone asked to keep it.
+    if (recorder && submitted && session.notes.keepAudio && this.deps?.submitRecording) {
+      this.deps.submitRecording(
+        { callId: session.callId, channelId: session.channelId },
+        recorder.stop(),
+      );
+    } else {
+      recorder?.dispose();
     }
     stopRinging();
     session.timers.forEach((t) => clearTimeout(t));
@@ -1252,11 +1332,11 @@ export class CallManager {
   private receiveNotesMessage(session: Session, message: NotesPeerMessage): void {
     if (message.type === "notes") {
       void this.applyNotes(session, message.on, message.at, session.peerId);
-      return;
+    } else if (message.type === "backup") {
+      this.applyKeepAudio(session, message.keep, message.at, session.peerId);
     }
-    // The peer's clock may be a little off: keep its phrase inside the call.
-    const at = Math.min(Math.max(message.at, session.connectedAt ?? 0), Date.now());
-    if (session.notes.on) this.addSegment(session, session.peerId, message.text, at);
+    // `transcript`: phrases from an app before Phase 43. The caller's clips
+    // already hold both voices, so they're left out.
   }
 
   /** Turns notes on or off for this call, whoever asked (`by`). */
@@ -1273,98 +1353,130 @@ export class CallManager {
     const mine = by === deps?.myUserId();
     const name = deps?.nameOf(by) ?? "";
     if (on) {
-      deps?.notify(
-        mine
-          ? "✨ AI notes are on. What you both say is transcribed for a summary when the call ends."
-          : `✨ ${name} turned on AI notes. What you say is transcribed for a summary when the call ends.`,
-      );
+      const what = `The call's audio is sent to OpenAI for transcription and then discarded${
+        notes.keepAudio ? " (a backup of the original audio is saved)" : ""
+      }; notes are posted when it ends.`;
+      deps?.notify(mine ? `✨ AI notes are on. ${what}` : `✨ ${name} turned on AI notes. ${what}`);
     } else {
       deps?.notify(mine ? "AI notes are off." : `${name} turned off AI notes.`);
     }
 
-    if (on && !notes.transcriber) {
-      const Recognition = speechRecognitionCtor();
-      if (!Recognition) {
-        notes.local = {
-          kind: "unavailable",
-          reason: "This browser can't transcribe speech, so only the other side is in the notes.",
-        };
+    // Phase 43: the caller (who asks for the notes) records each voice for Whisper.
+    if (on && session.role === "caller" && !notes.clips && !notes.unavailable) {
+      const me = deps?.myUserId();
+      const mineClips = me ? VoiceClipRecorder.create((c) => this.clipReady(session, me, c)) : null;
+      const theirs = VoiceClipRecorder.create((c) => this.clipReady(session, session.peerId, c));
+      if (mineClips && theirs) {
+        notes.clips = { mine: mineClips, theirs };
       } else {
-        const lang = speechLang();
-        // Prefer on-device recognition (Chrome, with the language pack): the
-        // audio then never leaves this computer.
-        notes.onDevice = await canTranscribeOnDevice(lang);
-        if (!this.isCurrent(session)) return;
-        const onDevice = notes.onDevice;
-        notes.transcriber ??= new Transcriber({
-          create: () => {
-            const rec = new Recognition();
-            if (onDevice) rec.processLocally = true;
-            return rec;
-          },
-          lang,
-          onPhrase: (text, phraseAt) => this.ownPhrase(session, text, phraseAt),
-          onState: (state) => {
-            if (!this.isCurrent(session)) return;
-            notes.local = state;
-            this.publish();
-          },
-        });
+        mineClips?.dispose();
+        theirs?.dispose();
+        notes.unavailable = "This browser can't record the call, so there won't be AI notes.";
+        deps?.notify(`✨ ${notes.unavailable}`);
       }
     }
-    this.syncTranscriber(session);
+    this.ensureBackup(session);
+    this.syncRecorder(session);
     this.publish();
   }
 
-  /** Listens exactly while notes are on, the call is connected and you aren't muted. */
-  private syncTranscriber(session: Session): void {
-    const { notes } = session;
-    if (!notes.transcriber) return;
-    const wanted =
-      notes.on && !notes.full && session.phase === "connected" && !!session.mic?.enabled;
-    notes.transcriber.setWanted(wanted, session.mic);
+  /** Phase 43: keeps the original audio or not, whoever chose (`by`). */
+  private applyKeepAudio(session: Session, keep: boolean, at: number, by: string): void {
+    const notes = session.notes;
+    if (at < notes.keepChangedAt) return; // an older choice crossing a newer one
+    notes.keepChangedAt = at;
+    if (notes.keepAudio === keep) return;
+    notes.keepAudio = keep;
+    const deps = this.deps;
+    const mine = by === deps?.myUserId();
+    const name = deps?.nameOf(by) ?? "";
+    if (keep) {
+      deps?.notify(
+        mine
+          ? "The original audio will be saved with the notes."
+          : `${name} chose to save the original audio with the notes.`,
+      );
+    } else {
+      deps?.notify(
+        mine
+          ? "The original audio won't be saved."
+          : `${name} chose not to save the original audio.`,
+      );
+      // What was recorded for the backup is dropped at once.
+      notes.recorder?.dispose();
+      notes.recorder = null;
+    }
+    this.ensureBackup(session);
+    this.syncRecorder(session);
+    this.publish();
   }
 
-  private ownPhrase(session: Session, text: string, at: number): void {
-    const me = this.deps?.myUserId();
-    if (!me || !this.isCurrent(session) || !session.notes.on) return;
-    const clipped = text.slice(0, MAX_SEGMENT_CHARS);
-    if (!this.addSegment(session, me, clipped, at)) return;
-    this.sendNotesMessage(session, { type: "transcript", text: clipped, at });
+  /** The caller records the mixed call (Phase 40) only while the original audio is to be kept. */
+  private ensureBackup(session: Session): void {
+    const notes = session.notes;
+    if (!notes.on || !notes.keepAudio || session.role !== "caller" || notes.recorder) return;
+    notes.recorder = CallRecorder.create();
+    if (!notes.recorder) {
+      this.deps?.notify("This browser can't record the call: the original audio won't be saved.");
+    }
   }
 
-  /** Adds a phrase to the timeline unless that would pass the size limits. */
-  private addSegment(session: Session, userId: string, text: string, at: number): boolean {
+  /**
+   * Records while notes are on and the call is connected: each voice in clips
+   * (yours not while muted) and, if it's to be kept, the mixed call.
+   */
+  private syncRecorder(session: Session): void {
+    const { recorder, clips, on, keepAudio } = session.notes;
+    const live = on && session.phase === "connected";
+    if (clips) {
+      clips.mine.setTrack(session.mic);
+      clips.theirs.setTrack(session.remote.getAudioTracks()[0]);
+      clips.mine.setRecording(live && !!session.mic?.enabled);
+      clips.theirs.setRecording(live);
+    }
+    if (recorder) {
+      recorder.setSources([session.mic, ...session.remote.getAudioTracks()]);
+      recorder.setRecording(live && keepAudio);
+    }
+  }
+
+  /** A clip of one voice ended: off to Whisper (even after the call, for its last clips). */
+  private clipReady(session: Session, speaker: string, clip: NotesClip): void {
+    this.deps?.uploadNotesClip?.(
+      { callId: session.callId, channelId: session.channelId },
+      { ...clip, speaker },
+    );
+  }
+
+  /**
+   * On hang-up, the caller asks for the notes (if they were ever on) once the
+   * last clips are handed over.
+   */
+  private submitNotes(
+    session: Session,
+    clips: NotesSession["clips"],
+    startedAt: number,
+    endedAt: number,
+  ): boolean {
     const { notes } = session;
-    if (notes.full) return false;
-    if (notes.segments.length >= MAX_SEGMENTS || notes.chars + text.length > MAX_TRANSCRIPT_CHARS) {
-      notes.full = true;
-      this.syncTranscriber(session);
-      this.deps?.notify("✨ The AI notes transcript is full: the rest of the call won't be in it.");
-      this.publish();
+    if (!notes.used) return false;
+    if (!clips) {
+      this.deps?.notify("✨ The call wasn't recorded, so there are no AI notes for it.");
       return false;
     }
-    notes.segments.push({ userId, text, at });
-    notes.chars += text.length;
-    this.publish();
+    const ready = Promise.all([clips.mine.stop(), clips.theirs.stop()]).then(() => {});
+    this.deps?.submitNotes(
+      {
+        callId: session.callId,
+        channelId: session.channelId,
+        startedAt,
+        endedAt,
+        source: "whisper",
+        keepAudio: notes.keepAudio,
+      },
+      ready,
+    );
     return true;
-  }
-
-  /** On hang-up, the caller sends the merged transcript (if notes were ever on). */
-  private submitNotes(session: Session, startedAt: number, endedAt: number): void {
-    const { notes } = session;
-    if (!notes.used) return;
-    if (notes.segments.length === 0) {
-      this.deps?.notify("✨ Nothing was transcribed, so there are no AI notes for this call.");
-      return;
-    }
-    this.deps?.submitNotes({
-      callId: session.callId,
-      channelId: session.channelId,
-      startedAt,
-      endedAt,
-      segments: notes.segments.map((s) => ({ ...s, at: Math.round(s.at) })),
-    });
   }
 
   private publish(): void {
@@ -1401,10 +1513,8 @@ export class CallManager {
         notes: {
           on: s.notes.on,
           changedBy: s.notes.changedBy,
-          local: s.notes.local,
-          onDevice: s.notes.onDevice,
-          phrases: s.notes.segments.length,
-          full: s.notes.full,
+          keepAudio: s.notes.keepAudio,
+          unavailable: s.notes.unavailable,
         },
         reconnecting:
           s.reconnectingSince === null

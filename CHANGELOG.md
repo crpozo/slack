@@ -5,8 +5,115 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Added
+
+- **Share your screen from the small call windows:** the floating call (shown while you're
+  elsewhere in the app), the browser's picture-in-picture window and the desktop app's
+  always-on-top call window now have a **Share screen** button next to the microphone and camera,
+  so there's no need to go back to the full call. In the desktop app the small window captures the
+  screen itself (the OS picker opens for that click) and hands it to the call. The same button
+  stops sharing, whichever window started it.
+
+- **AI notes now use OpenAI Whisper:** a call's speech is transcribed by Whisper instead of the
+  browser. Whisper is told it's a MindfulTech software meeting in Spanish with English technical
+  terms, so "deploy", "endpoints" or "dashboard" come out as said. Each voice is recorded on its
+  own in clips of up to 4 minutes and sent as it ends, so the notes know who said what and are
+  ready moments after hanging up. The notes themselves are still written by Claude Haiku 5.5,
+  which now keeps English technical terms in English. Needs the OpenAI key in Parameter Store
+  once per stage (see the README).
+- **The audio is private by default:** each clip is transcribed from memory and discarded. Only
+  the text is kept, and the call's audio is no longer saved. A small **Guardar audio original
+  como respaldo** switch under the call controls (shown while notes are on, off by default, either
+  person can change it and both are told) keeps the original audio with the notes. The ✨ card
+  shows the audio player only when there is audio.
+
+- **Search every message (Ctrl K / ⌘ K):** the palette now finds messages as well as channels and
+  people, in every conversation you can see. It searches while you type, after a short pause,
+  ignoring accents and case ("reunion" finds "reunión"), and finds a word from its start ("logi"
+  finds "login"). Matches are highlighted, and arrow keys and Enter open a result: its
+  conversation, scrolled to the message and highlighted, or its thread for a reply. The sidebar
+  button reads **Search…** and the phones' Search tab finds messages too. Secrets and deleted
+  messages are never searchable. After deploying, index the existing history once with
+  `pnpm --filter infra backfill-search <stage> --apply`.
+
+- **The AI News dashboard:** the News view is now the "AI News Dashboard" design. It has a glass
+  card for each of the day's four top stories (thumbnail, a Spanish headline and summary, the
+  source and how long ago). Below them come **Tendencias** with the key phrases highlighted, the
+  glowing **Qué significa para MindfulTech** callout of takeaways, and every other story under
+  **Más historias**. It replaces the analysis that was one block of Markdown text.
+- **Four news sources:** TechCrunch, VentureBeat, The Verge and InfoQ, read at once and merged
+  (newest first, the same story once, at most 8 per source). The Verge's Atom feed is read too,
+  and only its AI stories are kept. A source that's down or returns garbage is left out, and a
+  missing image never looks broken: the thumbnail keeps its square, rounded box and shows a faint
+  brand-green-to-slate gradient with a muted Lucide icon (a chip for hardware stories, a newspaper
+  otherwise). The same happens for an image that fails to load or is a tracking pixel, and a slow
+  image fades in over that tile once it has loaded.
+
 ### Fixed
 
+- **An expanded call fits the window:** expanding a call (the ⤢ button) in a short window, such as
+  a maximized desktop app above the taskbar, pushed the call's controls below the bottom edge. The
+  call now shrinks to the space there is, with its controls always in view.
+- **AI News shows only news:** stories published more than 48 hours ago (weeks-old ones the feeds
+  still carry) no longer reach the list or the morning analysis. Each feed's stories are dropped as
+  they're read, before the per-source limit, and so are the ones whose date can't be read. Dates
+  are read the way each source writes them (RSS's `pubDate` with any time zone, Atom's ISO dates,
+  and a few near-misses). A list kept in memory loses its stories as they pass 48 hours.
+
+### Changed
+
+- **AI Insights are structured:** Claude Haiku 5.5 returns the dashboard as JSON held to a schema
+  (structured outputs on Bedrock). It names its top stories by their number in the list, so links,
+  thumbnails, sources and dates always come from the feeds, never from the model. Picks out of
+  range or repeated are dropped, and over-long text is cut. Rows from before the change aren't
+  shown: until the next morning's run (or a **Refresh news**), the dashboard shows the newest
+  stories as they are.
+- **Refresh news starts a new analysis:** besides reading the feeds again, the button now runs
+  the AI analysis at once (`POST /news/refresh`), whatever the time, and the dashboard shows it
+  about half a minute later. Members can start one every 5 minutes (enforced on the server, so a
+  burst of clicks is one run), and admins any time. The admin-only **Generar análisis** button is
+  gone.
+- **The morning analysis runs at 08:00** (Ecuador) instead of 07:07.
+- **AI News has an outline icon** in the sidebar, the phone apps and the More sheet, like Task
+  Manager, Calendar and AI Notes, instead of the 📰 emoji.
+
+### Security
+
+- **Secrets expire after 24 hours** instead of a week, including ones sent before this change
+  (hidden at 24 hours; `shorten-secret-ttl` has DynamoDB delete them on the new schedule).
+- **Passwords are sent as secrets automatically:** a message that looks like a credential (an
+  email or username with a password, "contraseña: …", a single random-looking string, a URL with
+  a login) goes out masked and expiring, with no need for `/secret`. The composer says so
+  before you send, and **Send as normal text** keeps it plain.
+- **Copy just the password:** a revealed secret with several parts (an email and a password, or
+  several lines) has a Copy button for each.
+
+### Changed
+
+- **Toasts match what happened:** a green ✓ for done ("Copied", "Event updated."), a neutral ⓘ
+  for information, red only for errors (no more red dot on every toast). They slide in on frosted
+  glass, go after 3.5 s (success), 5 s (info) or 7 s (errors), and errors are announced at once
+  to screen readers.
+- **A new audio player for voice messages and audio files:** a round green Play/Pause, a progress
+  bar you can click, drag or move with the arrow keys, the time played and the length, and the
+  1× / 1.5× / 2× speed button, on a dark glass card instead of the browser's own controls.
+  Starting one clip pauses any other, and a voice message shows its length before it has loaded.
+
+### Fixed
+
+- **Scrolling up through history no longer jumps:** loading an older page moved the message you
+  were reading by about 72 px each time, on phones and desktop. The "Loading earlier messages…"
+  line sat inside the first row and changed its height, and so did that row's date line once
+  older messages of the same day arrived above it. Nothing above the viewport moves what you're
+  reading now, including images loading up there. On touch screens the correction waits for the
+  scroll's momentum to end.
+
+- **"Couldn't open the link" after the link had opened:** a browser answers `window.open` with
+  `null` when the link opens in a new tab without access back to the app (`noopener`), and the
+  desktop app does the same when it hands the link to the system browser, so Open link, file
+  downloads and task attachments reported a failure (and tried to copy the link) every time.
+  Opening a link no longer reports anything; the desktop app falls back to the browser only when
+  its opener is missing, never opening a link twice.
 - **AI Insights was cut off:** Claude Haiku 5.5 thinks before it writes and the thinking counts
   toward the response ceiling, so the 2048-token ceiling ran out before the page was done and the
   morning analysis was never saved. The ceiling is now 8192; the page itself stays under 400 words.
@@ -19,6 +126,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI call notes, "Wispr Flow" style:** call notes now come with the call's recording, polished
+  minutes and your own questions.
+  - **Spanish, always:** calls are transcribed in Spanish (Ecuador) whatever your browser's
+    language, so speech and background noise no longer turn into random English words.
+  - **The recording:** while AI notes are on, the call is recorded (both voices; both people are
+    told) and the ✨ card gets a player once the call ends.
+  - **Polished minutes:** Claude rewrites the whole conversation as clean minutes, fixing
+    recognition errors and dropping filler words while keeping every fact, name, figure and
+    commitment. **Open full notes** on the card shows them; **View original transcript** shows
+    what the browser heard.
+  - **Ask about the call:** "Ask a question about this note…" answers from that call's minutes
+    only. Your questions and answers are private: the other person never sees them.
+  - Deleting the card deletes its recording, transcript, minutes and questions.
 - **Send without waiting:** attach images or files and send right away, then keep typing and
   sending; nothing waits for uploads any more.
   - **Shows at once:** each message appears immediately, slightly faded with "Sending…", its

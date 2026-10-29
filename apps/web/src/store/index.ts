@@ -17,6 +17,7 @@ import type { SessionUser } from "../lib/auth";
 import { displayName } from "../lib/channels";
 import { loadOwnProfile, saveOwnProfile } from "../lib/profile";
 import type { DirectoryUser } from "../lib/config";
+import { toneOf, type ToastTone } from "../lib/toast";
 import type { WsStatus } from "../lib/ws";
 import { countUnreadAfter, mergeMessages, pendingMessageId, type ChatMessage } from "./messages";
 
@@ -81,7 +82,8 @@ export interface ChatState {
   typing: Record<string, Record<string, number>>;
   /** The active channel's message list is scrolled to the bottom (new messages count as seen). */
   listAtBottom: boolean;
-  toast: string | null;
+  /** The toast on screen; `id` changes with each one, so the same text shown again restarts it. */
+  toast: { message: string; tone: ToastTone; id: number } | null;
   /**
    * Channels whose cached history may be behind the server (loaded from the
    * offline cache, or kept across a reconnect): shown at once, refreshed on open.
@@ -141,7 +143,8 @@ export interface ChatState {
   recountUnread: (channelId: string, sk: string) => void;
   /** After a reconnect: cached history of inactive channels is kept but refreshed on open. */
   invalidateInactive: () => void;
-  showToast: (message: string | null) => void;
+  /** Shows a toast (`null` hides it); without a tone, the wording decides (`toneOf`). */
+  showToast: (message: string | null, tone?: ToastTone) => void;
   /** Applies the offline snapshot (everything in it is `stale` until the server confirms it). */
   hydrate: (snapshot: Snapshot | null) => void;
   threadRequested: (parentSk: string, kind: HistoryRequest) => void;
@@ -552,7 +555,13 @@ export const useChat = create<ChatState>()((set, get) => ({
       return { stale, historyRequests: {}, threads: {}, threadCursors: {}, threadRequests: {} };
     }),
 
-  showToast: (toast) => set({ toast }),
+  showToast: (message, tone) =>
+    set((s) => ({
+      toast:
+        message === null
+          ? null
+          : { message, tone: tone ?? toneOf(message), id: (s.toast?.id ?? 0) + 1 },
+    })),
 
   hydrate: (snapshot) =>
     set((s) => {

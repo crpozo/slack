@@ -118,10 +118,14 @@ The UI:
   attached, pasted or dropped, and emoji inserted with the composer's 🙂 button. Images open in
   a full-screen viewer (wheel / pinch / double-tap to zoom, drag to pan, Esc to close).
 - **Secrets:** the 🔒 button next to the paperclip (or `/secret ` typed first) sends a password
-  or API key masked; the reader's eye button reveals it. The server stores it with a DynamoDB
-  TTL and the row is deleted 7 days later. Secrets are text only, can't be edited, and never
-  appear in notifications or quotes. They are not encrypted: anyone in the conversation can
-  reveal them, so send them in a DM.
+  or API key masked; the reader's eye button reveals it. A message that looks like a credential
+  (an email or common username followed by a password, "contraseña: …", "password: …", or a
+  single random-looking string) is sent as a secret on its own: a banner says so before you
+  send, with **Send as normal text** to override. Secrets expire 24 hours after they're sent:
+  hidden at once, then deleted by DynamoDB's TTL. Revealed, an email and a password (or each
+  line) get their own Copy button. Secrets are text only, can't be edited, and never appear in
+  notifications or quotes. They are not encrypted: anyone in the conversation can reveal them,
+  so send them in a DM.
 - **PDFs** open in an in-app viewer (click the card); other files download.
 - **Channel details:** the header shows the channel's topic under its name; click it for the
   description. The creator or an admin edits name, topic and description from _Edit channel_.
@@ -459,12 +463,48 @@ per-account model lineup and doesn't serve Haiku 5.5 for this account (every req
 `404 not_found_error`). If access isn't enabled, cards end with "Something went wrong writing the
 notes" and the worker's CloudWatch log shows the Bedrock error.
 
-What leaves the browser: speech recognition runs on the device when Chrome has the language pack
-(`SpeechRecognition.available` with `processLocally`). Otherwise the browser's speech service
-(Google's servers, in Chrome) hears your own microphone while notes are on. The transcript goes
-to the API, to the worker and to Bedrock, and is never stored. Only the summary is kept, as the
-card's message. Each call is one request of a few thousand tokens to Haiku, which costs cents a
-month at this team's volume.
+**Transcription with OpenAI Whisper (Phase 43), once per stage:** the speech itself is
+transcribed by OpenAI's `whisper-1`, in Spanish, with a prompt that names the team's English
+technical terms (backend, deploy, endpoints…) so the Spanglish comes out right. Only the
+`call-transcribe` Lambda can read the API key. It lives encrypted in Parameter Store, never in a
+template or the function's configuration. Put your key there yourself, once per stage (paste it
+into your own terminal, nowhere else):
+
+```bash
+aws ssm put-parameter --name /slack/prod/openai-api-key --type SecureString --value "sk-..."
+# rotating it later: add --overwrite (the Lambda picks the new key up within minutes)
+```
+
+The Lambda reads `OPENAI_API_KEY` from its environment first, which is how it runs locally, and
+otherwise reads that parameter (`OPENAI_API_KEY_PARAMETER`). Until the key exists, turning on
+notes still works, but every clip answers "Transcription isn't set up yet" and no notes come out.
+The Lambdas run outside any VPC, so they reach `api.openai.com` with no network setup.
+
+What leaves the browser: while notes are on, the caller's app records each voice on its own (its
+microphone, the other side's audio) in clips of up to 4 minutes. It sends each clip with speech in
+it to `POST /calls/{callId}/clips`, which hands it from memory to Whisper and keeps only the text
+(one row per clip in `slack-<stage>-note-details`, deleted after a week). The audio itself is
+never stored, in S3 or anywhere else. Silent clips never leave the browser.
+
+What is kept: the transcript, the polished minutes Claude writes from it, and each person's own
+questions about them are kept in `slack-<stage>-note-details`. Only the two people in the call can
+read them, and each question only whoever asked it. The original audio is kept only if someone in
+the call turns on **Guardar audio original como respaldo** (off by default). The caller's app then
+also records the mixed call and uploads it to the attachments bucket under the DM's folder, and
+the ✨ card shows a player for it. Without it the card has no player. Deleting the ✨ card deletes
+all of it, recording included. Each call is one streamed request to Haiku of about twice the transcript's length, and
+each question one short request; at this team's volume that is still cents a month. No manual
+step: the table, routes and grants come with the deploy (the worker also needs
+`bedrock:InvokeModelWithResponseStream`, granted on the same profile).
+
+**Secrets expire after 24 hours, once per stage after deploying the change:** secrets sent
+while the TTL was a week are hidden at 24 hours anyway; to have DynamoDB delete their rows on
+the new schedule too, shorten their stored TTL:
+
+```bash
+pnpm --filter infra shorten-secret-ttl prod            # dry run: counts, writes nothing
+pnpm --filter infra shorten-secret-ttl prod --apply    # shortens the TTLs (safe to repeat)
+```
 
 **AI Notes hub (Phase 29), once per stage after deploying it:** the hub (`/app/notes`) lists
 notes through a per-person index table (`slack-<stage>-meeting-notes`) that new cards fill as
@@ -493,22 +533,47 @@ messages are skipped. Your AWS credentials need `dynamodb:Scan` on the messages 
 `dynamodb:BatchWriteItem` on the new one. Re-running rewrites identical rows. Until it has run,
 the tab only shows what was shared after the deploy.
 
-The header's **Refresh news** button reads the feed again right away, past the 30-minute cache
+The header's **Refresh news** button reads the feeds again right away, past the 30-minute cache
 (at most once a minute per server container).
+
+**Message search (Phase 42), once per stage after deploying it:** **Ctrl K** (**⌘ K** on a Mac),
+the sidebar's **Search…** button and the phones' Search tab search every message you can see.
+Search reads an index table (`slack-<stage>-message-search`, one small row per word of each
+message) that a stream processor (`search-indexer`) keeps current as messages are sent, edited and
+deleted. Messages from before the deploy need indexing once:
+
+```bash
+pnpm --filter infra backfill-search prod            # dry run: counts messages and rows, writes nothing
+pnpm --filter infra backfill-search prod --apply    # writes the rows (safe to repeat)
+```
+
+It scans the messages table once and writes exactly the rows the stream processor would. Secrets
+and deleted messages are never indexed. Your AWS credentials need `dynamodb:Scan` on the messages
+table and `dynamodb:BatchWriteItem` on the new one. Until it has run, search only finds messages
+sent after the deploy.
 
 ### 8. AI Insights (the morning analysis of the AI news)
 
-The AI News view (`/app/news`) opens with **AI Insights**: an analysis of the day's TechCrunch AI
-stories written by **Claude Haiku 5.5** on Amazon Bedrock, in Spanish, with what matters, the
-trends behind the stories, what they mean for MindfulTech and what to watch next. A scheduled
-worker (`news-insights-worker`, EventBridge, every day at 07:07 in Ecuador) reads the feed, asks
-the model and keeps the analysis as that day's row in `slack-<stage>-news-insights`; the view
-reads the newest one through `GET /news/insights`. It needs the same Bedrock model access as the
-call notes (step 7) and nothing else to set up.
+The AI News view (`/app/news`) is a dashboard over the AI stories of **TechCrunch, VentureBeat,
+The Verge and InfoQ** (read at once and merged; a source that's down is left out). Only news: as
+each feed is read, a story published more than 48 hours ago (`NEWS_MAX_AGE_HOURS`), or whose
+date can't be read, is dropped before any limit, so neither the list nor the analysis ever sees
+it. How many each source lost is logged as `old news discarded`. **Claude Haiku
+5.5** on Amazon Bedrock writes its analysis, in Spanish, as JSON held to a schema (structured
+outputs): **Lo esencial** (the day's four top stories, with a headline and summary of its own;
+link, thumbnail, source and date always come from the feed), **Tendencias** (three trends, key
+phrases highlighted) and **Qué significa para MindfulTech** (takeaways for the team). Every other
+story is listed below. A scheduled worker (`news-insights-worker`, EventBridge, every day at 08:00
+in Ecuador) reads the feeds, asks the model and keeps the dashboard as that day's row in
+`slack-<stage>-news-insights`; the view reads the newest one through `GET /news/insights`. It
+needs the same Bedrock model access as the call notes (step 7) and nothing else to set up.
 
-Before the first morning run after a deploy, the section says so; an **admin** can ask for one at
-once with **Generate now** (also **Generate again** later in the day), which starts the worker and
-shows the analysis when it's ready, about half a minute later. Each analysis is one request of a
+**Refresh news** reads the feeds again and starts a new analysis right away, whatever the time
+(`POST /news/refresh`); the dashboard shows it when it's written, about half a minute later. A
+member can start one every 5 minutes (a click sooner says when the next may be asked for, and a
+burst of clicks starts a single run); an admin, any time. Until the first analysis after the deploy
+that brought the dashboard (an older row is a Markdown page the dashboard can't show), "Lo
+esencial" shows the newest stories as they are. Each analysis is one request of a
 few thousand tokens: cents a month. A failed run (the feed down, the model busy) is retried twice
 by the schedule and writes nothing, so the view keeps showing the previous day's analysis.
 
@@ -634,7 +699,11 @@ is mostly fixed (the Route 53 hosted zone, if any, is USD 0.50/month) and storag
   either way, and the free tier covers 400,000 GB-seconds a month). Logs are kept one week.
 - **DynamoDB**: every table is on-demand (`PAY_PER_REQUEST`): no provisioned capacity to pay for
   while nobody is online, and the tables are small. Expiring rows (connections, secrets, call
-  rooms) leave through TTL, which is free.
+  rooms) leave through TTL, which is free. Message search keeps an inverted index instead of
+  paying for a search cluster: about one small write per new word of each message (common words
+  like "the" or "de" are skipped), read by `begins_with` queries per conversation, so a search
+  costs a few cents per thousand and nothing runs between them. The messages table's stream
+  that feeds it is free to read for the Lambda that processes it.
 - **S3**: attachments larger than 128 KB move to Glacier Instant Retrieval after 90 days (a sixth
   of the Standard price, same instant download); smaller ones stay in Standard, where they are
   cheaper than Glacier IR's 128 KB minimum billable size. Abandoned multipart uploads are removed
@@ -646,12 +715,14 @@ is mostly fixed (the Route 53 hosted zone, if any, is USD 0.50/month) and storag
   cent per million.
 - **Bedrock**: AI notes are one short Claude Haiku 5.5 request per call at low effort: cents a
   month.
+- **OpenAI Whisper**: $0.006 per minute of each voice's speech (silent clips aren't sent), so a
+  one-hour call with notes costs at most about $0.72.
 
 Nothing here is provisioned, reserved or running continuously: there are no NAT gateways, VPCs,
 load balancers, provisioned concurrency or always-on instances to pay for.
 
 ## Roadmap
 
-Threads · rename and archive channels · edit and delete messages · search ·
+Threads · rename and archive channels · edit and delete messages ·
 "typing…" · system notifications and `@` mentions · TURN relay for calls · code-signed desktop builds ·
 integration and E2E tests · AI agent with Bedrock (AI call notes shipped in Phase 28).

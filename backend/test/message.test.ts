@@ -91,7 +91,7 @@ describe("message", () => {
     expect(sentEvents().map(([, e]) => e.type)).toEqual(["message.new", "message.new"]);
   });
 
-  it("stores a secret with a 7-day TTL (epoch seconds) and refuses one with files", async () => {
+  it("stores a secret with a 24-hour TTL (epoch seconds) and refuses one with files", async () => {
     const before = Date.now();
     const result = await send({
       action: "message",
@@ -106,9 +106,9 @@ describe("message", () => {
       expiresAt?: number;
     };
     expect(stored.isSecret).toBe(true);
-    const week = 7 * 24 * 3600;
-    expect(stored.expiresAt).toBeGreaterThanOrEqual(Math.floor(before / 1000) + week);
-    expect(stored.expiresAt).toBeLessThanOrEqual(Math.ceil(Date.now() / 1000) + week);
+    const day = 24 * 3600;
+    expect(stored.expiresAt).toBeGreaterThanOrEqual(Math.floor(before / 1000) + day);
+    expect(stored.expiresAt).toBeLessThanOrEqual(Math.ceil(Date.now() / 1000) + day);
 
     const withFile = await send({
       action: "message",

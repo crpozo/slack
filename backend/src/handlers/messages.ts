@@ -43,6 +43,7 @@ import {
   type LinkRow,
 } from "../lib/media";
 import { toWireMessage } from "../lib/messages";
+import { forgetNote } from "../lib/noteDetails";
 import { deleteObjects, signAttachments, withSignedUrls } from "../lib/s3";
 
 /**
@@ -67,15 +68,32 @@ const decode = (value: string) => {
 };
 
 /**
- * The S3 keys a message's files occupy (originals and image thumbnails):
- * only under its own conversation's folder, as `message` accepted them.
+ * The S3 keys a message's files occupy (originals and image thumbnails, and a
+ * notes card's call recording): only under its own conversation's folder, as
+ * `message` (or `PUT /calls/{callId}/audio`) accepted them.
  */
 const fileKeys = (message: Message) => {
   const prefix = `attachments/${message.channelId}/`;
-  return (message.attachments ?? [])
-    .flatMap((a) => [a.key, ...(a.thumbKey ? [a.thumbKey] : [])])
-    .filter((key) => key.startsWith(prefix) && !key.includes(".."));
+  return [
+    ...(message.attachments ?? []).flatMap((a) => [a.key, ...(a.thumbKey ? [a.thumbKey] : [])]),
+    ...(message.aiNotes?.audio ? [message.aiNotes.audio.key] : []),
+  ].filter((key) => key.startsWith(prefix) && !key.includes(".."));
 };
+
+/** Phase 40: a deleted notes card's transcript, minutes and questions go with it. */
+async function forgetNotes(messages: Message[]): Promise<void> {
+  for (const m of messages) {
+    if (m.kind !== "ai_notes" || !m.aiNotes?.details) continue;
+    try {
+      await forgetNote(m.aiNotes.callId);
+    } catch (err) {
+      log.error("deleted notes' details not removed", {
+        callId: m.aiNotes.callId,
+        ...errorFields(err),
+      });
+    }
+  }
+}
 
 const isCancelled = (err: unknown) => err instanceof TransactionCanceledException;
 
@@ -453,6 +471,7 @@ async function deleteMessage(event: HttpEvent, caller: HttpCaller): Promise<Http
   });
 
   await removeFiles(gone);
+  await forgetNotes(gone);
   // Phase 38: out of the Files & Links index and the pins (a tombstone keeps neither).
   events.push(...(await forgetMessages(gone)));
   const quoteEvents = await Promise.all(gone.map((deleted) => clearQuotes(channel, deleted)));

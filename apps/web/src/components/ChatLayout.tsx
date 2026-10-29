@@ -62,9 +62,7 @@ const NewsView = lazy(() => import("./NewsView").then((m) => ({ default: m.NewsV
 const SettingsModal = lazy(() =>
   import("./SettingsModal").then((m) => ({ default: m.SettingsModal })),
 );
-const QuickSwitcher = lazy(() =>
-  import("./QuickSwitcher").then((m) => ({ default: m.QuickSwitcher })),
-);
+const OmniSearch = lazy(() => import("./OmniSearch").then((m) => ({ default: m.OmniSearch })));
 import { Sidebar } from "./Sidebar";
 import { Toast } from "./Toast";
 
@@ -299,7 +297,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     };
   }, [channelId]);
 
-  // Ctrl/Cmd + K quick switcher, Ctrl/Cmd + B collapse the sidebar.
+  // Ctrl/Cmd + K omni-search (messages, channels, people), Ctrl/Cmd + B collapse the sidebar.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
@@ -332,7 +330,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
       <CallLayer />
       <GroupCallLayer />
       <Suspense fallback={null}>
-        {switcherOpen && <QuickSwitcher onClose={() => setSwitcherOpen(false)} />}
+        {switcherOpen && <OmniSearch onClose={() => setSwitcherOpen(false)} />}
         {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       </Suspense>
       {createOpen && (

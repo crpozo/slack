@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { baseType, formatDuration, pickAudioMime, voiceFileName } from "./voice";
+import { baseType, clipSeconds, formatDuration, pickAudioMime, voiceFileName } from "./voice";
 
 describe("voice messages", () => {
   it("prefers MP4/AAC (plays everywhere), then WebM/Opus", () => {
@@ -51,5 +51,22 @@ describe("playback speed (Phase 36)", () => {
     store["slack.audio.playbackRate"] = "3";
     expect(loadPlaybackRate()).toBe(1);
     vi.unstubAllGlobals();
+  });
+});
+
+describe("clipSeconds", () => {
+  it("trusts the browser's duration once it's known", () => {
+    expect(clipSeconds(12.4, 9_000)).toBe(12.4);
+  });
+
+  it("falls back to the recorded length while a WebM still reports Infinity", () => {
+    expect(clipSeconds(Infinity, 9_000)).toBe(9);
+    expect(clipSeconds(NaN, 9_000)).toBe(9);
+    expect(clipSeconds(0, 9_000)).toBe(9);
+  });
+
+  it("is 0 when neither is known", () => {
+    expect(clipSeconds(Infinity)).toBe(0);
+    expect(clipSeconds(NaN, 0)).toBe(0);
   });
 });

@@ -219,7 +219,10 @@ export function EventFormModal({
         // No rule any more: the series becomes its first meeting alone.
         if (existing.type === "meeting" && !rule && existing.recurrence) patch.recurrence = null;
         await updateEvent(existing.eventId, patch as UpdateEventInput);
-        showToast(series ? "Every meeting of the series was updated." : "Event updated.");
+        showToast(
+          series ? "Every meeting of the series was updated." : "Event updated.",
+          "success",
+        );
       } else {
         await createEvent(input);
         showToast(
@@ -230,6 +233,7 @@ export function EventFormModal({
               : rule
                 ? "Repeating meeting created."
                 : "Meeting created.",
+          "success",
         );
       }
       onClose();
@@ -620,7 +624,7 @@ export function EventDetailsModal({
     setError(null);
     try {
       await action();
-      showToast(done);
+      showToast(done, "success");
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");

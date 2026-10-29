@@ -87,6 +87,17 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
+/**
+ * How long a clip is, in seconds, for the player's progress bar: what the
+ * browser reports, or the length recorded with the message while the browser
+ * doesn't know it yet (a MediaRecorder WebM reports `Infinity` until it has
+ * played through once). 0 when neither is known.
+ */
+export function clipSeconds(elementDuration: number, recordedMs?: number): number {
+  if (Number.isFinite(elementDuration) && elementDuration > 0) return elementDuration;
+  return recordedMs !== undefined && recordedMs > 0 ? recordedMs / 1000 : 0;
+}
+
 export const supportsVoiceMessages = () =>
   typeof window !== "undefined" &&
   "MediaRecorder" in window &&

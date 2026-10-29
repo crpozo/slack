@@ -13,3 +13,9 @@ export function removalPolicyFor(stage: Stage): RemovalPolicy {
  * and keeping it out of the stack keeps the keys out of every template).
  */
 export const vapidParameterName = (stage: Stage) => `/slack/${stage}/vapid`;
+
+/**
+ * Phase 43: SecureString with this stage's OpenAI API key (Whisper), put there
+ * by hand once (see the README); only the `call-transcribe` Lambda reads it.
+ */
+export const openaiKeyParameterName = (stage: Stage) => `/slack/${stage}/openai-api-key`;

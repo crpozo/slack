@@ -11,7 +11,6 @@ import { installAudioUnlock } from "./lib/sounds";
 import { configureTasksApi } from "./lib/tasksApi";
 import { applyTheme } from "./lib/theme";
 import { installExternalLinks } from "./lib/external";
-import { useChat } from "./store";
 import "./styles.css";
 
 // The one dark look, and native glass in the desktop app (index.html set `dark` before paint).
@@ -19,7 +18,7 @@ applyTheme();
 // Browsers block audio until a user gesture: arm notification sounds on the first one.
 installAudioUnlock();
 // Desktop app: links to other sites open in the OS's browser, never inside the app.
-installExternalLinks((message) => useChat.getState().showToast(message));
+installExternalLinks();
 
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("#root not found");

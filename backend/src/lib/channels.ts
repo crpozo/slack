@@ -1,5 +1,5 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, paginateScan, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { isChannelMember, type Channel } from "@mindfultech/shared";
 import { ddb, tables } from "./ddb";
 import { errorFields, log } from "./logger";
@@ -61,4 +61,22 @@ export async function touchChannel(channelId: string, at: number): Promise<void>
     if (err instanceof ConditionalCheckFailedException) return; // newer already, or gone
     log.warn("couldn't record channel activity", { channelId, ...errorFields(err) });
   }
+}
+
+/** All channels (< 50 at this scale, so a Scan is fine), oldest first. */
+export async function scanChannels(): Promise<Channel[]> {
+  const channels: Channel[] = [];
+  for await (const page of paginateScan({ client: ddb }, { TableName: tables.channels })) {
+    channels.push(...((page.Items ?? []) as Channel[]));
+  }
+  return channels.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/**
+ * Public channels plus the private channels and DMs `userId` belongs to.
+ * Archived channels are listed too (the client shows them under "Archived",
+ * read-only); posting to them is refused by `getAccessibleChannel`.
+ */
+export function visibleTo(channels: Channel[], userId: string): Channel[] {
+  return channels.filter((c) => isChannelMember(c, userId));
 }

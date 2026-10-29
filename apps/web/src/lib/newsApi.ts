@@ -1,4 +1,4 @@
-import type { NewsInsightsResponse, NewsResponse } from "@mindfultech/shared";
+import type { NewsInsightsResponse, NewsRefreshResponse, NewsResponse } from "@mindfultech/shared";
 import { request } from "./tasksApi";
 
 /**
@@ -16,10 +16,13 @@ export const newsApi = {
 
 export type NewsApi = typeof newsApi;
 
-/** AI Insights (Phase 39): the morning's analysis, and an admin's request for a fresh one. */
+/**
+ * AI Insights (Phase 39): the morning's analysis, and "Refresh news": a fresh
+ * one now (members at most every 5 minutes; the answer says when otherwise).
+ */
 export const newsInsightsApi = {
   latest: () => request<NewsInsightsResponse>("GET", "/news/insights"),
-  generate: () => request<{ queued: true }>("POST", "/news/insights"),
+  refresh: () => request<NewsRefreshResponse>("POST", "/news/refresh"),
 };
 
 export type NewsInsightsApi = typeof newsInsightsApi;

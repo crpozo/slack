@@ -273,7 +273,7 @@ export const handler = wsHandler(async (event, caller) => {
     reactions: {},
     ...(quoted && { replyTo: quoted }),
     clientId,
-    // TTL in seconds: DynamoDB deletes the row (and the secret with it) a week from now.
+    // TTL in seconds: DynamoDB deletes the row (and the secret with it) 24 hours from now.
     ...(isSecret && { isSecret: true, expiresAt: Math.floor((now + SECRET_TTL_MS) / 1000) }),
   };
   let parentCounters: MessageThreadUpdatedEvent | null = null;

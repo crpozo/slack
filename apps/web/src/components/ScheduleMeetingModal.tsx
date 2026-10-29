@@ -113,6 +113,7 @@ export function ScheduleMeetingModal({
               peers.map((id) => nameOf(id)).join(", ") || "yourself"
             }.`
           : `${recurrence ? "Repeating meeting" : "Meeting"} posted in #${channel?.name ?? "the channel"}.`,
+        "success",
       );
       onClose();
     } catch (err) {

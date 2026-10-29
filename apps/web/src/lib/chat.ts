@@ -32,6 +32,8 @@ import { TasksApiError } from "./tasksApi";
 import { useTasks } from "../store/tasks";
 import { useCalendar } from "../store/calendar";
 import { useNotesHub } from "../store/notesHub";
+import { recordingExtension, type CallRecording } from "./callRecorder";
+import type { NotesClip } from "./clipRecorder";
 import { outbox, type UploadTask } from "./outbox";
 import { WsClient, type DistributiveOmit } from "./ws";
 
@@ -52,6 +54,10 @@ const ERROR_TEXT: Record<ErrorCode, string> = {
 
 const SEND_TIMEOUT_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 15_000;
+/** Phase 43: a clip that failed to reach Whisper is tried this many more times… */
+const CLIP_RETRIES = 2;
+/** …after this long, doubling each time. */
+const CLIP_RETRY_MS = 2_000;
 
 interface Deferred<T> {
   resolve: (value: T) => void;
@@ -96,6 +102,14 @@ class ChatController {
     { timer: ReturnType<typeof setTimeout>; settle: (confirmed: boolean) => void }
   >();
   private readonly deletedListeners = new Set<(channelId: string, by: string) => void>();
+  /** Phase 40: each ended call's notes request (whether its card was posted), by `callId`. */
+  private readonly notesRequests = new Map<string, Promise<boolean>>();
+  /** Phase 43: each call's clips on their way to Whisper, one after another, by `callId`. */
+  private readonly clipUploads = new Map<string, Promise<void>>();
+  /** Calls whose clips stopped being accepted (the call's limit, notes already requested). */
+  private readonly clipsRefused = new Set<string>();
+  /** Clips and notes requests not done yet: leaving the page now would lose them. */
+  private notesInFlight = 0;
 
   constructor() {
     // The outbox sends a message through here once its files are up.
@@ -285,7 +299,7 @@ class ChatController {
         } else if (code === "UNAUTHORIZED") {
           onSessionExpired();
         } else {
-          store().showToast(text);
+          store().showToast(text, "error");
         }
       }),
     );
@@ -322,14 +336,41 @@ class ChatController {
       myUserId: () => store().me?.userId ?? null,
       nameOf: (userId) => selectName(store(), userId),
       notify: (text) => store().showToast(text),
-      submitNotes: (input) => {
+      uploadNotesClip: (call, clip) => this.queueClip(call, clip),
+      submitNotes: (input, ready) => {
+        // Phase 43: the notes are written from the clips, so all of them go first.
         // The ✨ card itself arrives over the socket (`message.new`, then `message.updated`).
-        notesApi.summarizeCall(input).catch((err: unknown) => {
+        const requested = this.trackNotes(
+          (async () => {
+            await ready;
+            await this.clipUploads.get(input.callId);
+            this.clipUploads.delete(input.callId);
+            this.clipsRefused.delete(input.callId);
+            return notesApi.summarizeCall(input);
+          })(),
+        );
+        this.notesRequests.set(
+          input.callId,
+          requested.then(
+            () => true,
+            () => false,
+          ),
+        );
+        requested.catch((err: unknown) => {
           const why = err instanceof TasksApiError ? ` ${err.message}` : "";
           store().showToast(`✨ The AI notes couldn't be requested.${why}`);
         });
       },
+      submitRecording: (call, recording) => void this.attachRecording(call, recording),
     });
+    // Phase 43: clips still on their way to Whisper (or the notes request) would be lost.
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (this.notesInFlight === 0) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    this.cleanups.push(() => window.removeEventListener("beforeunload", onBeforeUnload));
     this.cleanups.push(
       // DM calls ring (`calls`); channel calls are rooms (`groupCalls`, Phase 36).
       client.on("call.offer", routeCall),
@@ -567,6 +608,112 @@ class ChatController {
     clearTimeout(pending.timer);
     this.sendTimers.delete(clientId);
     pending.settle(confirmed);
+  }
+
+  /** Counts `work` as in flight (see `notesInFlight`) until it settles. */
+  private trackNotes<T>(work: Promise<T>): Promise<T> {
+    this.notesInFlight++;
+    void work.then(
+      () => this.notesInFlight--,
+      () => this.notesInFlight--,
+    );
+    return work;
+  }
+
+  /** Phase 43: sends a call's clip after the ones before it (never rejects). */
+  private queueClip(
+    call: { callId: string; channelId: string },
+    clip: NotesClip & { speaker: string },
+  ): void {
+    const before = this.clipUploads.get(call.callId) ?? Promise.resolve();
+    this.clipUploads.set(
+      call.callId,
+      this.trackNotes(before.then(() => this.uploadClip(call, clip))),
+    );
+  }
+
+  /**
+   * One clip to Whisper, retried a couple of times when the network or the
+   * service fails (a clip lost is a gap in the notes). A refusal (the call's
+   * limit) stops the call's later clips, with one toast.
+   */
+  private async uploadClip(
+    { callId, channelId }: { callId: string; channelId: string },
+    clip: NotesClip & { speaker: string },
+  ): Promise<void> {
+    if (this.clipsRefused.has(callId)) return;
+    const query = {
+      channelId,
+      speaker: clip.speaker,
+      startedAt: Math.round(clip.startedAt),
+      durationMs: Math.max(1, Math.round(clip.durationMs)),
+    };
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await notesApi.uploadClip(callId, query, clip.blob);
+        return;
+      } catch (err) {
+        const status = err instanceof TasksApiError ? err.status : 0;
+        const retry = status === 0 || status === 429 || status >= 500;
+        if (status === 429 && err instanceof TasksApiError && /no more audio/i.test(err.message)) {
+          this.clipsRefused.add(callId);
+          useChat
+            .getState()
+            .showToast("✨ This call reached the AI notes limit: the rest won't be in the notes.");
+          return;
+        }
+        if (!retry || attempt >= CLIP_RETRIES) {
+          if (status === 409) this.clipsRefused.add(callId);
+          useChat
+            .getState()
+            .showToast(
+              `✨ Part of the call couldn't be transcribed.${
+                err instanceof TasksApiError ? ` ${err.message}` : ""
+              }`,
+            );
+          return;
+        }
+        await new Promise((r) => setTimeout(r, CLIP_RETRY_MS * 2 ** attempt));
+      }
+    }
+  }
+
+  /**
+   * Phase 40: once a call's notes card is posted and its recording is ready,
+   * uploads the recording (like any attachment of the conversation) and
+   * attaches it to the card. No card, no recording: it's dropped.
+   */
+  private async attachRecording(
+    { callId, channelId }: { callId: string; channelId: string },
+    recording: Promise<CallRecording | null>,
+  ): Promise<void> {
+    const [posted, clip] = await Promise.all([
+      this.notesRequests.get(callId) ?? Promise.resolve(false),
+      recording,
+    ]);
+    this.notesRequests.delete(callId);
+    if (!posted || !clip) return;
+    try {
+      // Loaded on demand: `upload` itself uses this module.
+      const { startUpload } = await import("./upload");
+      const day = new Date().toISOString().slice(0, 10);
+      const file = new File([clip.blob], `call-${day}.${recordingExtension(clip.mimeType)}`, {
+        type: clip.mimeType,
+      });
+      const task = startUpload(file, channelId);
+      const uploaded = await task.start();
+      task.dispose();
+      await notesApi.attachAudio(callId, {
+        key: uploaded.key,
+        contentType: clip.mimeType,
+        size: uploaded.size,
+        durationMs: Math.max(1, Math.round(clip.durationMs)),
+      });
+    } catch {
+      useChat
+        .getState()
+        .showToast("✨ The call's recording couldn't be saved. The notes are fine.");
+    }
   }
 
   /**
