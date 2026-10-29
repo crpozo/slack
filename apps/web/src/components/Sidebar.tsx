@@ -38,6 +38,7 @@ import {
   LogOutIcon,
   MoreHorizontalIcon,
   NewspaperIcon,
+  PuzzleIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   PencilIcon,
@@ -544,6 +545,12 @@ const PHONE_APPS: PhoneApp[] = [
     label: "AI News",
     tile: "bg-gradient-to-br from-[#40B375] to-[#1F6E47] text-white",
     icon: <NewspaperIcon />,
+  },
+  {
+    path: "/app/skills",
+    label: "AI Skills",
+    tile: "bg-gradient-to-br from-[#40B375] to-[#0E3B26] text-white",
+    icon: <PuzzleIcon />,
   },
 ];
 
@@ -1119,6 +1126,14 @@ export function Sidebar({
                 active={activeChannelId === "news"}
                 unread={0}
                 onClick={() => navigate("/app/news")}
+              />
+              <NavItem
+                compact={compact}
+                label="AI Skills"
+                icon={<PuzzleIcon className="text-ink-secondary" />}
+                active={activeChannelId === "skills"}
+                unread={0}
+                onClick={() => navigate("/app/skills")}
               />
             </ul>
           </Section>

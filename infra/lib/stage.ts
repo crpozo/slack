@@ -19,3 +19,10 @@ export const vapidParameterName = (stage: Stage) => `/slack/${stage}/vapid`;
  * by hand once (see the README); only the `call-transcribe` Lambda reads it.
  */
 export const openaiKeyParameterName = (stage: Stage) => `/slack/${stage}/openai-api-key`;
+
+/**
+ * Phase 44, optional: a GitHub token (any fine-grained token with no extra
+ * permissions) that lifts the AI Skills importer's API limit from 60 to 5,000
+ * requests an hour. Only the `skills` Lambda reads it.
+ */
+export const githubTokenParameterName = (stage: Stage) => `/slack/${stage}/github-token`;

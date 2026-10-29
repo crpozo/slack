@@ -1,6 +1,6 @@
 [package]
 name = "mindfultech-slack"
-version = "0.2.0"
+version = "0.3.0"
 description = "MindfulTech Slack desktop app"
 authors = ["MindfulTech"]
 edition = "2021"
@@ -20,6 +20,8 @@ tauri-plugin-notification = "2.7"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2.5"
 tauri-plugin-window-state = "2.5"
+# AI Skills (Phase 44): the files `install_skill` receives.
+serde = { version = "1", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
 # Which Windows: Mica (native glass) only from Windows 11 (build 22000).

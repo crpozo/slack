@@ -1197,6 +1197,42 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
    message opens through `chat.jumpTo`, which loads older pages, highlights it, and opens the
    thread for a reply. The phones' Search tab shows the same message results.
 
+### Phase 44 — AI Skills marketplace
+
+**Branch:** `feature/ai-skills-marketplace`
+
+1. **Contract (`shared/skills.ts`):** the types and limits (Claude Code's 64-character name and
+   1,024-character description), the request schemas, a `SKILL.md` frontmatter reader and writer,
+   slugs, GitHub URL parsing, and `installCommand` (bash/PowerShell, project/global; GitHub
+   skills are cloned; team skills are written file by file: heredocs in bash, here-strings with
+   BOM-less `WriteAllText` in PowerShell).
+2. **Storage:** the `skills` table holds, per skill, `meta` (everything but the companion files,
+   `SKILL.md` included; what `GET /skills` scans) and one `file#<path>` item per file, so a large
+   skill (Cloudflare's is 326 KB) stays far from the 400 KB item limit. Files are written first and
+   `meta` last. `_catalog`/`seed#<id>` marks the built-in skill as added once.
+3. **Endpoints (`skills` Lambda, 30 s):**
+   - `GET /skills` (adds the seed on first read), `GET /skills/{id}`.
+   - `POST /skills`: a team skill. The frontmatter wins, and its `name` is normalized to a slug.
+     Edits are for the author or an admin, and the slug must be unique.
+   - `DELETE /skills/{id}`: the author or an admin; only an admin for the seed.
+   - `POST /skills/import-github`: two API calls (the commit SHA and the recursive tree), then raw
+     files; the skill is the named folder, else the root, else the only `SKILL.md`. Binary,
+     oversized and hidden files are skipped, and the root licence goes along. The id is a hash of
+     the repository folder, so a re-import syncs. `preview` doesn't save.
+   - `POST /skills/generate`: Haiku 5.5 at low effort (4,000 tokens, `<skill_md>`), with the
+     frontmatter checked and normalized. Nothing is saved.
+   - `GET /skills/{id}/download`: a zip with `<slug>/…` from a dependency-free writer (deflate,
+     CRC-32), base64 through API Gateway.
+
+   GitHub token: `GITHUB_TOKEN` or the optional SecureString `/slack/<stage>/github-token`.
+4. **Web:** `SkillsView` (the header, search, pills and glass cards), `SkillDetail` (a drawer with
+   Vista previa, Archivos and Inicializar), `ImportSkillModal` and `CreateSkillModal`
+   (Generar con IA, upload, companion files). The sidebar, phone tiles and More sheet use the
+   Lucide `puzzle` icon through the shared `Icon`.
+5. **Desktop (0.3.0):** `install_skill(slug, files)` validates the slug and every path, writes
+   into a staging folder and swaps it in at `~/.claude/skills/<slug>/`. It's declared in the app
+   manifest and granted by `allow-install-skill`.
+
 ### Phase 43 — OpenAI Whisper and private audio
 
 **Branch:** `feature/openai-whisper-integration`

@@ -22,7 +22,13 @@ import type { Api } from "./api";
 import type { Auth } from "./auth";
 import type { Data } from "./data";
 import { LAMBDA_ARCHITECTURE, LAMBDA_BUNDLING, LAMBDA_MEMORY_MB, LAMBDA_RUNTIME } from "./lambda";
-import { openaiKeyParameterName, removalPolicyFor, vapidParameterName, type Stage } from "./stage";
+import {
+  githubTokenParameterName,
+  openaiKeyParameterName,
+  removalPolicyFor,
+  vapidParameterName,
+  type Stage,
+} from "./stage";
 import { grantReadParameter, grantReadVapid } from "./vapid";
 
 const HANDLERS_DIR = fileURLToPath(new URL("../../backend/src/handlers/", import.meta.url));
@@ -142,6 +148,20 @@ export const SEARCH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/search" },
 ];
 
+/**
+ * AI Skills (Phase 44): the catalog of Claude Code skills, its GitHub import,
+ * generation (Claude Haiku 5.5) and zip downloads, from one Lambda.
+ */
+export const SKILLS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/skills" },
+  { method: HttpMethod.POST, path: "/skills" },
+  { method: HttpMethod.GET, path: "/skills/{id}" },
+  { method: HttpMethod.DELETE, path: "/skills/{id}" },
+  { method: HttpMethod.GET, path: "/skills/{id}/download" },
+  { method: HttpMethod.POST, path: "/skills/import-github" },
+  { method: HttpMethod.POST, path: "/skills/generate" },
+];
+
 /** Web Push subscriptions (Phase 8), served by their own small Lambda on the same API. */
 export const PUSH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/push/key" },
@@ -214,6 +234,8 @@ export class TasksApi extends Construct {
   readonly newsInsightsHandler: NodejsFunction;
   /** `news-insights-worker`: writes the day's analysis (the morning schedule, or on request). */
   readonly newsInsightsWorker: NodejsFunction;
+  /** `skills`: the AI Skills catalog (Phase 44). */
+  readonly skillsHandler: NodejsFunction;
   /** Base URL clients call, without a trailing slash. */
   readonly url: string;
   private readonly origins: string[];
@@ -280,6 +302,18 @@ export class TasksApi extends Construct {
       "news-insights-worker",
       { NEWS_INSIGHTS_TABLE: data.newsInsights.tableName },
       Duration.minutes(2),
+    );
+    // AI Skills (Phase 44): the catalog, GitHub over the internet, and the model
+    // for "Generar con IA" (one request in API Gateway's 30 s).
+    this.skillsHandler = lambda(
+      "SkillsFn",
+      "skills",
+      {
+        SKILLS_TABLE: data.skills.tableName,
+        USERS_TABLE: data.users.tableName,
+        GITHUB_TOKEN_PARAMETER: githubTokenParameterName(stage),
+      },
+      Duration.seconds(30),
     );
     this.newsInsightsHandler = lambda("NewsInsightsFn", "news-insights", {
       NEWS_INSIGHTS_TABLE: data.newsInsights.tableName,
@@ -488,6 +522,10 @@ export class TasksApi extends Construct {
     for (const { method, path } of NEWS_INSIGHTS_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: newsInsightsIntegration });
     }
+    const skillsIntegration = new HttpLambdaIntegration("SkillsIntegration", this.skillsHandler);
+    for (const { method, path } of SKILLS_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: skillsIntegration });
+    }
     this.url = this.httpApi.apiEndpoint;
 
     // --- Permissions: only what the handler calls ---
@@ -658,6 +696,21 @@ export class TasksApi extends Construct {
     this.newsInsightsWorker.addToRolePolicy(notesModelPolicy());
     data.newsInsights.grant(this.newsInsightsHandler, "dynamodb:Query", "dynamodb:UpdateItem");
     this.newsInsightsWorker.grantInvoke(this.newsInsightsHandler);
+
+    // skills: the catalog (Scan the metadata rows, Query one skill, Get the
+    // seed marker, Put and BatchWrite to save and delete), the author's name
+    // (users GetItem), the optional GitHub token, and the model for generating.
+    data.skills.grant(
+      this.skillsHandler,
+      "dynamodb:Scan",
+      "dynamodb:Query",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:BatchWriteItem",
+    );
+    data.users.grant(this.skillsHandler, "dynamodb:GetItem");
+    grantReadParameter(this.skillsHandler, githubTokenParameterName(stage));
+    this.skillsHandler.addToRolePolicy(notesModelPolicy());
 
     // archive-tasks: find done tasks (Scan) and flag them (UpdateItem). Nothing else.
     data.tasks.grant(this.archiveHandler, "dynamodb:Scan", "dynamodb:UpdateItem");

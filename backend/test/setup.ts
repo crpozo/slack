@@ -19,6 +19,7 @@ Object.assign(process.env, {
   NOTE_DETAILS_TABLE: "slack-test-note-details",
   NOTES_WORKER_FUNCTION: "slack-test-call-notes-worker",
   NEWS_INSIGHTS_TABLE: "slack-test-news-insights",
+  SKILLS_TABLE: "slack-test-skills",
   INSIGHTS_WORKER_FUNCTION: "slack-test-news-insights-worker",
   VAPID_PARAMETER: "/slack/test/vapid",
   ATTACHMENTS_BUCKET: "slack-test-attachments",

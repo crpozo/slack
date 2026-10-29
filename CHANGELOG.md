@@ -7,6 +7,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI Skills:** a new app under APPS (a puzzle-piece icon below AI News) with the team's catalog
+  of Claude Code skills. Search by name, command or description, and filter by team, GitHub,
+  security or development.
+  - Each card shows the skill's `/command`, where it comes from (its GitHub repository or the
+    teammate who wrote it) and quick actions.
+  - Its detail drawer shows the rendered `SKILL.md` and every file.
+  - **Inicializar** gives a command to copy (bash/zsh or PowerShell, project or global), a `.zip`
+    download, or, in the desktop app 0.3.0, a one-click install into `~/.claude/skills`.
+  - **Importar de GitHub** reads a skill from a public repository (with a preview), and **Sync
+    from GitHub** updates it.
+  - **Crear Skill** takes a written or uploaded `SKILL.md`, or an idea that Claude Haiku 5.5 turns
+    into one (**Generar con IA**).
+  - The catalog starts with Cloudflare's security-audit skill.
+
 - **Share your screen from the small call windows:** the floating call (shown while you're
   elsewhere in the app), the browser's picture-in-picture window and the desktop app's
   always-on-top call window now have a **Share screen** button next to the microphone and camera,
