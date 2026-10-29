@@ -167,6 +167,9 @@ export class Data extends Construct {
       tableName: `slack-${props.stage}-note-details`,
       partitionKey: { name: "callId", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
+      // Phase 43: what Whisper heard in each clip goes after a week (the
+      // transcript, polished minutes and questions have no expiry).
+      timeToLiveAttribute: "expiresAt",
     });
 
     this.callRooms = new Table(this, "CallRooms", {

@@ -29,7 +29,11 @@ export function configureTasksApi(url: string | null): void {
 
 export const tasksApiConfigured = () => baseUrl !== null;
 
-/** One authenticated call to the HTTP API (shared with the calendar client). */
+/**
+ * One authenticated call to the HTTP API (shared with the calendar client).
+ * A `Blob` body is sent as is, with its own type (Phase 43's audio clips);
+ * anything else as JSON.
+ */
 export async function request<T>(
   method: string,
   path: string,
@@ -38,15 +42,16 @@ export async function request<T>(
 ): Promise<T> {
   if (!baseUrl) throw new TasksApiError(0, "The Task Manager isn't configured on this deployment.");
   const token = await getIdToken();
+  const blob = body instanceof Blob ? body : null;
   let response: Response;
   try {
     response = await fetch(`${baseUrl}${path}`, {
       method,
       headers: {
         authorization: `Bearer ${token}`,
-        ...(body === undefined ? {} : { "content-type": "application/json" }),
+        ...(body === undefined ? {} : { "content-type": blob ? blob.type : "application/json" }),
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : (blob ?? JSON.stringify(body)),
       keepalive: options.keepalive,
       cache: options.cache,
     });

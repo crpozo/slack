@@ -1,5 +1,6 @@
 import { GetCommand, paginateQuery, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import type { NoteQuestion } from "@mindfultech/shared";
+import type { ClipLine } from "./whisper";
 import { batchDelete, ddb, tables } from "./ddb";
 import { notFound } from "./http";
 
@@ -13,6 +14,11 @@ import { notFound } from "./http";
 //   polished                   the minutes Claude wrote from it
 //   qa#<userId>#<askedAt>      one question of one person, and its answer:
 //                              only ever read back for that person
+//   clips                      Phase 43: how many clips Whisper heard, and
+//                              the conversation the call belongs to
+//   clip#<startedAt>#<userId>  what Whisper heard in one clip of one voice
+//                              (text only: the audio is never stored); kept
+//                              a week, as the transcript moves into `raw`
 // ---------------------------------------------------------------------------
 
 export const RAW_SK = "raw";
@@ -30,6 +36,10 @@ export interface NoteRawRow {
   /** `[mm:ss] Name: text` lines. */
   text: string;
   createdAt: number;
+  /** Phase 43: transcribed by Whisper from the call's clips (else by the browsers). */
+  source?: "whisper";
+  /** Phase 43: someone asked to keep the original audio; without it none is attached. */
+  keepAudio?: boolean;
 }
 
 export interface NotePolishedRow {
@@ -49,6 +59,29 @@ export interface NoteQuestionRow extends NoteQuestion {
 export const questionPrefix = (userId: string) => `qa#${userId}#`;
 export const questionSk = (userId: string, askedAt: number) =>
   `${questionPrefix(userId)}${String(askedAt).padStart(13, "0")}`;
+
+export const CLIPS_SK = "clips";
+export const CLIP_PREFIX = "clip#";
+export const clipSk = (startedAt: number, speaker: string) =>
+  `${CLIP_PREFIX}${String(startedAt).padStart(13, "0")}#${speaker}`;
+/** Clip rows outlive the call long enough for its notes to be requested. */
+export const CLIP_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+export interface NoteClipRow {
+  callId: string;
+  sk: string;
+  channelId: string;
+  /** Whose voice. */
+  speaker: string;
+  startedAt: number;
+  durationMs: number;
+  lines: ClipLine[];
+  /** Who sent the clip. */
+  by: string;
+  createdAt: number;
+  /** DynamoDB TTL (epoch seconds). */
+  expiresAt: number;
+}
 
 export async function getRawNote(callId: string): Promise<NoteRawRow | undefined> {
   const { Item } = await ddb.send(
@@ -133,4 +166,20 @@ export async function forgetNote(callId: string): Promise<number> {
   }
   await batchDelete(tables.noteDetails, keys);
   return keys.length;
+}
+
+/** The call's clips, oldest first. */
+export async function listClips(callId: string): Promise<NoteClipRow[]> {
+  const rows: NoteClipRow[] = [];
+  for await (const page of paginateQuery(
+    { client: ddb },
+    {
+      TableName: tables.noteDetails,
+      KeyConditionExpression: "callId = :c AND begins_with(sk, :p)",
+      ExpressionAttributeValues: { ":c": callId, ":p": CLIP_PREFIX },
+    },
+  )) {
+    rows.push(...((page.Items ?? []) as NoteClipRow[]));
+  }
+  return rows;
 }

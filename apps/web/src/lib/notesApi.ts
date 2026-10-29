@@ -4,6 +4,8 @@ import type {
   NoteAudio,
   NoteDetail,
   NoteQuestion,
+  NotesClipQuery,
+  NotesClipResult,
   NotesPage,
   SummarizeCallInput,
 } from "@mindfultech/shared";
@@ -24,6 +26,23 @@ export const notesApi = {
     return request<{ message: Message }>("POST", "/calls/summary", input, {
       keepalive: bytes <= KEEPALIVE_MAX_BYTES,
     }).then((r) => r.message);
+  },
+  /**
+   * Phase 43: one clip of one voice of the call, as raw audio, transcribed by
+   * Whisper on the server (which keeps only the text).
+   */
+  uploadClip: (callId: string, query: NotesClipQuery, audio: Blob) => {
+    const params = new URLSearchParams({
+      channelId: query.channelId,
+      speaker: query.speaker,
+      startedAt: String(query.startedAt),
+      durationMs: String(query.durationMs),
+    });
+    return request<NotesClipResult>(
+      "POST",
+      `/calls/${encodeURIComponent(callId)}/clips?${params.toString()}`,
+      audio,
+    );
   },
   /** The AI Notes hub (Phase 29): your notes cards from every conversation, newest first. */
   list: (cursor: string | null) =>

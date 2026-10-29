@@ -1197,6 +1197,37 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
    message opens through `chat.jumpTo`, which loads older pages, highlights it, and opens the
    thread for a reply. The phones' Search tab shows the same message results.
 
+### Phase 43 — OpenAI Whisper and private audio
+
+**Branch:** `feature/openai-whisper-integration`
+
+1. **Clips:** while notes are on, the caller's app records each voice on its own (`VoiceClipRecorder`:
+   its microphone, not while muted; the remote audio track). Each clip is a fresh MediaRecorder file
+   (Opus, 32 kbps) of `NOTES_CLIP_MS` (4 min, about 1 MB, under Lambda's 6 MB request limit and
+   Whisper's 25 MB). An AnalyserNode drops clips with under 0.8 s of speech. Clips go one after
+   another to `POST /calls/{callId}/clips?channelId&speaker&startedAt&durationMs` as the raw body,
+   with two retries. Leaving the page while one is pending asks first.
+2. **Whisper:** `call-transcribe` (its own Lambda, the only one with the key: `OPENAI_API_KEY`, else
+   the SecureString `/slack/<stage>/openai-api-key`) checks the DM, the speaker, the size and type,
+   and that the notes weren't requested yet. It counts the clip (`clips` row, at most
+   `MAX_NOTES_CLIPS`, bound to the conversation) and sends it from memory to
+   `audio.transcriptions.create` (`whisper-1`, `es`, `WHISPER_PROMPT`, `verbose_json`). It drops
+   silent segments (`no_speech_prob` > 0.6 with `avg_logprob` < -1), repetition loops
+   (`compression_ratio` > 2.4), subtitle credits ("Amara.org", "Gracias por ver el video"), the
+   prompt read back and repeats. It stores `clip#<startedAt>#<speaker>` with timed lines (TTL a
+   week). Nothing is written to S3 or `/tmp`.
+3. **Summary:** `POST /calls/summary` with `source: "whisper"` builds the transcript from the call's
+   clip rows (this DM, its people, time order, first 120,000 characters) into the `raw` row, with
+   `keepAudio`. The worker is unchanged (Haiku 5.5). Its system prompt now says the transcript is
+   Whisper's and that English technical terms stay in English. `segments` is still accepted from
+   older apps.
+4. **Consent:** `{type:"backup", keep, at}` on the data channel syncs **Guardar audio original
+   como respaldo** (default off; the newer choice wins). Only while it's on does the caller record
+   the mixed call (Phase 40's `CallRecorder`), uploaded and attached after the notes. Turning it
+   off drops what was recorded, and `PUT /calls/{callId}/audio` refuses audio for Whisper notes
+   unless `keepAudio`. `AiNotesCard` shows the player only when `aiNotes.audio` exists. The Web
+   Speech `Transcriber` is gone, and older apps' `transcript` messages are ignored.
+
 ### Phase 35 (planned) — Customer channels (guest access to shared channels)
 
 Deferred from Phase 34: it moves the guest security boundary, so it gets its own phase and tests. Today guests are boards-only. They're blocked from every WebSocket action but `ping`, `presign` and `user` (`GUEST_ROUTES`), receive only `board.*` events (`guestMayReceive`), and see only board co-members. Needed:

@@ -22,8 +22,8 @@ import type { Api } from "./api";
 import type { Auth } from "./auth";
 import type { Data } from "./data";
 import { LAMBDA_ARCHITECTURE, LAMBDA_BUNDLING, LAMBDA_MEMORY_MB, LAMBDA_RUNTIME } from "./lambda";
-import { removalPolicyFor, vapidParameterName, type Stage } from "./stage";
-import { grantReadVapid } from "./vapid";
+import { openaiKeyParameterName, removalPolicyFor, vapidParameterName, type Stage } from "./stage";
+import { grantReadParameter, grantReadVapid } from "./vapid";
 
 const HANDLERS_DIR = fileURLToPath(new URL("../../backend/src/handlers/", import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -66,6 +66,14 @@ export const CALL_NOTES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.PUT, path: "/calls/{callId}/audio" },
   { method: HttpMethod.GET, path: "/notes/{callId}" },
   { method: HttpMethod.POST, path: "/notes/{callId}/ask" },
+];
+
+/**
+ * Phase 43: one clip of a call's audio to OpenAI Whisper, from its own Lambda
+ * (the only one that holds the OpenAI key).
+ */
+export const CALL_TRANSCRIBE_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.POST, path: "/calls/{callId}/clips" },
 ];
 
 /**
@@ -192,6 +200,8 @@ export class TasksApi extends Construct {
   readonly calendarHandler: NodejsFunction;
   readonly callNotesHandler: NodejsFunction;
   readonly callNotesWorker: NodejsFunction;
+  /** `call-transcribe`: a call's audio clip to Whisper, keeping only the text (Phase 43). */
+  readonly callTranscribeHandler: NodejsFunction;
   /** `messages`: deleting a message (Phase 32). */
   readonly messagesHandler: NodejsFunction;
   /** `news`: the AI News proxy (Phase 35b); no table, bucket or parameter. */
@@ -336,6 +346,19 @@ export class TasksApi extends Construct {
       Duration.seconds(30),
     );
 
+    // Phase 43: a clip (up to 4 MB) to Whisper takes up to 25 s, inside API
+    // Gateway's 30. The audio stays in memory; the key comes from Parameter Store.
+    this.callTranscribeHandler = lambda(
+      "CallTranscribeFn",
+      "call-transcribe",
+      {
+        CHANNELS_TABLE: data.channels.tableName,
+        NOTE_DETAILS_TABLE: data.noteDetails.tableName,
+        OPENAI_API_KEY_PARAMETER: openaiKeyParameterName(stage),
+      },
+      Duration.seconds(30),
+    );
+
     this.archiveHandler = lambda(
       "ArchiveFn",
       "archive-tasks",
@@ -439,6 +462,13 @@ export class TasksApi extends Construct {
     );
     for (const { method, path } of CALL_NOTES_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: callNotesIntegration });
+    }
+    const callTranscribeIntegration = new HttpLambdaIntegration(
+      "CallTranscribeIntegration",
+      this.callTranscribeHandler,
+    );
+    for (const { method, path } of CALL_TRANSCRIBE_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: callTranscribeIntegration });
     }
     const calendarIntegration = new HttpLambdaIntegration(
       "CalendarIntegration",
@@ -608,6 +638,17 @@ export class TasksApi extends Construct {
       "dynamodb:Query",
     );
     this.callNotesHandler.addToRolePolicy(notesModelPolicy());
+    // Phase 43, call-transcribe: the DM (GetItem); whether the notes were
+    // requested (GetItem), the call's clip counter (UpdateItem) and each
+    // clip's text (PutItem); the OpenAI key. No bucket: audio is never stored.
+    data.channels.grant(this.callTranscribeHandler, "dynamodb:GetItem");
+    data.noteDetails.grant(
+      this.callTranscribeHandler,
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+    );
+    grantReadParameter(this.callTranscribeHandler, openaiKeyParameterName(stage));
 
     // news-insights-worker: the day's row (PutItem) and the model on Amazon
     // Bedrock; it reads the feed over the internet. news-insights: the newest

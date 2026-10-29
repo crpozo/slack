@@ -7,6 +7,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI notes now use OpenAI Whisper:** a call's speech is transcribed by Whisper instead of the
+  browser. Whisper is told it's a MindfulTech software meeting in Spanish with English technical
+  terms, so "deploy", "endpoints" or "dashboard" come out as said. Each voice is recorded on its
+  own in clips of up to 4 minutes and sent as it ends, so the notes know who said what and are
+  ready moments after hanging up. The notes themselves are still written by Claude Haiku 5.5,
+  which now keeps English technical terms in English. Needs the OpenAI key in Parameter Store
+  once per stage (see the README).
+- **The audio is private by default:** each clip is transcribed from memory and discarded. Only
+  the text is kept, and the call's audio is no longer saved. A small **Guardar audio original
+  como respaldo** switch under the call controls (shown while notes are on, off by default, either
+  person can change it and both are told) keeps the original audio with the notes. The ✨ card
+  shows the audio player only when there is audio.
+
 - **Search every message (Ctrl K / ⌘ K):** the palette now finds messages as well as channels and
   people, in every conversation you can see. It searches while you type, after a short pause,
   ignoring accents and case ("reunion" finds "reunión"), and finds a word from its start ("logi"

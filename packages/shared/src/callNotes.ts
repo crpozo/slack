@@ -86,12 +86,29 @@ export const SummarizeCallSchema = z
     channelId: z.string().min(1).max(256),
     startedAt: z.number().int().positive(),
     endedAt: z.number().int().positive(),
-    segments: z.array(TranscriptSegmentSchema).min(1).max(MAX_SEGMENTS),
+    /**
+     * Phase 28–40: the phrases each browser heard. From Phase 43 the clips
+     * transcribed by Whisper during the call (`source: "whisper"`) replace
+     * them; still accepted from apps opened before.
+     */
+    segments: z.array(TranscriptSegmentSchema).min(1).max(MAX_SEGMENTS).optional(),
+    /** Phase 43: the transcript is the call's clips, already transcribed by Whisper. */
+    source: z.literal("whisper").optional(),
+    /**
+     * Phase 43: someone in the call chose "Guardar audio original como
+     * respaldo". Without it the recording is never stored (and the server
+     * refuses one for these notes).
+     */
+    keepAudio: z.boolean().optional(),
   })
   .refine((v) => v.endedAt >= v.startedAt, { message: "the call ends before it starts" })
-  .refine((v) => v.segments.reduce((sum, s) => sum + s.text.length, 0) <= MAX_TRANSCRIPT_CHARS, {
-    message: "the transcript is too long",
-  });
+  .refine((v) => (v.source === "whisper") !== (v.segments !== undefined), {
+    message: "send either the transcript segments or source: whisper",
+  })
+  .refine(
+    (v) => (v.segments ?? []).reduce((sum, s) => sum + s.text.length, 0) <= MAX_TRANSCRIPT_CHARS,
+    { message: "the transcript is too long" },
+  );
 export type SummarizeCallInput = z.infer<typeof SummarizeCallSchema>;
 
 /** `[mm:ss]` (or `[h:mm:ss]`) since `startedAt`. */
@@ -139,9 +156,13 @@ export function aiNotesText(notes: Pick<AiNotes, "status" | "summary">): string 
 /**
  * What the two sides of a call send each other over the data channel about
  * notes (next to the media state, which older clients still parse alone).
+ * `transcript` comes from apps before Phase 43 (each side transcribed its own
+ * voice); `backup` is Phase 43's "save the original audio" switch.
  */
 export type NotesPeerMessage =
-  { type: "notes"; on: boolean; at: number } | { type: "transcript"; text: string; at: number };
+  | { type: "notes"; on: boolean; at: number }
+  | { type: "transcript"; text: string; at: number }
+  | { type: "backup"; keep: boolean; at: number };
 
 /** Validates a notes message from the peer; anything else is `null`. */
 export function parseNotesPeerMessage(data: unknown): NotesPeerMessage | null {
@@ -156,6 +177,9 @@ export function parseNotesPeerMessage(data: unknown): NotesPeerMessage | null {
   const v = value as Record<string, unknown>;
   if (typeof v.at !== "number" || !Number.isFinite(v.at)) return null;
   if (v.type === "notes" && typeof v.on === "boolean") return { type: "notes", on: v.on, at: v.at };
+  if (v.type === "backup" && typeof v.keep === "boolean") {
+    return { type: "backup", keep: v.keep, at: v.at };
+  }
   if (v.type === "transcript" && typeof v.text === "string") {
     const text = v.text.trim();
     if (!text || text.length > MAX_SEGMENT_CHARS) return null;
@@ -216,4 +240,52 @@ export interface NoteDetail {
   polishedText: string | null;
   /** Your questions, oldest first. */
   questions: NoteQuestion[];
+}
+
+// ---------------------------------------------------------------------------
+// Phase 43: OpenAI Whisper. While notes are on, the caller's app records each
+// voice (its own microphone, the other side's audio) in clips of
+// `NOTES_CLIP_MS` and sends each one as it ends to `POST /calls/{callId}/clips`.
+// The server hands the clip to Whisper from memory and keeps only the text
+// (one `clip#…` row in `note-details`); the audio is never stored. When the
+// call ends, `POST /calls/summary` with `source: "whisper"` builds the
+// transcript from those rows. Clips with no speech in them aren't sent.
+// The original audio is kept (as before) only if someone in the call turned
+// on "Guardar audio original como respaldo".
+// ---------------------------------------------------------------------------
+
+export const WHISPER_MODEL = "whisper-1";
+export const WHISPER_LANGUAGE = "es";
+/** Guides Whisper through the team's Spanglish (passed as `prompt`, verbatim). */
+export const WHISPER_PROMPT =
+  "Reunión de desarrollo de software de MindfulTech. Hablamos en español pero usamos términos en inglés como backend, frontend, deploy, API, endpoints, dashboard, framework, AWS, features, bugs.";
+
+/**
+ * How long one clip runs: about 1 MB of Opus at 32 kbps, far under the 6 MB a
+ * request may carry to a Lambda (and Whisper's 25 MB), and the most text a
+ * hang-up has to wait for.
+ */
+export const NOTES_CLIP_MS = 4 * 60_000;
+/** The largest clip accepted. */
+export const MAX_NOTES_CLIP_BYTES = 4 * 1024 * 1024;
+/** The longest clip accepted (a little slack over `NOTES_CLIP_MS`). */
+export const MAX_NOTES_CLIP_MS = NOTES_CLIP_MS + 30_000;
+/** Clips per call, both voices together: three hours of each. */
+export const MAX_NOTES_CLIPS = 2 * Math.ceil((3 * 60 * 60_000) / NOTES_CLIP_MS);
+
+/** `POST /calls/{callId}/clips?channelId=&speaker=&startedAt=&durationMs=` (the body is the audio). */
+export const NotesClipQuerySchema = z.object({
+  channelId: z.string().min(1).max(256),
+  /** Whose voice: the caller's own, or the other side's. */
+  speaker: z.string().min(1).max(128),
+  /** When the clip started (epoch ms). */
+  startedAt: z.coerce.number().int().positive(),
+  durationMs: z.coerce.number().int().positive().max(MAX_NOTES_CLIP_MS),
+});
+export type NotesClipQuery = z.infer<typeof NotesClipQuerySchema>;
+
+/** `POST /calls/{callId}/clips`: what Whisper heard, as stored. */
+export interface NotesClipResult {
+  /** Phrases kept (Whisper's silence and hallucinations dropped). */
+  phrases: number;
 }

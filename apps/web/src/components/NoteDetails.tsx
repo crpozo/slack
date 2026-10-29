@@ -12,8 +12,8 @@ import { SendIcon, SparklesIcon } from "./icons";
 
 // ---------------------------------------------------------------------------
 // Phase 40: a call's full notes, opened from its ✨ card. The polished minutes
-// are the main content; the transcript as the browsers heard it is one click
-// away; and you can ask questions about the call, answered from the minutes.
+// are the main content; the transcript as Whisper heard it (Phase 43; the
+// browsers before) is one click away; and you can ask questions about the call, answered from the minutes.
 // Your questions are yours alone: nobody else in the call sees them.
 // ---------------------------------------------------------------------------
 

@@ -166,4 +166,56 @@ describe("AI call notes", () => {
     ).map((r) => r.Type);
     expect(types.some((t) => t.startsWith("AWS::Bedrock"))).toBe(false);
   });
+
+  it("Phase 43: transcribes clips in their own Lambda, the only one that can read the OpenAI key", () => {
+    const route = Object.values(
+      template.findResources("AWS::ApiGatewayV2::Route", {
+        Properties: { RouteKey: "POST /calls/{callId}/clips" },
+      }),
+    )[0]?.Properties as { AuthorizationType: string; Target: unknown };
+    expect(route.AuthorizationType).toBe("JWT");
+    expect(JSON.stringify(route.Target)).toMatch(/CallTranscribeIntegration/);
+
+    const props = fn("slack-dev-call-transcribe")?.[1].Properties;
+    expect(props.Timeout).toBe(30);
+    const env = props.Environment.Variables as Record<string, unknown>;
+    expect(Object.keys(env).sort()).toEqual([
+      "CHANNELS_TABLE",
+      "LOG_LEVEL",
+      "NOTE_DETAILS_TABLE",
+      "OPENAI_API_KEY_PARAMETER",
+      "STAGE",
+    ]);
+    // Only the parameter's name: the key itself is in no template.
+    expect(env.OPENAI_API_KEY_PARAMETER).toBe("/slack/dev/openai-api-key");
+    expect(JSON.stringify(template.toJSON())).not.toMatch(/sk-[A-Za-z0-9]{20}/);
+
+    const st = statementsOf("TasksApiCallTranscribeFnServiceRoleDefaultPolicy");
+    expect(actionsOn(st, "DataChannels")).toEqual(["dynamodb:GetItem"]);
+    expect(actionsOn(st, "DataNoteDetails")).toEqual([
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+    ]);
+    const ssm = st.filter((s) => [s.Action].flat().some((a) => a.startsWith("ssm:")));
+    expect(ssm).toHaveLength(1);
+    expect(ssm[0]?.Action).toBe("ssm:GetParameter");
+    expect(JSON.stringify(ssm[0]?.Resource)).toContain(":parameter/slack/dev/openai-api-key");
+    // The audio is never stored: no bucket, no other table.
+    expect(JSON.stringify(st)).not.toMatch(/s3:|DataMessages|DataUsers/);
+
+    // No other function can read the key.
+    const readers = Object.entries(template.findResources("AWS::IAM::Policy")).filter(([, p]) =>
+      JSON.stringify(p).includes("openai-api-key"),
+    );
+    expect(readers.map(([id]) => id)).toEqual([
+      expect.stringMatching(/^TasksApiCallTranscribeFnServiceRoleDefaultPolicy/),
+    ]);
+
+    // Clip rows expire after a week.
+    template.hasResourceProperties("AWS::DynamoDB::Table", {
+      TableName: "slack-dev-note-details",
+      TimeToLiveSpecification: { AttributeName: "expiresAt", Enabled: true },
+    });
+  });
 });

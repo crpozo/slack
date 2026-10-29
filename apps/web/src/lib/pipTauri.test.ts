@@ -21,14 +21,7 @@ const call = (patch: Partial<CallView> = {}): CallView =>
     connectedAt: 5,
     micDeviceId: null,
     cameraDeviceId: null,
-    notes: {
-      on: false,
-      changedBy: null,
-      local: { kind: "off" },
-      onDevice: false,
-      phrases: 0,
-      full: false,
-    },
+    notes: { on: false, changedBy: null, keepAudio: false, unavailable: null },
     reconnecting: null,
     ...patch,
   }) as CallView;
