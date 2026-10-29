@@ -8,7 +8,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { useMatch, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useMatch, useNavigate, useParams } from "react-router-dom";
 import { signOut } from "../lib/auth";
 import { retryPushSyncIfFailed, signOutPush, syncPush } from "../lib/push";
 import { chat } from "../lib/chat";
@@ -50,6 +50,7 @@ import { CallLayer } from "./CallLayer";
 import { GroupCallLayer } from "./GroupCall";
 import { PushPrompt } from "./PushPrompt";
 import { ChannelView } from "./ChannelView";
+import { ViewBoundary } from "./ViewBoundary";
 import { PlusIcon } from "./icons";
 
 // Not needed to show a conversation: loaded on first use, off the initial bundle.
@@ -73,6 +74,7 @@ type MobileSheet = "more" | "create" | "task" | "recents" | "huddles" | null;
 
 export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const params = useParams();
+  const { pathname } = useLocation();
   // `/app/tasks[/:boardId]` swaps the chat column for the Task Manager; no channel is active.
   const tasksMatch = useMatch("/app/tasks/:boardId?");
   // `/app/calendar` likewise shows the company calendar.
@@ -452,7 +454,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
       <div className="flex h-full flex-col overflow-hidden">
         <main className="relative flex min-h-0 w-full flex-1 flex-col bg-surface">
           <PushPrompt phone />
-          {screen}
+          <ViewBoundary resetKey={pathname}>{screen}</ViewBoundary>
           {/* The "+" sits over the tab screens, never over a composer. */}
           {(tab === "home" || tab === "dms" || tab === "activity") && !keyboardUp && (
             <Fab onClick={() => setSheet("create")} />
@@ -553,42 +555,44 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
 
       <main className="flex h-full w-full min-w-0 flex-1 flex-col bg-surface">
         <PushPrompt />
-        {channelId ? (
-          <ChannelView
-            channelId={channelId}
-            onOpenSidebar={() => setSidebarOpen(true)}
-            threadId={threadId}
-            onOpenThread={openThread}
-            onCloseThread={closeThread}
-          />
-        ) : newsMatch ? (
-          <Suspense
-            fallback={<div className="flex-1" aria-busy="true" aria-label="Loading news" />}
-          >
-            <NewsView onOpenSidebar={() => setSidebarOpen(true)} />
-          </Suspense>
-        ) : notesMatch ? (
-          <Suspense
-            fallback={<div className="flex-1" aria-busy="true" aria-label="Loading notes" />}
-          >
-            <NotesHub onOpenSidebar={() => setSidebarOpen(true)} />
-          </Suspense>
-        ) : calendarMatch ? (
-          <Suspense
-            fallback={<div className="flex-1" aria-busy="true" aria-label="Loading calendar" />}
-          >
-            <CalendarView onOpenSidebar={() => setSidebarOpen(true)} />
-          </Suspense>
-        ) : (
-          <Suspense
-            fallback={<div className="flex-1" aria-busy="true" aria-label="Loading tasks" />}
-          >
-            <TaskManager
-              boardId={tasksMatch?.params.boardId}
+        <ViewBoundary resetKey={pathname}>
+          {channelId ? (
+            <ChannelView
+              channelId={channelId}
               onOpenSidebar={() => setSidebarOpen(true)}
+              threadId={threadId}
+              onOpenThread={openThread}
+              onCloseThread={closeThread}
             />
-          </Suspense>
-        )}
+          ) : newsMatch ? (
+            <Suspense
+              fallback={<div className="flex-1" aria-busy="true" aria-label="Loading news" />}
+            >
+              <NewsView onOpenSidebar={() => setSidebarOpen(true)} />
+            </Suspense>
+          ) : notesMatch ? (
+            <Suspense
+              fallback={<div className="flex-1" aria-busy="true" aria-label="Loading notes" />}
+            >
+              <NotesHub onOpenSidebar={() => setSidebarOpen(true)} />
+            </Suspense>
+          ) : calendarMatch ? (
+            <Suspense
+              fallback={<div className="flex-1" aria-busy="true" aria-label="Loading calendar" />}
+            >
+              <CalendarView onOpenSidebar={() => setSidebarOpen(true)} />
+            </Suspense>
+          ) : (
+            <Suspense
+              fallback={<div className="flex-1" aria-busy="true" aria-label="Loading tasks" />}
+            >
+              <TaskManager
+                boardId={tasksMatch?.params.boardId}
+                onOpenSidebar={() => setSidebarOpen(true)}
+              />
+            </Suspense>
+          )}
+        </ViewBoundary>
       </main>
 
       {overlays}

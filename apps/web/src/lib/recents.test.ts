@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { forgetRecents, loadRecents, MAX_RECENTS, pushRecent, recordVisit } from "./recents";
+import {
+  forgetRecent,
+  forgetRecents,
+  loadRecents,
+  MAX_RECENTS,
+  pushRecent,
+  recordVisit,
+} from "./recents";
 
 describe("recents", () => {
   let stored: Record<string, string>;
@@ -41,5 +48,13 @@ describe("recents", () => {
     expect(loadRecents("me")).toEqual([{ channelId: "ok", at: 1 }]);
     localStorage.setItem("slack.recents.me", "{not json");
     expect(loadRecents("me")).toEqual([]);
+  });
+
+  it("forgets one channel (archived), keeping the rest in order", () => {
+    recordVisit("u1", "ch_a", 1);
+    recordVisit("u1", "ch_b", 2);
+    recordVisit("u1", "ch_c", 3);
+    forgetRecent("u1", "ch_b");
+    expect(loadRecents("u1").map((r) => r.channelId)).toEqual(["ch_c", "ch_a"]);
   });
 });

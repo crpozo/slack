@@ -46,6 +46,22 @@ export function recordVisit(userId: string, channelId: string, at = Date.now()):
   }
 }
 
+/** `channelId` taken out of the list (archived: not somewhere to go back to). */
+export function withoutRecent(list: RecentVisit[], channelId: string): RecentVisit[] {
+  return list.filter((r) => r.channelId !== channelId);
+}
+
+export function forgetRecent(userId: string, channelId: string): void {
+  try {
+    localStorage.setItem(
+      key(userId),
+      JSON.stringify(withoutRecent(loadRecents(userId), channelId)),
+    );
+  } catch {
+    // Blocked storage: nothing kept.
+  }
+}
+
 export function forgetRecents(userId: string): void {
   try {
     localStorage.removeItem(key(userId));

@@ -51,6 +51,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **Archiving a channel no longer crashes the app:** archiving the channel you were in, or
+  opening an archived channel's link, left a blank dark screen. The message box swapped itself for
+  the "archived" note in a way React can't handle while it's on screen, and nothing caught the
+  error. Now archiving the channel you're in takes you to #general (or the first active channel),
+  drops it from your recent places and says where it went. An archived channel opened by link shows
+  read-only, with an **Unarchive** button for whoever may restore it. A view that fails to render
+  now says so, with a way to #general, instead of blanking the whole app.
 - **An expanded call fits the window:** expanding a call (the ⤢ button) in a short window, such as
   a maximized desktop app above the taskbar, pushed the call's controls below the bottom edge. The
   call now shrinks to the space there is, with its controls always in view.
