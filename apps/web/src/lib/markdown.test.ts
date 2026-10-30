@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { escapeHtml, MAX_LIST_DEPTH, renderMarkdown, renderNotesMarkdown } from "./markdown";
+import {
+  escapeHtml,
+  MAX_LIST_DEPTH,
+  renderMarkdown,
+  renderNotesMarkdown,
+  splitTableRow,
+} from "./markdown";
 
 describe("renderMarkdown", () => {
   it("escapes HTML before formatting", () => {
@@ -144,5 +150,72 @@ describe("renderNotesMarkdown (AI call notes)", () => {
 
   it("ignores injected stash markers", () => {
     expect(renderNotesMarkdown("- 0")).toBe("<ul><li>0</li></ul>");
+  });
+});
+
+describe("GFM tables and strikethrough (renderNotesMarkdown)", () => {
+  it("renders a table: header cells, body rows, inline formatting inside", () => {
+    const html = renderNotesMarkdown(
+      "| Column | Column |\n| --- | --- |\n| **bold** | `code` |\n| plain | [x](https://example.com) |",
+    );
+    expect(html).toBe(
+      '<div class="table-wrap"><table><thead><tr><th>Column</th><th>Column</th></tr></thead>' +
+        "<tbody><tr><td><strong>bold</strong></td><td><code>code</code></td></tr>" +
+        '<tr><td>plain</td><td><a href="https://example.com" target="_blank" rel="noopener noreferrer">x</a></td></tr>' +
+        "</tbody></table></div>",
+    );
+  });
+
+  it("reads alignment, tables without outer pipes, and the text around them", () => {
+    const html = renderNotesMarkdown(
+      "Before\n\nFile | Size | Kind\n:--- | ---: | :---:\nSKILL.md | 22 KB | md\n\nAfter",
+    );
+    expect(html).toContain(
+      '<th class="align-left">File</th><th class="align-right">Size</th><th class="align-center">Kind</th>',
+    );
+    expect(html).toContain('<td class="align-right">22 KB</td>');
+    expect(html.startsWith('<p>Before</p><div class="table-wrap">')).toBe(true);
+    expect(html.endsWith("</table></div><p>After</p>")).toBe(true);
+  });
+
+  it("pads short rows, cuts long ones, and ends at the first line without a pipe", () => {
+    const html = renderNotesMarkdown("| a | b |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |\nnot a row");
+    expect(html).toContain("<tr><td>1</td><td></td></tr>");
+    expect(html).toContain("<tr><td>1</td><td>2</td></tr>");
+    expect(html).not.toContain("<td>3</td>");
+    expect(html.endsWith("</table></div><p>not a row</p>")).toBe(true);
+    // A header alone is still a table.
+    expect(renderNotesMarkdown("| a |\n|---|")).toBe(
+      '<div class="table-wrap"><table><thead><tr><th>a</th></tr></thead></table></div>',
+    );
+  });
+
+  it("keeps escaped pipes and pipes in code spans inside their cell", () => {
+    expect(splitTableRow("| a \\| b | `x | y` | c |")).toEqual(["a | b", "`x | y`", "c"]);
+    const html = renderNotesMarkdown("| cmd | note |\n|---|---|\n| `ls | wc -l` | a \\| b |");
+    expect(html).toContain("<td><code>ls | wc -l</code></td><td>a | b</td>");
+  });
+
+  it("isn't fooled: pipes in prose, a rule under a line, mismatched columns", () => {
+    expect(renderNotesMarkdown("this | that\nand more")).toBe("<p>this | that<br>and more</p>");
+    expect(renderNotesMarkdown("a | b\n---")).not.toContain("<table>");
+    expect(renderNotesMarkdown("| a | b |\n| --- |")).not.toContain("<table>");
+    expect(renderNotesMarkdown("- item\n\n---")).toContain("<hr>");
+  });
+
+  it("escapes HTML in cells like everywhere else", () => {
+    const html = renderNotesMarkdown(
+      '| <script>alert(1)</script> | <img src=x onerror="y"> |\n|---|---|',
+    );
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+  });
+
+  it("strikes through ~~text~~, but not lone tildes", () => {
+    expect(renderNotesMarkdown("~~old~~ new")).toBe("<p><del>old</del> new</p>");
+    expect(renderNotesMarkdown("~ 5 min ~~")).toBe("<p>~ 5 min ~~</p>");
+    // Chat messages keep their own rules.
+    expect(renderMarkdown("~~old~~")).toBe("~~old~~");
   });
 });

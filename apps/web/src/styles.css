@@ -166,6 +166,39 @@
   .md-notes hr {
     @apply border-line;
   }
+  /* GFM tables: a glass-edged box that scrolls sideways when wide (Preflight resets tables). */
+  .md-notes .table-wrap {
+    @apply max-w-full overflow-x-auto rounded-xl border border-white/10 bg-white/[0.02];
+  }
+  .md-notes table {
+    @apply w-full border-collapse text-left text-[0.95em];
+  }
+  .md-notes th,
+  .md-notes td {
+    @apply border-b border-white/10 p-2 align-top;
+  }
+  .md-notes th {
+    @apply whitespace-nowrap border-b-white/20 bg-white/[0.06] font-semibold text-ink;
+  }
+  .md-notes td + td,
+  .md-notes th + th {
+    @apply border-l border-white/[0.06];
+  }
+  .md-notes tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .md-notes tbody tr:nth-child(even) {
+    @apply bg-white/[0.02];
+  }
+  .md-notes .align-center {
+    @apply text-center;
+  }
+  .md-notes .align-right {
+    @apply text-right;
+  }
+  .md-notes del {
+    @apply text-ink-secondary;
+  }
 }
 
 /* FullCalendar (company calendar), on the design tokens so it follows the theme. */

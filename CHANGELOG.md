@@ -65,6 +65,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **Markdown tables render as tables:** a `| Column | Column |` table in a `.md` file preview, an
+  AI note or a skill's `SKILL.md` showed as raw text with pipes. Tables (with `:---:` column
+  alignment) and `~~strikethrough~~` now render, styled to the dark glass theme: a subtle border,
+  padded cells, a tinted header row, and a horizontal scroll for wide tables on a phone.
+
 - **Archiving a channel no longer crashes the app:** archiving the channel you were in, or
   opening an archived channel's link, left a blank dark screen. The message box swapped itself for
   the "archived" note in a way React can't handle while it's on screen, and nothing caught the
