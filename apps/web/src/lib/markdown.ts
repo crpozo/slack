@@ -19,7 +19,7 @@ const MD_LINK_PATTERN = /\[([^\]\n]{1,200})\]\((https?:\/\/[^\s<)]+)\)/g;
 const MARKER = /\uE000(\d+)\uE000/g;
 
 interface InlineOptions {
-  /** `*italic*` and `[label](url)` too: what models write (AI call notes). */
+  /** `*italic*`, `~~strikethrough~~` and `[label](url)` too: what models and .md files write. */
   modelMarkdown?: boolean;
 }
 
@@ -49,6 +49,8 @@ function formatInline(html: string, keep: (html: string) => string, options: Inl
   if (options.modelMarkdown) {
     // `*word*`, not `2 * 3 * 4`: no space just inside the stars.
     out = out.replace(/(^|[^\w*])\*(?=\S)([^*\n]*?\S)\*(?![\w*])/g, "$1<em>$2</em>");
+    // GFM strikethrough: `~~gone~~`.
+    out = out.replace(/~~(?=\S)([^~\n]*?\S)~~/g, "<del>$1</del>");
   }
   return out;
 }
@@ -91,6 +93,59 @@ const RULE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
 const LIST_ITEM = /^(\s*)(?:([-*+•●◦▪‣–])|(\d{1,9})[.)])\s+(.*)$/;
 const TASK = /^\[([ xX])\]\s+(.*)$/;
 const QUOTE = /^\s{0,3}>\s?(.*)$/;
+/** A GFM table's delimiter row: `| --- | :--: | --: |` (outer pipes optional). */
+const TABLE_DELIMITER = /^\s{0,3}\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+/** More columns than this is a wall of pipes, not a table. */
+export const MAX_TABLE_COLUMNS = 20;
+
+type Align = "left" | "center" | "right" | null;
+
+/**
+ * A table row's cells: split on `|` except an escaped `\|` or one inside a
+ * `code span`, outer pipes dropped, each cell trimmed.
+ */
+export function splitTableRow(line: string): string[] {
+  let text = line.trim();
+  if (text.startsWith("|")) text = text.slice(1);
+  if (text.endsWith("|") && !text.endsWith("\\|")) text = text.slice(0, -1);
+  const cells: string[] = [];
+  let cell = "";
+  let inCode = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (c === "\\" && text[i + 1] === "|") {
+      cell += "|";
+      i++;
+    } else if (c === "`") {
+      inCode = !inCode;
+      cell += c;
+    } else if (c === "|" && !inCode) {
+      cells.push(cell.trim());
+      cell = "";
+    } else {
+      cell += c;
+    }
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+/** Whether `header` and `delimiter` start a GFM table (the same number of columns). */
+function isTableStart(header: string, delimiter: string | undefined): boolean {
+  if (delimiter === undefined || !header.includes("|") || !TABLE_DELIMITER.test(delimiter)) {
+    return false;
+  }
+  const columns = splitTableRow(header).length;
+  return columns > 0 && columns <= MAX_TABLE_COLUMNS && splitTableRow(delimiter).length === columns;
+}
+
+function alignOf(spec: string): Align {
+  const left = spec.startsWith(":");
+  const right = spec.endsWith(":");
+  if (left && right) return "center";
+  if (right) return "right";
+  return left ? "left" : null;
+}
 
 interface OpenList {
   indent: number;
@@ -140,6 +195,31 @@ export function renderNotesMarkdown(text: string): string {
       flushParagraph();
       flushQuote();
       if (lists.length) blankInList = true;
+      continue;
+    }
+    // A GFM table: header row, delimiter row, then body rows until a line without a pipe.
+    if (isTableStart(line, lines[i + 1])) {
+      flushAll();
+      const header = splitTableRow(line);
+      const aligns = splitTableRow(lines[i + 1]!).map(alignOf);
+      const cell = (tag: "th" | "td", text: string | undefined, col: number) => {
+        const align = aligns[col];
+        return `<${tag}${align ? ` class="align-${align}"` : ""}>${inline(text ?? "")}</${tag}>`;
+      };
+      const rows: string[] = [];
+      for (i += 2; i < lines.length && lines[i]!.trim() && lines[i]!.includes("|"); i++) {
+        const cells = splitTableRow(lines[i]!);
+        // GFM: a short row is padded, a long one cut to the header's columns.
+        rows.push(`<tr>${header.map((_, col) => cell("td", cells[col], col)).join("")}</tr>`);
+      }
+      i--; // the loop's own i++ moves past the last row
+      out.push(
+        `<div class="table-wrap"><table><thead><tr>${header
+          .map((text, col) => cell("th", text, col))
+          .join(
+            "",
+          )}</tr></thead>${rows.length ? `<tbody>${rows.join("")}</tbody>` : ""}</table></div>`,
+      );
       continue;
     }
     if (RULE.test(line)) {
