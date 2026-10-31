@@ -701,8 +701,15 @@ export class TasksApi extends Construct {
     // row (Query), the refresh cooldown's own row (UpdateItem) and starting
     // the worker.
     data.newsInsights.grant(this.newsInsightsWorker, "dynamodb:PutItem");
-    this.newsInsightsWorker.addToRolePolicy(notesModelPolicy());
-    data.newsInsights.grant(this.newsInsightsHandler, "dynamodb:Query", "dynamodb:UpdateItem");
+    // The worker streams its answer (Phase 49): that's its own Bedrock action.
+    this.newsInsightsWorker.addToRolePolicy(notesModelPolicy(true));
+    // GetItem: the last failed run (Phase 49b).
+    data.newsInsights.grant(
+      this.newsInsightsHandler,
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+      "dynamodb:GetItem",
+    );
     this.newsInsightsWorker.grantInvoke(this.newsInsightsHandler);
 
     // skills: the catalog (Scan the metadata rows, Query one skill, Get the

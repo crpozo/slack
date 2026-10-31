@@ -3,7 +3,7 @@ import type { NewsInsightsResponse, NewsRefreshResponse } from "@mindfultech/sha
 import { requireEnv } from "../lib/env";
 import { forbidden, httpHandler, json, notFound, type HttpResult } from "../lib/http";
 import { log } from "../lib/logger";
-import { claimRefresh, latestInsights } from "../lib/newsInsights";
+import { claimRefresh, lastFailure, latestInsights } from "../lib/newsInsights";
 
 let lambda: LambdaClient | null = null;
 const lambdaClient = () => (lambda ??= new LambdaClient({}));
@@ -28,7 +28,12 @@ export const handler = httpHandler(async (event, caller): Promise<HttpResult> =>
   if (caller.role === "guest") throw forbidden("Guests only have access to their boards");
   switch (event.routeKey) {
     case "GET /news/insights": {
-      const body: NewsInsightsResponse = { insights: await latestInsights() };
+      const [insights, failure] = await Promise.all([latestInsights(), lastFailure()]);
+      const body: NewsInsightsResponse = {
+        insights,
+        // Only a failure after the analysis on screen is news to the page.
+        ...(failure && failure.at > (insights?.generatedAt ?? 0) && { failure }),
+      };
       return json(200, body);
     }
     case "POST /news/insights": {

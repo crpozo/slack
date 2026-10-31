@@ -1,7 +1,7 @@
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import type Anthropic from "@anthropic-ai/sdk";
+import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import Anthropic from "@anthropic-ai/sdk";
 import { calendarDay, NEWS_INSIGHTS_FEED, type NewsArticle } from "@mindfultech/shared";
 import { mockClient } from "aws-sdk-client-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -326,6 +326,13 @@ describe("reading the dashboard", () => {
   });
 });
 
+/** The analysis rows the worker wrote (a failed run writes only its reason, elsewhere). */
+const analysesWritten = () =>
+  ddbMock
+    .commandCalls(PutCommand)
+    .map((c) => c.args[0].input.Item)
+    .filter((item) => item?.feed === NEWS_INSIGHTS_FEED);
+
 describe("the morning worker", () => {
   let create: ReturnType<typeof vi.fn>;
   beforeEach(() => {
@@ -392,7 +399,7 @@ describe("the morning worker", () => {
     );
     await expect(worker()).rejects.toThrow("feed answered 503");
     expect(create).not.toHaveBeenCalled();
-    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    expect(analysesWritten()).toHaveLength(0);
   });
 
   it("throws when the model's answer is unusable, and writes nothing", async () => {
@@ -400,13 +407,30 @@ describe("the morning worker", () => {
     await expect(worker()).rejects.toThrow("cut off");
     create.mockResolvedValueOnce(response({}, { nope: true }));
     await expect(worker()).rejects.toThrow("expected JSON");
-    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    expect(analysesWritten()).toHaveLength(0);
   });
 
-  it("lets a model error through with nothing written", async () => {
+  it("lets a model error through with no analysis written, but remembers why (Phase 49b)", async () => {
     create.mockRejectedValueOnce(new Error("socket hang up"));
     await expect(worker()).rejects.toThrow("socket hang up");
-    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    const puts = ddbMock.commandCalls(PutCommand).map((c) => c.args[0].input.Item);
+    expect(puts).toEqual([
+      {
+        feed: "news-refresh",
+        day: "failure",
+        error: "Algo salió mal escribiendo el análisis.",
+        at: NOW,
+      },
+    ]);
+  });
+
+  it("names a refused model call (Bedrock permissions) in words the page can show", async () => {
+    create.mockRejectedValueOnce(
+      new Anthropic.PermissionDeniedError(403, undefined, "AccessDenied", new Headers()),
+    );
+    await expect(worker()).rejects.toThrow();
+    const failure = ddbMock.commandCalls(PutCommand)[0]!.args[0].input.Item;
+    expect(failure).toMatchObject({ error: expect.stringMatching(/permisos de Bedrock/) });
   });
 });
 
@@ -462,6 +486,35 @@ describe("GET and POST /news/insights", () => {
     resetMocks();
     lambdaMock.reset();
     lambdaMock.on(InvokeCommand).resolves({ StatusCode: 202 });
+  });
+
+  it("returns Phase 44's sections too: the deep dive and the watchlist", async () => {
+    const deepDive = {
+      headline: "H",
+      link: "https://techcrunch.com/a",
+      sourceName: "TechCrunch",
+      context: "c",
+      implications: ["i"],
+      questions: ["q"],
+    };
+    const watchlist = [{ topic: "Precios", text: "w" }];
+    ddbMock.on(QueryCommand).resolves({ Items: [{ ...row, deepDive, watchlist }] });
+    expect(await latestInsights()).toMatchObject({ deepDive, watchlist });
+  });
+
+  it("says why the last run failed, but only when it failed after the analysis on screen", async () => {
+    ddbMock.on(QueryCommand).resolves({ Items: [row] });
+    ddbMock
+      .on(GetCommand, { TableName: TABLE, Key: { feed: "news-refresh", day: "failure" } })
+      .resolves({ Item: { error: "El servicio de IA está ocupado.", at: NOW + 1 } });
+    expect((await call(event("GET /news/insights"))).body.failure).toEqual({
+      error: "El servicio de IA está ocupado.",
+      at: NOW + 1,
+    });
+    ddbMock
+      .on(GetCommand, { TableName: TABLE, Key: { feed: "news-refresh", day: "failure" } })
+      .resolves({ Item: { error: "old", at: NOW - 1 } });
+    expect((await call(event("GET /news/insights"))).body.failure).toBeUndefined();
   });
 
   it("answers the newest row without its key, and null before the first one", async () => {

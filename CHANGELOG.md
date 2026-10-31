@@ -14,6 +14,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **AI News analysis still stuck:** the streamed request (below) needs its own Bedrock permission,
+  which the worker didn't have, so every run was refused. It has it now. Also, the deep dive and
+  "Para seguir de cerca" were written but never sent to the page; they are now. And if a run ever
+  fails again, the page stops waiting at once and says why ("the AI service is busy", "permissions",
+  …) instead of after several minutes.
 - **AI News analysis stuck:** with the deeper analysis (40 stories, more reasoning) a run took
   longer than the 50 seconds each model request was allowed, so it failed and the page gave up
   after a minute and a half. The request is now streamed with up to 5 minutes (the worker has 6),

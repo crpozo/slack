@@ -248,6 +248,18 @@ export interface NewsRefreshResponse {
 /** `GET /news/insights`: the latest analysis, or `null` before the first one. */
 export interface NewsInsightsResponse {
   insights: NewsInsights | null;
+  /**
+   * Phase 49b: the last run that failed, if it's newer than `insights`: the
+   * page waiting for an analysis stops at once and says why.
+   */
+  failure?: NewsInsightsFailure;
+}
+
+export interface NewsInsightsFailure {
+  /** What went wrong, in a sentence. */
+  error: string;
+  /** When (epoch ms). */
+  at: number;
 }
 
 /** `ms` as a `YYYY-MM-DD` calendar day in `timeZone`. */

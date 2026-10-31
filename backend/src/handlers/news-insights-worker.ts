@@ -3,7 +3,13 @@ import { calendarDay } from "@mindfultech/shared";
 import { bedrockModel, type StreamingClaudeModel } from "../lib/claude";
 import { errorFields, log } from "../lib/logger";
 import { readAllSources } from "../lib/news";
-import { insightsFrom, insightsItem, insightsRequest, saveInsights } from "../lib/newsInsights";
+import {
+  insightsFrom,
+  insightsItem,
+  insightsRequest,
+  saveFailure,
+  saveInsights,
+} from "../lib/newsInsights";
 
 let model: StreamingClaudeModel | null = null;
 
@@ -39,6 +45,34 @@ export interface InsightsRun {
  * nothing is half-written, since the row is put in one piece at the end.
  */
 export const handler = async (): Promise<InsightsRun> => {
+  try {
+    return await run();
+  } catch (err) {
+    // Phase 49b: the page waiting on this run hears why at once (then the run is retried).
+    await saveFailure(failureText(err), Date.now());
+    throw err;
+  }
+};
+
+/** Why a run failed, in words for the page (the log has the details). */
+function failureText(err: unknown): string {
+  if (err instanceof Anthropic.APIError) {
+    if (err.status === 403) return "El servicio de IA rechazó la solicitud (permisos de Bedrock).";
+    if (err.status === 429)
+      return "El servicio de IA está ocupado. Intenta de nuevo en unos minutos.";
+    return `El servicio de IA respondió con un error (${err.status ?? "sin código"}).`;
+  }
+  const text = err instanceof Error ? err.message : String(err);
+  if (/feed|sources|stories/i.test(text)) return "No se pudieron leer las noticias de los medios.";
+  if (/cut off|too long/i.test(text)) return "El análisis salió demasiado largo y se cortó.";
+  if (/JSON|empty|picked no story|missing/i.test(text)) {
+    return "La IA respondió algo que no se pudo usar. Intenta de nuevo.";
+  }
+  if (/timed? ?out|timeout/i.test(text)) return "El servicio de IA tardó demasiado en responder.";
+  return "Algo salió mal escribiendo el análisis.";
+}
+
+async function run(): Promise<InsightsRun> {
   const started = Date.now();
   const day = calendarDay(started);
   // Only the last NEWS_MAX_AGE_HOURS of stories reach the model.
@@ -74,4 +108,4 @@ export const handler = async (): Promise<InsightsRun> => {
   await saveInsights(insightsItem(day, outcome.dashboard, articles, Date.now()));
   log.info("news insights written", { ...run, ms: Date.now() - started });
   return run;
-};
+}

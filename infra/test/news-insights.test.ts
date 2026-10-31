@@ -63,11 +63,17 @@ describe("AI Insights (Phase 39)", () => {
     const worker = statementsOf("TasksApiNewsInsightsWorkerFnServiceRoleDefaultPolicy");
     expect(actionsOn(worker, "DataNewsInsights")).toEqual(["dynamodb:PutItem"]);
     expect(worker.flatMap((st) => [st.Action].flat())).toContain("bedrock:InvokeModel");
+    // Phase 49: it streams the answer, which is its own action (without it every run is refused).
+    expect(worker.flatMap((st) => [st.Action].flat())).toContain(
+      "bedrock:InvokeModelWithResponseStream",
+    );
     expect(JSON.stringify(worker)).toMatch(/inference-profile\/us\.anthropic\.claude-haiku-5-5/);
     expect(JSON.stringify(worker)).not.toMatch(/Messages|Channels|Users|s3:/);
 
     const endpoint = statementsOf("TasksApiNewsInsightsFnServiceRoleDefaultPolicy");
+    // GetItem: the last failed run (Phase 49b).
     expect(actionsOn(endpoint, "DataNewsInsights")).toEqual([
+      "dynamodb:GetItem",
       "dynamodb:Query",
       "dynamodb:UpdateItem",
     ]);

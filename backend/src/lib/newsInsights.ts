@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import {
   NEWS_HORIZONS,
   NEWS_INSIGHTS_DEEP_DIVE_POINTS,
@@ -17,6 +17,7 @@ import {
   type NewsEvidence,
   type NewsHorizon,
   type NewsInsights,
+  type NewsInsightsFailure,
   type NewsStory,
 } from "@mindfultech/shared";
 import { z } from "zod";
@@ -401,8 +402,18 @@ export async function latestInsights(): Promise<NewsInsights | null> {
   );
   const item = Items?.[0] as Partial<NewsInsightsItem> | undefined;
   if (!item || !Array.isArray(item.stories) || !Array.isArray(item.trends)) return null;
-  const { day, generatedAt, storyCount, stories, trends, takeaways, articles, source } =
-    item as NewsInsightsItem;
+  const {
+    day,
+    generatedAt,
+    storyCount,
+    stories,
+    trends,
+    takeaways,
+    deepDive,
+    watchlist,
+    articles,
+    source,
+  } = item as NewsInsightsItem;
   return {
     day,
     generatedAt,
@@ -410,9 +421,43 @@ export async function latestInsights(): Promise<NewsInsights | null> {
     stories,
     trends,
     takeaways: takeaways ?? [],
+    // Phase 44's sections (absent on older rows).
+    ...(deepDive && { deepDive }),
+    ...(watchlist?.length && { watchlist }),
     articles: articles ?? [],
     source: source ?? "",
   };
+}
+
+/**
+ * The last failed run (Phase 49b): its own row, in the refresh lock's
+ * partition, so `latestInsights` never reads it. One row, overwritten.
+ */
+export const FAILURE_KEY = { feed: "news-refresh", day: "failure" } as const;
+
+/** Remembers why a run failed, for the page that's waiting on it. Never throws. */
+export async function saveFailure(error: string, at: number): Promise<void> {
+  try {
+    await ddb.send(
+      new PutCommand({
+        TableName: tables.newsInsights,
+        Item: { ...FAILURE_KEY, error: error.slice(0, 300), at },
+      }),
+    );
+  } catch {
+    // The run already failed; not remembering why must not hide that.
+  }
+}
+
+/** The last failed run, or `null`. */
+export async function lastFailure(): Promise<NewsInsightsFailure | null> {
+  const result = await ddb.send(
+    new GetCommand({ TableName: tables.newsInsights, Key: FAILURE_KEY }),
+  );
+  const Item = result?.Item;
+  return typeof Item?.error === "string" && typeof Item.at === "number"
+    ? { error: Item.error, at: Item.at }
+    : null;
 }
 
 // --- "Refresh news": a new analysis now, at most every few minutes --------------------

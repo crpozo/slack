@@ -83,10 +83,20 @@ export function createNewsInsightsStore(
 ) {
   return create<NewsInsightsState>((set, get) => {
     /** Polls until an analysis newer than `before` is there, or `deadline` passes. */
-    async function waitFor(before: number, deadline: number): Promise<void> {
+    async function waitFor(before: number, deadline: number, since = 0): Promise<void> {
       while (now() < deadline) {
         await sleep(INSIGHTS_POLL_MS);
-        const { insights } = await api.latest();
+        const { insights, failure } = await api.latest();
+        // Phase 49b: the run failed (after this wait began): say why now, not minutes later.
+        if (failure && failure.at >= since) {
+          writePending(null);
+          set({
+            generating: false,
+            generatingSince: null,
+            generateError: `El análisis no se pudo escribir: ${failure.error}`,
+          });
+          return;
+        }
         if (insights && insights.generatedAt > before) {
           writePending(null);
           set({
@@ -153,7 +163,7 @@ export function createNewsInsightsStore(
             return;
           }
           writePending({ since, before });
-          await waitFor(before, since + NEWS_INSIGHTS_WAIT_MS);
+          await waitFor(before, since + NEWS_INSIGHTS_WAIT_MS, since);
         } catch (err) {
           writePending(null);
           set({
@@ -173,7 +183,7 @@ export function createNewsInsightsStore(
         }
         set({ generating: true, generatingSince: pending.since, generateError: null });
         try {
-          await waitFor(pending.before, deadline);
+          await waitFor(pending.before, deadline, pending.since);
         } catch (err) {
           writePending(null);
           set({

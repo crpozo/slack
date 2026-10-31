@@ -187,6 +187,31 @@ describe("news insights store: a running analysis survives the page (Phase 49)",
     expect(store.getState()).toMatchObject({ generating: false, insights: insights(2) });
   });
 
+  it("stops waiting as soon as the server says the run failed, and says why", async () => {
+    let t = 1_000_000;
+    const api: NewsInsightsApi = {
+      latest: vi.fn(async () => ({
+        insights: insights(1),
+        failure: { error: "El servicio de IA está ocupado.", at: 1_000_500 },
+      })),
+      refresh: vi.fn(async () => ({ queued: true })),
+    };
+    const store = createNewsInsightsStore(
+      api,
+      () => t,
+      async (ms) => {
+        t += ms;
+      },
+    );
+    await store.getState().generate();
+    expect(api.latest).toHaveBeenCalledTimes(1);
+    expect(store.getState()).toMatchObject({
+      generating: false,
+      generateError: "El análisis no se pudo escribir: El servicio de IA está ocupado.",
+    });
+    expect(stored["news.insights.pending"]).toBeUndefined();
+  });
+
   it("resume: nothing pending, or too old, does nothing", async () => {
     const api: NewsInsightsApi = { latest: vi.fn(), refresh: vi.fn() };
     const store = createNewsInsightsStore(api, () => 10_000_000);
