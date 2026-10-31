@@ -13,6 +13,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   **Por qué importa** on each of the six top stories (six, not four), the stories each trend
   rests on as links, a horizon on each takeaway (this week, this quarter, watch) and **Para
   seguir de cerca**, what to follow in the coming days.
+- **Boards on phones:** a To Do / In Progress / Done tab bar with counts sits over the columns;
+  tap one to go to that column, and it follows as you swipe. A floating **+** adds a task from
+  anywhere on the board. Cards have bigger targets, no trash icon (Delete is in the card's ⌄
+  menu, one more tap away from an accident), and the board header fits one line.
 - **Quoted replies jump:** clicking the quote above a reply now goes to the original message,
   loading older history until it's there, like "Jump to message" on pins. No more "That message
   is further back in the history".

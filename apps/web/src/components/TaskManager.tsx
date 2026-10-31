@@ -19,6 +19,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
+import { MOBILE_QUERY, useMediaQuery } from "../lib/hooks";
 import { tasksApiConfigured } from "../lib/tasksApi";
 import { textWithoutImages } from "../lib/taskText";
 import { useChat, useNameOf } from "../store";
@@ -263,18 +264,27 @@ function AddTaskButton({ onClick }: Readonly<{ onClick: () => void }>) {
 }
 
 /** "Move to…" for keyboard and touch users, where HTML5 drag and drop doesn't work. */
-function MoveMenu({ task }: Readonly<{ task: Task }>) {
+function MoveMenu({
+  task,
+  onDelete,
+}: Readonly<{
+  task: Task;
+  /** Phones: the card has no trash icon; Delete lives here, one more tap away. */
+  onDelete?: () => void;
+}>) {
   const moveTask = useTasks((s) => s.moveTask);
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   return (
     <>
       <button
         type="button"
-        aria-label={`Move "${task.title}"`}
-        title="Move to…"
+        aria-label={onDelete ? `Options for "${task.title}"` : `Move "${task.title}"`}
+        title={onDelete ? "Move or delete" : "Move to…"}
         aria-expanded={!!anchor}
         onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}
-        className="rounded-md p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink"
+        className={`rounded-md text-ink-secondary hover:bg-surface-hover hover:text-ink ${
+          onDelete ? "p-2" : "p-1"
+        }`}
       >
         <ChevronDownIcon />
       </button>
@@ -300,6 +310,19 @@ function MoveMenu({ task }: Readonly<{ task: Task }>) {
                 {c.title}
               </button>
             ))}
+            {onDelete && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAnchor(null);
+                  onDelete();
+                }}
+                className="mt-1 flex w-full items-center gap-2 rounded-lg border-t border-white/10 px-3 py-2 text-left text-sm text-error hover:bg-error/10"
+              >
+                <TrashIcon /> Delete task
+              </button>
+            )}
           </div>
         </Popover>
       )}
@@ -325,7 +348,14 @@ function TaskCard({
   task,
   onDragStart,
   onOpen,
-}: Readonly<{ task: Task; onDragStart: (id: string) => void; onOpen: (id: string) => void }>) {
+  touch = false,
+}: Readonly<{
+  task: Task;
+  onDragStart: (id: string) => void;
+  onOpen: (id: string) => void;
+  /** Phones: no drag, bigger targets, Delete inside the menu instead of a bare trash icon. */
+  touch?: boolean;
+}>) {
   const deleteTask = useTasks((s) => s.deleteTask);
   const nameOf = useNameOf();
   const pending = task.taskId.startsWith("pending_");
@@ -346,9 +376,11 @@ function TaskCard({
         onDragStart(task.taskId);
       }}
       onDragEnd={() => setDragging(false)}
-      className={`group rounded-xl border border-line bg-surface p-3 shadow-sm transition-shadow hover:shadow-md ${
-        pending ? "opacity-60" : "cursor-grab active:cursor-grabbing"
-      } ${dragging ? "opacity-40" : ""}`}
+      className={`group rounded-xl border border-line bg-surface shadow-sm transition-shadow hover:shadow-md ${
+        touch ? "p-3.5" : "p-3"
+      } ${pending ? "opacity-60" : touch ? "" : "cursor-grab active:cursor-grabbing"} ${
+        dragging ? "opacity-40" : ""
+      }`}
     >
       {task.project && (
         <span
@@ -362,7 +394,9 @@ function TaskCard({
           type="button"
           disabled={pending}
           onClick={() => onOpen(task.taskId)}
-          className="w-full text-left hover:underline disabled:no-underline"
+          className={`w-full text-left hover:underline disabled:no-underline ${
+            touch ? "py-0.5 text-[15px] leading-snug" : ""
+          }`}
           aria-label={`Open "${task.title}"`}
         >
           {task.title}
@@ -393,8 +427,10 @@ function TaskCard({
             <Avatar name={nameOf(task.assigneeId)} size="xs" />
           </span>
         )}
-        {!pending && <MoveMenu task={task} />}
         {!pending && (
+          <MoveMenu task={task} {...(touch && { onDelete: () => void deleteTask(task.taskId) })} />
+        )}
+        {!pending && !touch && (
           <button
             type="button"
             aria-label={`Delete "${task.title}"`}
@@ -421,6 +457,7 @@ function Column({
   onOpen,
   onAdd,
   compact = false,
+  touch = false,
 }: Readonly<{
   column: (typeof COLUMNS)[number];
   tasks: Task[];
@@ -434,6 +471,8 @@ function Column({
   onAdd: () => void;
   /** In a narrow pane: fixed-width columns in a scrolling strip, whatever the viewport. */
   compact?: boolean;
+  /** A phone: cards move from their menu, not by dragging. */
+  touch?: boolean;
 }>) {
   const moveTask = useTasks((s) => s.moveTask);
   const [over, setOver] = useState(false);
@@ -486,11 +525,17 @@ function Column({
       <div className="flex flex-1 flex-col gap-2">
         {column.status === "TODO" && <AddTaskButton onClick={onAdd} />}
         {tasks.map((task) => (
-          <TaskCard key={task.taskId} task={task} onDragStart={onDragStart} onOpen={onOpen} />
+          <TaskCard
+            key={task.taskId}
+            task={task}
+            onDragStart={onDragStart}
+            onOpen={onOpen}
+            touch={touch}
+          />
         ))}
         {tasks.length === 0 && column.status !== "TODO" && (
           <p className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-ink-secondary">
-            Drop tasks here
+            {touch ? "Nothing here yet. Move a task from its ⌄ menu." : "Drop tasks here"}
           </p>
         )}
         {showArchived && archived.length > 0 && (
@@ -500,7 +545,7 @@ function Column({
             </p>
             {archived.map((task) => (
               <div key={task.taskId} className="opacity-70">
-                <TaskCard task={task} onDragStart={onDragStart} onOpen={onOpen} />
+                <TaskCard task={task} onDragStart={onDragStart} onOpen={onOpen} touch={touch} />
               </div>
             ))}
           </div>
@@ -759,6 +804,35 @@ export function BoardView({
   // Phase 32: its owner, or an admin (a board whose owner left would be stuck otherwise).
   const canDelete = !!myUserId && canDeleteBoard(board, myUserId, role);
   const closeTask = useCallback(() => setOpenTaskId(null), []);
+  // Phones (Phase 45): status tabs over the column strip, a floating "+", no drag.
+  const phone = useMediaQuery(MOBILE_QUERY) && !compact;
+  const strip = useRef<HTMLDivElement>(null);
+  const [activeStatus, setActiveStatus] = useState<TaskStatus>("TODO");
+
+  // The tab follows the column mostly in view as the strip is swiped.
+  useEffect(() => {
+    const root = strip.current;
+    if (!phone || !root || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const best = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        const status = best?.target.getAttribute("data-status");
+        if (status) setActiveStatus(status as TaskStatus);
+      },
+      { root, threshold: [0.5, 0.75] },
+    );
+    root.querySelectorAll("[data-status]").forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [phone, board.boardId]);
+
+  const showColumn = useCallback((status: TaskStatus) => {
+    setActiveStatus(status);
+    strip.current
+      ?.querySelector(`[data-status="${status}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }, []);
 
   useEffect(() => {
     void loadTasks(board.boardId);
@@ -778,9 +852,9 @@ export function BoardView({
   }, [tasks]);
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-1 flex-col">
+    <div className="relative flex h-full min-h-0 w-full flex-1 flex-col">
       <div
-        className={`flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 ${
+        className={`flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-3 ${
           compact ? "" : "sm:px-6"
         }`}
       >
@@ -801,23 +875,66 @@ export function BoardView({
         </div>
         <span className="text-xs text-ink-secondary">
           {board.members.length} member{board.members.length === 1 ? "" : "s"}
-          {!isOwner && ` · shared by ${nameOf(board.ownerId)}`}
+          {!isOwner && (
+            <span className="hidden sm:inline"> · shared by {nameOf(board.ownerId)}</span>
+          )}
         </span>
         {isOwner && (
           <button
             type="button"
             onClick={() => setSharing(true)}
-            className="ml-auto flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface-hover"
+            className="ml-auto flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-sm font-medium text-ink hover:bg-surface-hover sm:px-3"
+            aria-label="Share board"
+            title="Share board"
           >
-            <UserPlusIcon /> Share board
+            <UserPlusIcon /> <span className="hidden sm:inline">Share board</span>
           </button>
         )}
       </div>
 
+      {phone && (
+        <div
+          role="tablist"
+          aria-label="Columns"
+          className="flex shrink-0 gap-1 border-b border-line px-3 py-2"
+          data-board-tabs
+        >
+          {COLUMNS.map((column) => {
+            const active = column.status === activeStatus;
+            const count = byStatus[column.status].length;
+            return (
+              <button
+                key={column.status}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => showColumn(column.status)}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-sm font-semibold transition-colors ${
+                  active
+                    ? "bg-primary/20 text-ink"
+                    : "text-ink-secondary hover:bg-surface-hover hover:text-ink"
+                }`}
+              >
+                <span className={`h-2 w-2 rounded-full ${column.accent}`} aria-hidden="true" />
+                <span className="truncate">{column.title}</span>
+                <span
+                  className={`rounded-full px-1.5 text-xs tabular-nums ${
+                    active ? "bg-primary/25" : "bg-surface-sidebar"
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div
+        ref={strip}
         className={`min-h-0 w-full flex-1 snap-x snap-mandatory overflow-auto overscroll-x-contain p-4 ${
           compact ? "" : "sm:p-6 md:snap-none"
-        }`}
+        } ${phone ? "pb-24" : ""}`}
         aria-busy={loading && !tasks}
       >
         {/* Phones and the side pane: columns in a strip, swiped with snapping. md+: three equal columns spanning the area. */}
@@ -843,10 +960,23 @@ export function BoardView({
               onOpen={setOpenTaskId}
               onAdd={() => setCreating(true)}
               compact={compact}
+              touch={phone}
             />
           ))}
         </div>
       </div>
+      {phone && (
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          aria-label="Add task"
+          aria-haspopup="dialog"
+          data-board-fab
+          className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-primary text-[26px] text-on-primary shadow-[0_8px_24px_rgb(0_0_0/0.45)] transition-transform active:scale-95"
+        >
+          <PlusIcon />
+        </button>
+      )}
       {sharing && <ShareBoardModal board={board} onClose={() => setSharing(false)} />}
       {deleting && <DeleteBoardModal board={board} onClose={() => setDeleting(false)} />}
       {openTaskId && <TaskDetails taskId={openTaskId} board={board} onClose={closeTask} />}
