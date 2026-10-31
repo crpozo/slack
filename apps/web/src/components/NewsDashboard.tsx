@@ -1,4 +1,11 @@
-import type { NewsStory, NewsTakeaway, NewsTrend } from "@mindfultech/shared";
+import {
+  type NewsDeepDive,
+  type NewsHorizon,
+  type NewsStory,
+  type NewsTakeaway,
+  type NewsTrend,
+  type NewsWatchItem,
+} from "@mindfultech/shared";
 import { useCallback, useState, type MouseEvent, type ReactNode } from "react";
 import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
@@ -13,10 +20,14 @@ export interface NewsDashboardProps {
   storyCount: number;
   /** "Lo esencial": the day's top stories. */
   stories: NewsStory[];
+  /** "A fondo" (Phase 44); the section is left out without one. */
+  deepDive?: NewsDeepDive;
   /** "Tendencias"; the section is left out while there are none. */
   trends: NewsTrend[];
   /** "Qué significa para MindfulTech". */
   takeaways: NewsTakeaway[];
+  /** "Para seguir de cerca" (Phase 44); left out while empty. */
+  watchlist?: NewsWatchItem[];
   /** Every other live story, below the callout. */
   moreStories?: NewsStory[];
   now: number;
@@ -44,8 +55,10 @@ export function NewsDashboard({
   dateLabel,
   storyCount,
   stories,
+  deepDive,
   trends,
   takeaways,
+  watchlist = [],
   moreStories = [],
   now,
   refreshing,
@@ -119,6 +132,81 @@ export function NewsDashboard({
         </ul>
       </section>
 
+      {deepDive && (
+        <section
+          aria-labelledby="news-deep-title"
+          className="flex flex-col gap-4 rounded-[18px] border border-white/10 bg-gradient-to-b from-white/[0.07] to-white/[0.04] p-6 shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-xl"
+          data-news-deep-dive
+        >
+          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+            <h2 id="news-deep-title" className={SECTION_TITLE}>
+              A fondo
+            </h2>
+            <span className="text-xs text-ink-secondary/80">La historia del día, explicada</span>
+          </div>
+          <a
+            href={deepDive.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => openInBrowser(e, deepDive.link)}
+            className="group inline-flex flex-wrap items-baseline gap-x-2.5 gap-y-1 self-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <h3 className="text-lg font-extrabold leading-snug tracking-tight text-ink group-hover:underline [text-wrap:pretty]">
+              {deepDive.headline}
+            </h3>
+            <span className="inline-flex h-5 items-center rounded-full border border-white/10 bg-white/[0.06] px-2 text-[11px] font-semibold text-ink/80">
+              {deepDive.sourceName}
+            </span>
+          </a>
+          <p className="max-w-3xl text-sm leading-[1.7] text-ink/80 [text-wrap:pretty]">
+            {deepDive.context}
+          </p>
+          <div className="grid gap-5 md:grid-cols-2">
+            {deepDive.implications.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h4 className="font-mono text-[11px] uppercase tracking-wider text-ink-secondary/80">
+                  Qué cambia para nosotros
+                </h4>
+                <ul className="flex flex-col gap-2">
+                  {deepDive.implications.map((text, i) => (
+                    <li
+                      key={i}
+                      className="flex items-start gap-2.5 text-sm leading-[1.55] text-ink/85"
+                    >
+                      <CheckCircleIcon />
+                      <span className="[text-wrap:pretty]">{text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {deepDive.questions.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h4 className="font-mono text-[11px] uppercase tracking-wider text-ink-secondary/80">
+                  Preguntas abiertas
+                </h4>
+                <ul className="flex flex-col gap-2">
+                  {deepDive.questions.map((text, i) => (
+                    <li
+                      key={i}
+                      className="flex items-start gap-2.5 text-sm leading-[1.55] text-ink/75"
+                    >
+                      <span
+                        className="mt-0.5 inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-white/15 font-mono text-[10px] text-ink-secondary"
+                        aria-hidden="true"
+                      >
+                        ?
+                      </span>
+                      <span className="[text-wrap:pretty]">{text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       {trends.length > 0 && (
         <section
           aria-labelledby="news-trends-title"
@@ -151,6 +239,28 @@ export function NewsDashboard({
                     ),
                   )}
                 </p>
+                {trend.evidence && trend.evidence.length > 0 && (
+                  <ul
+                    className="flex flex-wrap gap-1.5"
+                    aria-label="Historias detrás de la tendencia"
+                  >
+                    {trend.evidence.map((e) => (
+                      <li key={e.link}>
+                        <a
+                          href={e.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(ev) => openInBrowser(ev, e.link)}
+                          title={e.title}
+                          className="inline-flex max-w-[260px] items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-0.5 text-[11px] text-ink/75 transition hover:border-primary/40 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          <span className="font-semibold text-ink/60">{e.sourceName}</span>
+                          <span className="truncate">{e.title}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </li>
             ))}
           </ol>
@@ -186,6 +296,7 @@ export function NewsDashboard({
                 <CheckCircleIcon />
                 <p className="text-sm leading-[1.55] text-ink/85 [text-wrap:pretty]">
                   <strong className="font-bold text-ink">{t.lead}</strong> {t.body}
+                  {t.horizon && <HorizonChip horizon={t.horizon} />}
                 </p>
               </li>
             ))}
@@ -194,6 +305,37 @@ export function NewsDashboard({
           insightsNotice
         )}
       </section>
+
+      {watchlist.length > 0 && (
+        <section
+          aria-labelledby="news-watch-title"
+          className="flex flex-col gap-3.5"
+          data-news-watchlist
+        >
+          <div className="flex items-baseline gap-2.5">
+            <h2 id="news-watch-title" className={SECTION_TITLE}>
+              Para seguir de cerca
+            </h2>
+            <span className="text-xs text-ink-secondary/80">Los próximos días</span>
+          </div>
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {watchlist.map((w, i) => (
+              <li
+                key={`${i}-${w.topic}`}
+                className="flex gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4 backdrop-blur-lg"
+              >
+                <EyeIcon />
+                <div className="flex min-w-0 flex-col gap-1">
+                  <h3 className="text-[13px] font-bold text-ink">{w.topic}</h3>
+                  <p className="text-[13px] leading-normal text-ink-secondary [text-wrap:pretty]">
+                    {w.text}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {moreStories.length > 0 && (
         <section aria-labelledby="news-more-title" className="flex flex-col gap-3.5">
@@ -261,6 +403,12 @@ function StoryCard({
         {story.summary && (
           <p className="line-clamp-2 text-[13px] leading-normal text-ink-secondary">
             {story.summary}
+          </p>
+        )}
+        {!compact && story.whyItMatters && (
+          <p className="text-[13px] leading-normal text-ink/80 [text-wrap:pretty]">
+            <span className="font-semibold text-[#6fcf97]">Por qué importa: </span>
+            {story.whyItMatters}
           </p>
         )}
         <div className="mt-auto flex flex-wrap items-center gap-2">
@@ -344,6 +492,28 @@ function Thumbnail({ story }: Readonly<{ story: NewsStory }>) {
   );
 }
 
+const HORIZON_LABEL: Record<NewsHorizon, string> = {
+  ahora: "esta semana",
+  trimestre: "este trimestre",
+  vigilar: "vigilar",
+};
+
+/** When a takeaway applies, as a small chip after the sentence. */
+function HorizonChip({ horizon }: Readonly<{ horizon: NewsHorizon }>) {
+  return (
+    <span
+      className={`ml-2 inline-flex h-[18px] items-center whitespace-nowrap rounded-full border px-2 align-middle font-mono text-[10px] uppercase tracking-wider ${
+        horizon === "ahora"
+          ? "border-primary/50 bg-primary/15 text-[#8fe0b0]"
+          : "border-white/10 bg-white/[0.05] text-ink-secondary"
+      }`}
+      data-horizon={horizon}
+    >
+      {HORIZON_LABEL[horizon]}
+    </span>
+  );
+}
+
 const svg = {
   fill: "none",
   stroke: "currentColor",
@@ -369,6 +539,15 @@ function BulbIcon() {
       <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" />
       <path d="M9 18h6" />
       <path d="M10 22h4" />
+    </svg>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg {...svg} width="18" height="18" className="mt-0.5 shrink-0 text-primary">
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }

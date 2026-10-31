@@ -60,16 +60,13 @@ const snapshotOf = (message: ChatMessage): ReplySnapshot => ({
   hasAttachments: message.attachments.length > 0,
 });
 
-/** Scrolls to a loaded message and flashes it; says so if it's further back in history. */
-function jumpTo(messageId: string) {
-  const el = document.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
-  if (!el) {
-    useChat.getState().showToast("That message is further back in the history.");
-    return;
-  }
-  el.scrollIntoView({ block: "center", behavior: "smooth" });
-  el.classList.add("bg-primary/20");
-  setTimeout(() => el.classList.remove("bg-primary/20"), 1500);
+/**
+ * Goes to the quoted message: the list scrolls to it and highlights it,
+ * loading older pages first when it's further back (the same "Jump to
+ * message" as pins and Files & Links, Phase 38). Nothing to say in a toast.
+ */
+function jumpTo(channelId: string, sk: string) {
+  chat.jumpTo({ channelId, sk });
 }
 
 const actionButton =
@@ -371,7 +368,7 @@ function SecretBody({ message, mine }: Readonly<{ message: ChatMessage; mine: bo
   );
 }
 
-function ReplyQuote({ reply }: Readonly<{ reply: ReplySnapshot }>) {
+function ReplyQuote({ reply, channelId }: Readonly<{ reply: ReplySnapshot; channelId: string }>) {
   const author = useChat((s) => selectName(s, reply.userId));
   if (reply.deleted) {
     return (
@@ -384,7 +381,7 @@ function ReplyQuote({ reply }: Readonly<{ reply: ReplySnapshot }>) {
   return (
     <button
       type="button"
-      onClick={() => jumpTo(reply.messageId)}
+      onClick={() => jumpTo(channelId, reply.sk)}
       className="mb-0.5 mt-0.5 flex max-w-full items-start gap-1.5 rounded-md border-l-2 border-primary bg-surface-sidebar/80 px-2 py-1 text-left text-xs text-ink-secondary hover:bg-surface-hover"
       aria-label={`In reply to ${author}: ${reply.preview}`}
     >
@@ -657,7 +654,7 @@ export const MessageItem = memo(function MessageItem({
             </p>
           )}
 
-          {message.replyTo && <ReplyQuote reply={message.replyTo} />}
+          {message.replyTo && <ReplyQuote reply={message.replyTo} channelId={message.channelId} />}
 
           {message.isSecret && <SecretBody message={message} mine={mine} />}
 

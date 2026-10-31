@@ -45,9 +45,16 @@ describe("dashboardStories", () => {
     ]);
   });
 
-  it("shows the newest four as they are while there's no analysis", () => {
+  it("shows the newest six as they are while there's no analysis", () => {
     const { top, more } = dashboardStories(null, articles);
-    expect(top.map((s) => s.headline)).toEqual(["Story 1", "Story 2", "Story 3", "Story 4"]);
+    expect(top.map((s) => s.headline)).toEqual([
+      "Story 1",
+      "Story 2",
+      "Story 3",
+      "Story 4",
+      "Story 5",
+      "Story 6",
+    ]);
     expect(top[0]).toEqual({
       headline: "Story 1",
       summary: "Snippet 1",
@@ -56,8 +63,8 @@ describe("dashboardStories", () => {
       thumbnailUrl: null,
       pubDate: null,
     });
-    expect(more).toHaveLength(3);
-    expect(dashboardStories({ stories: [] }, articles).top).toHaveLength(4);
+    expect(more).toHaveLength(1);
+    expect(dashboardStories({ stories: [] }, articles).top).toHaveLength(6);
   });
 });
 

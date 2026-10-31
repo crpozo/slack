@@ -102,9 +102,9 @@ describe("parseFeed", () => {
     expect(image("")).toBeNull();
   });
 
-  it("orders newest first, skips items without a title or an https link, keeps 24", () => {
-    // One story an hour over the last 30 hours.
-    const many = Array.from({ length: 30 }, (_, i) =>
+  it("orders newest first, skips items without a title or an https link, keeps 40", () => {
+    // One story an hour over the last 46 hours.
+    const many = Array.from({ length: 46 }, (_, i) =>
       item(
         `<title>Story ${i}</title><link>https://techcrunch.com/${i}</link><pubDate>${new Date(
           NOW - (i + 1) * 3_600_000,
@@ -117,7 +117,7 @@ describe("parseFeed", () => {
       item(`<title>No link</title>${FRESH}`),
     ];
     const articles = parseFeed(rss([...bad, ...many].join("")));
-    expect(articles).toHaveLength(24);
+    expect(articles).toHaveLength(40);
     expect(articles[0]?.title).toBe("Story 0"); // an hour ago
     expect(articles.map((a) => a.pubDate)).toEqual(
       [...articles.map((a) => a.pubDate)].sort().reverse(),
@@ -414,7 +414,7 @@ describe("merging the sources", () => {
     expect(merged.map((a) => a.title)).toEqual(["Big news"]);
   });
 
-  it("caps each source at 8 and the list at 24", () => {
+  it("caps each source at 12 and the list at 40", () => {
     const busy = Array.from({ length: 20 }, (_, i) =>
       article(`busy ${i}`, "Busy", `2026-10-26T${String(i).padStart(2, "0")}:00:00Z`),
     );
@@ -428,9 +428,12 @@ describe("merging the sources", () => {
       article(`extra ${i}`, "Extra", `2026-08-01T${String(i).padStart(2, "0")}:00:00Z`),
     );
     const merged = mergeArticles([busy, quiet, others, extra]);
-    expect(merged).toHaveLength(24);
-    expect(merged.filter((a) => a.sourceName === "Busy")).toHaveLength(8);
-    expect(merged.filter((a) => a.sourceName === "Extra")).toHaveLength(0);
+    expect(merged).toHaveLength(40);
+    expect(merged.filter((a) => a.sourceName === "Busy")).toHaveLength(12);
+    expect(merged.filter((a) => a.sourceName === "Quiet")).toHaveLength(12);
+    expect(merged.filter((a) => a.sourceName === "Other")).toHaveLength(12);
+    // The newest stories win the last seats: the oldest source gets what's left.
+    expect(merged.filter((a) => a.sourceName === "Extra")).toHaveLength(4);
   });
 });
 

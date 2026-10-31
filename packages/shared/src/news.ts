@@ -42,9 +42,9 @@ export const NEWS_FEEDS: readonly NewsFeed[] = [
 ];
 
 /** How many articles the view gets, newest first. */
-export const NEWS_MAX_ARTICLES = 24;
+export const NEWS_MAX_ARTICLES = 40;
 /** The most stories one source may have in the list, so a busy one can't crowd out the rest. */
-export const NEWS_MAX_PER_SOURCE = 8;
+export const NEWS_MAX_PER_SOURCE = 12;
 /**
  * Only news: a story published longer ago than this (or with no date we can
  * read) is dropped as the feed is read, before any limit and before the
@@ -119,11 +119,15 @@ export interface NewsInsightsArticle {
 }
 
 /** How many stories "Lo esencial" picks. */
-export const NEWS_INSIGHTS_TOP_STORIES = 4;
+export const NEWS_INSIGHTS_TOP_STORIES = 6;
 /** How many trends "Tendencias" has, at most. */
-export const NEWS_INSIGHTS_MAX_TRENDS = 3;
+export const NEWS_INSIGHTS_MAX_TRENDS = 4;
 /** How many takeaways "Qué significa para MindfulTech" has, at most. */
-export const NEWS_INSIGHTS_MAX_TAKEAWAYS = 4;
+export const NEWS_INSIGHTS_MAX_TAKEAWAYS = 5;
+/** How many items "Para seguir de cerca" has, at most (Phase 44). */
+export const NEWS_INSIGHTS_MAX_WATCHLIST = 4;
+/** How many implications and open questions "A fondo" lists, at most (Phase 44). */
+export const NEWS_INSIGHTS_DEEP_DIVE_POINTS = 3;
 
 /**
  * A story as the dashboard shows it: the headline and summary are the
@@ -133,6 +137,11 @@ export interface NewsStory {
   headline: string;
   /** One or two sentences. */
   summary: string;
+  /**
+   * Phase 44: why it matters beyond what happened (who it affects, what
+   * changes); one or two sentences. Absent on live stories and older analyses.
+   */
+  whyItMatters?: string;
   /** The publisher ("InfoQ"). */
   sourceName: string;
   /** The article on the publisher's site (https). */
@@ -143,13 +152,26 @@ export interface NewsStory {
   pubDate: string | null;
 }
 
+/** A story a trend rests on (Phase 44): the feed's title and link, never the model's. */
+export interface NewsEvidence {
+  title: string;
+  link: string;
+  sourceName: string;
+}
+
 /** A pattern behind the day's stories. */
 export interface NewsTrend {
   /** One or two words ("Agentes"). */
   topic: string;
   /** A short paragraph; the key phrases are marked `**like this**` (plain text otherwise). */
   text: string;
+  /** Phase 44: the stories it rests on, in the analysis's order. */
+  evidence?: NewsEvidence[];
 }
+
+/** When a takeaway applies (Phase 44): act now, plan for the quarter, or keep an eye on it. */
+export const NEWS_HORIZONS = ["ahora", "trimestre", "vigilar"] as const;
+export type NewsHorizon = (typeof NEWS_HORIZONS)[number];
 
 /** What the news means for the team: a bold lead and the rest of the sentence. */
 export interface NewsTakeaway {
@@ -157,6 +179,33 @@ export interface NewsTakeaway {
   lead: string;
   /** "para la app de bienestar: reduce costos de API…" */
   body: string;
+  /** Phase 44. */
+  horizon?: NewsHorizon;
+}
+
+/**
+ * "A fondo" (Phase 44): the day's most important story taken apart: the
+ * background, what it changes for a small AI product team, and what is
+ * still unknown. Link and source are the feed's.
+ */
+export interface NewsDeepDive {
+  headline: string;
+  link: string;
+  sourceName: string;
+  /** Three or four sentences of background and what changed. */
+  context: string;
+  /** Concrete implications, up to `NEWS_INSIGHTS_DEEP_DIVE_POINTS`. */
+  implications: string[];
+  /** Open questions, up to `NEWS_INSIGHTS_DEEP_DIVE_POINTS`. */
+  questions: string[];
+}
+
+/** "Para seguir de cerca" (Phase 44): a thing to watch and why. */
+export interface NewsWatchItem {
+  /** Two to four words ("Precios de inferencia"). */
+  topic: string;
+  /** One or two sentences: what to look for and what it would mean. */
+  text: string;
 }
 
 export interface NewsInsights {
@@ -172,6 +221,10 @@ export interface NewsInsights {
   trends: NewsTrend[];
   /** "Qué significa para MindfulTech". */
   takeaways: NewsTakeaway[];
+  /** "A fondo" (Phase 44); absent on older analyses. */
+  deepDive?: NewsDeepDive;
+  /** "Para seguir de cerca" (Phase 44); absent on older analyses. */
+  watchlist?: NewsWatchItem[];
   /** The stories it read, newest first. */
   articles: NewsInsightsArticle[];
   /** The publishers they came from, comma-separated. */

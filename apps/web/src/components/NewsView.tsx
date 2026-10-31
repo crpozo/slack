@@ -71,8 +71,10 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
               dateLabel={dashboardDateLabel(insights?.day ?? null, now)}
               storyCount={insights?.storyCount ?? articles.length}
               stories={top}
+              deepDive={insights?.deepDive}
               trends={insights?.trends ?? []}
               takeaways={insights?.takeaways ?? []}
+              watchlist={insights?.watchlist ?? []}
               moreStories={more}
               now={now}
               refreshing={status === "loading" || insightsState.generating}

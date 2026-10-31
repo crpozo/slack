@@ -7,6 +7,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI News, a deeper analysis:** the morning run now reads up to 40 stories (12 per source,
+  last 48 hours; it was 24 and 8) and reasons at high effort before writing. The dashboard gains
+  **A fondo** (the day's story taken apart: background, what it changes for us, open questions),
+  **Por qué importa** on each of the six top stories (six, not four), the stories each trend
+  rests on as links, a horizon on each takeaway (this week, this quarter, watch) and **Para
+  seguir de cerca**, what to follow in the coming days.
+- **Quoted replies jump:** clicking the quote above a reply now goes to the original message,
+  loading older history until it's there, like "Jump to message" on pins. No more "That message
+  is further back in the history".
 - **AI Skills:** a new app under APPS (a puzzle-piece icon below AI News) with the team's catalog
   of Claude Code skills. Search by name, command or description, and filter by team, GitHub,
   security or development.
