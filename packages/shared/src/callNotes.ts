@@ -19,6 +19,68 @@ export interface TranscriptSegment {
 
 export type AiNotesStatus = "pending" | "ready" | "failed";
 
+// ---------------------------------------------------------------------------
+// Phase 46: every notes card is filed under one category and a few topics,
+// decided by the model from the summary, so the AI Notes hub can be browsed
+// by what the calls were about, not only by date and person.
+// ---------------------------------------------------------------------------
+
+export const NOTES_CATEGORIES = [
+  "client",
+  "project",
+  "planning",
+  "sales",
+  "support",
+  "technical",
+  "team",
+  "other",
+] as const;
+export type NotesCategory = (typeof NOTES_CATEGORIES)[number];
+
+/** How each category reads in the app. */
+export const NOTES_CATEGORY_LABELS: Record<NotesCategory, string> = {
+  client: "Client",
+  project: "Project",
+  planning: "Planning",
+  sales: "Sales",
+  support: "Support",
+  technical: "Technical",
+  team: "Team",
+  other: "Other",
+};
+
+/** What each category means (the model reads this; the app shows it as a hint). */
+export const NOTES_CATEGORY_HINTS: Record<NotesCategory, string> = {
+  client: "a meeting with or about a client: requirements, feedback, demos, deliveries",
+  project: "progress on a project the team is building: status, blockers, next steps",
+  planning: "planning and priorities: roadmaps, estimates, scheduling, scope",
+  sales: "a prospect, a proposal, pricing or a negotiation",
+  support: "an incident, a bug report or helping someone use a product",
+  technical: "architecture, code, infrastructure or tooling decisions",
+  team: "the team itself: hiring, onboarding, process, one-on-ones, admin",
+  other: "anything else",
+};
+
+export const isNotesCategory = (value: unknown): value is NotesCategory =>
+  NOTES_CATEGORIES.includes(value as NotesCategory);
+
+/** At most this many topics per card, each at most `MAX_NOTE_TOPIC_LENGTH` characters. */
+export const MAX_NOTE_TOPICS = 6;
+export const MAX_NOTE_TOPIC_LENGTH = 40;
+
+/** What the model files a card under. */
+export interface NotesMeta {
+  category: NotesCategory;
+  /** Short tags in the call's language ("Facturación", "Migración a AWS"). */
+  topics: string[];
+}
+
+/** `POST /notes/classify`: cards filed this time, and how many of yours still wait. */
+export interface ClassifyNotesResponse {
+  classified: number;
+  remaining: number;
+}
+
 /** What an `ai_notes` message carries (see `Message.aiNotes`). */
 export interface AiNotes {
   callId: string;
@@ -34,6 +96,9 @@ export interface AiNotes {
   error?: string;
   /** Its action items were added to a board (Phase 29): once per notes card. */
   sentToBoard?: NotesSentToBoard;
+  /** Phase 46: what the call was about. Cards from before are filed on request. */
+  category?: NotesCategory;
+  topics?: string[];
   /**
    * Phase 40: the full notes are kept apart (`GET /notes/{callId}`): the raw
    * transcript, the polished minutes and your own questions. Cards from before

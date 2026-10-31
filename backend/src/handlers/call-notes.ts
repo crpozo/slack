@@ -25,11 +25,13 @@ import {
   type NoteDetail,
   type NoteQuestion,
   type NotesPage,
+  type ClassifyNotesResponse,
   type TranscriptSegment,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
 import { deliver, listConnections } from "../lib/broadcast";
-import { settleNotesCard, transcriptFor, type NotesJob } from "../lib/callNotes";
+import { settleNotesCard, tagNotesCard, transcriptFor, type NotesJob } from "../lib/callNotes";
+import { metaFrom, metaRequest } from "../lib/noteMeta";
 import { bedrockModel, type ClaudeModel } from "../lib/claude";
 import {
   countQuestions,
@@ -492,9 +494,81 @@ async function askNote(event: HttpEvent, caller: HttpCaller): Promise<HttpResult
   return json(200, asked);
 }
 
+/** How many of your pointers "Classify older notes" looks through (newest first). */
+export const CLASSIFY_SCAN_LIMIT = 200;
+/** How many cards one request files: a few seconds of short model calls, side by side. */
+export const CLASSIFY_BATCH = 6;
+
+/**
+ * `POST /notes/classify` (Phase 46): files your notes cards written before
+ * categories existed, a batch at a time: each ready card without a category
+ * gets one from its summary (Claude Haiku 5.5, low effort), and everyone in
+ * the call hears `message.updated`. Answers how many it filed and how many
+ * of yours still wait, so the app calls it again until none do. A card the
+ * model can't file is left as it is (and counted as waiting).
+ */
+async function classifyNotes(_event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const pointers: MeetingNoteIndexItem[] = [];
+  let startKey: Record<string, unknown> | undefined;
+  do {
+    const page = await ddb.send(
+      new QueryCommand({
+        TableName: tables.meetingNotes,
+        KeyConditionExpression: "userId = :me",
+        ExpressionAttributeValues: { ":me": caller.userId },
+        ScanIndexForward: false,
+        Limit: CLASSIFY_SCAN_LIMIT - pointers.length,
+        ...(startKey && { ExclusiveStartKey: startKey }),
+      }),
+    );
+    pointers.push(...((page.Items ?? []) as MeetingNoteIndexItem[]));
+    startKey = page.LastEvaluatedKey;
+  } while (startKey && pointers.length < CLASSIFY_SCAN_LIMIT);
+
+  const cards: Record<string, unknown>[] = [];
+  for (let i = 0; i < pointers.length; i += 100) {
+    const chunk = pointers.slice(i, i + 100);
+    cards.push(...(await getMessages(chunk.map(({ channelId, sk }) => ({ channelId, sk })))));
+  }
+  const waiting = cards.filter((card) => {
+    const notes = card.aiNotes as AiNotes | undefined;
+    return (
+      card.kind === "ai_notes" && notes?.status === "ready" && !notes.category && notes.summary
+    );
+  });
+  const batch = waiting.slice(0, CLASSIFY_BATCH);
+  const model = (questionModel ??= bedrockModel(QUESTION_TIMEOUT_MS, 0));
+  const results = await Promise.allSettled(
+    batch.map(async (card) => {
+      const notes = card.aiNotes as AiNotes;
+      const meta = metaFrom(await model.create(metaRequest(notes.summary)));
+      if (!meta) return false;
+      return (
+        (await tagNotesCard(
+          {
+            channelId: String(card.channelId),
+            sk: String(card.sk),
+            messageId: String(card.messageId),
+            members: notes.participants,
+          },
+          meta,
+        )) !== null
+      );
+    }),
+  );
+  const classified = results.filter((r) => r.status === "fulfilled" && r.value).length;
+  for (const r of results) {
+    if (r.status === "rejected") log.warn("note not classified", errorFields(r.reason));
+  }
+  log.info("notes classified", { userId: caller.userId, classified, waiting: waiting.length });
+  const body: ClassifyNotesResponse = { classified, remaining: waiting.length - classified };
+  return json(200, body);
+}
+
 const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<HttpResult>> = {
   "POST /calls/summary": summarizeCall,
   "GET /notes": listNotes,
+  "POST /notes/classify": classifyNotes,
   "PUT /calls/{callId}/audio": attachAudio,
   "GET /notes/{callId}": getNote,
   "POST /notes/{callId}/ask": askNote,

@@ -7,6 +7,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI Notes by category and topic:** every call's notes are now filed by the AI as they are
+  written, under one category (Client, Project, Planning, Sales, Support, Technical, Team, Other)
+  and a few topics in the call's language. The AI Notes hub has a search box (summaries, topics
+  and people), category chips with counts, the most used topics as tags, and each card shows its
+  category and topics, all clickable to filter. Notes from before get an **Organize** button that
+  files them in batches; each card updates live.
+- **Download really downloads:** the download button on files, in the PDF viewer and in the
+  image viewer now saves the file under its name instead of opening it in a tab (S3 is told to
+  serve it as an attachment; browsers ignore `download` on another site's links). **Open** and
+  **Preview** still open it.
 - **AI News, a deeper analysis:** the morning run now reads up to 40 stories (12 per source,
   last 48 hours; it was 24 and 8) and reasons at high effort before writing. The dashboard gains
   **A fondo** (the day's story taken apart: background, what it changes for us, open questions),

@@ -170,6 +170,7 @@ function TaskImage({ file, compact }: Readonly<{ file: Attachment; compact: bool
           src={viewing}
           placeholder={file.thumbKey ? url : undefined}
           name={file.name}
+          fileKey={file.key}
           onClose={() => setViewing(null)}
         />
       )}

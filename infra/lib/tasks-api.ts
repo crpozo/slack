@@ -68,6 +68,8 @@ export const CALENDAR_ROUTES: Array<{ method: HttpMethod; path: string }> = [
 export const CALL_NOTES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/calls/summary" },
   { method: HttpMethod.GET, path: "/notes" },
+  // Phase 46: filing older notes under a category and topics.
+  { method: HttpMethod.POST, path: "/notes/classify" },
   // Phase 40: the recording, the full notes, and private questions about them.
   { method: HttpMethod.PUT, path: "/calls/{callId}/audio" },
   { method: HttpMethod.GET, path: "/notes/{callId}" },

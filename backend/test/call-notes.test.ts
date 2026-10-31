@@ -14,6 +14,7 @@ import { dmChannelId, GENERAL_CHANNEL_ID, MAX_QUESTIONS_PER_NOTE } from "@mindfu
 import { mockClient } from "aws-sdk-client-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handler, useQuestionModel } from "../src/handlers/call-notes";
+import type { ClaudeModel } from "../src/lib/claude";
 import { NOTES_MODEL } from "../src/lib/callNotes";
 import { QUESTION_SYSTEM } from "../src/lib/noteQuestions";
 import type { HttpEvent } from "../src/lib/http";
@@ -677,5 +678,107 @@ describe("Phase 40: the recording, the full notes and private questions", () => 
     create.mockResolvedValueOnce({ ...answer(), stop_reason: "refusal" });
     expect((await route("POST /notes/{callId}/ask", { question: "¿Qué?" })).status).toBe(502);
     expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+  });
+});
+
+describe("POST /notes/classify (Phase 46)", () => {
+  const NOTES_TABLE = "slack-test-meeting-notes";
+  const classify = async (user = ALICE) => {
+    const event = {
+      ...request({}, user),
+      routeKey: "POST /notes/classify",
+      rawPath: "/notes/classify",
+      body: undefined,
+    } as unknown as HttpEvent;
+    const result = (await handler(event)) as { statusCode: number; body: string };
+    return { status: result.statusCode, body: JSON.parse(result.body) };
+  };
+  const card = (sk: string, notes: Record<string, unknown>) => ({
+    messageId: `m-${sk}`,
+    channelId: DM,
+    sk,
+    userId: ALICE.userId,
+    text: "✨",
+    attachments: [],
+    createdAt: 1,
+    kind: "ai_notes",
+    aiNotes: {
+      callId: sk,
+      status: "ready",
+      summary: `Resumen ${sk}`,
+      startedAt: 1,
+      endedAt: 2,
+      participants: [ALICE.userId, BOB.userId],
+      ...notes,
+    },
+  });
+  const answer = (json: unknown) =>
+    ({
+      content: [{ type: "text", text: JSON.stringify(json) }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }) as unknown as Anthropic.Message;
+  let create: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    resetMocks();
+    create = vi.fn(async () => answer({ category: "client", topics: ["Contrato", "Precios"] }));
+    useQuestionModel({ create } as unknown as ClaudeModel);
+    ddbMock.on(QueryCommand, { TableName: NOTES_TABLE }).resolves({
+      Items: ["4#d", "3#c", "2#b", "1#a"].map((sk) => ({
+        userId: ALICE.userId,
+        sk,
+        channelId: DM,
+        callId: sk,
+        endedAt: 1,
+      })),
+    });
+    ddbMock.on(BatchGetCommand).resolves({
+      Responses: {
+        [MESSAGES]: [
+          card("4#d", {}),
+          card("3#c", { category: "team", topics: ["Proceso"] }), // already filed
+          card("2#b", { status: "failed", summary: "" }), // nothing to file
+          card("1#a", {}),
+        ],
+      },
+    });
+    ddbMock.on(UpdateCommand).callsFake((input: { Key: { sk: string } }) => ({
+      Attributes: {
+        aiNotes: { ...card(input.Key.sk, {}).aiNotes, category: "client", topics: ["Contrato"] },
+      },
+    }));
+    ddbMock.on(ScanCommand, { TableName: "slack-test-connections" }).resolves({
+      Items: [{ connectionId: "conn-bob", userId: BOB.userId }],
+    });
+  });
+  afterEach(() => useQuestionModel(null));
+
+  it("files only your ready, unfiled cards from their summaries, and tells the call's people", async () => {
+    expect(await classify()).toEqual({ status: 200, body: { classified: 2, remaining: 0 } });
+    expect(create).toHaveBeenCalledTimes(2);
+    const request = create.mock.calls[0]![0] as Anthropic.MessageCreateParamsNonStreaming;
+    expect(request.output_config).toMatchObject({ effort: "low", format: { type: "json_schema" } });
+    expect(request.messages[0]!.content).toBe("<notes>\nResumen 4#d\n</notes>");
+    const updates = ddbMock.commandCalls(UpdateCommand).map((c) => c.args[0].input);
+    expect(updates.map((u) => u.Key)).toEqual([
+      { channelId: DM, sk: "4#d" },
+      { channelId: DM, sk: "1#a" },
+    ]);
+    expect(updates[0]).toMatchObject({
+      UpdateExpression: "SET aiNotes.category = :category, aiNotes.topics = :topics",
+      ConditionExpression: "kind = :kind AND aiNotes.#status = :ready",
+      ExpressionAttributeValues: { ":category": "client", ":topics": ["Contrato", "Precios"] },
+    });
+    expect(sentEvents().map(([id, e]) => `${id}:${e.type}`)).toEqual([
+      "conn-bob:message.updated",
+      "conn-bob:message.updated",
+    ]);
+  });
+
+  it("a card the model can't file stays as it is and still counts as waiting", async () => {
+    create.mockResolvedValueOnce(answer({ category: "gossip", topics: [] }));
+    expect(await classify()).toEqual({ status: 200, body: { classified: 1, remaining: 1 } });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
   });
 });

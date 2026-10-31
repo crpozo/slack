@@ -5,6 +5,7 @@ import { openExternal } from "../lib/external";
 import { localPreview, releaseLocalPreview } from "../lib/outbox";
 import { renderNotesMarkdown } from "../lib/markdown";
 import { formatBytes, getDownloadUrl, isUsableUrl, rememberDownloadUrl } from "../lib/upload";
+import { downloadAttachment } from "../lib/download";
 import {
   clipSeconds,
   formatDuration,
@@ -135,6 +136,7 @@ function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
           src={viewing}
           placeholder={attachment.thumbKey ? url : undefined}
           name={attachment.name}
+          fileKey={attachment.key}
           onClose={() => setViewing(null)}
         />
       )}
@@ -176,11 +178,11 @@ function PdfAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>)
 }
 
 /**
- * Opens a file in a new tab (the browser shows or downloads it), or in the
+ * Opens a file in a new tab (the browser shows or plays it), or in the
  * system browser from the desktop app. Must run in the click itself: the tab
  * is opened before the URL is known, so popup blockers allow it.
  */
-export async function downloadAttachment(
+export async function openAttachment(
   attachment: Pick<AttachmentData, "key" | "url">,
   notify: (message: string) => void,
 ): Promise<void> {

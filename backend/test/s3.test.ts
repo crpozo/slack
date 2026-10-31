@@ -1,6 +1,13 @@
 import { PRESIGN_GET_WINDOW_SECONDS, type Attachment } from "@mindfultech/shared";
 import { describe, expect, it } from "vitest";
-import { presignGet, signAttachments, signingWindowStart, withSignedUrls } from "../src/lib/s3";
+import {
+  attachmentDisposition,
+  presignDownload,
+  presignGet,
+  signAttachments,
+  signingWindowStart,
+  withSignedUrls,
+} from "../src/lib/s3";
 
 const WINDOW_MS = PRESIGN_GET_WINDOW_SECONDS * 1000;
 const T0 = Date.UTC(2026, 10, 3, 14, 0); // 14:00Z: on a 2-hour boundary
@@ -63,5 +70,31 @@ describe("download URLs", () => {
     expect(message.attachments[0]).toBe(pdf);
     expect(message.attachments[1]?.url).toBeDefined();
     expect(message.attachments[1]?.thumbUrl).toBeUndefined();
+  });
+});
+
+describe("download links that save (Phase 47)", () => {
+  it("names the file in an attachment disposition, ASCII and UTF-8, with nothing left unescaped", () => {
+    expect(attachmentDisposition("GUIA_GITHUB_ADMIN.md")).toBe(
+      "attachment; filename=\"GUIA_GITHUB_ADMIN.md\"; filename*=UTF-8''GUIA_GITHUB_ADMIN.md",
+    );
+    expect(attachmentDisposition("Cotización (final).pdf")).toBe(
+      "attachment; filename=\"Cotizaci_n (final).pdf\"; filename*=UTF-8''Cotizaci%C3%B3n%20%28final%29.pdf",
+    );
+    // A quote, a backslash or a line break can't end the header early.
+    const tricky = attachmentDisposition('a"b\\c\r\nSet-Cookie: x.txt');
+    expect(tricky).not.toMatch(/[\r\n]/);
+    expect(tricky.split('"')).toHaveLength(3);
+  });
+
+  it("signs the disposition into the URL, in the same windows as inline links", async () => {
+    const url = new URL(await presignDownload(pdf.key, "spec.pdf", T0 + 60_000));
+    expect(url.pathname).toBe(`/${pdf.key}`);
+    expect(url.searchParams.get("response-content-disposition")).toBe(
+      "attachment; filename=\"spec.pdf\"; filename*=UTF-8''spec.pdf",
+    );
+    expect(url.searchParams.get("X-Amz-Date")).toBe(
+      new URL(await presignGet(pdf.key, T0 + 60_000)).searchParams.get("X-Amz-Date"),
+    );
   });
 });

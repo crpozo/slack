@@ -160,3 +160,48 @@ export async function getDownloadUrl(key: string, known?: string): Promise<strin
   downloadUrls.set(key, { url, expiresAt: presignedUrlExpiry(url) || Date.now() + 60_000 });
   return url;
 }
+
+const saveUrls = new Map<string, { url: string; expiresAt: number }>();
+
+/**
+ * A URL that saves `key` as `name` (`Content-Disposition: attachment`, Phase
+ * 47) rather than opening it: the only way to download from another origin,
+ * where browsers ignore `<a download>`. Cached per file and name like the
+ * inline URLs.
+ */
+export async function getSaveUrl(key: string, name: string): Promise<string> {
+  const id = `${key}\n${name}`;
+  const cached = saveUrls.get(id);
+  if (cached && cached.expiresAt - EXPIRY_MARGIN_MS > Date.now()) return cached.url;
+  const { url } = await chat.presign({ op: "get", key, download: name });
+  saveUrls.set(id, { url, expiresAt: presignedUrlExpiry(url) || Date.now() + 60_000 });
+  return url;
+}
+
+/**
+ * Downloads a file: the browser saves it (the page stays where it is, no tab
+ * opens). The desktop app hands the URL to the system browser, which saves it
+ * the same way.
+ */
+export async function saveFile(
+  file: { key: string; name: string },
+  notify: (message: string) => void,
+  openOutside?: (url: string) => Promise<void>,
+): Promise<void> {
+  try {
+    const url = await getSaveUrl(file.key, file.name);
+    if (openOutside) {
+      await openOutside(url);
+      return;
+    }
+    const link = document.createElement("a");
+    link.href = url;
+    link.rel = "noopener";
+    link.style.display = "none";
+    document.body.append(link);
+    link.click();
+    link.remove();
+  } catch (err) {
+    notify(err instanceof Error ? err.message : "Couldn't download the file.");
+  }
+}

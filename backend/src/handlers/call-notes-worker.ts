@@ -56,6 +56,7 @@ export const handler = async (job: NotesJob): Promise<void> => {
       callId: notes.callId,
       ok: outcome.ok,
       polished: outcome.ok && outcome.polished !== null,
+      filed: outcome.ok && outcome.meta !== null,
       stopReason: response.stop_reason,
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
@@ -70,7 +71,13 @@ export const handler = async (job: NotesJob): Promise<void> => {
       }
     }
     settled = outcome.ok
-      ? { ...notes, status: "ready", summary: outcome.summary }
+      ? {
+          ...notes,
+          status: "ready",
+          summary: outcome.summary,
+          // Phase 46: filed as it's written; a missing <meta> leaves it to "Classify older notes".
+          ...(outcome.meta && { category: outcome.meta.category, topics: outcome.meta.topics }),
+        }
       : { ...notes, status: "failed", error: outcome.error };
   } catch (err) {
     log.error("call notes failed", {

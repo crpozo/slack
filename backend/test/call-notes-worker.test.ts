@@ -159,11 +159,17 @@ describe("call notes worker (Phase 40: the dictation editor)", () => {
   });
 
   it("parses the two sections, tolerating a missing closing tag or a missing <polished>", () => {
-    expect(notesFrom(response())).toEqual({ ok: true, summary: SUMMARY, polished: POLISHED });
+    expect(notesFrom(response())).toEqual({
+      ok: true,
+      summary: SUMMARY,
+      polished: POLISHED,
+      meta: null,
+    });
     expect(notesFrom(response({}, `<summary>\n${SUMMARY}`))).toEqual({
       ok: true,
       summary: SUMMARY,
       polished: null,
+      meta: null,
     });
     expect(notesFrom(response({}, `<polished>${POLISHED}</polished>`))).toMatchObject({
       ok: false,
@@ -212,5 +218,51 @@ describe("call notes worker (Phase 40: the dictation editor)", () => {
       .rejects(new ConditionalCheckFailedException({ message: "settled", $metadata: {} }));
     await handler(job());
     expect(sentEvents()).toEqual([]);
+  });
+
+  it("Phase 46: files the card under the <meta> category and tidied topics, as it settles it", async () => {
+    const meta =
+      '```json\n{"category": "client", "topics": ["#Contrato", "contrato", "  Revisión   legal ", "", 7]}\n```';
+    stream.mockResolvedValueOnce(
+      response(
+        {},
+        `<polished>${POLISHED}</polished>\n<summary>${SUMMARY}</summary>\n<meta>${meta}</meta>`,
+      ),
+    );
+    await handler(job());
+    const update = ddbMock.commandCalls(UpdateCommand)[0]!.args[0].input;
+    expect(update.UpdateExpression).toBe(
+      "SET aiNotes.#status = :status, aiNotes.summary = :summary, #text = :text, aiNotes.category = :category, aiNotes.topics = :topics",
+    );
+    expect(update.ExpressionAttributeValues).toMatchObject({
+      ":category": "client",
+      ":topics": ["Contrato", "Revisión legal"],
+    });
+    // The editor is told the categories and how to write topics.
+    expect(NOTES_SYSTEM).toContain("<meta>");
+    expect(NOTES_SYSTEM).toContain("- client:");
+    expect(NOTES_SYSTEM).toContain("- technical:");
+  });
+
+  it("an unknown category or broken <meta> leaves the card unfiled, never failed", () => {
+    const withMeta = (m: string) =>
+      notesFrom(response({}, `<summary>${SUMMARY}</summary><meta>${m}</meta>`));
+    expect(withMeta('{"category": "gossip", "topics": ["x"]}')).toMatchObject({
+      ok: true,
+      meta: null,
+    });
+    expect(withMeta("not json")).toMatchObject({ ok: true, meta: null });
+    expect(withMeta('{"category": "team"}')).toMatchObject({
+      ok: true,
+      meta: { category: "team", topics: [] },
+    });
+    const many = JSON.stringify({
+      category: "project",
+      topics: Array.from({ length: 9 }, (_, i) => `Tema ${i} ${"x".repeat(50)}`),
+    });
+    const tidy = withMeta(many);
+    if (!tidy.ok || !tidy.meta) throw new Error("expected meta");
+    expect(tidy.meta.topics).toHaveLength(6);
+    expect(tidy.meta.topics.every((t) => t.length <= 40)).toBe(true);
   });
 });

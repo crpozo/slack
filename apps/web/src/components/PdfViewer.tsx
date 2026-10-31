@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { getDownloadUrl } from "../lib/upload";
+import { useChat } from "../store";
+import { downloadAttachment } from "../lib/download";
 import { CloseIcon, DownloadIcon, GlobeIcon } from "./icons";
 import { useModalDialog } from "./Modal";
 
@@ -20,6 +22,7 @@ interface PdfViewerProps {
  */
 export function PdfViewer({ fileKey, name, onClose }: Readonly<PdfViewerProps>) {
   const dialog = useModalDialog(onClose);
+  const notify = useChat((s) => s.showToast);
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,17 +63,16 @@ export function PdfViewer({ fileKey, name, onClose }: Readonly<PdfViewerProps>) 
             <GlobeIcon />
             <span className="hidden sm:inline">New tab</span>
           </a>
-          <a
-            href={url ?? undefined}
-            download={name}
-            className={`${button} ${url ? "" : "pointer-events-none opacity-40"}`}
-            aria-disabled={!url}
+          <button
+            type="button"
+            onClick={() => void downloadAttachment({ key: fileKey, name }, notify)}
+            className={button}
             aria-label={`Download ${name}`}
             title="Download"
           >
             <DownloadIcon />
             <span className="hidden sm:inline">Download</span>
-          </a>
+          </button>
           <button
             type="button"
             className={`${button} px-2`}

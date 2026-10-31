@@ -643,6 +643,11 @@ export const PresignGetActionSchema = z.object({
   op: z.literal("get"),
   requestId,
   key: z.string().min(1).max(1024),
+  /**
+   * Phase 47: a URL that saves the file under this name instead of showing
+   * it (`Content-Disposition: attachment`). Without it, the file opens inline.
+   */
+  download: z.string().trim().min(1).max(255).optional(),
 });
 
 export const PresignActionSchema = z.discriminatedUnion("op", [

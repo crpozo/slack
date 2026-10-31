@@ -85,6 +85,23 @@ describe("presign", () => {
     expect(new URL(event.url).searchParams.get("X-Amz-Expires")).toBe("10800");
   });
 
+  it("get with download: the URL saves the file under that name instead of showing it", async () => {
+    const key = "attachments/ch_general/01ABC-GUIA.md";
+    await handler(
+      wsEvent("presign", {
+        action: "presign",
+        op: "get",
+        requestId: "r9",
+        key,
+        download: "GUIA.md",
+      }),
+    );
+    const [[, event]] = sentEvents() as [[string, PresignResultEvent]];
+    expect(new URL(event.url).searchParams.get("response-content-disposition")).toBe(
+      "attachment; filename=\"GUIA.md\"; filename*=UTF-8''GUIA.md",
+    );
+  });
+
   it("get answers FILE_NOT_FOUND for a key that does not exist", async () => {
     s3Mock.on(HeadObjectCommand).rejects(new NotFound({ message: "missing", $metadata: {} }));
     const key = "attachments/ch_general/01ABC-borrado.png";

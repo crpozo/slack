@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { clampPan, FIT, toggleZoom, wheelFactor, zoomTo, type ZoomView } from "../lib/zoom";
+import { useChat } from "../store";
+import { downloadAttachment } from "../lib/download";
 import { CloseIcon, DownloadIcon } from "./icons";
 import { useModalDialog } from "./Modal";
 
@@ -17,6 +19,8 @@ interface LightboxProps {
   /** The thumbnail already on screen, shown until the original has loaded. */
   placeholder?: string;
   name: string;
+  /** The file's key: Download saves the original under `name` (Phase 47). */
+  fileKey?: string;
   onClose: () => void;
 }
 
@@ -29,8 +33,9 @@ interface LightboxProps {
  * events from bubbling out: the page's own gestures (swipe to reply, the
  * drawer's edge swipe, listening on `document`) never see them.
  */
-export function Lightbox({ src, placeholder, name, onClose }: Readonly<LightboxProps>) {
+export function Lightbox({ src, placeholder, name, fileKey, onClose }: Readonly<LightboxProps>) {
   const dialog = useModalDialog(onClose);
+  const notify = useChat((s) => s.showToast);
   const [loaded, setLoaded] = useState(!placeholder);
   const viewportRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -231,17 +236,28 @@ export function Lightbox({ src, placeholder, name, onClose }: Readonly<LightboxP
           >
             +
           </button>
-          <a
-            href={src}
-            target="_blank"
-            rel="noopener noreferrer"
-            download={name}
-            className={button}
-            aria-label={`Download ${name}`}
-            title="Download"
-          >
-            <DownloadIcon />
-          </a>
+          {fileKey ? (
+            <button
+              type="button"
+              onClick={() => void downloadAttachment({ key: fileKey, name }, notify)}
+              className={button}
+              aria-label={`Download ${name}`}
+              title="Download"
+            >
+              <DownloadIcon />
+            </button>
+          ) : (
+            <a
+              href={src}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={button}
+              aria-label={`Open ${name} in a new tab`}
+              title="Open in a new tab"
+            >
+              <DownloadIcon />
+            </a>
+          )}
           <button
             type="button"
             className={button}

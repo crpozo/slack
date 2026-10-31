@@ -67,6 +67,40 @@ export function presignGet(key: string, now = Date.now()): Promise<string> {
   );
 }
 
+/**
+ * `Content-Disposition: attachment` for `name`: an ASCII `filename` for old
+ * browsers (anything else, quotes and backslashes become `_`) and the exact
+ * name in RFC 5987 `filename*`. Nothing from `name` reaches the header
+ * unescaped, so it can't break out of it.
+ */
+export function attachmentDisposition(name: string): string {
+  // eslint-disable-next-line no-control-regex
+  const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_").trim() || "download";
+  const encoded = encodeURIComponent(name).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
+/**
+ * Download URL that saves the file as `name` rather than showing it (Phase
+ * 47): S3 answers with `Content-Disposition: attachment`, the one thing a
+ * browser honours on another origin (it ignores `<a download>` there).
+ * Signed in the same windows as `presignGet`.
+ */
+export function presignDownload(key: string, name: string, now = Date.now()): Promise<string> {
+  return getSignedUrl(
+    s3,
+    new GetObjectCommand({
+      Bucket: requireEnv("ATTACHMENTS_BUCKET"),
+      Key: key,
+      ResponseContentDisposition: attachmentDisposition(name),
+    }),
+    { expiresIn: PRESIGN_GET_EXPIRES_SECONDS, signingDate: signingWindowStart(now) },
+  );
+}
+
 /** `attachment` with `url` (and `thumbUrl`) when it's shown inline; other files are left alone. */
 export async function withSignedUrls(attachment: Attachment, now?: number): Promise<Attachment> {
   if (!isInlineAttachment(attachment)) return attachment;

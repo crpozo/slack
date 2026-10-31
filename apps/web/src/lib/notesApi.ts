@@ -1,5 +1,6 @@
 import type {
   AiNotes,
+  ClassifyNotesResponse,
   Message,
   NoteAudio,
   NoteDetail,
@@ -44,6 +45,11 @@ export const notesApi = {
       audio,
     );
   },
+  /**
+   * Phase 46: files a batch of your older notes under a category and topics
+   * (`message.updated` follows for each); call again while `remaining > 0`.
+   */
+  classify: () => request<ClassifyNotesResponse>("POST", "/notes/classify"),
   /** The AI Notes hub (Phase 29): your notes cards from every conversation, newest first. */
   list: (cursor: string | null) =>
     request<NotesPage>("GET", cursor ? `/notes?cursor=${encodeURIComponent(cursor)}` : "/notes"),

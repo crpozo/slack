@@ -19,7 +19,7 @@ import { renderMarkdown } from "../lib/markdown";
 import { mediaApi } from "../lib/mediaApi";
 import { formatBytes, getDownloadUrl } from "../lib/upload";
 import { useChat, useNameOf } from "../store";
-import { attachmentKind, downloadAttachment } from "./Attachment";
+import { attachmentKind, openAttachment } from "./Attachment";
 import { Avatar, PresenceDot } from "./Avatar";
 import { ExternalLinkIcon, FileIcon, PencilIcon, PinIcon, PinOffIcon } from "./icons";
 import { Lightbox } from "./Lightbox";
@@ -500,8 +500,8 @@ function FileRow({
       }
       return;
     }
-    // Audio, video and anything else: in a tab (the browser plays or downloads it).
-    await downloadAttachment(a, showToast);
+    // Audio, video and anything else: in a tab (the browser plays or shows it).
+    await openAttachment(a, showToast);
   }
 
   return (
@@ -530,7 +530,7 @@ function FileRow({
       </button>
       <JumpButton onClick={() => onJump(file)} />
       {viewing === "image" && imageUrl && (
-        <Lightbox src={imageUrl} name={a.name} onClose={() => setViewing(null)} />
+        <Lightbox src={imageUrl} name={a.name} fileKey={a.key} onClose={() => setViewing(null)} />
       )}
       {viewing === "pdf" && (
         <PdfViewer fileKey={a.key} name={a.name} onClose={() => setViewing(null)} />

@@ -4,7 +4,7 @@ import { getAccessibleBoard } from "../lib/boards";
 import { getAccessibleChannel } from "../lib/channels";
 import { wsHandler } from "../lib/handler";
 import { badRequest, ok, reply, replyError } from "../lib/response";
-import { objectExists, presignGet, presignPut } from "../lib/s3";
+import { objectExists, presignDownload, presignGet, presignPut } from "../lib/s3";
 
 const KEY_PREFIX = "attachments/";
 
@@ -61,7 +61,9 @@ export const handler = wsHandler(async (event, caller) => {
   if (!(await objectExists(action.key))) {
     return replyError(caller.connectionId, "FILE_NOT_FOUND", undefined, action.requestId);
   }
-  const url = await presignGet(action.key);
+  const url = action.download
+    ? await presignDownload(action.key, action.download)
+    : await presignGet(action.key);
   await reply(caller.connectionId, {
     type: "presign.result",
     url,
