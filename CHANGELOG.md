@@ -7,6 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI Notes, meeting cards:** the hub now uses the whole screen. Filters (search, categories,
+  topics) sit in a column on the left; each meeting is a card in a grid of two or three: its
+  category, time and length, a short title written by the AI ("Rediseño del render de Draw My
+  Fence"), the opening of the summary, a few topics, and what came out of it (action items, a
+  recording, tasks sent to a board). A card opens the full notes in a side panel (a sheet on
+  phones). **Organize** also gives older notes their title.
 - **AI Notes by category and topic:** every call's notes are now filed by the AI as they are
   written, under one category (Client, Project, Planning, Sales, Support, Technical, Team, Other)
   and a few topics in the call's language. The AI Notes hub has a search box (summaries, topics

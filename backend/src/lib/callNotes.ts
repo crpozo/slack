@@ -5,6 +5,7 @@ import {
   aiNotesText,
   formatTranscript,
   isNotesCategory,
+  MAX_NOTE_TITLE_LENGTH,
   MAX_NOTE_TOPIC_LENGTH,
   MAX_NOTE_TOPICS,
   NOTES_CATEGORIES,
@@ -65,7 +66,7 @@ ${NOTES_INSTRUCTION}
 </summary>
 
 <meta>
-One JSON object on one line, nothing else: {"category": "<one of the names below>", "topics": ["<3 to ${MAX_NOTE_TOPICS} short tags>"]}. The category is what the call was mainly about:
+One JSON object on one line, nothing else: {"title": "<the meeting's name>", "category": "<one of the names below>", "topics": ["<3 to ${MAX_NOTE_TOPICS} short tags>"]}. The title names what the meeting was about in 3 to 8 words, in the language of the call, like a calendar entry ("Rediseño del render de Draw My Fence"), at most ${MAX_NOTE_TITLE_LENGTH} characters, no quotes and no date. The category is what the call was mainly about:
 ${NOTES_CATEGORY_GUIDE}
 Topics are short tags of one to three words in the language of the call (client names, products, features and themes such as "Facturación" or "Migración a AWS"), each at most ${MAX_NOTE_TOPIC_LENGTH} characters, no duplicates, no hashtags.
 </meta>`;
@@ -101,8 +102,21 @@ export type NotesOutcome =
  */
 export function notesMetaOf(value: unknown): NotesMeta | null {
   if (!value || typeof value !== "object") return null;
-  const { category, topics } = value as { category?: unknown; topics?: unknown };
+  const { category, topics, title } = value as {
+    category?: unknown;
+    topics?: unknown;
+    title?: unknown;
+  };
   if (!isNotesCategory(category)) return null;
+  const name =
+    typeof title === "string"
+      ? title
+          .replace(/\s+/g, " ")
+          .trim()
+          .replace(/^["'“”«»]+|["'“”«».]+$/g, "")
+          .trim()
+          .slice(0, MAX_NOTE_TITLE_LENGTH)
+      : "";
   const seen = new Set<string>();
   const tidy: string[] = [];
   for (const raw of Array.isArray(topics) ? topics : []) {
@@ -118,7 +132,7 @@ export function notesMetaOf(value: unknown): NotesMeta | null {
     tidy.push(topic);
     if (tidy.length === MAX_NOTE_TOPICS) break;
   }
-  return { category, topics: tidy };
+  return { category, topics: tidy, ...(name && { title: name }) };
 }
 
 /** The `<meta>` section's JSON (the model may wrap it in a code fence), or `null`. */
@@ -244,7 +258,9 @@ export async function settleNotesCard(card: NotesCardRef, notes: AiNotes): Promi
         Key: { channelId: card.channelId, sk: card.sk },
         UpdateExpression: `SET aiNotes.#status = :status, aiNotes.summary = :summary, #text = :text${
           notes.error ? ", aiNotes.#error = :error" : ""
-        }${filed ? ", aiNotes.category = :category, aiNotes.topics = :topics" : ""}`,
+        }${filed ? ", aiNotes.category = :category, aiNotes.topics = :topics" : ""}${
+          filed && notes.title ? ", aiNotes.title = :title" : ""
+        }`,
         ConditionExpression: "kind = :kind AND aiNotes.#status = :pending",
         ExpressionAttributeNames: {
           "#text": "text",
@@ -259,6 +275,7 @@ export async function settleNotesCard(card: NotesCardRef, notes: AiNotes): Promi
           ":pending": "pending",
           ...(notes.error && { ":error": notes.error }),
           ...(filed && { ":category": notes.category, ":topics": notes.topics ?? [] }),
+          ...(filed && notes.title && { ":title": notes.title }),
         },
         ReturnValues: "ALL_NEW",
       }),
@@ -288,12 +305,15 @@ export async function tagNotesCard(card: NotesCardRef, meta: NotesMeta): Promise
       new UpdateCommand({
         TableName: tables.messages,
         Key: { channelId: card.channelId, sk: card.sk },
-        UpdateExpression: "SET aiNotes.category = :category, aiNotes.topics = :topics",
+        UpdateExpression: `SET aiNotes.category = :category, aiNotes.topics = :topics${
+          meta.title ? ", aiNotes.title = :title" : ""
+        }`,
         ConditionExpression: "kind = :kind AND aiNotes.#status = :ready",
         ExpressionAttributeNames: { "#status": "status" },
         ExpressionAttributeValues: {
           ":category": meta.category,
           ":topics": meta.topics,
+          ...(meta.title && { ":title": meta.title }),
           ":kind": "ai_notes",
           ":ready": "ready",
         },

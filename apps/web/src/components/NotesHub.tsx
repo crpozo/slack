@@ -1,10 +1,13 @@
 import {
+  extractActionItems,
   NOTES_CATEGORY_HINTS,
   NOTES_CATEGORY_LABELS,
   type Message,
   type NotesCategory,
 } from "@mindfultech/shared";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { formatCallDuration } from "../lib/call";
 import { Link } from "react-router-dom";
 import { dmPeer, formatDay, formatTime } from "../lib/channels";
 import { notesApi } from "../lib/notesApi";
@@ -13,6 +16,8 @@ import {
   fold,
   matchesNotesFilter,
   NO_FILTER,
+  notePreview,
+  noteTitle,
   topTopics,
   unfiledCount,
   type NotesFilter,
@@ -22,13 +27,17 @@ import { useNotesHub } from "../store/notesHub";
 import { AiNotesCard } from "./AiNotesCard";
 import { Avatar } from "./Avatar";
 import {
+  CheckCircleIcon,
   ChevronRightIcon,
   CloseIcon,
+  KanbanIcon,
   MenuIcon,
+  MicIcon,
   RefreshIcon,
   SearchIcon,
   SparklesIcon,
 } from "./icons";
+import { useModalDialog } from "./Modal";
 import { UnreadAlertsDot } from "./NotificationBell";
 
 /** Each category's colour: a dot and a tinted chip, the same everywhere. */
@@ -66,6 +75,9 @@ function peerOf(message: Message, myUserId: string): string | null {
  * their updates arrive live. Filter by person to find one relationship's
  * history. Phase 46: filter by category (filed by the AI as each card is
  * written; older ones on request with "Organize"), by topic and by words.
+ * Phase 48: the whole width: filters in a column on the left, each meeting a
+ * compact card (its AI title, category, preview, topics, action items) in a
+ * grid, the full notes in a side panel.
  */
 export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => void }>) {
   const me = useChat((s) => s.me);
@@ -75,6 +87,8 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
   const [person, setPerson] = useState<string>("");
   const [filter, setFilter] = useState<NotesFilter>(NO_FILTER);
   const [classifying, setClassifying] = useState(false);
+  /** The card open in the side panel (`channelId|sk`). */
+  const [openKey, setOpenKey] = useState<string | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
   const patch = (next: Partial<NotesFilter>) => setFilter((f) => ({ ...f, ...next }));
 
@@ -137,8 +151,98 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
     else days.push({ day, items: [message] });
   }
 
+  const keyOf = (m: Message) => `${m.channelId}|${m.sk}`;
+  const opened = openKey ? notes.find((m) => keyOf(m) === openKey) : undefined;
+
+  const categoryChips = (vertical: boolean) => (
+    <div
+      className={
+        vertical
+          ? "flex flex-col gap-0.5"
+          : "-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
+      }
+      role="group"
+      aria-label="Categories"
+    >
+      <CategoryButton
+        vertical={vertical}
+        active={filter.category === ""}
+        onClick={() => patch({ category: "", topic: "" })}
+        label="All notes"
+        count={withPerson.length}
+      />
+      {categories.map(({ category, count }) => (
+        <CategoryButton
+          key={category}
+          vertical={vertical}
+          active={filter.category === category}
+          onClick={() =>
+            patch({ category: filter.category === category ? "" : category, topic: "" })
+          }
+          label={NOTES_CATEGORY_LABELS[category]}
+          hint={NOTES_CATEGORY_HINTS[category]}
+          tone={CATEGORY_TONE[category]}
+          count={count}
+          dataCategory={category}
+        />
+      ))}
+      {unfiled > 0 && (
+        <CategoryButton
+          vertical={vertical}
+          active={filter.category === "unfiled"}
+          onClick={() =>
+            patch({ category: filter.category === "unfiled" ? "" : "unfiled", topic: "" })
+          }
+          label="Unsorted"
+          count={unfiled}
+        />
+      )}
+    </div>
+  );
+
+  const topicChips = topics.length > 0 && (
+    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Topics">
+      {topics.map(({ topic, count }) => {
+        const active = fold(filter.topic) === fold(topic);
+        return (
+          <button
+            key={topic}
+            type="button"
+            onClick={() => patch({ topic: active ? "" : topic })}
+            aria-pressed={active}
+            className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
+              active
+                ? "border-primary bg-primary/20 text-ink"
+                : "border-transparent bg-surface-sidebar text-ink-secondary hover:text-ink"
+            }`}
+          >
+            #{topic}
+            {count > 1 && <span className="ml-1 tabular-nums opacity-60">{count}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const search = (
+    <label className="relative block">
+      <span className="sr-only">Search notes</span>
+      <SearchIcon
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-secondary"
+        aria-hidden="true"
+      />
+      <input
+        type="search"
+        value={filter.query}
+        onChange={(e) => patch({ query: e.target.value })}
+        placeholder="Search summaries, topics and people"
+        className="input py-2 pl-9 text-sm"
+      />
+    </label>
+  );
+
   return (
-    <div className="relative flex h-full min-h-0 flex-1 flex-col bg-surface">
+    <div className="relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-col bg-surface">
       {/* Desktop (Phase 37b): glass, floating over the content that scrolls under it. */}
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4 md:glass md:absolute md:inset-x-0 md:top-0 md:z-20 md:border-white/10">
         {onOpenSidebar && (
@@ -172,271 +276,456 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto md:pt-14">
-        <div className="mx-auto w-full max-w-2xl px-3 pb-8 sm:px-4">
+        <div className="mx-auto w-full max-w-[1600px] px-3 pb-10 pt-4 sm:px-6 lg:grid lg:grid-cols-[248px_minmax(0,1fr)] lg:gap-8 lg:pt-6">
           {notes.length > 0 && (
-            <div className="flex flex-col gap-3 pt-4" data-notes-filters>
-              <label className="relative block">
-                <span className="sr-only">Search notes</span>
-                <SearchIcon
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-secondary"
-                  aria-hidden="true"
-                />
-                <input
-                  type="search"
-                  value={filter.query}
-                  onChange={(e) => patch({ query: e.target.value })}
-                  placeholder="Search summaries, topics and people"
-                  className="input py-2 pl-9 text-sm"
-                />
-              </label>
-
-              {(categories.length > 0 || unfiled > 0) && (
-                <div
-                  className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
-                  role="group"
-                  aria-label="Categories"
-                >
-                  <button
-                    type="button"
-                    onClick={() => patch({ category: "", topic: "" })}
-                    aria-pressed={filter.category === ""}
-                    className={`${CHIP} ${chipState(filter.category === "")}`}
-                  >
-                    All <span className="tabular-nums opacity-70">{withPerson.length}</span>
-                  </button>
-                  {categories.map(({ category, count }) => (
-                    <button
-                      key={category}
-                      type="button"
-                      onClick={() =>
-                        patch({ category: filter.category === category ? "" : category, topic: "" })
-                      }
-                      aria-pressed={filter.category === category}
-                      title={NOTES_CATEGORY_HINTS[category]}
-                      className={`${CHIP} ${chipState(filter.category === category)}`}
-                      data-category={category}
-                    >
-                      <span
-                        className={`h-2 w-2 rounded-full ${CATEGORY_TONE[category]}`}
-                        aria-hidden="true"
-                      />
-                      {NOTES_CATEGORY_LABELS[category]}
-                      <span className="tabular-nums opacity-70">{count}</span>
-                    </button>
-                  ))}
-                  {unfiled > 0 && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        patch({
-                          category: filter.category === "unfiled" ? "" : "unfiled",
-                          topic: "",
-                        })
-                      }
-                      aria-pressed={filter.category === "unfiled"}
-                      className={`${CHIP} ${chipState(filter.category === "unfiled")}`}
-                    >
-                      Unsorted <span className="tabular-nums opacity-70">{unfiled}</span>
-                    </button>
-                  )}
+            <aside className="hidden lg:block" aria-label="Filters" data-notes-filters="sidebar">
+              <div className="sticky top-6 flex flex-col gap-5">
+                {search}
+                <div className="flex flex-col gap-2">
+                  <h2 className="px-2 text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">
+                    Categories
+                  </h2>
+                  {categoryChips(true)}
                 </div>
-              )}
+                {topicChips && (
+                  <div className="flex flex-col gap-2">
+                    <h2 className="px-2 text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">
+                      Topics
+                    </h2>
+                    <div className="px-1">{topicChips}</div>
+                  </div>
+                )}
+              </div>
+            </aside>
+          )}
 
-              {topics.length > 0 && (
-                <div
-                  className="flex flex-wrap items-center gap-1.5"
-                  role="group"
-                  aria-label="Topics"
-                >
-                  <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">
-                    Topics
-                  </span>
-                  {topics.map(({ topic, count }) => {
-                    const active = fold(filter.topic) === fold(topic);
-                    return (
-                      <button
-                        key={topic}
-                        type="button"
-                        onClick={() => patch({ topic: active ? "" : topic })}
-                        aria-pressed={active}
-                        className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
-                          active
-                            ? "border-primary bg-primary/20 text-ink"
-                            : "border-transparent bg-surface-sidebar text-ink-secondary hover:text-ink"
-                        }`}
-                      >
-                        #{topic}
-                        {count > 1 && <span className="ml-1 tabular-nums opacity-60">{count}</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+          <main className="min-w-0">
+            {notes.length > 0 && (
+              <div className="mb-4 flex flex-col gap-3 lg:hidden" data-notes-filters="top">
+                {search}
+                {categoryChips(false)}
+                {topicChips}
+              </div>
+            )}
 
-              {unfiled > 0 && (
-                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-primary/[0.08] px-3 py-2.5 text-sm text-ink/85">
-                  <SparklesIcon className="shrink-0 text-primary" aria-hidden="true" />
-                  <p className="min-w-0 flex-1">
-                    {unfiled === 1
-                      ? "1 older note has no category yet."
-                      : `${unfiled} older notes have no category yet.`}{" "}
-                    AI can sort them by category and topic.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => void classifyOlder()}
-                    disabled={classifying}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-primary/50 px-3 py-1 text-xs font-semibold text-ink hover:bg-primary/15 disabled:opacity-60"
-                  >
-                    <RefreshIcon className={classifying ? "animate-spin" : ""} aria-hidden="true" />
-                    {classifying ? "Organizing…" : "Organize"}
-                  </button>
-                </div>
-              )}
-
-              {filtering && (
-                <p className="flex items-center gap-2 text-xs text-ink-secondary" role="status">
-                  {shown.length === 1 ? "1 note" : `${shown.length} notes`} match
-                  <button
-                    type="button"
-                    onClick={() => setFilter(NO_FILTER)}
-                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-surface-hover hover:text-ink"
-                  >
-                    <CloseIcon aria-hidden="true" /> Clear filters
-                  </button>
+            {unfiled > 0 && (
+              <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-primary/[0.08] px-4 py-3 text-sm text-ink/85">
+                <SparklesIcon className="shrink-0 text-primary" aria-hidden="true" />
+                <p className="min-w-0 flex-1">
+                  {unfiled === 1
+                    ? "1 note is missing its title or category."
+                    : `${unfiled} notes are missing their title or category.`}{" "}
+                  AI can fill them in from each summary.
                 </p>
-              )}
-            </div>
-          )}
-          {status === "loading" && notes.length === 0 && (
-            <div className="space-y-3 pt-6" aria-busy="true" aria-label="Loading notes">
-              {[0, 1, 2].map((i) => (
-                <div key={i} className="h-28 animate-pulse rounded-2xl bg-surface-sidebar" />
-              ))}
-            </div>
-          )}
+                <button
+                  type="button"
+                  onClick={() => void classifyOlder()}
+                  disabled={classifying}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-primary/50 px-3 py-1 text-xs font-semibold text-ink hover:bg-primary/15 disabled:opacity-60"
+                >
+                  <RefreshIcon className={classifying ? "animate-spin" : ""} aria-hidden="true" />
+                  {classifying ? "Organizing…" : "Organize"}
+                </button>
+              </div>
+            )}
 
-          {status === "error" && (
-            <div role="alert" className="pt-10 text-center">
-              <p className="text-sm text-ink">{error ?? "Couldn't load the notes."}</p>
-              <button type="button" onClick={() => void load()} className="btn-primary mt-3">
-                Try again
-              </button>
-            </div>
-          )}
-
-          {status === "ready" && notes.length === 0 && (
-            <div className="mx-auto max-w-sm pt-16 text-center">
-              <SparklesIcon className="mx-auto text-4xl text-primary" aria-hidden="true" />
-              <h2 className="mt-3 text-base font-semibold text-ink">No AI notes yet</h2>
-              <p className="mt-1 text-sm text-ink-secondary">
-                Turn on ✨ AI notes during a call in a direct message. When the call ends, its
-                summary and action items appear here and in the conversation.
+            {filtering && (
+              <p className="mb-3 flex items-center gap-2 text-xs text-ink-secondary" role="status">
+                {shown.length === 1 ? "1 note" : `${shown.length} notes`} match
+                <button
+                  type="button"
+                  onClick={() => setFilter(NO_FILTER)}
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-surface-hover hover:text-ink"
+                >
+                  <CloseIcon aria-hidden="true" /> Clear filters
+                </button>
               </p>
-            </div>
-          )}
+            )}
 
-          {days.map(({ day, items }) => (
-            <section key={day} aria-label={day}>
-              <h2 className="sticky top-0 z-10 bg-surface/95 py-3 text-xs font-semibold uppercase tracking-wide text-ink-secondary backdrop-blur">
-                {day}
-              </h2>
-              <ul className="space-y-5">
-                {items.map((message) => {
-                  const peer = peerOf(message, myUserId);
-                  const name = peer ? nameOf(peer) : "a call";
-                  return (
-                    <li key={`${message.channelId}|${message.sk}`} data-hub-note={message.sk}>
-                      <article aria-label={`Call with ${name}`}>
-                        <div className="flex items-center gap-2 text-sm">
-                          <Avatar name={name} size="sm" />
-                          <p className="min-w-0 flex-1 truncate">
-                            <span className="font-semibold text-ink">Call with {name}</span>{" "}
-                            <time
-                              className="text-xs text-ink-secondary"
-                              dateTime={new Date(message.createdAt).toISOString()}
-                            >
-                              {formatTime(message.createdAt)}
-                            </time>
-                          </p>
-                          {message.aiNotes?.category && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                patch({ category: message.aiNotes!.category!, topic: "" })
-                              }
-                              title={`Show ${NOTES_CATEGORY_LABELS[message.aiNotes.category].toLowerCase()} notes`}
-                              className="hidden shrink-0 items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-secondary hover:text-ink sm:inline-flex"
-                            >
-                              <span
-                                className={`h-1.5 w-1.5 rounded-full ${CATEGORY_TONE[message.aiNotes.category]}`}
-                                aria-hidden="true"
-                              />
-                              {NOTES_CATEGORY_LABELS[message.aiNotes.category]}
-                            </button>
-                          )}
-                          <Link
-                            to={`/app/${encodeURIComponent(message.channelId)}`}
-                            className="flex shrink-0 items-center gap-0.5 rounded-md px-2 py-1 text-xs font-medium text-ink-secondary hover:bg-surface-hover hover:text-ink"
-                          >
-                            Open conversation
-                            <ChevronRightIcon aria-hidden="true" />
-                          </Link>
-                        </div>
-                        {(message.aiNotes?.topics?.length ?? 0) > 0 && (
-                          <ul className="mt-1.5 flex flex-wrap gap-1" aria-label="Topics">
-                            {message.aiNotes!.topics!.map((topic) => (
-                              <li key={topic}>
-                                <button
-                                  type="button"
-                                  onClick={() => patch({ topic })}
-                                  className="rounded-md bg-surface-sidebar px-1.5 py-0.5 text-[11px] text-ink-secondary hover:text-ink"
-                                >
-                                  #{topic}
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        <AiNotesCard message={message} mine={message.userId === myUserId} />
-                      </article>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          ))}
-
-          {status === "ready" && notes.length > 0 && shown.length === 0 && (
-            <p className="pt-10 text-center text-sm text-ink-secondary">
-              {filtering
-                ? "No notes loaded so far match. Older ones load as you scroll."
-                : person
-                  ? `No notes with ${nameOf(person)} loaded yet.`
-                  : "No notes."}
-            </p>
-          )}
-
-          <div ref={sentinel} />
-          {nextCursor && status === "ready" && (
-            <div className="pt-6 text-center">
-              <button
-                type="button"
-                onClick={() => void loadMore()}
-                disabled={loadingMore}
-                className="rounded-lg px-3 py-1.5 text-sm font-medium text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-60"
+            {status === "loading" && notes.length === 0 && (
+              <div
+                className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3"
+                aria-busy="true"
+                aria-label="Loading notes"
               >
-                {loadingMore ? "Loading…" : "Load older notes"}
-              </button>
-            </div>
-          )}
-          {error && status === "ready" && (
-            <p role="alert" className="pt-3 text-center text-sm text-error">
-              {error}
-            </p>
-          )}
+                {[0, 1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className="h-52 animate-pulse rounded-2xl bg-surface-sidebar" />
+                ))}
+              </div>
+            )}
+
+            {status === "error" && (
+              <div role="alert" className="pt-10 text-center">
+                <p className="text-sm text-ink">{error ?? "Couldn't load the notes."}</p>
+                <button type="button" onClick={() => void load()} className="btn-primary mt-3">
+                  Try again
+                </button>
+              </div>
+            )}
+
+            {status === "ready" && notes.length === 0 && (
+              <div className="mx-auto max-w-sm pt-16 text-center">
+                <SparklesIcon className="mx-auto text-4xl text-primary" aria-hidden="true" />
+                <h2 className="mt-3 text-base font-semibold text-ink">No AI notes yet</h2>
+                <p className="mt-1 text-sm text-ink-secondary">
+                  Turn on ✨ AI notes during a call in a direct message. When the call ends, its
+                  summary and action items appear here and in the conversation.
+                </p>
+              </div>
+            )}
+
+            {days.map(({ day, items }) => (
+              <section key={day} aria-label={day} className="mb-6">
+                <h2 className="sticky top-0 z-10 -mx-1 bg-surface/95 px-1 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-secondary backdrop-blur">
+                  {day}
+                </h2>
+                <ul className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+                  {items.map((message) => (
+                    <li key={keyOf(message)} className="flex" data-hub-note={message.sk}>
+                      <MeetingCard
+                        message={message}
+                        peerName={peerName(message)}
+                        onOpen={() => setOpenKey(keyOf(message))}
+                        onCategory={(category) => patch({ category, topic: "" })}
+                        onTopic={(topic) => patch({ topic })}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+
+            {status === "ready" && notes.length > 0 && shown.length === 0 && (
+              <p className="pt-10 text-center text-sm text-ink-secondary">
+                {filtering
+                  ? "No notes loaded so far match. Older ones load as you scroll."
+                  : person
+                    ? `No notes with ${nameOf(person)} loaded yet.`
+                    : "No notes."}
+              </p>
+            )}
+
+            <div ref={sentinel} />
+            {nextCursor && status === "ready" && (
+              <div className="pt-6 text-center">
+                <button
+                  type="button"
+                  onClick={() => void loadMore()}
+                  disabled={loadingMore}
+                  className="rounded-lg px-3 py-1.5 text-sm font-medium text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-60"
+                >
+                  {loadingMore ? "Loading…" : "Load older notes"}
+                </button>
+              </div>
+            )}
+            {error && status === "ready" && (
+              <p role="alert" className="pt-3 text-center text-sm text-error">
+                {error}
+              </p>
+            )}
+          </main>
         </div>
       </div>
+
+      {opened && (
+        <NoteDrawer
+          message={opened}
+          title={noteTitle(opened, peerName(opened))}
+          peerName={peerName(opened)}
+          mine={opened.userId === myUserId}
+          onClose={() => setOpenKey(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function CategoryButton({
+  vertical,
+  active,
+  onClick,
+  label,
+  count,
+  hint,
+  tone,
+  dataCategory,
+}: Readonly<{
+  vertical: boolean;
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+  hint?: string;
+  tone?: string;
+  dataCategory?: string;
+}>) {
+  const dot = tone && (
+    <span className={`h-2 w-2 shrink-0 rounded-full ${tone}`} aria-hidden="true" />
+  );
+  if (vertical) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={active}
+        title={hint}
+        data-category={dataCategory}
+        className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
+          active
+            ? "bg-primary/20 font-semibold text-ink"
+            : "text-ink-secondary hover:bg-surface-hover hover:text-ink"
+        }`}
+      >
+        {dot ?? <span className="h-2 w-2 shrink-0" aria-hidden="true" />}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="tabular-nums text-xs opacity-70">{count}</span>
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={hint}
+      data-category={dataCategory}
+      className={`${CHIP} ${chipState(active)}`}
+    >
+      {dot}
+      {label}
+      <span className="tabular-nums opacity-70">{count}</span>
+    </button>
+  );
+}
+
+/**
+ * One meeting as a card: category and when, the AI's title, the opening of
+ * the summary, a few topics, and what came out of it (action items, a
+ * recording, tasks sent to a board). The whole card opens the full notes.
+ */
+function MeetingCard({
+  message,
+  peerName,
+  onOpen,
+  onCategory,
+  onTopic,
+}: Readonly<{
+  message: Message;
+  peerName: string;
+  onOpen: () => void;
+  onCategory: (category: NotesCategory) => void;
+  onTopic: (topic: string) => void;
+}>) {
+  const notes = message.aiNotes!;
+  const title = noteTitle(message, peerName);
+  const preview = notes.status === "ready" ? notePreview(notes.summary) : "";
+  const actions = notes.status === "ready" ? extractActionItems(notes.summary).length : 0;
+  const topics = notes.topics ?? [];
+  const extra = topics.length - 3;
+  let body: ReactNode;
+  if (notes.status === "pending") {
+    body = (
+      <div className="space-y-2" aria-label="Generating the notes">
+        <p className="text-sm text-ink-secondary">Writing the notes…</p>
+        <div className="h-3 w-11/12 animate-pulse rounded bg-surface-hover" />
+        <div className="h-3 w-3/4 animate-pulse rounded bg-surface-hover" />
+      </div>
+    );
+  } else if (notes.status === "failed") {
+    body = (
+      <p className="text-sm text-ink-secondary">
+        {notes.error ?? "The notes couldn't be written."}
+      </p>
+    );
+  } else {
+    body = (
+      <p className="line-clamp-4 text-sm leading-relaxed text-ink-secondary [text-wrap:pretty]">
+        {preview}
+      </p>
+    );
+  }
+  return (
+    <article
+      className="group relative flex w-full flex-col gap-3 rounded-2xl border border-line bg-surface-sidebar p-4 transition duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-lg focus-within:border-primary/60"
+      data-meeting-card={notes.callId}
+      data-status={notes.status}
+    >
+      <div className="flex items-center gap-2 text-xs text-ink-secondary">
+        {notes.category ? (
+          <button
+            type="button"
+            onClick={() => onCategory(notes.category!)}
+            className="relative z-10 inline-flex items-center gap-1.5 rounded-full border border-line px-2 py-0.5 font-medium hover:border-primary/50 hover:text-ink"
+            title={`Show ${NOTES_CATEGORY_LABELS[notes.category].toLowerCase()} notes`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${CATEGORY_TONE[notes.category]}`}
+              aria-hidden="true"
+            />
+            {NOTES_CATEGORY_LABELS[notes.category]}
+          </button>
+        ) : notes.status === "ready" ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-line px-2 py-0.5">
+            Unsorted
+          </span>
+        ) : null}
+        <span className="ml-auto tabular-nums">
+          <time dateTime={new Date(message.createdAt).toISOString()}>
+            {formatTime(message.createdAt)}
+          </time>{" "}
+          · {formatCallDuration(notes.endedAt - notes.startedAt)}
+        </span>
+      </div>
+
+      <h3 className="text-base font-bold leading-snug text-ink [text-wrap:pretty]">
+        {/* The title's button stretches over the whole card: one big target to open it. */}
+        <button
+          type="button"
+          onClick={onOpen}
+          className="text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none"
+          aria-label={`Open the notes: ${title}`}
+        >
+          {title}
+        </button>
+      </h3>
+
+      {body}
+
+      {topics.length > 0 && (
+        <ul className="relative z-10 flex flex-wrap gap-1" aria-label="Topics">
+          {topics.slice(0, 3).map((topic) => (
+            <li key={topic}>
+              <button
+                type="button"
+                onClick={() => onTopic(topic)}
+                className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] text-ink-secondary hover:text-ink"
+              >
+                #{topic}
+              </button>
+            </li>
+          ))}
+          {extra > 0 && <li className="px-1 py-0.5 text-[11px] text-ink-secondary">+{extra}</li>}
+        </ul>
+      )}
+
+      <div className="mt-auto flex items-center gap-3 border-t border-line/70 pt-3 text-xs text-ink-secondary">
+        <span className="flex min-w-0 items-center gap-2">
+          <Avatar name={peerName || "?"} size="xs" />
+          <span className="truncate">with {peerName || "someone"}</span>
+        </span>
+        <span className="ml-auto flex shrink-0 items-center gap-3">
+          {actions > 0 && (
+            <span className="inline-flex items-center gap-1" title={`${actions} action items`}>
+              <CheckCircleIcon aria-hidden="true" /> {actions}
+            </span>
+          )}
+          {notes.audio && (
+            <span className="inline-flex items-center" title="Recording kept">
+              <MicIcon aria-label="Recording kept" />
+            </span>
+          )}
+          {notes.sentToBoard && (
+            <span
+              className="inline-flex items-center gap-1 text-primary"
+              title={`Sent to ${notes.sentToBoard.boardName}`}
+            >
+              <KanbanIcon aria-hidden="true" /> {notes.sentToBoard.count}
+            </span>
+          )}
+          <ChevronRightIcon
+            className="transition-transform group-hover:translate-x-0.5"
+            aria-hidden="true"
+          />
+        </span>
+      </div>
+    </article>
+  );
+}
+
+/**
+ * The full notes of one meeting in a panel from the right (a sheet from the
+ * bottom on phones): its title and who, the way back to the conversation,
+ * and the notes card itself (summary, action items, Send to Board, the full
+ * notes and questions). Esc or the backdrop closes it.
+ */
+function NoteDrawer({
+  message,
+  title,
+  peerName,
+  mine,
+  onClose,
+}: Readonly<{
+  message: Message;
+  title: string;
+  peerName: string;
+  mine: boolean;
+  onClose: () => void;
+}>) {
+  const dialog = useModalDialog(onClose);
+  const notes = message.aiNotes!;
+  return createPortal(
+    <dialog
+      ref={dialog}
+      aria-label={title}
+      className="m-0 ml-auto h-full max-h-none w-full max-w-full border-l border-white/10 bg-surface p-0 text-ink backdrop:bg-scrim/50 backdrop:backdrop-blur-sm sm:max-w-2xl"
+      data-note-drawer
+    >
+      <div className="flex h-full flex-col">
+        <header className="flex items-start gap-3 border-b border-line px-5 py-4">
+          <div className="min-w-0 flex-1">
+            <p className="flex flex-wrap items-center gap-2 text-xs text-ink-secondary">
+              {notes.category && (
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${CATEGORY_TONE[notes.category]}`}
+                    aria-hidden="true"
+                  />
+                  {NOTES_CATEGORY_LABELS[notes.category]}
+                </span>
+              )}
+              <span>
+                {formatDay(message.createdAt)} · {formatTime(message.createdAt)} ·{" "}
+                {formatCallDuration(notes.endedAt - notes.startedAt)}
+              </span>
+            </p>
+            <h2 className="mt-1 text-lg font-bold leading-snug text-ink">{title}</h2>
+            <p className="mt-0.5 text-sm text-ink-secondary">with {peerName || "someone"}</p>
+          </div>
+          <Link
+            to={`/app/${encodeURIComponent(message.channelId)}`}
+            className="flex shrink-0 items-center gap-0.5 rounded-md px-2 py-1.5 text-xs font-medium text-ink-secondary hover:bg-surface-hover hover:text-ink"
+          >
+            Open conversation
+            <ChevronRightIcon aria-hidden="true" />
+          </Link>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink"
+            aria-label="Close"
+            title="Close (Esc)"
+            data-close
+          >
+            <CloseIcon />
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          {(notes.topics?.length ?? 0) > 0 && (
+            <ul className="mb-3 flex flex-wrap gap-1" aria-label="Topics">
+              {notes.topics!.map((topic) => (
+                <li
+                  key={topic}
+                  className="rounded-md bg-surface-sidebar px-1.5 py-0.5 text-xs text-ink-secondary"
+                >
+                  #{topic}
+                </li>
+              ))}
+            </ul>
+          )}
+          <AiNotesCard message={message} mine={mine} />
+        </div>
+      </div>
+    </dialog>,
+    document.body,
   );
 }

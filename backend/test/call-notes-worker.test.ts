@@ -222,7 +222,7 @@ describe("call notes worker (Phase 40: the dictation editor)", () => {
 
   it("Phase 46: files the card under the <meta> category and tidied topics, as it settles it", async () => {
     const meta =
-      '```json\n{"category": "client", "topics": ["#Contrato", "contrato", "  Revisión   legal ", "", 7]}\n```';
+      '```json\n{"title": " “Revisión del contrato” ", "category": "client", "topics": ["#Contrato", "contrato", "  Revisión   legal ", "", 7]}\n```';
     stream.mockResolvedValueOnce(
       response(
         {},
@@ -232,11 +232,12 @@ describe("call notes worker (Phase 40: the dictation editor)", () => {
     await handler(job());
     const update = ddbMock.commandCalls(UpdateCommand)[0]!.args[0].input;
     expect(update.UpdateExpression).toBe(
-      "SET aiNotes.#status = :status, aiNotes.summary = :summary, #text = :text, aiNotes.category = :category, aiNotes.topics = :topics",
+      "SET aiNotes.#status = :status, aiNotes.summary = :summary, #text = :text, aiNotes.category = :category, aiNotes.topics = :topics, aiNotes.title = :title",
     );
     expect(update.ExpressionAttributeValues).toMatchObject({
       ":category": "client",
       ":topics": ["Contrato", "Revisión legal"],
+      ":title": "Revisión del contrato",
     });
     // The editor is told the categories and how to write topics.
     expect(NOTES_SYSTEM).toContain("<meta>");

@@ -532,8 +532,12 @@ async function classifyNotes(_event: HttpEvent, caller: HttpCaller): Promise<Htt
   }
   const waiting = cards.filter((card) => {
     const notes = card.aiNotes as AiNotes | undefined;
+    // Phase 48: cards filed before titles existed wait too, for theirs.
     return (
-      card.kind === "ai_notes" && notes?.status === "ready" && !notes.category && notes.summary
+      card.kind === "ai_notes" &&
+      notes?.status === "ready" &&
+      (!notes.category || !notes.title) &&
+      notes.summary
     );
   });
   const batch = waiting.slice(0, CLASSIFY_BATCH);

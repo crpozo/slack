@@ -76,7 +76,11 @@ export const handler = async (job: NotesJob): Promise<void> => {
           status: "ready",
           summary: outcome.summary,
           // Phase 46: filed as it's written; a missing <meta> leaves it to "Classify older notes".
-          ...(outcome.meta && { category: outcome.meta.category, topics: outcome.meta.topics }),
+          ...(outcome.meta && {
+            category: outcome.meta.category,
+            topics: outcome.meta.topics,
+            ...(outcome.meta.title && { title: outcome.meta.title }),
+          }),
         }
       : { ...notes, status: "failed", error: outcome.error };
   } catch (err) {

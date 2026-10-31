@@ -722,7 +722,13 @@ describe("POST /notes/classify (Phase 46)", () => {
 
   beforeEach(() => {
     resetMocks();
-    create = vi.fn(async () => answer({ category: "client", topics: ["Contrato", "Precios"] }));
+    create = vi.fn(async () =>
+      answer({
+        title: "Revisión del contrato",
+        category: "client",
+        topics: ["Contrato", "Precios"],
+      }),
+    );
     useQuestionModel({ create } as unknown as ClaudeModel);
     ddbMock.on(QueryCommand, { TableName: NOTES_TABLE }).resolves({
       Items: ["4#d", "3#c", "2#b", "1#a"].map((sk) => ({
@@ -737,7 +743,7 @@ describe("POST /notes/classify (Phase 46)", () => {
       Responses: {
         [MESSAGES]: [
           card("4#d", {}),
-          card("3#c", { category: "team", topics: ["Proceso"] }), // already filed
+          card("3#c", { category: "team", topics: ["Proceso"], title: "Proceso" }), // already filed
           card("2#b", { status: "failed", summary: "" }), // nothing to file
           card("1#a", {}),
         ],
@@ -766,14 +772,26 @@ describe("POST /notes/classify (Phase 46)", () => {
       { channelId: DM, sk: "1#a" },
     ]);
     expect(updates[0]).toMatchObject({
-      UpdateExpression: "SET aiNotes.category = :category, aiNotes.topics = :topics",
+      UpdateExpression:
+        "SET aiNotes.category = :category, aiNotes.topics = :topics, aiNotes.title = :title",
       ConditionExpression: "kind = :kind AND aiNotes.#status = :ready",
-      ExpressionAttributeValues: { ":category": "client", ":topics": ["Contrato", "Precios"] },
+      ExpressionAttributeValues: {
+        ":category": "client",
+        ":topics": ["Contrato", "Precios"],
+        ":title": "Revisión del contrato",
+      },
     });
     expect(sentEvents().map(([id, e]) => `${id}:${e.type}`)).toEqual([
       "conn-bob:message.updated",
       "conn-bob:message.updated",
     ]);
+  });
+
+  it("Phase 48: a card filed before titles existed waits again, for its title", async () => {
+    ddbMock.on(BatchGetCommand).resolves({
+      Responses: { [MESSAGES]: [card("3#c", { category: "team", topics: ["Proceso"] })] },
+    });
+    expect(await classify()).toEqual({ status: 200, body: { classified: 1, remaining: 0 } });
   });
 
   it("a card the model can't file stays as it is and still counts as waiting", async () => {

@@ -68,11 +68,16 @@ export const isNotesCategory = (value: unknown): value is NotesCategory =>
 export const MAX_NOTE_TOPICS = 6;
 export const MAX_NOTE_TOPIC_LENGTH = 40;
 
+/** The longest meeting title (Phase 48). */
+export const MAX_NOTE_TITLE_LENGTH = 80;
+
 /** What the model files a card under. */
 export interface NotesMeta {
   category: NotesCategory;
   /** Short tags in the call's language ("Facturación", "Migración a AWS"). */
   topics: string[];
+  /** Phase 48: a short name for the meeting ("Rediseño del render de Draw My Fence"). */
+  title?: string;
 }
 
 /** `POST /notes/classify`: cards filed this time, and how many of yours still wait. */
@@ -99,6 +104,8 @@ export interface AiNotes {
   /** Phase 46: what the call was about. Cards from before are filed on request. */
   category?: NotesCategory;
   topics?: string[];
+  /** Phase 48: the meeting's name, written by the AI with its category. */
+  title?: string;
   /**
    * Phase 40: the full notes are kept apart (`GET /notes/{callId}`): the raw
    * transcript, the polished minutes and your own questions. Cards from before

@@ -86,6 +86,39 @@ export function topTopics(
     .slice(0, limit);
 }
 
-/** Ready cards still waiting for a category (written before Phase 46). */
+/** Ready cards still waiting for a category or (Phase 48) a title: "Organize" fills them in. */
 export const unfiledCount = (messages: Message[]): number =>
-  messages.filter((m) => notesOf(m)?.status === "ready" && !notesOf(m)?.category).length;
+  messages.filter((m) => {
+    const notes = notesOf(m);
+    return notes?.status === "ready" && (!notes.category || !notes.title);
+  }).length;
+
+/**
+ * The summary's opening paragraph as plain text, for a card's preview: up to
+ * the first heading or list (the action items), markdown marks removed.
+ */
+export function notePreview(summary: string): string {
+  const lines: string[] = [];
+  for (const raw of summary.replace(/\r\n?/g, "\n").split("\n")) {
+    const line = raw.trim();
+    if (!line) {
+      if (lines.length > 0) break;
+      continue;
+    }
+    if (/^#{1,6}\s/.test(line) && lines.length === 0) continue; // a "Summary" heading on top
+    if (/^(#{1,6}\s|[-*+•]\s|\d+[.)]\s)/.test(line)) break;
+    lines.push(line);
+  }
+  return lines
+    .join(" ")
+    .replace(/\*\*|__|`/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** A card's heading: the AI's title, else its first topic, else who the call was with. */
+export function noteTitle(message: Message, peerName: string): string {
+  const notes = notesOf(message);
+  return notes?.title || notes?.topics?.[0] || (peerName ? `Call with ${peerName}` : "Call");
+}

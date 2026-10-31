@@ -5,6 +5,8 @@ import {
   fold,
   matchesNotesFilter,
   NO_FILTER,
+  notePreview,
+  noteTitle,
   topTopics,
   unfiledCount,
 } from "./notesFilters";
@@ -78,7 +80,26 @@ describe("AI Notes filters", () => {
     expect(topTopics(CARDS, 2)).toHaveLength(2);
   });
 
-  it("counts ready cards still waiting for a category", () => {
-    expect(unfiledCount(CARDS)).toBe(1);
+  it("counts ready cards still waiting for a category or a title", () => {
+    expect(unfiledCount(CARDS)).toBe(4);
+    expect(unfiledCount([card("t", { category: "team", title: "Uno a uno", topics: [] })])).toBe(0);
+  });
+
+  it("previews the opening paragraph as plain text, stopping at the action items", () => {
+    expect(
+      notePreview(
+        "## Resumen\n\nCarlos y **René** revisaron [el repo](https://x.y).\nAcordaron simplificar.\n\n## Action Items\n- **Carlos:** crear el repo",
+      ),
+    ).toBe("Carlos y René revisaron el repo. Acordaron simplificar.");
+    expect(notePreview("Una línea.\n- un punto")).toBe("Una línea.");
+    expect(notePreview("")).toBe("");
+  });
+
+  it("titles a card with the AI's title, else its first topic, else the person", () => {
+    expect(noteTitle(card("x", { title: "Rediseño del render" }), "René")).toBe(
+      "Rediseño del render",
+    );
+    expect(noteTitle(card("x", { topics: ["AWS"] }), "René")).toBe("AWS");
+    expect(noteTitle(card("x", {}), "René")).toBe("Call with René");
   });
 });
