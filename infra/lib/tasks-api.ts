@@ -303,8 +303,14 @@ export class TasksApi extends Construct {
       "NewsInsightsWorkerFn",
       "news-insights-worker",
       { NEWS_INSIGHTS_TABLE: data.newsInsights.tableName },
-      Duration.minutes(2),
+      // Phase 49: one streamed request of up to 5 minutes (high effort, 40 stories).
+      Duration.minutes(6),
     );
+    // A failed run is tried once more, not twice: each is several minutes of model time.
+    this.newsInsightsWorker.configureAsyncInvoke({
+      retryAttempts: 1,
+      maxEventAge: Duration.hours(1),
+    });
     // AI Skills (Phase 44): the catalog, GitHub over the internet, and the model
     // for "Generar con IA" (one request in API Gateway's 30 s).
     this.skillsHandler = lambda(

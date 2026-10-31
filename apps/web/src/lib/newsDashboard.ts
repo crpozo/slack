@@ -125,3 +125,13 @@ export function fallbackIconFor(
  * spacer, not a picture: the card shows its fallback instead.
  */
 export const MIN_THUMBNAIL_PX = 40;
+
+/**
+ * How far along an analysis looks after `elapsedMs` (0 to 95, never done:
+ * only the analysis arriving finishes the bar). Fast at first, easing as it
+ * nears the usual length, so a slow run never looks stuck or finished.
+ */
+export function analysisProgress(elapsedMs: number, expectedMs: number): number {
+  if (elapsedMs <= 0) return 2;
+  return Math.min(95, Math.max(2, 95 * (1 - Math.exp((-1.8 * elapsedMs) / expectedMs))));
+}

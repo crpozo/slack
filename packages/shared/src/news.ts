@@ -110,7 +110,7 @@ export const NEWS_INSIGHTS_LOCAL_TIME = "08:00";
  */
 export const NEWS_INSIGHTS_FEED = "techcrunch-ai";
 /** How long the view waits for a requested analysis before giving up. */
-export const NEWS_INSIGHTS_WAIT_MS = 90_000;
+export const NEWS_INSIGHTS_WAIT_MS = 7 * 60_000;
 
 /** A story the analysis read (title and link only: the stories aren't stored twice). */
 export interface NewsInsightsArticle {

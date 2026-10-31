@@ -1,16 +1,24 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { calendarDay } from "@mindfultech/shared";
-import { bedrockModel, type ClaudeModel } from "../lib/claude";
+import { bedrockModel, type StreamingClaudeModel } from "../lib/claude";
 import { errorFields, log } from "../lib/logger";
 import { readAllSources } from "../lib/news";
 import { insightsFrom, insightsItem, insightsRequest, saveInsights } from "../lib/newsInsights";
 
-let model: ClaudeModel | null = null;
+let model: StreamingClaudeModel | null = null;
 
 /** Tests swap the model. */
-export function useInsightsModel(next: ClaudeModel | null): void {
+export function useInsightsModel(next: StreamingClaudeModel | null): void {
   model = next;
 }
+
+/**
+ * One analysis, thinking included: at high effort over 40 stories it can run
+ * a couple of minutes, so it is streamed (no idle connection to drop) and
+ * given 5 minutes, inside the Lambda's 6. No SDK retry: a failure is retried
+ * by the invocation itself (the schedule, or Lambda's async retry).
+ */
+export const INSIGHTS_REQUEST_TIMEOUT_MS = 5 * 60_000;
 
 /** What the worker wrote, for whoever invoked it synchronously (tests, the CLI). */
 export interface InsightsRun {
@@ -40,7 +48,9 @@ export const handler = async (): Promise<InsightsRun> => {
   if (articles.length === 0) throw new Error("the feeds have no stories");
   let response: Anthropic.Message;
   try {
-    response = await (model ?? (model = bedrockModel())).create(insightsRequest(articles, day));
+    response = await (model ??= bedrockModel(INSIGHTS_REQUEST_TIMEOUT_MS, 0)).stream(
+      insightsRequest(articles, day),
+    );
   } catch (err) {
     log.error("news insights model failed", {
       day,

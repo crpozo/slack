@@ -7,6 +7,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI News analysis progress:** while the analysis is being written, a progress bar shows the
+  step it's on and how long it has run. It keeps going on the server if you leave the page: AI
+  News in the sidebar spins until it's done, and coming back (even after a reload) picks the
+  wait up again.
+
+### Fixed
+
+- **AI News analysis stuck:** with the deeper analysis (40 stories, more reasoning) a run took
+  longer than the 50 seconds each model request was allowed, so it failed and the page gave up
+  after a minute and a half. The request is now streamed with up to 5 minutes (the worker has 6),
+  and the page waits up to 7.
 - **AI Notes, meeting cards:** the hub now uses the whole screen. Filters (search, categories,
   topics) sit in a column on the left; each meeting is a card in a grid of two or three: its
   category, time and length, a short title written by the AI ("Rediseño del render de Draw My

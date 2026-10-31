@@ -19,6 +19,7 @@ import {
 } from "../lib/sidebar";
 import type { WsStatus } from "../lib/ws";
 import { selectUnread, useChat, useNameOf } from "../store";
+import { useNewsInsights } from "../store/newsInsights";
 import { Avatar, PresenceDot, StatusBadge } from "./Avatar";
 import { ChannelIcon } from "./ChannelIcon";
 import { DeleteChannelModal, EditChannelModal } from "./ChannelModals";
@@ -49,6 +50,7 @@ import {
   SettingsIcon,
   SparklesIcon,
   TrashIcon,
+  RefreshIcon,
 } from "./icons";
 import { Logo } from "./LoginPage";
 
@@ -598,6 +600,11 @@ export function Sidebar({
 }: Readonly<SidebarProps>) {
   const navigate = useNavigate();
   const nameOf = useNameOf();
+  // Phase 49: AI News spins while an analysis is being written, wherever you are.
+  const analyzingNews = useNewsInsights((s) => s.generating);
+  useEffect(() => {
+    void useNewsInsights.getState().resume();
+  }, []);
   const [deleting, setDeleting] = useState<{ channel: Channel; label: string } | null>(null);
   const [editing, setEditing] = useState<Channel | null>(null);
   const { me, status, channels, pinned, team, directory, users, online } = useChat(
@@ -1122,7 +1129,14 @@ export function Sidebar({
               <NavItem
                 compact={compact}
                 label="AI News"
-                icon={<NewspaperIcon className="text-ink-secondary" />}
+                icon={
+                  analyzingNews ? (
+                    <RefreshIcon className="animate-spin text-primary" aria-hidden="true" />
+                  ) : (
+                    <NewspaperIcon className="text-ink-secondary" />
+                  )
+                }
+                title={analyzingNews ? "AI News: analizando las noticias…" : undefined}
                 active={activeChannelId === "news"}
                 unread={0}
                 onClick={() => navigate("/app/news")}

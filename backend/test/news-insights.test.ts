@@ -7,7 +7,7 @@ import { mockClient } from "aws-sdk-client-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handler as api } from "../src/handlers/news-insights";
 import { handler as worker, useInsightsModel } from "../src/handlers/news-insights-worker";
-import type { ClaudeModel } from "../src/lib/claude";
+import type { StreamingClaudeModel } from "../src/lib/claude";
 import type { HttpEvent } from "../src/lib/http";
 import {
   articlesText,
@@ -332,7 +332,7 @@ describe("the morning worker", () => {
     resetMocks();
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     create = vi.fn(async () => response());
-    useInsightsModel({ create } as unknown as ClaudeModel);
+    useInsightsModel({ stream: create } as unknown as StreamingClaudeModel);
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(rss, { headers: { "content-type": "text/xml" } })),

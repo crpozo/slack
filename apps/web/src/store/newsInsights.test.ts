@@ -1,5 +1,5 @@
 import type { NewsInsights } from "@mindfultech/shared";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NewsInsightsApi } from "../lib/newsApi";
 import { createNewsInsightsStore, INSIGHTS_POLL_MS } from "./newsInsights";
 
@@ -120,5 +120,81 @@ describe("news insights store", () => {
       generating: false,
       generateError: "Service Unavailable",
     });
+  });
+});
+
+describe("news insights store: a running analysis survives the page (Phase 49)", () => {
+  let stored: Record<string, string>;
+  beforeEach(() => {
+    stored = {};
+    vi.stubGlobal("sessionStorage", {
+      getItem: (k: string) => stored[k] ?? null,
+      setItem: (k: string, v: string) => {
+        stored[k] = v;
+      },
+      removeItem: (k: string) => {
+        delete stored[k];
+      },
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("remembers the request while it waits, and forgets it once the analysis is there", async () => {
+    let t = 1_000_000;
+    let seen: string | undefined;
+    const latest = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        seen = stored["news.insights.pending"];
+        return { insights: insights(1) };
+      })
+      .mockResolvedValue({ insights: insights(2) });
+    const api: NewsInsightsApi = { latest, refresh: vi.fn(async () => ({ queued: true })) };
+    const store = createNewsInsightsStore(
+      api,
+      () => t,
+      async (ms) => {
+        t += ms;
+      },
+    );
+    await store.getState().generate();
+    expect(JSON.parse(seen!)).toEqual({ since: 1_000_000, before: 0 });
+    expect(stored["news.insights.pending"]).toBeUndefined();
+    expect(store.getState()).toMatchObject({ generating: false, generatingSince: null });
+  });
+
+  it("resume: a fresh page picks the wait up from where it was, with the same start", async () => {
+    stored["news.insights.pending"] = JSON.stringify({ since: 990_000, before: 1 });
+    let t = 1_000_000;
+    let during: unknown;
+    const api: NewsInsightsApi = {
+      latest: vi.fn(async () => {
+        during = store.getState().generatingSince;
+        return { insights: insights(2) };
+      }),
+      refresh: vi.fn(),
+    };
+    const store = createNewsInsightsStore(
+      api,
+      () => t,
+      async (ms) => {
+        t += ms;
+      },
+    );
+    await store.getState().resume();
+    expect(during).toBe(990_000);
+    expect(api.refresh).not.toHaveBeenCalled(); // the worker is already running
+    expect(store.getState()).toMatchObject({ generating: false, insights: insights(2) });
+  });
+
+  it("resume: nothing pending, or too old, does nothing", async () => {
+    const api: NewsInsightsApi = { latest: vi.fn(), refresh: vi.fn() };
+    const store = createNewsInsightsStore(api, () => 10_000_000);
+    await store.getState().resume();
+    stored["news.insights.pending"] = JSON.stringify({ since: 1, before: 0 });
+    await store.getState().resume();
+    expect(api.latest).not.toHaveBeenCalled();
+    expect(stored["news.insights.pending"]).toBeUndefined();
+    expect(store.getState().generating).toBe(false);
   });
 });

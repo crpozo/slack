@@ -1,10 +1,10 @@
 import { NEWS_INSIGHTS_LOCAL_TIME } from "@mindfultech/shared";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNow } from "../lib/hooks";
-import { dashboardDateLabel, dashboardStories } from "../lib/newsDashboard";
+import { analysisProgress, dashboardDateLabel, dashboardStories } from "../lib/newsDashboard";
 import { tasksApiConfigured } from "../lib/tasksApi";
 import { useNews } from "../store/news";
-import { useNewsInsights } from "../store/newsInsights";
+import { INSIGHTS_EXPECTED_MS, useNewsInsights } from "../store/newsInsights";
 import { MenuIcon, RefreshIcon } from "./icons";
 import { NewsDashboard } from "./NewsDashboard";
 import { UnreadAlertsDot } from "./NotificationBell";
@@ -30,6 +30,8 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
     if (configured) {
       void load();
       void loadInsights();
+      // An analysis asked for before a reload is still being written: wait for it again.
+      void useNewsInsights.getState().resume();
     }
   }, [configured, load, loadInsights]);
 
@@ -106,28 +108,80 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
   );
 }
 
-/** What "Refresh news" is doing with the analysis: writing it, not needed yet, or failed. */
+/** What "Refresh news" is doing with the analysis: writing it (with progress), not needed yet, or failed. */
 function RefreshStatus() {
-  const { generating, generateNotice, generateError } = useNewsInsights();
-  const text = generating
-    ? "Leyendo las historias de hoy y escribiendo el análisis con IA: cerca de medio minuto…"
-    : (generateError ?? generateNotice);
+  const { generating, generatingSince, generateNotice, generateError } = useNewsInsights();
+  if (generating) return <AnalysisProgress since={generatingSince ?? Date.now()} />;
+  const text = generateError ?? generateNotice;
   if (!text) return null;
   return (
     <p
-      role={generateError && !generating ? "alert" : "status"}
+      role={generateError ? "alert" : "status"}
       className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm ${
-        generateError && !generating
+        generateError
           ? "border-warning/40 bg-warning/10 text-ink"
           : "border-primary/30 bg-primary/[0.08] text-ink/85"
       }`}
       data-news-refresh-status
     >
-      {generating && (
-        <RefreshIcon className="shrink-0 animate-spin text-primary" aria-hidden="true" />
-      )}
       {text}
     </p>
+  );
+}
+
+/** Which step the analysis is probably on, by how far along it is. */
+const STEPS: Array<[number, string]> = [
+  [0, "Leyendo las historias de hoy en cada medio…"],
+  [30, "Comparando las historias y buscando las tendencias…"],
+  [60, "Escribiendo el análisis con IA…"],
+  [85, "Casi listo: revisando el análisis…"],
+];
+
+/**
+ * The analysis being written (Phase 49): a bar that fills over the usual
+ * time, the step it's probably on and how long it has run. It keeps going on
+ * the server if you leave: coming back (even after a reload) picks it up.
+ */
+function AnalysisProgress({ since }: Readonly<{ since: number }>) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(timer);
+  }, []);
+  const elapsed = Math.max(0, now - since);
+  const pct = analysisProgress(elapsed, INSIGHTS_EXPECTED_MS);
+  const step = [...STEPS].reverse().find(([from]) => pct >= from)?.[1] ?? STEPS[0]![1];
+  return (
+    <div
+      role="status"
+      className="flex flex-col gap-2.5 rounded-xl border border-primary/30 bg-primary/[0.08] px-4 py-3 text-sm text-ink/85"
+      data-news-refresh-status
+      data-news-progress
+    >
+      <div className="flex items-center gap-2">
+        <RefreshIcon className="shrink-0 animate-spin text-primary" aria-hidden="true" />
+        <span className="min-w-0 flex-1">{step}</span>
+        <span className="shrink-0 font-mono text-xs tabular-nums text-ink-secondary">
+          {Math.floor(elapsed / 1000)} s
+        </span>
+      </div>
+      <div
+        className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]"
+        role="progressbar"
+        aria-label="Progreso del análisis"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(pct)}
+      >
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-primary/70 to-[#8fe0b0] shadow-[0_0_12px_rgb(64_179_117/0.6)] transition-[width] duration-300 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className="text-xs text-ink-secondary">
+        Sigue analizando aunque cambies de página: el análisis aparece aquí al terminar.
+      </p>
+    </div>
   );
 }
 

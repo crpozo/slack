@@ -1,6 +1,7 @@
 import type { NewsArticle, NewsStory } from "@mindfultech/shared";
 import { describe, expect, it } from "vitest";
 import {
+  analysisProgress,
   dashboardDateLabel,
   dashboardStories,
   fallbackIconFor,
@@ -115,5 +116,19 @@ describe("fallbackIconFor", () => {
     expect(icon("La UE publica la guía del AI Act")).toBe("newspaper");
     // A word that merely contains "chip" or "AMD" isn't hardware.
     expect(icon("Microchipped pets and Amdahl's law")).toBe("newspaper");
+  });
+});
+
+describe("analysisProgress", () => {
+  it("climbs quickly, eases near the usual length, and never reaches the end on its own", () => {
+    expect(analysisProgress(0, 40_000)).toBe(2);
+    const half = analysisProgress(20_000, 40_000);
+    const usual = analysisProgress(40_000, 40_000);
+    const long = analysisProgress(400_000, 40_000);
+    expect(half).toBeGreaterThan(50);
+    expect(usual).toBeGreaterThan(half);
+    expect(usual).toBeLessThan(95);
+    expect(long).toBeGreaterThan(94.9);
+    expect(long).toBeLessThanOrEqual(95);
   });
 });

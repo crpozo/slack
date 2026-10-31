@@ -197,7 +197,7 @@ export function articlesText(articles: NewsArticle[]): string {
 export function insightsRequest(
   articles: NewsArticle[],
   day: string,
-): Anthropic.MessageCreateParamsNonStreaming {
+): Anthropic.MessageStreamParams {
   return {
     model: INSIGHTS_MODEL,
     max_tokens: INSIGHTS_MAX_TOKENS,

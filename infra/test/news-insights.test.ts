@@ -53,7 +53,7 @@ describe("AI Insights (Phase 39)", () => {
       Targets: [Match.objectLike({ RetryPolicy: { MaximumRetryAttempts: 2 } })],
     });
     const [, worker] = fn("slack-dev-news-insights-worker")!;
-    expect(worker.Properties.Timeout).toBe(120);
+    expect(worker.Properties.Timeout).toBe(360);
     expect(JSON.stringify(worker.Properties.Environment.Variables.NEWS_INSIGHTS_TABLE)).toMatch(
       /DataNewsInsights/,
     );
