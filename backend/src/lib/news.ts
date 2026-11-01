@@ -559,8 +559,119 @@ export async function readAllSources(
     const first = results[0];
     throw first?.status === "rejected" ? first.reason : new Error("no news sources");
   }
-  read.articles = mergeArticles(lists);
+  read.articles = await withCoverImages(mergeArticles(lists), fetchImpl);
   return read;
+}
+
+// --- Cover images for stories whose feed has none (Phase 51) ------------------------
+//
+// Some feeds (TechCrunch's AI feed) carry no image at all. The article page
+// still has its cover, as `og:image` (what chat apps show for a link), so a
+// story without one gets it from the page's head: read once per article and
+// remembered, with a short timeout, a few at a time, never more than the
+// first bytes of the page. A page that can't be read keeps the fallback icon.
+
+/** How long one article page may take to answer. */
+export const COVER_TIMEOUT_MS = 2_500;
+/** The most of a page read for its head (the meta tags come first). */
+export const COVER_MAX_BYTES = 256 * 1024;
+/** Pages read at once. */
+const COVER_CONCURRENCY = 8;
+/** Articles remembered (with their image, or none). */
+const COVER_CACHE_SIZE = 500;
+
+const covers = new Map<string, string | null>();
+
+/** Forget the remembered covers (tests). */
+export function resetCoverCache(): void {
+  covers.clear();
+}
+
+const META_TAG = /<meta\b[^>]*>/gi;
+const ATTR = (name: string) => new RegExp(`\\b${name}\\s*=\\s*(["'])(.*?)\\1`, "i");
+
+/** The page's cover image: `og:image` (or its `:secure_url`), else `twitter:image`; https only. */
+export function coverImageOf(html: string, pageUrl: string): string | null {
+  const found: Record<string, string> = {};
+  for (const [tag] of html.matchAll(META_TAG)) {
+    const key = (
+      ATTR("property").exec(tag)?.[2] ??
+      ATTR("name").exec(tag)?.[2] ??
+      ""
+    ).toLowerCase();
+    const content = ATTR("content").exec(tag)?.[2];
+    if (key && content && !(key in found)) found[key] = decodeEntities(content.trim());
+  }
+  for (const key of [
+    "og:image:secure_url",
+    "og:image",
+    "og:image:url",
+    "twitter:image",
+    "twitter:image:src",
+  ]) {
+    const value = found[key];
+    if (!value) continue;
+    try {
+      const url = httpsUrl(new URL(value, pageUrl).href);
+      if (url) return url;
+    } catch {
+      // not a URL: try the next tag
+    }
+  }
+  return null;
+}
+
+/** The first `max` bytes of the page at `url` (its head), or `null` when it can't be read. */
+async function pageHead(url: string, fetchImpl: typeof fetch): Promise<string | null> {
+  try {
+    const response = await fetchImpl(url, {
+      headers: {
+        accept: "text/html",
+        "user-agent": "MindfulTechSlack/1.0 (+https://slack.mindfultech.ec)",
+      },
+      signal: AbortSignal.timeout(COVER_TIMEOUT_MS),
+      redirect: "follow",
+    });
+    if (!response.ok || !/html/i.test(response.headers.get("content-type") ?? "")) return null;
+    const reader = response.body?.getReader();
+    if (!reader) return (await response.text()).slice(0, COVER_MAX_BYTES);
+    const decoder = new TextDecoder();
+    let html = "";
+    while (html.length < COVER_MAX_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      html += decoder.decode(value, { stream: true });
+      if (/<\/head>/i.test(html)) break;
+    }
+    void reader.cancel().catch(() => undefined);
+    return html;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `articles` with a cover for each story whose feed had no image, read from
+ * the article page (remembered per link). Never throws, never drops a story.
+ */
+export async function withCoverImages(
+  articles: NewsArticle[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<NewsArticle[]> {
+  const missing = [
+    ...new Set(articles.filter((a) => !a.imageUrl && !covers.has(a.link)).map((a) => a.link)),
+  ];
+  for (let i = 0; i < missing.length; i += COVER_CONCURRENCY) {
+    await Promise.all(
+      missing.slice(i, i + COVER_CONCURRENCY).map(async (link) => {
+        const html = await pageHead(link, fetchImpl);
+        covers.set(link, html ? coverImageOf(html, link) : null);
+      }),
+    );
+  }
+  // Oldest first out, so the cache stays small in a long-lived container.
+  while (covers.size > COVER_CACHE_SIZE) covers.delete(covers.keys().next().value!);
+  return articles.map((a) => (a.imageUrl ? a : { ...a, imageUrl: covers.get(a.link) ?? null }));
 }
 
 // --- The warm container's copy ------------------------------------------------------

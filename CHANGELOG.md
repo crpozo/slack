@@ -22,6 +22,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **AI News images:** TechCrunch's feed carries no images, so its stories always showed the
+  placeholder icon. A story without an image now gets the article's own cover (its `og:image`,
+  what chat apps show for a link), read once per article from the page's head, a few at a time
+  with a short timeout. A page that can't be read keeps the placeholder.
 - **AI News analysis still stuck:** the streamed request (below) needs its own Bedrock permission,
   which the worker didn't have, so every run was refused. It has it now. Also, the deep dive and
   "Para seguir de cerca" were written but never sent to the page; they are now. And if a run ever
