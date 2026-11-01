@@ -70,7 +70,10 @@ export function NewsDashboard({
   calloutStyle = "glow",
 }: Readonly<NewsDashboardProps>) {
   return (
-    <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-7" data-news-dashboard>
+    <div
+      className="flex w-full min-w-0 flex-col gap-7 [&>section]:scroll-mt-16"
+      data-news-dashboard
+    >
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-2">
           <div className="flex items-center gap-3">
@@ -113,9 +116,20 @@ export function NewsDashboard({
         </button>
       </header>
 
+      <SectionNav
+        sections={[
+          { id: "news-top", label: "Lo esencial", show: stories.length > 0 },
+          { id: "news-impact", label: "Para MindfulTech", show: true },
+          { id: "news-deep", label: "A fondo", show: !!deepDive },
+          { id: "news-trends", label: "Tendencias", show: trends.length > 0 },
+          { id: "news-watch", label: "Seguir de cerca", show: watchlist.length > 0 },
+          { id: "news-more", label: "Más historias", show: moreStories.length > 0 },
+        ]}
+      />
+
       {banner}
 
-      <section aria-labelledby="news-top-title" className="flex flex-col gap-3.5">
+      <section id="news-top" aria-labelledby="news-top-title" className="flex flex-col gap-3.5">
         <div className="flex items-baseline gap-2.5">
           <h2 id="news-top-title" className={SECTION_TITLE}>
             Lo esencial
@@ -132,8 +146,49 @@ export function NewsDashboard({
         </ul>
       </section>
 
+      <section
+        id="news-impact"
+        aria-labelledby="news-impact-title"
+        className={`relative flex flex-col gap-5 rounded-[20px] border p-6 backdrop-blur-xl sm:p-7 ${CALLOUT[calloutStyle]}`}
+        data-news-impact
+      >
+        <div className="flex flex-wrap items-center gap-3.5">
+          <span
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/40 bg-primary/15 text-primary shadow-[0_0_24px_rgb(64_179_117/0.25)]"
+            aria-hidden="true"
+          >
+            <BulbIcon />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <h2 id="news-impact-title" className="text-xl font-extrabold tracking-tight text-ink">
+              Qué significa para MindfulTech
+            </h2>
+            <span className="text-[13px] text-ink-secondary">
+              Impacto de negocio · acciones sugeridas para esta semana
+            </span>
+          </div>
+          {insightsAction}
+        </div>
+        {takeaways.length > 0 ? (
+          <ul className="grid gap-x-6 gap-y-3 md:grid-cols-2">
+            {takeaways.map((t, i) => (
+              <li key={`${i}-${t.lead}`} className="flex items-start gap-3">
+                <CheckCircleIcon />
+                <p className="text-sm leading-[1.55] text-ink/85 [text-wrap:pretty]">
+                  <strong className="font-bold text-ink">{t.lead}</strong> {t.body}
+                  {t.horizon && <HorizonChip horizon={t.horizon} />}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          insightsNotice
+        )}
+      </section>
+
       {deepDive && (
         <section
+          id="news-deep"
           aria-labelledby="news-deep-title"
           className="flex flex-col gap-4 rounded-[18px] border border-white/10 bg-gradient-to-b from-white/[0.07] to-white/[0.04] p-6 shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-xl"
           data-news-deep-dive
@@ -209,6 +264,7 @@ export function NewsDashboard({
 
       {trends.length > 0 && (
         <section
+          id="news-trends"
           aria-labelledby="news-trends-title"
           className="flex flex-col gap-[18px] rounded-[18px] border border-white/10 bg-gradient-to-b from-white/[0.07] to-white/[0.04] p-6 shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-xl"
           data-news-trends
@@ -267,47 +323,9 @@ export function NewsDashboard({
         </section>
       )}
 
-      <section
-        aria-labelledby="news-impact-title"
-        className={`relative flex flex-col gap-5 rounded-[20px] border p-6 backdrop-blur-xl sm:p-7 ${CALLOUT[calloutStyle]}`}
-        data-news-impact
-      >
-        <div className="flex flex-wrap items-center gap-3.5">
-          <span
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/40 bg-primary/15 text-primary shadow-[0_0_24px_rgb(64_179_117/0.25)]"
-            aria-hidden="true"
-          >
-            <BulbIcon />
-          </span>
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <h2 id="news-impact-title" className="text-xl font-extrabold tracking-tight text-ink">
-              Qué significa para MindfulTech
-            </h2>
-            <span className="text-[13px] text-ink-secondary">
-              Impacto de negocio · acciones sugeridas para esta semana
-            </span>
-          </div>
-          {insightsAction}
-        </div>
-        {takeaways.length > 0 ? (
-          <ul className="grid gap-x-6 gap-y-3 md:grid-cols-2">
-            {takeaways.map((t, i) => (
-              <li key={`${i}-${t.lead}`} className="flex items-start gap-3">
-                <CheckCircleIcon />
-                <p className="text-sm leading-[1.55] text-ink/85 [text-wrap:pretty]">
-                  <strong className="font-bold text-ink">{t.lead}</strong> {t.body}
-                  {t.horizon && <HorizonChip horizon={t.horizon} />}
-                </p>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          insightsNotice
-        )}
-      </section>
-
       {watchlist.length > 0 && (
         <section
+          id="news-watch"
           aria-labelledby="news-watch-title"
           className="flex flex-col gap-3.5"
           data-news-watchlist
@@ -338,7 +356,7 @@ export function NewsDashboard({
       )}
 
       {moreStories.length > 0 && (
-        <section aria-labelledby="news-more-title" className="flex flex-col gap-3.5">
+        <section id="news-more" aria-labelledby="news-more-title" className="flex flex-col gap-3.5">
           <div className="flex items-baseline gap-2.5">
             <h2 id="news-more-title" className={SECTION_TITLE}>
               Más historias
@@ -360,6 +378,39 @@ export function NewsDashboard({
         artículo. Historias e imágenes de sus medios; cada una abre en su sitio.
       </p>
     </div>
+  );
+}
+
+/**
+ * The dashboard's sections as a row of pills (Phase 50), sticky at the top
+ * of the view while it scrolls: one tap to jump. Only the ones present.
+ */
+function SectionNav({
+  sections,
+}: Readonly<{ sections: Array<{ id: string; label: string; show: boolean }> }>) {
+  const shown = sections.filter((s) => s.show);
+  if (shown.length < 2) return null;
+  return (
+    <nav
+      aria-label="Secciones"
+      className="sticky top-0 z-20 -mx-1 -my-2 flex gap-1.5 overflow-x-auto bg-surface/80 px-1 py-2 backdrop-blur-md"
+      data-news-sections
+    >
+      {shown.map((section) => (
+        <button
+          key={section.id}
+          type="button"
+          onClick={() =>
+            document
+              .getElementById(section.id)
+              ?.scrollIntoView({ behavior: "smooth", block: "start" })
+          }
+          className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-semibold text-ink/75 transition hover:border-primary/50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          {section.label}
+        </button>
+      ))}
+    </nav>
   );
 }
 

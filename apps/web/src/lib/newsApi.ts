@@ -1,4 +1,10 @@
-import type { NewsInsightsResponse, NewsRefreshResponse, NewsResponse } from "@mindfultech/shared";
+import type {
+  AskNewsInput,
+  AskNewsResponse,
+  NewsInsightsResponse,
+  NewsRefreshResponse,
+  NewsResponse,
+} from "@mindfultech/shared";
 import { request } from "./tasksApi";
 
 /**
@@ -26,3 +32,10 @@ export const newsInsightsApi = {
 };
 
 export type NewsInsightsApi = typeof newsInsightsApi;
+
+/** "Pregunta a la IA" (Phase 50): a question about today's news, with the chat so far. */
+export const newsChatApi = {
+  ask: (input: AskNewsInput) => request<AskNewsResponse>("POST", "/news/ask", input),
+};
+
+export type NewsChatApi = typeof newsChatApi;

@@ -2,6 +2,7 @@ import type { NewsArticle, NewsStory } from "@mindfultech/shared";
 import { describe, expect, it } from "vitest";
 import {
   analysisProgress,
+  linkCitations,
   dashboardDateLabel,
   dashboardStories,
   fallbackIconFor,
@@ -130,5 +131,17 @@ describe("analysisProgress", () => {
     expect(usual).toBeLessThan(95);
     expect(long).toBeGreaterThan(94.9);
     expect(long).toBeLessThanOrEqual(95);
+  });
+});
+
+describe("linkCitations", () => {
+  const sources = [{ n: 2, link: "https://infoq.com/a?x=1&y=2", title: 'AWS "sold out"' }];
+  it("turns a cited story into a numbered link, escaped; other numbers stay text", () => {
+    expect(linkCitations("Agotada [2] y [7].", sources)).toBe(
+      'Agotada <a href="https://infoq.com/a?x=1&amp;y=2" target="_blank" rel="noopener noreferrer" title="AWS &quot;sold out&quot;" class="news-cite">2</a> y [7].',
+    );
+  });
+  it("never links anything but https", () => {
+    expect(linkCitations("[2]", [{ n: 2, link: "javascript:alert(1)", title: "x" }])).toBe("[2]");
   });
 });

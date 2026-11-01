@@ -1,9 +1,36 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
-import type { NewsInsightsResponse, NewsRefreshResponse } from "@mindfultech/shared";
+import {
+  AskNewsSchema,
+  type AskNewsResponse,
+  type NewsInsightsResponse,
+  type NewsRefreshResponse,
+} from "@mindfultech/shared";
+import { bedrockModel, type ClaudeModel } from "../lib/claude";
 import { requireEnv } from "../lib/env";
-import { forbidden, httpHandler, json, notFound, type HttpResult } from "../lib/http";
-import { log } from "../lib/logger";
+import {
+  forbidden,
+  HttpError,
+  httpHandler,
+  json,
+  notFound,
+  parseBody,
+  type HttpResult,
+} from "../lib/http";
+import { errorFields, log } from "../lib/logger";
+import { getNews } from "../lib/news";
+import { newsAnswerFrom, newsChatRequest } from "../lib/newsChat";
 import { claimRefresh, lastFailure, latestInsights } from "../lib/newsInsights";
+
+let chatModel: ClaudeModel | null = null;
+
+/** Tests swap the model. */
+export function useNewsChatModel(next: ClaudeModel | null): void {
+  chatModel = next;
+}
+
+/** One try, inside API Gateway's 30 seconds (the feeds may need reading first). */
+const CHAT_TIMEOUT_MS = 22_000;
 
 let lambda: LambdaClient | null = null;
 const lambdaClient = () => (lambda ??= new LambdaClient({}));
@@ -57,6 +84,8 @@ export const handler = httpHandler(async (event, caller): Promise<HttpResult> =>
       const body: NewsRefreshResponse = { queued: true };
       return json(202, body);
     }
+    case "POST /news/ask":
+      return askNews(event, caller.userId);
     default:
       throw notFound(`No route for ${event.routeKey}`);
   }
@@ -71,4 +100,56 @@ async function startWorker(requestedBy: string): Promise<void> {
       Payload: new TextEncoder().encode(JSON.stringify({ requestedBy })),
     }),
   );
+}
+
+/**
+ * `POST /news/ask` (Phase 50): answers a question about today's news from the
+ * stories (this container's copy, read from the feeds when stale) and the
+ * morning's analysis, with the chat so far. Nothing is stored.
+ */
+async function askNews(
+  event: Parameters<Parameters<typeof httpHandler>[0]>[0],
+  userId: string,
+): Promise<HttpResult> {
+  const { question, history } = parseBody(AskNewsSchema, event);
+  const [news, insights] = await Promise.all([
+    getNews(fetch, Date.now()).catch(() => null),
+    latestInsights(),
+  ]);
+  const articles = news?.response.articles ?? [];
+  if (articles.length === 0 && !insights) {
+    throw new HttpError(503, "No hay noticias para consultar ahora mismo. Intenta en un minuto.");
+  }
+  const started = Date.now();
+  let response: Anthropic.Message;
+  try {
+    response = await (chatModel ??= bedrockModel(CHAT_TIMEOUT_MS, 0)).create(
+      newsChatRequest(articles, insights, history, question),
+    );
+  } catch (err) {
+    log.error("news question failed", {
+      userId,
+      ms: Date.now() - started,
+      ...(err instanceof Anthropic.APIError && { status: err.status }),
+      ...errorFields(err),
+    });
+    throw new HttpError(
+      err instanceof Anthropic.RateLimitError ? 503 : 502,
+      "No se pudo responder ahora. Intenta de nuevo.",
+    );
+  }
+  const answered = newsAnswerFrom(response, articles);
+  log.info("news question answered", {
+    userId,
+    ok: answered !== null,
+    stopReason: response.stop_reason,
+    inputTokens: response.usage.input_tokens,
+    cachedTokens: response.usage.cache_read_input_tokens ?? 0,
+    outputTokens: response.usage.output_tokens,
+    ms: Date.now() - started,
+  });
+  if (!answered)
+    throw new HttpError(502, "No llegó una respuesta. Prueba a preguntarlo de otra forma.");
+  const body: AskNewsResponse = answered;
+  return json(200, body);
 }

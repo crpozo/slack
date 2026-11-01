@@ -135,3 +135,30 @@ export function analysisProgress(elapsedMs: number, expectedMs: number): number 
   if (elapsedMs <= 0) return 2;
   return Math.min(95, Math.max(2, 95 * (1 - Math.exp((-1.8 * elapsedMs) / expectedMs))));
 }
+
+const ATTR_ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  '"': "&quot;",
+  "<": "&lt;",
+  ">": "&gt;",
+};
+
+/**
+ * An answer's rendered HTML with each cited story (`[3]`) turned into a
+ * small numbered link to the article (Phase 50). Numbers that aren't a
+ * source stay as written. The HTML is the markdown renderer's output (already
+ * escaped); the links are https URLs from the feeds, escaped again here.
+ */
+export function linkCitations(
+  html: string,
+  sources: Array<{ n: number; link: string; title: string }>,
+): string {
+  const byN = new Map(sources.map((s) => [s.n, s]));
+  return html.replace(/\[(\d{1,3})\]/g, (whole, digits: string) => {
+    const source = byN.get(Number(digits));
+    if (!source || !/^https:\/\//.test(source.link)) return whole;
+    const href = source.link.replace(/[&"<>]/g, (c) => ATTR_ESCAPES[c] ?? c);
+    const title = source.title.replace(/[&"<>]/g, (c) => ATTR_ESCAPES[c] ?? c);
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer" title="${title}" class="news-cite">${digits}</a>`;
+  });
+}

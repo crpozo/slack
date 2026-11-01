@@ -102,6 +102,8 @@ export const NEWS_INSIGHTS_ROUTES: Array<{ method: HttpMethod; path: string }> =
   { method: HttpMethod.GET, path: "/news/insights" },
   { method: HttpMethod.POST, path: "/news/insights" },
   { method: HttpMethod.POST, path: "/news/refresh" },
+  // Phase 50: "Pregunta a la IA", questions about the day's news.
+  { method: HttpMethod.POST, path: "/news/ask" },
 ];
 
 /**
@@ -323,10 +325,16 @@ export class TasksApi extends Construct {
       },
       Duration.seconds(30),
     );
-    this.newsInsightsHandler = lambda("NewsInsightsFn", "news-insights", {
-      NEWS_INSIGHTS_TABLE: data.newsInsights.tableName,
-      INSIGHTS_WORKER_FUNCTION: this.newsInsightsWorker.functionName,
-    });
+    this.newsInsightsHandler = lambda(
+      "NewsInsightsFn",
+      "news-insights",
+      {
+        NEWS_INSIGHTS_TABLE: data.newsInsights.tableName,
+        INSIGHTS_WORKER_FUNCTION: this.newsInsightsWorker.functionName,
+      },
+      // Phase 50: a question may read the feeds and then ask the model (API Gateway allows 30 s).
+      Duration.seconds(29),
+    );
     new Rule(this, "NewsInsightsSchedule", {
       ruleName: `slack-${stage}-news-insights`,
       description: "Writes the morning's AI Insights on the AI news",
@@ -703,6 +711,8 @@ export class TasksApi extends Construct {
     data.newsInsights.grant(this.newsInsightsWorker, "dynamodb:PutItem");
     // The worker streams its answer (Phase 49): that's its own Bedrock action.
     this.newsInsightsWorker.addToRolePolicy(notesModelPolicy(true));
+    // "Pregunta a la IA" (Phase 50): the endpoint asks the model itself (one short answer).
+    this.newsInsightsHandler.addToRolePolicy(notesModelPolicy());
     // GetItem: the last failed run (Phase 49b).
     data.newsInsights.grant(
       this.newsInsightsHandler,

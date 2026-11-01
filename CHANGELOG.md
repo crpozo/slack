@@ -7,6 +7,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Pregunta a la IA (AI News):** a chat about today's news, answered by Claude Haiku 5.5 from the
+  day's stories and the morning's analysis. Answers cite the stories they rely on as numbered
+  links to the articles, with the sources listed below. It sits beside the news on wide screens
+  and opens from a floating button on phones; suggested questions get you started, and the chat
+  stays while you move around the app (it's never stored).
+- **AI News, better organized:** a row of section pills at the top (sticky while you scroll)
+  jumps to Lo esencial, Para MindfulTech, A fondo, Tendencias, Seguir de cerca and Más historias.
+  "Qué significa para MindfulTech" now comes right after the essentials.
 - **AI News analysis progress:** while the analysis is being written, a progress bar shows the
   step it's on and how long it has run. It keeps going on the server if you leave the page: AI
   News in the sidebar spins until it's done, and coming back (even after a reload) picks the

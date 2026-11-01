@@ -367,3 +367,8 @@
   height: 16px;
   border: 0;
 }
+
+/* "Pregunta a la IA" (Phase 50): a cited story, as a small numbered pill. */
+.news-cite {
+  @apply mx-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-primary/40 bg-primary/15 px-1 align-[1px] font-mono text-[10px] font-semibold text-[#8fe0b0] no-underline hover:bg-primary/30;
+}

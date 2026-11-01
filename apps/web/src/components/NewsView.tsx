@@ -6,6 +6,7 @@ import { tasksApiConfigured } from "../lib/tasksApi";
 import { useNews } from "../store/news";
 import { INSIGHTS_EXPECTED_MS, useNewsInsights } from "../store/newsInsights";
 import { MenuIcon, RefreshIcon } from "./icons";
+import { NewsChat, NewsChatLauncher } from "./NewsChat";
 import { NewsDashboard } from "./NewsDashboard";
 import { UnreadAlertsDot } from "./NotificationBell";
 
@@ -58,52 +59,65 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
       data-news-view
     >
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="px-4 pb-16 pt-6 sm:px-6 sm:pt-10">
-          {!configured ? (
-            <Notice>AI News isn&apos;t set up on this deployment.</Notice>
-          ) : status === "error" && !data ? (
-            <ErrorState message={error} onRetry={() => void load(true)} leading={menu} />
-          ) : loading && !data ? (
-            <Skeletons />
-          ) : articles.length === 0 && !insights ? (
-            <Notice>No stories right now. Check back in a little while.</Notice>
-          ) : (
-            <NewsDashboard
-              leading={menu}
-              dateLabel={dashboardDateLabel(insights?.day ?? null, now)}
-              storyCount={insights?.storyCount ?? articles.length}
-              stories={top}
-              deepDive={insights?.deepDive}
-              trends={insights?.trends ?? []}
-              takeaways={insights?.takeaways ?? []}
-              watchlist={insights?.watchlist ?? []}
-              moreStories={more}
-              now={now}
-              refreshing={status === "loading" || insightsState.generating}
-              onRefresh={() => {
-                void load(true);
-                void insightsState.generate();
-              }}
-              banner={
-                <>
-                  {(data?.stale || error) && (
-                    <p
-                      role="status"
-                      className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-ink"
-                    >
-                      {data?.stale
-                        ? "The news sources couldn't be reached just now: these are the latest stories we had."
-                        : `Couldn't refresh: ${error}`}
-                    </p>
-                  )}
-                  <RefreshStatus />
-                </>
-              }
-              insightsNotice={<InsightsNotice />}
-            />
+        {/* Phase 50: the news and, beside them on wide screens, "Pregunta a la IA". */}
+        <div className="mx-auto w-full max-w-[1680px] px-4 pb-24 pt-6 sm:px-6 sm:pt-10 xl:grid xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-8 xl:pb-16">
+          <div className="min-w-0">
+            {!configured ? (
+              <Notice>AI News isn&apos;t set up on this deployment.</Notice>
+            ) : status === "error" && !data ? (
+              <ErrorState message={error} onRetry={() => void load(true)} leading={menu} />
+            ) : loading && !data ? (
+              <Skeletons />
+            ) : articles.length === 0 && !insights ? (
+              <Notice>No stories right now. Check back in a little while.</Notice>
+            ) : (
+              <NewsDashboard
+                leading={menu}
+                dateLabel={dashboardDateLabel(insights?.day ?? null, now)}
+                storyCount={insights?.storyCount ?? articles.length}
+                stories={top}
+                deepDive={insights?.deepDive}
+                trends={insights?.trends ?? []}
+                takeaways={insights?.takeaways ?? []}
+                watchlist={insights?.watchlist ?? []}
+                moreStories={more}
+                now={now}
+                refreshing={status === "loading" || insightsState.generating}
+                onRefresh={() => {
+                  void load(true);
+                  void insightsState.generate();
+                }}
+                banner={
+                  <>
+                    {(data?.stale || error) && (
+                      <p
+                        role="status"
+                        className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-ink"
+                      >
+                        {data?.stale
+                          ? "The news sources couldn't be reached just now: these are the latest stories we had."
+                          : `Couldn't refresh: ${error}`}
+                      </p>
+                    )}
+                    <RefreshStatus />
+                  </>
+                }
+                insightsNotice={<InsightsNotice />}
+              />
+            )}
+          </div>
+          {configured && (articles.length > 0 || insights) && (
+            <aside className="hidden xl:block" aria-label="Pregunta a la IA">
+              <div className="sticky top-6 h-[calc(100vh-6rem)] min-h-[420px]">
+                <NewsChat storyCount={insights?.storyCount ?? articles.length} />
+              </div>
+            </aside>
           )}
         </div>
       </div>
+      {configured && (articles.length > 0 || insights) && (
+        <NewsChatLauncher storyCount={insights?.storyCount ?? articles.length} />
+      )}
     </div>
   );
 }

@@ -79,7 +79,10 @@ describe("AI Insights (Phase 39)", () => {
     ]);
     const invoke = endpoint.filter((st) => [st.Action].flat().includes("lambda:InvokeFunction"));
     expect(JSON.stringify(invoke)).toMatch(/NewsInsightsWorkerFn/);
-    expect(JSON.stringify(endpoint)).not.toMatch(/bedrock/);
+    // Phase 50: "Pregunta a la IA" asks the model from the endpoint: InvokeModel only, no stream.
+    const endpointActions = endpoint.flatMap((st) => [st.Action].flat());
+    expect(endpointActions).toContain("bedrock:InvokeModel");
+    expect(endpointActions).not.toContain("bedrock:InvokeModelWithResponseStream");
   });
 
   it("serves /news/insights and POST /news/refresh behind the JWT authorizer from the endpoint Lambda", () => {

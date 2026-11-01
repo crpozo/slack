@@ -1,3 +1,4 @@
+import { z } from "zod";
 // ---------------------------------------------------------------------------
 // AI News (Phase 35b; several sources since Phase 41): the latest AI stories
 // from a few publishers' feeds, read live by a stateless proxy (`GET /news`)
@@ -271,4 +272,44 @@ export function calendarDay(ms: number, timeZone = NEWS_INSIGHTS_TIME_ZONE): str
     month: "2-digit",
     day: "2-digit",
   }).format(ms);
+}
+
+// ---------------------------------------------------------------------------
+// "Pregunta a la IA" (Phase 50): questions about the day's news, answered by
+// Claude Haiku 5.5 from the stories and the morning's analysis. The chat is
+// kept in the page (this tab), never stored: each question sends the turns
+// before it.
+// ---------------------------------------------------------------------------
+
+/** The longest question, and the longest earlier turn sent back as context. */
+export const MAX_NEWS_QUESTION_LENGTH = 1_000;
+export const MAX_NEWS_CHAT_TURN_LENGTH = 4_000;
+/** How many earlier turns (questions and answers) go with a question. */
+export const MAX_NEWS_CHAT_HISTORY = 10;
+
+export const NewsChatTurnSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().trim().min(1).max(MAX_NEWS_CHAT_TURN_LENGTH),
+});
+export type NewsChatTurn = z.infer<typeof NewsChatTurnSchema>;
+
+export const AskNewsSchema = z.object({
+  question: z.string().trim().min(1).max(MAX_NEWS_QUESTION_LENGTH),
+  history: z.array(NewsChatTurnSchema).max(MAX_NEWS_CHAT_HISTORY).default([]),
+});
+export type AskNewsInput = z.input<typeof AskNewsSchema>;
+
+/** A story an answer cites (`[3]` in its text), as the feed has it. */
+export interface NewsCitation {
+  n: number;
+  title: string;
+  link: string;
+  sourceName: string;
+}
+
+/** `POST /news/ask`. */
+export interface AskNewsResponse {
+  /** Markdown; stories are cited as `[n]`, each listed in `sources`. */
+  answer: string;
+  sources: NewsCitation[];
 }
