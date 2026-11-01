@@ -7,6 +7,7 @@ import { useNews } from "../store/news";
 import { INSIGHTS_EXPECTED_MS, useNewsInsights } from "../store/newsInsights";
 import { MenuIcon, RefreshIcon } from "./icons";
 import { NewsChat, NewsChatLauncher } from "./NewsChat";
+import { SparklesIcon } from "./icons";
 import { NewsDashboard } from "./NewsDashboard";
 import { UnreadAlertsDot } from "./NotificationBell";
 
@@ -25,6 +26,16 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
   const loadInsights = insightsState.load;
   const now = useNow();
   const configured = tasksApiConfigured();
+  // Phase 50b: the chat beside the news (wide screens) opens on demand; remembered here.
+  const [chatOpen, setChatOpen] = useState(readChatOpen);
+  const toggleChat = (open: boolean) => {
+    setChatOpen(open);
+    try {
+      localStorage.setItem(CHAT_OPEN_KEY, open ? "1" : "0");
+    } catch {
+      // Not remembered: it still opens and closes now.
+    }
+  };
 
   useEffect(() => {
     document.title = "AI News · MindfulTech";
@@ -60,7 +71,11 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
     >
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* Phase 50: the news and, beside them on wide screens, "Pregunta a la IA". */}
-        <div className="mx-auto w-full max-w-[1680px] px-4 pb-24 pt-6 sm:px-6 sm:pt-10 xl:grid xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-8 xl:pb-16">
+        <div
+          className={`mx-auto w-full max-w-[1680px] px-4 pb-24 pt-6 sm:px-6 sm:pt-10 xl:pb-16 ${
+            chatOpen ? "xl:grid xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-8" : ""
+          }`}
+        >
           <div className="min-w-0">
             {!configured ? (
               <Notice>AI News isn&apos;t set up on this deployment.</Notice>
@@ -83,6 +98,23 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
                 moreStories={more}
                 now={now}
                 refreshing={status === "loading" || insightsState.generating}
+                headerActions={
+                  <button
+                    type="button"
+                    onClick={() => toggleChat(!chatOpen)}
+                    aria-pressed={chatOpen}
+                    className={`hidden h-10 items-center gap-2 whitespace-nowrap rounded-[10px] border px-4 text-[13px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary xl:inline-flex ${
+                      chatOpen
+                        ? "border-primary bg-primary/20 text-ink"
+                        : "border-white/15 bg-white/[0.04] text-ink/85 hover:border-primary/50 hover:text-ink"
+                    }`}
+                    title={chatOpen ? "Cerrar el chat" : "Abrir el chat con la IA"}
+                    data-news-chat-toggle
+                  >
+                    <SparklesIcon aria-hidden="true" />
+                    Pregunta a la IA
+                  </button>
+                }
                 onRefresh={() => {
                   void load(true);
                   void insightsState.generate();
@@ -106,10 +138,13 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
               />
             )}
           </div>
-          {configured && (articles.length > 0 || insights) && (
+          {chatOpen && configured && (articles.length > 0 || insights) && (
             <aside className="hidden xl:block" aria-label="Pregunta a la IA">
               <div className="sticky top-6 h-[calc(100vh-6rem)] min-h-[420px]">
-                <NewsChat storyCount={insights?.storyCount ?? articles.length} />
+                <NewsChat
+                  storyCount={insights?.storyCount ?? articles.length}
+                  onClose={() => toggleChat(false)}
+                />
               </div>
             </aside>
           )}
@@ -120,6 +155,18 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
       )}
     </div>
   );
+}
+
+/** Where the chat's open/closed choice is kept for this browser (Phase 50b). */
+const CHAT_OPEN_KEY = "news.chat.open";
+
+/** Closed unless it was left open: some visits are only for reading the news. */
+function readChatOpen(): boolean {
+  try {
+    return localStorage.getItem(CHAT_OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 /** What "Refresh news" is doing with the analysis: writing it (with progress), not needed yet, or failed. */

@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Pregunta a la IA opens on demand:** on wide screens the chat is closed by default and the
+  news use the whole width; the **Pregunta a la IA** button beside Refresh news opens it at the
+  side, and its ✕ closes it. The choice is remembered, and the conversation stays while it's
+  closed.
 - **Pregunta a la IA (AI News):** a chat about today's news, answered by Claude Haiku 5.5 from the
   day's stories and the morning's analysis. Answers cite the stories they rely on as numbered
   links to the articles, with the sources listed below. It sits beside the news on wide screens

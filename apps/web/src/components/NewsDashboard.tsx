@@ -33,6 +33,8 @@ export interface NewsDashboardProps {
   now: number;
   refreshing: boolean;
   onRefresh: () => void;
+  /** Beside "Refresh news" (Phase 50b: the "Pregunta a la IA" toggle). */
+  headerActions?: ReactNode;
   /** In the callout instead of the takeaways when there's no analysis (yet). */
   insightsNotice?: ReactNode;
   /** Beside the callout's title (an admin's "Generar análisis"). */
@@ -63,6 +65,7 @@ export function NewsDashboard({
   now,
   refreshing,
   onRefresh,
+  headerActions,
   insightsNotice,
   insightsAction,
   banner,
@@ -102,18 +105,21 @@ export function NewsDashboard({
             </span>
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={refreshing}
-          className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-primary/50 bg-primary/[0.06] px-4 text-[13px] font-semibold text-[#6fcf97] backdrop-blur-md transition hover:border-primary hover:bg-primary/[0.14] hover:text-[#8fe0b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-70"
-          aria-label="Refresh news"
-          title="Read the latest stories from every source now"
-          data-refresh-news
-        >
-          <RefreshIcon className={refreshing ? "animate-spin" : ""} aria-hidden="true" />
-          <span>{refreshing ? "Actualizando…" : "Refresh news"}</span>
-        </button>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {headerActions}
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={refreshing}
+            className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-primary/50 bg-primary/[0.06] px-4 text-[13px] font-semibold text-[#6fcf97] backdrop-blur-md transition hover:border-primary hover:bg-primary/[0.14] hover:text-[#8fe0b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-70"
+            aria-label="Refresh news"
+            title="Read the latest stories from every source now"
+            data-refresh-news
+          >
+            <RefreshIcon className={refreshing ? "animate-spin" : ""} aria-hidden="true" />
+            <span>{refreshing ? "Actualizando…" : "Refresh news"}</span>
+          </button>
+        </div>
       </header>
 
       <SectionNav
