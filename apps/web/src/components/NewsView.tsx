@@ -206,7 +206,8 @@ const STEPS: Array<[number, string]> = [
 function AnalysisProgress({ since }: Readonly<{ since: number }>) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 250);
+    // Once a second, with a 1 s linear transition: smooth, and no repaint storm.
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
   const elapsed = Math.max(0, now - since);
@@ -235,7 +236,7 @@ function AnalysisProgress({ since }: Readonly<{ since: number }>) {
         aria-valuenow={Math.round(pct)}
       >
         <div
-          className="h-full rounded-full bg-gradient-to-r from-primary/70 to-[#8fe0b0] shadow-[0_0_12px_rgb(64_179_117/0.6)] transition-[width] duration-300 ease-out"
+          className="h-full rounded-full bg-gradient-to-r from-primary/70 to-[#8fe0b0] shadow-[0_0_12px_rgb(64_179_117/0.6)] transition-[width] duration-1000 ease-linear"
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -313,7 +314,7 @@ function ErrorState({
   return (
     <>
       {leading}
-      <div className="mx-auto mt-10 max-w-md rounded-2xl border border-white/10 bg-white/[0.04] p-6 text-center shadow-sm backdrop-blur-lg">
+      <div className="mx-auto mt-10 max-w-md rounded-2xl border border-white/10 bg-white/[0.04] p-6 text-center shadow-sm">
         <p className="text-3xl" aria-hidden="true">
           📡
         </p>

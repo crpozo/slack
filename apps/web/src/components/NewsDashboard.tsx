@@ -111,7 +111,7 @@ export function NewsDashboard({
             type="button"
             onClick={onRefresh}
             disabled={refreshing}
-            className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-primary/50 bg-primary/[0.06] px-4 text-[13px] font-semibold text-[#6fcf97] backdrop-blur-md transition hover:border-primary hover:bg-primary/[0.14] hover:text-[#8fe0b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-70"
+            className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-primary/50 bg-primary/[0.06] px-4 text-[13px] font-semibold text-[#6fcf97] transition hover:border-primary hover:bg-primary/[0.14] hover:text-[#8fe0b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-70"
             aria-label="Refresh news"
             title="Read the latest stories from every source now"
             data-refresh-news
@@ -155,7 +155,7 @@ export function NewsDashboard({
       <section
         id="news-impact"
         aria-labelledby="news-impact-title"
-        className={`relative flex flex-col gap-5 rounded-[20px] border p-6 backdrop-blur-xl sm:p-7 ${CALLOUT[calloutStyle]}`}
+        className={`relative flex flex-col gap-5 rounded-[20px] border p-6 sm:p-7 ${CALLOUT[calloutStyle]}`}
         data-news-impact
       >
         <div className="flex flex-wrap items-center gap-3.5">
@@ -196,7 +196,7 @@ export function NewsDashboard({
         <section
           id="news-deep"
           aria-labelledby="news-deep-title"
-          className="flex flex-col gap-4 rounded-[18px] border border-white/10 bg-gradient-to-b from-white/[0.07] to-white/[0.04] p-6 shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-xl"
+          className="flex flex-col gap-4 rounded-[18px] border border-white/10 bg-gradient-to-b from-white/[0.07] to-white/[0.04] p-6 shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)]"
           data-news-deep-dive
         >
           <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
@@ -272,7 +272,7 @@ export function NewsDashboard({
         <section
           id="news-trends"
           aria-labelledby="news-trends-title"
-          className="flex flex-col gap-[18px] rounded-[18px] border border-white/10 bg-gradient-to-b from-white/[0.07] to-white/[0.04] p-6 shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-xl"
+          className="flex flex-col gap-[18px] rounded-[18px] border border-white/10 bg-gradient-to-b from-white/[0.07] to-white/[0.04] p-6 shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)]"
           data-news-trends
         >
           <div className="flex items-center gap-2.5">
@@ -346,7 +346,7 @@ export function NewsDashboard({
             {watchlist.map((w, i) => (
               <li
                 key={`${i}-${w.topic}`}
-                className="flex gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4 backdrop-blur-lg"
+                className="flex gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4"
               >
                 <EyeIcon />
                 <div className="flex min-w-0 flex-col gap-1">
@@ -390,6 +390,8 @@ export function NewsDashboard({
 /**
  * The dashboard's sections as a row of pills (Phase 50), sticky at the top
  * of the view while it scrolls: one tap to jump. Only the ones present.
+ * Solid, no backdrop blur: a blurred sticky bar over blurred cards made
+ * Chrome recomposite every frame while scrolling, which showed as flicker.
  */
 function SectionNav({
   sections,
@@ -399,7 +401,7 @@ function SectionNav({
   return (
     <nav
       aria-label="Secciones"
-      className="sticky top-0 z-20 -mx-1 -my-2 flex gap-1.5 overflow-x-auto bg-surface/80 px-1 py-2 backdrop-blur-md"
+      className="sticky top-0 z-20 -mx-1 -my-2 flex gap-1.5 overflow-x-auto border-b border-white/[0.06] bg-surface px-1 py-2"
       data-news-sections
     >
       {shown.map((section) => (
@@ -448,7 +450,7 @@ function StoryCard({
       target="_blank"
       rel="noopener noreferrer"
       onClick={(e) => openInBrowser(e, story.link)}
-      className="group flex w-full gap-4 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4 shadow-[0_10px_30px_rgb(0_0_0/0.25),inset_0_1px_0_rgb(255_255_255/0.04)] backdrop-blur-lg transition duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      className="group flex w-full gap-4 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4 shadow-[0_10px_30px_rgb(0_0_0/0.25),inset_0_1px_0_rgb(255_255_255/0.04)] transition duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       data-news-card={compact ? "more" : "top"}
     >
       {/* A new address starts over (loading, then the image or the fallback). */}

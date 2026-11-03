@@ -26,6 +26,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **AI News flickering:** the sticky section bar blurred what scrolled under it, and the cards
+  and sections under it blurred their own backgrounds too; stacked like that, Chrome
+  recomposited them every frame while scrolling, which showed as flicker. The page no longer
+  uses backdrop blur (the bar is solid; the look is the same on its plain background), and the
+  analysis progress bar repaints once a second instead of four times.
 - **AI News images:** TechCrunch's feed carries no images, so its stories always showed the
   placeholder icon. A story without an image now gets the article's own cover (its `og:image`,
   what chat apps show for a link), read once per article from the page's head, a few at a time

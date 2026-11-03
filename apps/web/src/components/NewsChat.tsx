@@ -55,7 +55,7 @@ export function NewsChat({
   return (
     <section
       aria-label="Pregunta a la IA"
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.03] shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-xl"
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.03] shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)]"
       data-news-chat
     >
       <header className="flex items-center gap-2.5 border-b border-white/10 px-4 py-3">
