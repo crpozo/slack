@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the production site may call in the desktop app: its window's focus (to notify only in the background), native notifications, and the small always-on-top call window (Phase 24): creating and closing it, placing it, and the events the two windows exchange; and opening external links in the OS's default browser (opener plugin: http/https/mailto/tel only; Phase 26); and installing an AI Skill into ~/.claude/skills (Phase 44).",
+  "description": "What the production site may call in the desktop app: its window's focus (to notify only in the background), native notifications, and the small always-on-top call window (Phase 24): creating and closing it, placing it, and the events the two windows exchange; and opening external links in the OS's default browser (opener plugin: http/https/mailto/tel only; Phase 26); and installing an AI Skill into ~/.claude/skills (Phase 44); and copying a Vault password, which the app wipes from the clipboard after 30 seconds (Phase 45; the site gets no clipboard read access).",
   "windows": ["main", "call-pip"],
   "remote": {
     "urls": ["https://slack.mindfultech.ec/*"]
@@ -28,6 +28,7 @@
     "notification:allow-request-permission",
     "notification:allow-notify",
     "opener:default",
-    "allow-install-skill"
+    "allow-install-skill",
+    "allow-copy-secret"
   ]
 }

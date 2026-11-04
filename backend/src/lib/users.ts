@@ -1,10 +1,28 @@
-import { BatchGetCommand, type BatchGetCommandOutput } from "@aws-sdk/lib-dynamodb";
+import { BatchGetCommand, GetCommand, type BatchGetCommandOutput } from "@aws-sdk/lib-dynamodb";
 import { isRole, MAX_DISPLAY_NAME_LENGTH, type UserProfile } from "@mindfultech/shared";
 import { ddb, tables } from "./ddb";
+import { errorFields, log } from "./logger";
 
 /** Default display name: the local part of the email. */
 export function defaultDisplayName(email: string): string {
   return (email.split("@")[0] || email).slice(0, MAX_DISPLAY_NAME_LENGTH);
+}
+
+/** Someone's display name from `users`; the email's local part when it's unknown or unreadable. */
+export async function displayNameOf(user: { userId: string; email: string }): Promise<string> {
+  try {
+    const { Item } = await ddb.send(
+      new GetCommand({
+        TableName: tables.users,
+        Key: { userId: user.userId },
+        ProjectionExpression: "displayName",
+      }),
+    );
+    if (typeof Item?.displayName === "string" && Item.displayName) return Item.displayName;
+  } catch (err) {
+    log.warn("display name lookup failed", { userId: user.userId, ...errorFields(err) });
+  }
+  return defaultDisplayName(user.email);
 }
 
 /** Row of the `users` table, as sent to clients. */

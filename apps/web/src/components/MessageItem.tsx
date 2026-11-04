@@ -25,6 +25,7 @@ import { Attachment } from "./Attachment";
 import { OutgoingFiles, SendStatus } from "./OutgoingFiles";
 import { MeetingCard } from "./MeetingCard";
 import { AiNotesCard } from "./AiNotesCard";
+import { VaultSecretCard } from "./VaultSecretCard";
 import { DeleteMessageModal } from "./DeleteMessageModal";
 import { MessageContextMenu } from "./MessageContextMenu";
 import { Avatar } from "./Avatar";
@@ -660,6 +661,10 @@ export const MessageItem = memo(function MessageItem({
 
           {message.kind === "ai_notes" && message.aiNotes && (
             <AiNotesCard message={message} mine={mine} />
+          )}
+
+          {message.kind === "vault" && message.vault && (
+            <VaultSecretCard card={message.vault} mine={mine} />
           )}
 
           {message.kind === "meeting" && message.meeting && (

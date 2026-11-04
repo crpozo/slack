@@ -5,6 +5,7 @@ import type { Role } from "./roles";
 import type { Board, Task, TaskStatus } from "./tasks";
 import type { CalendarPushEvent } from "./calendar";
 import type { Recurrence } from "./recurrence";
+import type { VaultCard } from "./vault";
 
 // ---------------------------------------------------------------------------
 // Limits & constants
@@ -241,7 +242,7 @@ export function readBy(message: Pick<Message, "sk" | "userId">, reads: Channel["
     .sort(compareIds);
 }
 
-export const MESSAGE_KINDS = ["meeting", "ai_notes"] as const;
+export const MESSAGE_KINDS = ["meeting", "ai_notes", "vault"] as const;
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
 
 /** What a "meeting scheduled" message carries (see `Message.meeting`). */
@@ -326,6 +327,12 @@ export interface Message {
    * action, never editable by hand.
    */
   aiNotes?: AiNotes;
+  /**
+   * A Vault secret shared in this conversation (Phase 45, `/secret`): its
+   * name and id, never the password, which members reveal from the Vault.
+   * Written by the server only, never editable by hand.
+   */
+  vault?: VaultCard;
   /** DynamoDB TTL (epoch **seconds**): set by the server on secret messages only. */
   expiresAt?: number;
   /**

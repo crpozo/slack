@@ -1,5 +1,4 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { GetCommand } from "@aws-sdk/lib-dynamodb";
 import {
   GenerateSkillSchema,
   ImportGithubSkillSchema,
@@ -14,7 +13,6 @@ import {
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
 import { bedrockModel, type ClaudeModel } from "../lib/claude";
-import { ddb, tables } from "../lib/ddb";
 import {
   forbidden,
   HttpError,
@@ -40,7 +38,7 @@ import {
   normalizeSkillMd,
   putSkill,
 } from "../lib/skills";
-import { defaultDisplayName } from "../lib/users";
+import { displayNameOf } from "../lib/users";
 import { createZip } from "../lib/zip";
 
 let model: ClaudeModel | null = null;
@@ -61,22 +59,6 @@ function skillIdOf(event: HttpEvent): string {
   const id = pathParam(event, "id");
   if (!/^[\w-]{1,64}$/.test(id)) throw notFound("Skill not found");
   return id;
-}
-
-async function authorName(caller: HttpCaller): Promise<string> {
-  try {
-    const { Item } = await ddb.send(
-      new GetCommand({
-        TableName: tables.users,
-        Key: { userId: caller.userId },
-        ProjectionExpression: "displayName",
-      }),
-    );
-    if (typeof Item?.displayName === "string" && Item.displayName) return Item.displayName;
-  } catch (err) {
-    log.warn("author name lookup failed", { userId: caller.userId, ...errorFields(err) });
-  }
-  return defaultDisplayName(caller.email);
 }
 
 /** Whoever added a skill may change or remove it; admins may too (and only they, the built-in one). */
@@ -132,7 +114,7 @@ async function saveSkill(event: HttpEvent, caller: HttpCaller): Promise<HttpResu
     skillMd,
     files: input.files ?? existing?.files ?? [],
     authorId: existing?.authorId ?? caller.userId,
-    authorName: existing?.authorName ?? (await authorName(caller)),
+    authorName: existing?.authorName ?? (await displayNameOf(caller)),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
@@ -167,7 +149,7 @@ async function importGithub(event: HttpEvent, caller: HttpCaller): Promise<HttpR
       guessCategory(`${imported.slug} ${imported.description}`),
     syncedAt: now,
     authorId: existing?.authorId ?? caller.userId,
-    authorName: existing?.authorName ?? (await authorName(caller)),
+    authorName: existing?.authorName ?? (await displayNameOf(caller)),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
