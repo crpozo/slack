@@ -66,13 +66,13 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
 
   return (
     <div
-      className="relative flex h-full min-h-0 flex-1 flex-col bg-surface bg-[radial-gradient(900px_420px_at_15%_-10%,rgb(64_179_117/0.16),transparent_60%),radial-gradient(700px_400px_at_100%_10%,rgb(64_179_117/0.07),transparent_60%)]"
+      className="news-paper relative flex h-full min-h-0 flex-1 flex-col bg-surface"
       data-news-view
     >
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* Phase 50: the news and, beside them on wide screens, "Pregunta a la IA". */}
         <div
-          className={`mx-auto w-full max-w-[1680px] px-4 pb-24 pt-6 sm:px-6 sm:pt-10 xl:pb-16 ${
+          className={`mx-auto w-full max-w-[1680px] px-4 pb-24 pt-6 sm:px-8 sm:pt-10 xl:pb-16 ${
             chatOpen ? "xl:grid xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-8" : ""
           }`}
         >
@@ -103,10 +103,10 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
                     type="button"
                     onClick={() => toggleChat(!chatOpen)}
                     aria-pressed={chatOpen}
-                    className={`hidden h-10 items-center gap-2 whitespace-nowrap rounded-[10px] border px-4 text-[13px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary xl:inline-flex ${
+                    className={`hidden h-10 items-center gap-2 whitespace-nowrap rounded-full border px-5 text-[13px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary xl:inline-flex ${
                       chatOpen
-                        ? "border-primary bg-primary/20 text-ink"
-                        : "border-white/15 bg-white/[0.04] text-ink/85 hover:border-primary/50 hover:text-ink"
+                        ? "border-primary bg-primary/15 text-ink"
+                        : "border-ink/70 text-ink hover:bg-ink/[0.06]"
                     }`}
                     title={chatOpen ? "Cerrar el chat" : "Abrir el chat con la IA"}
                     data-news-chat-toggle
@@ -124,7 +124,7 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
                     {(data?.stale || error) && (
                       <p
                         role="status"
-                        className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-ink"
+                        className="border-l-2 border-warning bg-warning/10 px-4 py-2.5 text-sm text-ink"
                       >
                         {data?.stale
                           ? "The news sources couldn't be reached just now: these are the latest stories we had."
@@ -140,7 +140,8 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
           </div>
           {chatOpen && configured && (articles.length > 0 || insights) && (
             <aside className="hidden xl:block" aria-label="Pregunta a la IA">
-              <div className="sticky top-6 h-[calc(100vh-6rem)] min-h-[420px]">
+              {/* The chat stays dark on the paper, like the MindfulTech band. */}
+              <div className="news-dark sticky top-6 h-[calc(100vh-6rem)] min-h-[420px] rounded-[18px] bg-surface">
                 <NewsChat
                   storyCount={insights?.storyCount ?? articles.length}
                   onClose={() => toggleChat(false)}
@@ -151,7 +152,9 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
         </div>
       </div>
       {configured && (articles.length > 0 || insights) && (
-        <NewsChatLauncher storyCount={insights?.storyCount ?? articles.length} />
+        <div className="news-dark">
+          <NewsChatLauncher storyCount={insights?.storyCount ?? articles.length} />
+        </div>
       )}
     </div>
   );
@@ -178,10 +181,10 @@ function RefreshStatus() {
   return (
     <p
       role={generateError ? "alert" : "status"}
-      className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm ${
+      className={`flex items-center gap-2 border-l-2 px-4 py-2.5 text-sm ${
         generateError
-          ? "border-warning/40 bg-warning/10 text-ink"
-          : "border-primary/30 bg-primary/[0.08] text-ink/85"
+          ? "border-warning bg-warning/10 text-ink"
+          : "border-primary bg-primary/10 text-ink/85"
       }`}
       data-news-refresh-status
     >
@@ -216,7 +219,7 @@ function AnalysisProgress({ since }: Readonly<{ since: number }>) {
   return (
     <div
       role="status"
-      className="flex flex-col gap-2.5 rounded-xl border border-primary/30 bg-primary/[0.08] px-4 py-3 text-sm text-ink/85"
+      className="flex flex-col gap-2.5 border-l-2 border-primary bg-primary/10 px-4 py-3 text-sm text-ink/85"
       data-news-refresh-status
       data-news-progress
     >
@@ -228,7 +231,7 @@ function AnalysisProgress({ since }: Readonly<{ since: number }>) {
         </span>
       </div>
       <div
-        className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]"
+        className="h-1 w-full overflow-hidden bg-ink/10"
         role="progressbar"
         aria-label="Progreso del análisis"
         aria-valuemin={0}
@@ -236,7 +239,7 @@ function AnalysisProgress({ since }: Readonly<{ since: number }>) {
         aria-valuenow={Math.round(pct)}
       >
         <div
-          className="h-full rounded-full bg-gradient-to-r from-primary/70 to-[#8fe0b0] shadow-[0_0_12px_rgb(64_179_117/0.6)] transition-[width] duration-1000 ease-linear"
+          className="h-full bg-primary transition-[width] duration-1000 ease-linear"
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -274,7 +277,7 @@ function InsightsNotice() {
 }
 
 function Skeletons() {
-  const block = "animate-pulse rounded-lg bg-white/[0.06]";
+  const block = "animate-pulse bg-ink/[0.07]";
   return (
     <div
       aria-busy="true"
@@ -287,11 +290,8 @@ function Skeletons() {
       </div>
       <div className="grid gap-3.5 sm:grid-cols-2">
         {Array.from({ length: 4 }, (_, i) => (
-          <div
-            key={i}
-            className="flex gap-4 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4"
-          >
-            <div className={`${block} h-[84px] w-[84px] shrink-0 rounded-xl`} />
+          <div key={i} className="flex gap-4 border-t border-line pt-4">
+            <div className={`${block} h-[84px] w-[84px] shrink-0`} />
             <div className="flex-1 space-y-2.5">
               <div className={`${block} h-4 w-11/12`} />
               <div className={`${block} h-3.5 w-4/5`} />
@@ -300,8 +300,8 @@ function Skeletons() {
           </div>
         ))}
       </div>
-      <div className={`${block} h-40 rounded-[18px]`} />
-      <div className={`${block} h-36 rounded-[20px]`} />
+      <div className={`${block} h-40`} />
+      <div className={`${block} h-36`} />
     </div>
   );
 }
@@ -314,7 +314,7 @@ function ErrorState({
   return (
     <>
       {leading}
-      <div className="mx-auto mt-10 max-w-md rounded-2xl border border-white/10 bg-white/[0.04] p-6 text-center shadow-sm">
+      <div className="mx-auto mt-10 max-w-md border-t-[3px] border-ink p-6 text-center">
         <p className="text-3xl" aria-hidden="true">
           📡
         </p>

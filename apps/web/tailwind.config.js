@@ -61,6 +61,8 @@ export default {
       caretColor: { primary: token("primary-fg") },
       accentColor: { primary: token("primary-fg") },
       fontFamily: {
+        /** AI News headlines (Phase 51): Newsreader, else the system's book serif. */
+        serif: ["Newsreader", "Iowan Old Style", "Charter", "Georgia", "Cambria", "serif"],
         sans: [
           "Inter",
           "ui-sans-serif",

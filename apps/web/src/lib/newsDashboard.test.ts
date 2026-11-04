@@ -1,6 +1,7 @@
 import type { NewsArticle, NewsStory } from "@mindfultech/shared";
 import { describe, expect, it } from "vitest";
 import {
+  actionsTitle,
   analysisProgress,
   linkCitations,
   dashboardDateLabel,
@@ -143,5 +144,14 @@ describe("linkCitations", () => {
   });
   it("never links anything but https", () => {
     expect(linkCitations("[2]", [{ n: 2, link: "javascript:alert(1)", title: "x" }])).toBe("[2]");
+  });
+});
+
+describe("actionsTitle", () => {
+  it("says the count in words, as the MindfulTech heading reads", () => {
+    expect(actionsTitle(5)).toBe("Cinco acciones sugeridas para esta semana");
+    expect(actionsTitle(1)).toBe("Una acción sugerida para esta semana");
+    expect(actionsTitle(0)).toBe("Acciones sugeridas para esta semana");
+    expect(actionsTitle(12)).toBe("12 acciones sugeridas para esta semana");
   });
 });

@@ -6,52 +6,52 @@ import {
   type NewsTrend,
   type NewsWatchItem,
 } from "@mindfultech/shared";
-import { useCallback, useState, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
 import { fullDate } from "../lib/news";
-import { fallbackIconFor, highlightParts, MIN_THUMBNAIL_PX, timeAgo } from "../lib/newsDashboard";
-import { CpuIcon, NewspaperIcon, RefreshIcon } from "./icons";
+import { actionsTitle, highlightParts, MIN_THUMBNAIL_PX, timeAgo } from "../lib/newsDashboard";
+import { RefreshIcon } from "./icons";
 
 export interface NewsDashboardProps {
   /** "Mié 28 oct 2026" */
   dateLabel: string;
   /** How many stories the summary was made from. */
   storyCount: number;
-  /** "Lo esencial": the day's top stories. */
+  /** "Lo esencial": the day's top stories (the first is the lead). */
   stories: NewsStory[];
   /** "A fondo" (Phase 44); the section is left out without one. */
   deepDive?: NewsDeepDive;
   /** "Tendencias"; the section is left out while there are none. */
   trends: NewsTrend[];
-  /** "Qué significa para MindfulTech". */
+  /** "Para MindfulTech": the suggested actions. */
   takeaways: NewsTakeaway[];
   /** "Para seguir de cerca" (Phase 44); left out while empty. */
   watchlist?: NewsWatchItem[];
-  /** Every other live story, below the callout. */
+  /** Every other live story, at the end. */
   moreStories?: NewsStory[];
   now: number;
   refreshing: boolean;
   onRefresh: () => void;
-  /** Beside "Refresh news" (Phase 50b: the "Pregunta a la IA" toggle). */
+  /** Beside "Refresh" (Phase 50b: the "Pregunta a la IA" toggle). */
   headerActions?: ReactNode;
-  /** In the callout instead of the takeaways when there's no analysis (yet). */
+  /** In the MindfulTech band instead of the actions when there's no analysis (yet). */
   insightsNotice?: ReactNode;
-  /** Beside the callout's title (an admin's "Generar análisis"). */
+  /** Under the band's title (an admin's "Generar análisis"). */
   insightsAction?: ReactNode;
-  /** Above everything (the feeds couldn't be read, a refresh failed). */
+  /** Under the tabs (the feeds couldn't be read, a refresh failed, the progress bar). */
   banner?: ReactNode;
   /** Before the title (the phone's menu button). */
   leading?: ReactNode;
-  /** The callout: a green glow on glass, or a green tint. */
-  calloutStyle?: "glow" | "tinted";
 }
 
 /**
- * The AI News dashboard (Phase 41, from the "AI News Dashboard" design): the
- * date and story count, "Lo esencial" (the day's top stories as glass
- * cards), "Tendencias" and the "Qué significa para MindfulTech" callout,
- * then the rest of the stories. Presentational: `NewsView` feeds it.
+ * The AI News dashboard as a newspaper (Phase 51, from the editorial
+ * design): a masthead, the sections as tabs, the lead story beside the
+ * numbered rest of "Lo esencial", the MindfulTech actions on a dark band,
+ * the trends in columns, then "A fondo", what to watch and every other
+ * story. Rendered inside `.news-paper` (the paper tokens). Presentational:
+ * `NewsView` feeds it.
  */
 export function NewsDashboard({
   dateLabel,
@@ -70,232 +70,154 @@ export function NewsDashboard({
   insightsAction,
   banner,
   leading,
-  calloutStyle = "glow",
 }: Readonly<NewsDashboardProps>) {
+  const [lead, ...rest] = stories;
   return (
     <div
-      className="flex w-full min-w-0 flex-col gap-7 [&>section]:scroll-mt-16"
+      className="flex w-full min-w-0 flex-col gap-12 sm:gap-14 [&>section]:scroll-mt-16"
       data-news-dashboard
     >
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex min-w-0 flex-col gap-2">
-          <div className="flex items-center gap-3">
-            {leading}
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full bg-primary shadow-[0_0_0_4px_rgb(64_179_117/0.18),0_0_18px_rgb(64_179_117/0.6)]"
-              aria-hidden="true"
-            />
-            <h1 className="text-[32px] font-extrabold leading-tight tracking-tight text-ink">
-              AI News
-            </h1>
+      <div className="flex flex-col gap-0">
+        <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4 border-b-[3px] border-ink pb-5">
+          <div className="flex min-w-0 flex-col gap-3">
+            <div className="flex items-center gap-2">
+              {leading}
+              <h1 className="font-serif text-[44px] font-semibold leading-[0.95] tracking-[-0.02em] text-ink sm:text-[60px]">
+                AI News
+              </h1>
+            </div>
+            <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-secondary">
+              <span data-news-date>{dateLabel}</span>
+              <span aria-hidden="true">·</span>
+              <span>
+                Resumido por IA a partir de{" "}
+                <span className="text-ink" data-news-story-count>
+                  {storyCount} {storyCount === 1 ? "historia" : "historias"}
+                </span>
+              </span>
+            </p>
           </div>
-          <p className="flex flex-wrap items-center gap-2.5 text-sm text-ink-secondary">
-            <span className="font-mono text-xs tracking-wide text-ink/70" data-news-date>
-              {dateLabel}
-            </span>
-            <span
-              className="hidden h-[3px] w-[3px] rounded-full bg-white/20 sm:block"
-              aria-hidden="true"
-            />
-            <span>
-              Resumido por IA a partir de{" "}
-              <strong className="font-semibold text-ink/85" data-news-story-count>
-                {storyCount} {storyCount === 1 ? "historia" : "historias"}
-              </strong>
-            </span>
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {headerActions}
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={refreshing}
-            className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-primary/50 bg-primary/[0.06] px-4 text-[13px] font-semibold text-[#6fcf97] transition hover:border-primary hover:bg-primary/[0.14] hover:text-[#8fe0b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-70"
-            aria-label="Refresh news"
-            title="Read the latest stories from every source now"
-            data-refresh-news
-          >
-            <RefreshIcon className={refreshing ? "animate-spin" : ""} aria-hidden="true" />
-            <span>{refreshing ? "Actualizando…" : "Refresh news"}</span>
-          </button>
-        </div>
-      </header>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {headerActions}
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-ink px-5 text-[13px] font-semibold text-surface transition hover:bg-ink/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-70"
+              aria-label="Refresh news"
+              title="Read the latest stories from every source now"
+              data-refresh-news
+            >
+              <RefreshIcon className={refreshing ? "animate-spin" : ""} aria-hidden="true" />
+              <span>{refreshing ? "Actualizando…" : "Refresh"}</span>
+            </button>
+          </div>
+        </header>
 
-      <SectionNav
-        sections={[
-          { id: "news-top", label: "Lo esencial", show: stories.length > 0 },
-          { id: "news-impact", label: "Para MindfulTech", show: true },
-          { id: "news-deep", label: "A fondo", show: !!deepDive },
-          { id: "news-trends", label: "Tendencias", show: trends.length > 0 },
-          { id: "news-watch", label: "Seguir de cerca", show: watchlist.length > 0 },
-          { id: "news-more", label: "Más historias", show: moreStories.length > 0 },
-        ]}
-      />
+        <SectionTabs
+          sections={[
+            { id: "news-top", label: "Lo esencial", show: stories.length > 0 },
+            { id: "news-impact", label: "Para MindfulTech", show: true },
+            { id: "news-trends", label: "Tendencias", show: trends.length > 0 },
+            { id: "news-deep", label: "A fondo", show: !!deepDive },
+            { id: "news-watch", label: "Seguir de cerca", show: watchlist.length > 0 },
+            { id: "news-more", label: "Más historias", show: moreStories.length > 0 },
+          ]}
+        />
 
-      {banner}
+        {banner && <div className="mt-5 flex flex-col gap-3 empty:hidden">{banner}</div>}
+      </div>
 
-      <section id="news-top" aria-labelledby="news-top-title" className="flex flex-col gap-3.5">
-        <div className="flex items-baseline gap-2.5">
-          <h2 id="news-top-title" className={SECTION_TITLE}>
-            Lo esencial
-          </h2>
-          <span className="text-xs text-ink-secondary/80">Top {stories.length} del día</span>
-        </div>
-        {/* Four stories: two by two, never three and one left over. */}
-        <ul className="grid gap-3.5 md:grid-cols-2">
-          {stories.map((story) => (
-            <li key={story.link} className="flex">
-              <StoryCard story={story} now={now} />
-            </li>
-          ))}
-        </ul>
-      </section>
+      {lead && (
+        <section
+          id="news-top"
+          aria-label="Lo esencial"
+          className="grid gap-10 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] lg:gap-12"
+        >
+          <LeadStory story={lead} now={now} />
+          {rest.length > 0 && (
+            <ol className="flex flex-col lg:border-l lg:border-line lg:pl-10">
+              {rest.map((story, i) => (
+                <li
+                  key={story.link}
+                  className="border-t border-line py-5 first:border-t-0 first:pt-0 last:pb-0"
+                >
+                  <ListedStory story={story} number={i + 2} now={now} />
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      )}
 
       <section
         id="news-impact"
         aria-labelledby="news-impact-title"
-        className={`relative flex flex-col gap-5 rounded-[20px] border p-6 sm:p-7 ${CALLOUT[calloutStyle]}`}
+        className="news-dark -mx-4 grid gap-10 bg-surface px-6 py-10 sm:mx-0 sm:px-10 sm:py-12 2xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] 2xl:gap-14"
         data-news-impact
       >
-        <div className="flex flex-wrap items-center gap-3.5">
-          <span
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/40 bg-primary/15 text-primary shadow-[0_0_24px_rgb(64_179_117/0.25)]"
-            aria-hidden="true"
+        <div className="flex flex-col gap-4">
+          <span className={KICKER}>Para MindfulTech</span>
+          <h2
+            id="news-impact-title"
+            className="font-serif text-[30px] font-medium leading-[1.1] tracking-[-0.01em] text-ink sm:text-[36px] [text-wrap:balance]"
           >
-            <BulbIcon />
-          </span>
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <h2 id="news-impact-title" className="text-xl font-extrabold tracking-tight text-ink">
-              Qué significa para MindfulTech
-            </h2>
-            <span className="text-[13px] text-ink-secondary">
-              Impacto de negocio · acciones sugeridas para esta semana
-            </span>
-          </div>
-          {insightsAction}
+            {actionsTitle(takeaways.length)}
+          </h2>
+          <p className="text-sm leading-relaxed text-ink-secondary">
+            Impacto de negocio derivado de las historias de hoy.
+          </p>
+          {insightsAction && <div className="mt-1">{insightsAction}</div>}
         </div>
         {takeaways.length > 0 ? (
-          <ul className="grid gap-x-6 gap-y-3 md:grid-cols-2">
+          <ol className="grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-2">
             {takeaways.map((t, i) => (
-              <li key={`${i}-${t.lead}`} className="flex items-start gap-3">
-                <CheckCircleIcon />
-                <p className="text-sm leading-[1.55] text-ink/85 [text-wrap:pretty]">
-                  <strong className="font-bold text-ink">{t.lead}</strong> {t.body}
-                  {t.horizon && <HorizonChip horizon={t.horizon} />}
+              <li
+                key={`${i}-${t.lead}`}
+                className="flex flex-col gap-2 border-t border-white/15 pt-4"
+                data-horizon={t.horizon}
+              >
+                <span className={KICKER}>
+                  {t.horizon ? HORIZON_LABEL[t.horizon] : `Acción ${pad(i + 1)}`}
+                </span>
+                <p className="text-[15px] font-semibold leading-snug text-ink [text-wrap:pretty]">
+                  {t.lead}
                 </p>
+                <p className="text-sm leading-[1.6] text-ink/70 [text-wrap:pretty]">{t.body}</p>
               </li>
             ))}
-          </ul>
+          </ol>
         ) : (
-          insightsNotice
+          <div className="self-center">{insightsNotice}</div>
         )}
       </section>
-
-      {deepDive && (
-        <section
-          id="news-deep"
-          aria-labelledby="news-deep-title"
-          className="flex flex-col gap-4 rounded-[18px] border border-white/10 bg-gradient-to-b from-white/[0.07] to-white/[0.04] p-6 shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)]"
-          data-news-deep-dive
-        >
-          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-            <h2 id="news-deep-title" className={SECTION_TITLE}>
-              A fondo
-            </h2>
-            <span className="text-xs text-ink-secondary/80">La historia del día, explicada</span>
-          </div>
-          <a
-            href={deepDive.link}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => openInBrowser(e, deepDive.link)}
-            className="group inline-flex flex-wrap items-baseline gap-x-2.5 gap-y-1 self-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            <h3 className="text-lg font-extrabold leading-snug tracking-tight text-ink group-hover:underline [text-wrap:pretty]">
-              {deepDive.headline}
-            </h3>
-            <span className="inline-flex h-5 items-center rounded-full border border-white/10 bg-white/[0.06] px-2 text-[11px] font-semibold text-ink/80">
-              {deepDive.sourceName}
-            </span>
-          </a>
-          <p className="max-w-3xl text-sm leading-[1.7] text-ink/80 [text-wrap:pretty]">
-            {deepDive.context}
-          </p>
-          <div className="grid gap-5 md:grid-cols-2">
-            {deepDive.implications.length > 0 && (
-              <div className="flex flex-col gap-2">
-                <h4 className="font-mono text-[11px] uppercase tracking-wider text-ink-secondary/80">
-                  Qué cambia para nosotros
-                </h4>
-                <ul className="flex flex-col gap-2">
-                  {deepDive.implications.map((text, i) => (
-                    <li
-                      key={i}
-                      className="flex items-start gap-2.5 text-sm leading-[1.55] text-ink/85"
-                    >
-                      <CheckCircleIcon />
-                      <span className="[text-wrap:pretty]">{text}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {deepDive.questions.length > 0 && (
-              <div className="flex flex-col gap-2">
-                <h4 className="font-mono text-[11px] uppercase tracking-wider text-ink-secondary/80">
-                  Preguntas abiertas
-                </h4>
-                <ul className="flex flex-col gap-2">
-                  {deepDive.questions.map((text, i) => (
-                    <li
-                      key={i}
-                      className="flex items-start gap-2.5 text-sm leading-[1.55] text-ink/75"
-                    >
-                      <span
-                        className="mt-0.5 inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-white/15 font-mono text-[10px] text-ink-secondary"
-                        aria-hidden="true"
-                      >
-                        ?
-                      </span>
-                      <span className="[text-wrap:pretty]">{text}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        </section>
-      )}
 
       {trends.length > 0 && (
         <section
           id="news-trends"
           aria-labelledby="news-trends-title"
-          className="flex flex-col gap-[18px] rounded-[18px] border border-white/10 bg-gradient-to-b from-white/[0.07] to-white/[0.04] p-6 shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)]"
+          className="flex flex-col gap-7"
           data-news-trends
         >
-          <div className="flex items-center gap-2.5">
-            <TrendIcon />
-            <h2 id="news-trends-title" className={SECTION_TITLE}>
-              Tendencias
-            </h2>
-          </div>
-          <ol className="grid gap-5 md:grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
+          <SectionHeader id="news-trends-title" kicker="Lo que se repite" title="Tendencias" />
+          <ol className="grid gap-x-8 gap-y-10 sm:grid-cols-2 xl:grid-cols-4">
             {trends.map((trend, i) => (
-              <li key={`${i}-${trend.topic}`} className="flex flex-col gap-2">
-                <div className="font-mono text-[11px] text-ink-secondary/80">
-                  {String(i + 1).padStart(2, "0")} · {trend.topic}
-                </div>
+              <li
+                key={`${i}-${trend.topic}`}
+                className="flex flex-col gap-3 border-t-[3px] border-ink pt-4"
+              >
+                <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-secondary">
+                  Tendencia {pad(i + 1)}
+                </span>
+                <h3 className="font-serif text-[22px] font-medium leading-[1.2] text-ink [text-wrap:balance]">
+                  {trend.topic}
+                </h3>
                 <p className="text-sm leading-[1.65] text-ink/75 [text-wrap:pretty]">
                   {highlightParts(trend.text).map((part, j) =>
                     part.mark ? (
-                      <em
-                        key={j}
-                        className="rounded-[5px] bg-primary/[0.12] px-[5px] py-px font-bold not-italic text-[#6fcf97]"
-                      >
+                      <strong key={j} className="font-semibold text-ink">
                         {part.text}
-                      </em>
+                      </strong>
                     ) : (
                       <span key={j}>{part.text}</span>
                     ),
@@ -303,21 +225,25 @@ export function NewsDashboard({
                 </p>
                 {trend.evidence && trend.evidence.length > 0 && (
                   <ul
-                    className="flex flex-wrap gap-1.5"
+                    className="mt-1 flex flex-col gap-1.5 border-t border-line pt-3"
                     aria-label="Historias detrás de la tendencia"
                   >
                     {trend.evidence.map((e) => (
-                      <li key={e.link}>
+                      <li key={e.link} className="min-w-0">
                         <a
                           href={e.link}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(ev) => openInBrowser(ev, e.link)}
                           title={e.title}
-                          className="inline-flex max-w-[260px] items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-0.5 text-[11px] text-ink/75 transition hover:border-primary/40 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          className="group flex min-w-0 items-baseline gap-1.5 text-xs text-ink-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
-                          <span className="font-semibold text-ink/60">{e.sourceName}</span>
-                          <span className="truncate">{e.title}</span>
+                          <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-primary">
+                            {e.sourceName}
+                          </span>
+                          <span className="truncate group-hover:text-ink group-hover:underline">
+                            {e.title}
+                          </span>
                         </a>
                       </li>
                     ))}
@@ -329,32 +255,97 @@ export function NewsDashboard({
         </section>
       )}
 
+      {deepDive && (
+        <section
+          id="news-deep"
+          aria-labelledby="news-deep-title"
+          className="flex flex-col gap-7"
+          data-news-deep-dive
+        >
+          <SectionHeader
+            id="news-deep-title"
+            kicker="A fondo"
+            title="La historia del día, explicada"
+          />
+          <div className="grid gap-10 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] lg:gap-12">
+            <div className="flex flex-col gap-4">
+              <a
+                href={deepDive.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => openInBrowser(e, deepDive.link)}
+                className="group self-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <h3 className="font-serif text-[28px] font-medium leading-[1.15] tracking-[-0.01em] text-ink decoration-1 underline-offset-4 group-hover:underline sm:text-[32px] [text-wrap:balance]">
+                  {deepDive.headline}
+                </h3>
+              </a>
+              <span className={META}>{deepDive.sourceName}</span>
+              <p className="max-w-[68ch] font-serif text-[18px] leading-[1.65] text-ink/85 first-letter:float-left first-letter:mr-2 first-letter:mt-1 first-letter:font-serif first-letter:text-[58px] first-letter:font-semibold first-letter:leading-[0.8] first-letter:text-ink [text-wrap:pretty]">
+                {deepDive.context}
+              </p>
+            </div>
+            <div className="flex flex-col gap-8 lg:border-l lg:border-line lg:pl-10">
+              {deepDive.implications.length > 0 && (
+                <div className="flex flex-col gap-3">
+                  <h4 className={KICKER}>Qué cambia para nosotros</h4>
+                  <ol className="flex flex-col">
+                    {deepDive.implications.map((text, i) => (
+                      <li
+                        key={i}
+                        className="flex gap-3 border-t border-line py-3 text-sm leading-[1.6] text-ink/85 first:border-t-0 first:pt-0"
+                      >
+                        <span className="shrink-0 font-mono text-[11px] leading-[1.6] text-primary">
+                          {pad(i + 1)}
+                        </span>
+                        <span className="[text-wrap:pretty]">{text}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+              {deepDive.questions.length > 0 && (
+                <div className="flex flex-col gap-3">
+                  <h4 className={KICKER}>Preguntas abiertas</h4>
+                  <ul className="flex flex-col gap-3">
+                    {deepDive.questions.map((text, i) => (
+                      <li
+                        key={i}
+                        className="font-serif text-[17px] italic leading-[1.45] text-ink/80 [text-wrap:pretty]"
+                      >
+                        {text}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
       {watchlist.length > 0 && (
         <section
           id="news-watch"
           aria-labelledby="news-watch-title"
-          className="flex flex-col gap-3.5"
+          className="flex flex-col gap-7"
           data-news-watchlist
         >
-          <div className="flex items-baseline gap-2.5">
-            <h2 id="news-watch-title" className={SECTION_TITLE}>
-              Para seguir de cerca
-            </h2>
-            <span className="text-xs text-ink-secondary/80">Los próximos días</span>
-          </div>
-          <ul className="grid gap-3 sm:grid-cols-2">
+          <SectionHeader
+            id="news-watch-title"
+            kicker="Los próximos días"
+            title="Para seguir de cerca"
+          />
+          <ul className="grid gap-x-8 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
             {watchlist.map((w, i) => (
-              <li
-                key={`${i}-${w.topic}`}
-                className="flex gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4"
-              >
-                <EyeIcon />
-                <div className="flex min-w-0 flex-col gap-1">
-                  <h3 className="text-[13px] font-bold text-ink">{w.topic}</h3>
-                  <p className="text-[13px] leading-normal text-ink-secondary [text-wrap:pretty]">
-                    {w.text}
-                  </p>
-                </div>
+              <li key={`${i}-${w.topic}`} className="flex flex-col gap-2 border-t border-ink pt-4">
+                <span className={KICKER}>{pad(i + 1)}</span>
+                <h3 className="font-serif text-[19px] font-medium leading-snug text-ink">
+                  {w.topic}
+                </h3>
+                <p className="text-sm leading-[1.6] text-ink-secondary [text-wrap:pretty]">
+                  {w.text}
+                </p>
               </li>
             ))}
           </ul>
@@ -362,24 +353,23 @@ export function NewsDashboard({
       )}
 
       {moreStories.length > 0 && (
-        <section id="news-more" aria-labelledby="news-more-title" className="flex flex-col gap-3.5">
-          <div className="flex items-baseline gap-2.5">
-            <h2 id="news-more-title" className={SECTION_TITLE}>
-              Más historias
-            </h2>
-            <span className="text-xs text-ink-secondary/80">{moreStories.length} más</span>
-          </div>
-          <ul className="grid gap-3.5 sm:grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
+        <section id="news-more" aria-labelledby="news-more-title" className="flex flex-col gap-7">
+          <SectionHeader
+            id="news-more-title"
+            kicker={`${moreStories.length} más`}
+            title="Más historias"
+          />
+          <ul className="grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {moreStories.map((story) => (
               <li key={story.link} className="flex">
-                <StoryCard story={story} now={now} compact />
+                <MoreStory story={story} now={now} />
               </li>
             ))}
           </ul>
         </section>
       )}
 
-      <p className="text-center text-xs text-ink-secondary/80">
+      <p className="border-t border-line pt-5 text-center font-mono text-[11px] leading-relaxed tracking-wide text-ink-secondary">
         Los titulares y resúmenes de “Lo esencial” los escribe la IA: confirma los datos en cada
         artículo. Historias e imágenes de sus medios; cada una abre en su sitio.
       </p>
@@ -387,48 +377,94 @@ export function NewsDashboard({
   );
 }
 
+const KICKER = "font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-primary";
+const META = "font-mono text-[11px] uppercase tracking-[0.12em] text-ink-secondary";
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+function SectionHeader({
+  id,
+  kicker,
+  title,
+}: Readonly<{ id: string; kicker: string; title: string }>) {
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-1 border-b border-ink pb-3">
+      <h2
+        id={id}
+        className="font-serif text-[30px] font-medium leading-none tracking-[-0.01em] text-ink sm:text-[34px]"
+      >
+        {title}
+      </h2>
+      <span className={KICKER}>{kicker}</span>
+    </div>
+  );
+}
+
 /**
- * The dashboard's sections as a row of pills (Phase 50), sticky at the top
- * of the view while it scrolls: one tap to jump. Only the ones present.
- * Solid, no backdrop blur: a blurred sticky bar over blurred cards made
- * Chrome recomposite every frame while scrolling, which showed as flicker.
+ * The sections as text tabs (Phase 51), sticky at the top of the view: one
+ * tap to jump, and the one being read is underlined in green. Solid, no
+ * backdrop blur (a blurred sticky bar over the page made Chrome flicker).
  */
-function SectionNav({
+function SectionTabs({
   sections,
 }: Readonly<{ sections: Array<{ id: string; label: string; show: boolean }> }>) {
   const shown = sections.filter((s) => s.show);
+  const ids = shown.map((s) => s.id).join(" ");
+  const [active, setActive] = useState(shown[0]?.id ?? "");
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    const visible = new Map<string, boolean>();
+    const order = ids.split(" ");
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) visible.set(entry.target.id, entry.isIntersecting);
+        const first = order.find((id) => visible.get(id));
+        if (first) setActive(first);
+      },
+      // The band just under the tabs: a section is "being read" while it crosses it.
+      { rootMargin: "-80px 0px -55% 0px" },
+    );
+    for (const id of order) {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, [ids]);
+
   if (shown.length < 2) return null;
   return (
     <nav
       aria-label="Secciones"
-      className="sticky top-0 z-20 -mx-1 -my-2 flex gap-1.5 overflow-x-auto border-b border-white/[0.06] bg-surface px-1 py-2"
+      className="sticky top-0 z-20 -mx-4 flex gap-6 overflow-x-auto border-b border-line bg-surface px-4 sm:-mx-0 sm:px-0"
       data-news-sections
     >
-      {shown.map((section) => (
-        <button
-          key={section.id}
-          type="button"
-          onClick={() =>
-            document
-              .getElementById(section.id)
-              ?.scrollIntoView({ behavior: "smooth", block: "start" })
-          }
-          className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-semibold text-ink/75 transition hover:border-primary/50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          {section.label}
-        </button>
-      ))}
+      {shown.map((section) => {
+        const current = section.id === active;
+        return (
+          <button
+            key={section.id}
+            type="button"
+            onClick={() => {
+              setActive(section.id);
+              document
+                .getElementById(section.id)
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+            aria-current={current ? "true" : undefined}
+            className={`-mb-px shrink-0 whitespace-nowrap border-b-2 py-3 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
+              current
+                ? "border-primary text-ink"
+                : "border-transparent text-ink-secondary hover:text-ink"
+            }`}
+          >
+            {section.label}
+          </button>
+        );
+      })}
     </nav>
   );
 }
-
-const SECTION_TITLE = "text-[13px] font-bold uppercase tracking-[0.12em] text-primary";
-
-const CALLOUT: Record<"glow" | "tinted", string> = {
-  glow: "border-primary/55 bg-white/[0.035] shadow-[0_0_0_1px_rgb(64_179_117/0.15),0_0_40px_rgb(64_179_117/0.22),inset_0_1px_0_rgb(255_255_255/0.05)]",
-  tinted:
-    "border-primary/30 bg-gradient-to-br from-primary/[0.16] to-primary/[0.06] shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)]",
-};
 
 /** Desktop app: the system browser (an `<a target="_blank">` would stay inside the app). */
 function openInBrowser(e: MouseEvent<HTMLAnchorElement>, link: string) {
@@ -437,73 +473,131 @@ function openInBrowser(e: MouseEvent<HTMLAnchorElement>, link: string) {
   void openExternal(link);
 }
 
-/** One story: thumbnail, headline, two lines of summary, the source and how long ago. */
-function StoryCard({
-  story,
-  now,
-  compact = false,
-}: Readonly<{ story: NewsStory; now: number; compact?: boolean }>) {
+/** "TECHCRUNCH · HACE 3 H" */
+function StoryMeta({ story, now }: Readonly<{ story: NewsStory; now: number }>) {
   const when = timeAgo(story.pubDate, now);
+  return (
+    <p className={META}>
+      <span>{story.sourceName}</span>
+      {when && (
+        <>
+          <span aria-hidden="true"> · </span>
+          <time dateTime={story.pubDate ?? undefined} title={fullDate(story.pubDate)}>
+            {when}
+          </time>
+        </>
+      )}
+    </p>
+  );
+}
+
+/** "Lo esencial · 01": the big picture, the headline, the summary and why it matters. */
+function LeadStory({ story, now }: Readonly<{ story: NewsStory; now: number }>) {
   return (
     <a
       href={story.link}
       target="_blank"
       rel="noopener noreferrer"
       onClick={(e) => openInBrowser(e, story.link)}
-      className="group flex w-full gap-4 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4 shadow-[0_10px_30px_rgb(0_0_0/0.25),inset_0_1px_0_rgb(255_255_255/0.04)] transition duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-      data-news-card={compact ? "more" : "top"}
+      className="group flex min-w-0 flex-col gap-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-surface"
+      data-news-card="top"
     >
-      {/* A new address starts over (loading, then the image or the fallback). */}
-      <Thumbnail key={story.thumbnailUrl ?? "none"} story={story} />
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <h3 className="text-[15px] font-bold leading-[1.3] text-ink [text-wrap:pretty]">
+      <Cover key={story.thumbnailUrl ?? "none"} story={story} className="aspect-[16/9]" />
+      <div className="flex flex-col gap-4">
+        <span className={KICKER}>Lo esencial · 01</span>
+        <h2 className="font-serif text-[30px] font-medium leading-[1.08] tracking-[-0.015em] text-ink decoration-1 underline-offset-[6px] group-hover:underline sm:text-[40px] [text-wrap:balance]">
           {story.headline}
-        </h3>
+        </h2>
         {story.summary && (
-          <p className="line-clamp-2 text-[13px] leading-normal text-ink-secondary">
+          <p className="max-w-[62ch] text-base leading-[1.65] text-ink/80 [text-wrap:pretty]">
             {story.summary}
           </p>
         )}
-        {!compact && story.whyItMatters && (
-          <p className="text-[13px] leading-normal text-ink/80 [text-wrap:pretty]">
-            <span className="font-semibold text-[#6fcf97]">Por qué importa: </span>
+        {story.whyItMatters && (
+          <p className="max-w-[62ch] border-l-2 border-primary pl-4 text-[15px] leading-[1.6] text-ink/85 [text-wrap:pretty]">
+            <span className="font-serif font-semibold italic text-primary">Por qué importa — </span>
             {story.whyItMatters}
           </p>
         )}
-        <div className="mt-auto flex flex-wrap items-center gap-2">
-          <span className="inline-flex h-5 items-center whitespace-nowrap rounded-full border border-white/10 bg-white/[0.06] px-2 text-[11px] font-semibold text-ink/80">
-            {story.sourceName}
-          </span>
-          {when && (
-            <time
-              dateTime={story.pubDate ?? undefined}
-              title={fullDate(story.pubDate)}
-              className="font-mono text-[11px] text-ink-secondary/70"
-            >
-              {when}
-            </time>
-          )}
-        </div>
+        <StoryMeta story={story} now={now} />
       </div>
     </a>
   );
 }
 
-type ThumbState = "loading" | "image" | "fallback";
+/** One of 02–06: the number, the headline, one line on why it matters, the source. */
+function ListedStory({
+  story,
+  number,
+  now,
+}: Readonly<{ story: NewsStory; number: number; now: number }>) {
+  return (
+    <a
+      href={story.link}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => openInBrowser(e, story.link)}
+      className="group grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      data-news-card="top"
+    >
+      <span
+        className="font-serif text-[28px] font-medium leading-none tabular-nums text-ink/30"
+        aria-hidden="true"
+      >
+        {pad(number)}
+      </span>
+      <div className="flex min-w-0 flex-col gap-2">
+        <h3 className="font-serif text-[19px] font-medium leading-[1.25] text-ink decoration-1 underline-offset-4 group-hover:underline [text-wrap:pretty]">
+          {story.headline}
+        </h3>
+        {(story.whyItMatters || story.summary) && (
+          <p className="line-clamp-2 text-[13px] leading-normal text-ink-secondary">
+            {story.whyItMatters ?? story.summary}
+          </p>
+        )}
+        <StoryMeta story={story} now={now} />
+      </div>
+    </a>
+  );
+}
+
+/** "Más historias": a small picture, the source, the headline and two lines. */
+function MoreStory({ story, now }: Readonly<{ story: NewsStory; now: number }>) {
+  return (
+    <a
+      href={story.link}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => openInBrowser(e, story.link)}
+      className="group flex w-full min-w-0 flex-col gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      data-news-card="more"
+    >
+      <Cover key={story.thumbnailUrl ?? "none"} story={story} className="aspect-[3/2]" />
+      <StoryMeta story={story} now={now} />
+      <h3 className="font-serif text-[18px] font-medium leading-[1.3] text-ink decoration-1 underline-offset-4 group-hover:underline [text-wrap:pretty]">
+        {story.headline}
+      </h3>
+      {story.summary && (
+        <p className="line-clamp-2 text-[13px] leading-normal text-ink-secondary">
+          {story.summary}
+        </p>
+      )}
+    </a>
+  );
+}
+
+type CoverState = "loading" | "image" | "fallback";
 
 /**
- * The story's image in a fixed square, or a deliberate fallback: a faint
- * brand-green gradient into dark slate with a muted icon (a chip for
- * hardware stories, a newspaper otherwise). The fallback is the box's own
- * background, so while an image loads it shows there, and an image fades in
- * over it only once it has loaded. No image, one that fails, or a tracking
- * pixel (under `MIN_THUMBNAIL_PX`) all leave the fallback. The box is the
- * same in every case: 84 × 84, square, rounded.
+ * The story's picture at the given aspect, or a deliberate placeholder: fine
+ * diagonal lines with "imagen · {medio}". The placeholder is the box's own
+ * background, so it shows while an image loads, and an image fades in over
+ * it once it has loaded. No image, one that fails, or a tracking pixel
+ * (under `MIN_THUMBNAIL_PX`) leave the placeholder.
  */
-function Thumbnail({ story }: Readonly<{ story: NewsStory }>) {
+function Cover({ story, className }: Readonly<{ story: NewsStory; className: string }>) {
   const src = story.thumbnailUrl;
-  const [state, setState] = useState<ThumbState>(src ? "loading" : "fallback");
-  const Fallback = fallbackIconFor(story) === "cpu" ? CpuIcon : NewspaperIcon;
+  const [state, setState] = useState<CoverState>(src ? "loading" : "fallback");
 
   const settle = (img: HTMLImageElement) =>
     setState(
@@ -512,7 +606,7 @@ function Thumbnail({ story }: Readonly<{ story: NewsStory }>) {
         : "fallback",
     );
   // An image already in the browser's cache can finish before React listens
-  // for `load`. (The card keys this by its address, so it runs once per image.)
+  // for `load`. (The story keys this by its address, so it runs once per image.)
   const imgRef = useCallback((img: HTMLImageElement | null) => {
     if (!img?.complete) return;
     if (img.naturalWidth > 0) settle(img);
@@ -521,7 +615,7 @@ function Thumbnail({ story }: Readonly<{ story: NewsStory }>) {
 
   return (
     <div
-      className="relative aspect-square h-[84px] w-[84px] shrink-0 self-start overflow-hidden rounded-xl border border-white/[0.08] bg-[linear-gradient(135deg,rgb(64_179_117/0.10)_0%,rgb(30_41_59/0.55)_55%,rgb(15_23_42/0.85)_100%)] shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]"
+      className={`relative w-full overflow-hidden bg-surface-sidebar bg-[repeating-linear-gradient(135deg,rgb(var(--c-line))_0_1px,transparent_1px_11px)] ${className}`}
       data-news-thumb={state === "image" ? "image" : "fallback"}
     >
       <span
@@ -530,7 +624,9 @@ function Thumbnail({ story }: Readonly<{ story: NewsStory }>) {
         }`}
         aria-hidden="true"
       >
-        <Fallback className="h-7 w-7 text-white/30" strokeWidth={1.5} />
+        <span className="bg-surface-sidebar px-2 py-0.5 font-mono text-[11px] lowercase tracking-wider text-ink-secondary">
+          imagen · {story.sourceName}
+        </span>
       </span>
       {src && state !== "fallback" && (
         <img
@@ -542,7 +638,7 @@ function Thumbnail({ story }: Readonly<{ story: NewsStory }>) {
           referrerPolicy="no-referrer"
           onLoad={(e) => settle(e.currentTarget)}
           onError={() => setState("fallback")}
-          className={`absolute inset-0 h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.06] ${
+          className={`absolute inset-0 h-full w-full object-cover transition duration-700 ease-out group-hover:scale-[1.03] ${
             state === "image" ? "opacity-100" : "opacity-0"
           }`}
         />
@@ -552,70 +648,7 @@ function Thumbnail({ story }: Readonly<{ story: NewsStory }>) {
 }
 
 const HORIZON_LABEL: Record<NewsHorizon, string> = {
-  ahora: "esta semana",
-  trimestre: "este trimestre",
-  vigilar: "vigilar",
+  ahora: "Esta semana",
+  trimestre: "Este trimestre",
+  vigilar: "Vigilar",
 };
-
-/** When a takeaway applies, as a small chip after the sentence. */
-function HorizonChip({ horizon }: Readonly<{ horizon: NewsHorizon }>) {
-  return (
-    <span
-      className={`ml-2 inline-flex h-[18px] items-center whitespace-nowrap rounded-full border px-2 align-middle font-mono text-[10px] uppercase tracking-wider ${
-        horizon === "ahora"
-          ? "border-primary/50 bg-primary/15 text-[#8fe0b0]"
-          : "border-white/10 bg-white/[0.05] text-ink-secondary"
-      }`}
-      data-horizon={horizon}
-    >
-      {HORIZON_LABEL[horizon]}
-    </span>
-  );
-}
-
-const svg = {
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 2,
-  strokeLinecap: "round",
-  strokeLinejoin: "round",
-  viewBox: "0 0 24 24",
-  "aria-hidden": true,
-} as const;
-
-function TrendIcon() {
-  return (
-    <svg {...svg} width="16" height="16" className="text-primary">
-      <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
-      <polyline points="16 7 22 7 22 13" />
-    </svg>
-  );
-}
-
-function BulbIcon() {
-  return (
-    <svg {...svg} width="22" height="22">
-      <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" />
-      <path d="M9 18h6" />
-      <path d="M10 22h4" />
-    </svg>
-  );
-}
-
-function EyeIcon() {
-  return (
-    <svg {...svg} width="18" height="18" className="mt-0.5 shrink-0 text-primary">
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-function CheckCircleIcon() {
-  return (
-    <svg {...svg} strokeWidth={2.2} width="18" height="18" className="mt-0.5 shrink-0 text-primary">
-      <circle cx="12" cy="12" r="10" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
-  );
-}

@@ -162,3 +162,14 @@ export function linkCitations(
     return `<a href="${href}" target="_blank" rel="noopener noreferrer" title="${title}" class="news-cite">${digits}</a>`;
   });
 }
+
+const NUMBER_WORDS = ["Una", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve"];
+
+/** "Cinco acciones sugeridas para esta semana" (the count in words, as a heading reads). */
+export function actionsTitle(count: number): string {
+  if (count <= 0) return "Acciones sugeridas para esta semana";
+  const word = NUMBER_WORDS[count - 1] ?? String(count);
+  return count === 1
+    ? `${word} acción sugerida para esta semana`
+    : `${word} acciones sugeridas para esta semana`;
+}
