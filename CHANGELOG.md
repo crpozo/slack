@@ -9,7 +9,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 - **AI News as a newspaper:** a new editorial look on the dark background. A serif masthead with the date and
   story count, the sections as tabs (the one you're reading underlined in green), the lead story
-  large with its picture beside the numbered 02–06, the MindfulTech actions on a dark band ("Cinco
+  large with its picture beside the numbered 02–06 (each with its own picture), the MindfulTech actions on a dark band ("Cinco
   acciones sugeridas para esta semana", each with when it applies), the trends in four columns,
   then A fondo, Para seguir de cerca and Más historias. Stories without a picture show a lined
   placeholder with their source.

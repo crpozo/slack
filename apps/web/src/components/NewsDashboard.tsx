@@ -537,7 +537,7 @@ function ListedStory({
       target="_blank"
       rel="noopener noreferrer"
       onClick={(e) => openInBrowser(e, story.link)}
-      className="group grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      className="group grid grid-cols-[2.5rem_minmax(0,1fr)_5.5rem] gap-x-3 sm:grid-cols-[2.5rem_minmax(0,1fr)_8rem] sm:gap-x-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       data-news-card="top"
     >
       <span
@@ -557,6 +557,13 @@ function ListedStory({
         )}
         <StoryMeta story={story} now={now} />
       </div>
+      {/* The story's picture beside it (Phase 51c); the lined placeholder without one. */}
+      <Cover
+        key={story.thumbnailUrl ?? "none"}
+        story={story}
+        className="aspect-[4/3] self-start"
+        caption={false}
+      />
     </a>
   );
 }
@@ -595,7 +602,11 @@ type CoverState = "loading" | "image" | "fallback";
  * it once it has loaded. No image, one that fails, or a tracking pixel
  * (under `MIN_THUMBNAIL_PX`) leave the placeholder.
  */
-function Cover({ story, className }: Readonly<{ story: NewsStory; className: string }>) {
+function Cover({
+  story,
+  className,
+  caption = true,
+}: Readonly<{ story: NewsStory; className: string; caption?: boolean }>) {
   const src = story.thumbnailUrl;
   const [state, setState] = useState<CoverState>(src ? "loading" : "fallback");
 
@@ -624,9 +635,11 @@ function Cover({ story, className }: Readonly<{ story: NewsStory; className: str
         }`}
         aria-hidden="true"
       >
-        <span className="bg-surface-sidebar px-2 py-0.5 font-mono text-[11px] lowercase tracking-wider text-ink-secondary">
-          imagen · {story.sourceName}
-        </span>
+        {caption && (
+          <span className="bg-surface-sidebar px-2 py-0.5 font-mono text-[11px] lowercase tracking-wider text-ink-secondary">
+            imagen · {story.sourceName}
+          </span>
+        )}
       </span>
       {src && state !== "fallback" && (
         <img
