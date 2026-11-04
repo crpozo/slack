@@ -36,6 +36,7 @@ import {
   DmsIcon,
   HashIcon,
   KanbanIcon,
+  LockIcon,
   LogOutIcon,
   MoreHorizontalIcon,
   NewspaperIcon,
@@ -553,6 +554,12 @@ const PHONE_APPS: PhoneApp[] = [
     label: "AI Skills",
     tile: "bg-gradient-to-br from-[#40B375] to-[#0E3B26] text-white",
     icon: <PuzzleIcon />,
+  },
+  {
+    path: "/app/vault",
+    label: "Vault",
+    tile: "bg-gradient-to-br from-[#F4C95C] to-[#8A5A12] text-white",
+    icon: <LockIcon />,
   },
 ];
 
@@ -1148,6 +1155,14 @@ export function Sidebar({
                 active={activeChannelId === "skills"}
                 unread={0}
                 onClick={() => navigate("/app/skills")}
+              />
+              <NavItem
+                compact={compact}
+                label="Vault"
+                icon={<LockIcon className="text-ink-secondary" />}
+                active={activeChannelId === "vault"}
+                unread={0}
+                onClick={() => navigate("/app/vault")}
               />
             </ul>
           </Section>

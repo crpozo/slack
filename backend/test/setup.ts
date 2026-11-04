@@ -20,6 +20,8 @@ Object.assign(process.env, {
   NOTES_WORKER_FUNCTION: "slack-test-call-notes-worker",
   NEWS_INSIGHTS_TABLE: "slack-test-news-insights",
   SKILLS_TABLE: "slack-test-skills",
+  VAULT_TABLE: "slack-test-vault",
+  VAULT_KEY_ID: "arn:aws:kms:us-east-1:123456789012:key/test-vault-key",
   INSIGHTS_WORKER_FUNCTION: "slack-test-news-insights-worker",
   VAPID_PARAMETER: "/slack/test/vapid",
   ATTACHMENTS_BUCKET: "slack-test-attachments",

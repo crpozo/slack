@@ -163,7 +163,7 @@ async function writeTombstone(message: Message, now: number): Promise<void> {
             TableName: tables.messages,
             Key: { channelId: message.channelId, sk: message.sk },
             UpdateExpression:
-              "SET deletedAt = :now, #text = :empty, attachments = :none REMOVE reactions, replyTo, isEdited, editedAt, isSecret, expiresAt, kind, meeting, aiNotes, pinnedAt, pinnedBy",
+              "SET deletedAt = :now, #text = :empty, attachments = :none REMOVE reactions, replyTo, isEdited, editedAt, isSecret, expiresAt, kind, meeting, aiNotes, vault, pinnedAt, pinnedBy",
             ConditionExpression: "messageId = :id AND attribute_not_exists(deletedAt)",
             ExpressionAttributeNames: { "#text": "text" },
             ExpressionAttributeValues: {

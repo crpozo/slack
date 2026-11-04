@@ -166,6 +166,18 @@ export const SKILLS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/skills/generate" },
 ];
 
+/**
+ * Vault (Phase 45): the team's passwords, encrypted with KMS. Lists are
+ * metadata only; `reveal` decrypts one password for a member of its channel.
+ */
+export const VAULT_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/vault" },
+  { method: HttpMethod.POST, path: "/vault" },
+  { method: HttpMethod.GET, path: "/vault/{channelId}" },
+  { method: HttpMethod.GET, path: "/vault/reveal/{secretId}" },
+  { method: HttpMethod.DELETE, path: "/vault/secrets/{secretId}" },
+];
+
 /** Web Push subscriptions (Phase 8), served by their own small Lambda on the same API. */
 export const PUSH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/push/key" },
@@ -240,6 +252,8 @@ export class TasksApi extends Construct {
   readonly newsInsightsWorker: NodejsFunction;
   /** `skills`: the AI Skills catalog (Phase 44). */
   readonly skillsHandler: NodejsFunction;
+  /** `vault`: the team's passwords (Phase 45), the only code that can use the Vault key. */
+  readonly vaultHandler: NodejsFunction;
   /** Base URL clients call, without a trailing slash. */
   readonly url: string;
   private readonly origins: string[];
@@ -325,6 +339,16 @@ export class TasksApi extends Construct {
       },
       Duration.seconds(30),
     );
+    // Vault (Phase 45): KMS and DynamoDB, and the chat for `/secret` cards.
+    this.vaultHandler = lambda("VaultFn", "vault", {
+      VAULT_TABLE: data.vault.tableName,
+      VAULT_KEY_ID: data.vaultKey.keyArn,
+      CHANNELS_TABLE: data.channels.tableName,
+      USERS_TABLE: data.users.tableName,
+      MESSAGES_TABLE: data.messages.tableName,
+      CONNECTIONS_TABLE: data.connections.tableName,
+      WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+    });
     this.newsInsightsHandler = lambda(
       "NewsInsightsFn",
       "news-insights",
@@ -542,6 +566,10 @@ export class TasksApi extends Construct {
     for (const { method, path } of SKILLS_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: skillsIntegration });
     }
+    const vaultIntegration = new HttpLambdaIntegration("VaultIntegration", this.vaultHandler);
+    for (const { method, path } of VAULT_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: vaultIntegration });
+    }
     this.url = this.httpApi.apiEndpoint;
 
     // --- Permissions: only what the handler calls ---
@@ -736,6 +764,42 @@ export class TasksApi extends Construct {
     data.users.grant(this.skillsHandler, "dynamodb:GetItem");
     grantReadParameter(this.skillsHandler, githubTokenParameterName(stage));
     this.skillsHandler.addToRolePolicy(notesModelPolicy());
+
+    // vault: one row at a time (Get/Put/Delete); lists only through the
+    // metadata index (Query/Scan on `byChannel`, never the table's rows with
+    // their ciphertexts); the channels to check membership, the saver's name,
+    // and a `/secret` card in the chat. KMS: Encrypt and Decrypt on the Vault
+    // key only, and only with the Vault's encryption context (no
+    // GenerateDataKey, ReEncrypt or key administration).
+    data.vault.grant(
+      this.vaultHandler,
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+    );
+    this.vaultHandler.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["dynamodb:Query", "dynamodb:Scan"],
+        resources: [`${data.vault.tableArn}/index/byChannel`],
+      }),
+    );
+    this.vaultHandler.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["kms:Encrypt", "kms:Decrypt"],
+        resources: [data.vaultKey.keyArn],
+        conditions: { StringEquals: { "kms:EncryptionContext:purpose": "vault" } },
+      }),
+    );
+    data.channels.grant(
+      this.vaultHandler,
+      "dynamodb:GetItem",
+      "dynamodb:Scan",
+      "dynamodb:UpdateItem",
+    );
+    data.users.grant(this.vaultHandler, "dynamodb:GetItem");
+    data.messages.grant(this.vaultHandler, "dynamodb:PutItem");
+    data.connections.grant(this.vaultHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
+    wsApi.webSocketApi.grantManageConnections(this.vaultHandler);
 
     // archive-tasks: find done tasks (Scan) and flag them (UpdateItem). Nothing else.
     data.tasks.grant(this.archiveHandler, "dynamodb:Scan", "dynamodb:UpdateItem");

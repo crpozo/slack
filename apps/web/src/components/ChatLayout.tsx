@@ -61,6 +61,7 @@ const CalendarView = lazy(() =>
 const NotesHub = lazy(() => import("./NotesHub").then((m) => ({ default: m.NotesHub })));
 const NewsView = lazy(() => import("./NewsView").then((m) => ({ default: m.NewsView })));
 const SkillsView = lazy(() => import("./SkillsView").then((m) => ({ default: m.SkillsView })));
+const VaultView = lazy(() => import("./VaultView").then((m) => ({ default: m.VaultView })));
 const SettingsModal = lazy(() =>
   import("./SettingsModal").then((m) => ({ default: m.SettingsModal })),
 );
@@ -86,6 +87,8 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const newsMatch = useMatch("/app/news");
   // `/app/skills`: AI Skills (Phase 44).
   const skillsMatch = useMatch("/app/skills");
+  // `/app/vault`: the Vault (Phase 45).
+  const vaultMatch = useMatch("/app/vault");
   const navigate = useNavigate();
   // Phones' tabs and a thread's own screen are routes too.
   const threadMatch = useMatch("/app/:channelId/thread/:messageId");
@@ -103,7 +106,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           ? "search"
           : null;
   const channelId =
-    tasksMatch || calendarMatch || notesMatch || newsMatch || skillsMatch || tab
+    tasksMatch || calendarMatch || notesMatch || newsMatch || skillsMatch || vaultMatch || tab
       ? null
       : (threadMatch?.params.channelId ?? params.channelId ?? GENERAL_CHANNEL_ID);
   const threadId = threadMatch?.params.messageId;
@@ -398,6 +401,14 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           <SkillsView />
         </Suspense>
       );
+    } else if (vaultMatch) {
+      screen = (
+        <Suspense
+          fallback={<div className="flex-1" aria-busy="true" aria-label="Loading the Vault" />}
+        >
+          <VaultView />
+        </Suspense>
+      );
     } else if (notesMatch) {
       screen = (
         <Suspense fallback={<div className="flex-1" aria-busy="true" aria-label="Loading notes" />}>
@@ -482,6 +493,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
             onOpenNotes={() => go("/app/notes")}
             onOpenNews={() => go("/app/news")}
             onOpenSkills={() => go("/app/skills")}
+            onOpenVault={() => go("/app/vault")}
             onOpenSettings={() => {
               setSheet(null);
               setSettingsOpen(true);
@@ -545,7 +557,9 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
                   ? "news"
                   : skillsMatch
                     ? "skills"
-                    : "tasks")
+                    : vaultMatch
+                      ? "vault"
+                      : "tasks")
           }
           collapsed={collapsed}
           onToggleCollapsed={isDesktop ? toggleCollapsed : undefined}
@@ -589,6 +603,12 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
               fallback={<div className="flex-1" aria-busy="true" aria-label="Loading skills" />}
             >
               <SkillsView onOpenSidebar={() => setSidebarOpen(true)} />
+            </Suspense>
+          ) : vaultMatch ? (
+            <Suspense
+              fallback={<div className="flex-1" aria-busy="true" aria-label="Loading the Vault" />}
+            >
+              <VaultView onOpenSidebar={() => setSidebarOpen(true)} />
             </Suspense>
           ) : newsMatch ? (
             <Suspense

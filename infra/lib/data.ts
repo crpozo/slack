@@ -1,10 +1,13 @@
+import { Duration } from "aws-cdk-lib";
 import {
   AttributeType,
   BillingMode,
   ProjectionType,
   StreamViewType,
   Table,
+  TableEncryption,
 } from "aws-cdk-lib/aws-dynamodb";
+import { Key } from "aws-cdk-lib/aws-kms";
 import { Construct } from "constructs";
 import { removalPolicyFor, type Stage } from "./stage";
 
@@ -60,6 +63,15 @@ export class Data extends Construct {
    * (`meta`, one `file#<path>` per companion file). See backend/src/lib/skills.ts.
    */
   readonly skills: Table;
+  /**
+   * Vault (Phase 45): the team's passwords, by `secretId`. Passwords are
+   * encrypted with `vaultKey` before they're written (`encryptedPassword`);
+   * the `byChannel` index lists a channel's secrets without the ciphertext.
+   * See backend/src/lib/vault.ts.
+   */
+  readonly vault: Table;
+  /** The customer-managed KMS key the Vault's passwords are encrypted with (rotated yearly). */
+  readonly vaultKey: Key;
 
   constructor(scope: Construct, id: string, props: { stage: Stage }) {
     super(scope, id);
@@ -210,6 +222,31 @@ export class Data extends Construct {
       tableName: `slack-${props.stage}-skills`,
       partitionKey: { name: "skillId", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
+    });
+
+    this.vaultKey = new Key(this, "VaultKey", {
+      alias: `alias/slack-${props.stage}-vault`,
+      description: "MindfulTech Slack Vault: encrypts the team's stored passwords",
+      enableKeyRotation: true,
+      // Deleting the key would make every stored password unreadable: prod keeps it.
+      removalPolicy: removalPolicyFor(props.stage),
+      pendingWindow: Duration.days(30),
+    });
+    this.vault = new Table(this, "Vault", {
+      ...common,
+      tableName: `slack-${props.stage}-vault`,
+      partitionKey: { name: "secretId", type: AttributeType.STRING },
+      encryption: TableEncryption.AWS_MANAGED,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      deletionProtection: props.stage === "prod",
+    });
+    // A channel's secrets, newest first: the metadata only, never the ciphertext.
+    this.vault.addGlobalSecondaryIndex({
+      indexName: "byChannel",
+      partitionKey: { name: "channelId", type: AttributeType.STRING },
+      sortKey: { name: "createdAt", type: AttributeType.NUMBER },
+      projectionType: ProjectionType.INCLUDE,
+      nonKeyAttributes: ["name", "username", "website", "createdBy", "createdByName"],
     });
   }
 }

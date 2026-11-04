@@ -23,6 +23,7 @@ import {
   HistoryIcon,
   HomeIcon,
   KanbanIcon,
+  LockIcon,
   LogOutIcon,
   MessageIcon,
   MoreHorizontalIcon,
@@ -562,12 +563,13 @@ export function ShortcutCards({ onOpenHuddles }: Readonly<{ onOpenHuddles: () =>
   );
 }
 
-/** The More tab's sheet (and the workspace menu): who you are, AI Notes, AI News, AI Skills, settings and sign out. */
+/** The More tab's sheet (and the workspace menu): who you are, AI Notes, AI News, AI Skills, the Vault, settings and sign out. */
 export function MoreSheet({
   onClose,
   onOpenNotes,
   onOpenNews,
   onOpenSkills,
+  onOpenVault,
   onOpenSettings,
   onSignOut,
 }: Readonly<{
@@ -575,6 +577,7 @@ export function MoreSheet({
   onOpenNotes: () => void;
   onOpenNews: () => void;
   onOpenSkills?: () => void;
+  onOpenVault?: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
 }>) {
@@ -621,6 +624,14 @@ export function MoreSheet({
             label="AI Skills"
             hint="Claude Code skills for the team"
             onClick={onOpenSkills}
+          />
+        )}
+        {onOpenVault && (
+          <SheetRow
+            icon={<LockIcon className="text-primary" />}
+            label="Vault"
+            hint="The team's passwords and API keys"
+            onClick={onOpenVault}
           />
         )}
         <SheetRow

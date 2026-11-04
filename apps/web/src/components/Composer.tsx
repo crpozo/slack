@@ -1,4 +1,9 @@
-import { canArchiveChannel, isDmChannel, MAX_TEXT_LENGTH } from "@mindfultech/shared";
+import {
+  canArchiveChannel,
+  isDmChannel,
+  MAX_TEXT_LENGTH,
+  parseSecretCommand,
+} from "@mindfultech/shared";
 import {
   applyCommand,
   commandQuery,
@@ -30,6 +35,8 @@ import {
   type VoiceClip,
 } from "../lib/voice";
 import { detectCredentials } from "../lib/credentials";
+import { tasksApiConfigured } from "../lib/tasksApi";
+import { vaultApi } from "../lib/vaultApi";
 import { useUploadState, type UploadTask } from "../lib/outbox";
 import { formatBytes, MAX_SIZE_LABEL, startUpload, validateFile } from "../lib/upload";
 import { MOBILE_QUERY, useMediaQuery } from "../lib/hooks";
@@ -127,8 +134,6 @@ interface ComposerProps {
 const MAX_HEIGHT_PX = 200;
 /** Shorter recordings are a slip of the finger, not a message. */
 const MIN_VOICE_MS = 500;
-/** Typed at the start of a message, turns secret mode on (and is dropped from the text). */
-const SECRET_COMMAND = /^\/secret(\s|$)/i;
 
 /** Replaces the input row while recording: red dot, timer, level, Cancel and Send. */
 function RecordingBar({
@@ -294,7 +299,7 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
     // Editing a sent message isn't a draft: keep the one from before the edit
     // (restored on cancel). A secret never goes to disk in clear.
     if (editing) return saver.flush();
-    if (secret) {
+    if (secret || parseSecretCommand(text)) {
       saver.cancel();
       return clearDraft(storageKey);
     }
@@ -345,10 +350,7 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
   const commandOpen = commands.length > 0;
 
   function pickCommand(command: SlashCommand) {
-    if (command.effect === "secret") {
-      setSecret(true);
-      setText("");
-    } else if (command.effect === "clear") {
+    if (command.effect === "clear") {
       setText("");
     } else {
       setText(`/${command.name} `);
@@ -357,11 +359,6 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
   }
 
   function handleChange(value: string) {
-    // `/secret ` at the start is the keyboard's lock button.
-    if (!editing && SECRET_COMMAND.test(value)) {
-      setSecret(true);
-      value = value.replace(SECRET_COMMAND, "");
-    }
     setText(value);
     // Keystrokes with content (not deletions to empty) tell the channel you're typing.
     if (value.trim() && !editing) chat.typing(channelId);
@@ -466,6 +463,11 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
       detectCredentials(text),
     [secret, editing, thread, disabled, uploads.length, text],
   );
+  // `/secret <title> <password>` being typed: what Enter will do.
+  const vaultCommand = useMemo(() => {
+    const parsed = secret || editing ? null : parseSecretCommand(text);
+    return parsed?.kind === "vault" ? parsed : null;
+  }, [secret, editing, text]);
   // A new message gets checked anew.
   useEffect(() => {
     if (!text.trim()) setPlainAnyway(false);
@@ -481,15 +483,17 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
       return;
     }
     if (!canSend) return;
+    // `/secret <title> <password>`: into the Vault, a card here; `/secret` alone: secret mode.
+    const secretCommand = !secret ? parseSecretCommand(text) : null;
+    if (secretCommand) {
+      submitSecretCommand(secretCommand);
+      return;
+    }
     // A complete command on the line (`/shrug hi`): its effect, not the slash text.
     const command = !secret ? parseCommand(text) : null;
     let outgoing = text.trim();
     let asSecret = secret;
-    if (command?.command.effect === "secret") {
-      asSecret = true;
-      outgoing = command.rest.trim();
-      if (!outgoing) return;
-    } else if (command) {
+    if (command) {
       outgoing = applyCommand(command.command, command.rest);
       if (!outgoing && uploads.length === 0) {
         setText("");
@@ -519,6 +523,51 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
       setUploads([]);
     }
     textareaRef.current?.focus();
+  }
+
+  /**
+   * `/secret`: alone, it turns secret mode on; with a title and a password it
+   * saves them to the Vault (encrypted by the server) and posts a 🔒 card
+   * here. The password leaves the composer at once and is never sent as a
+   * chat message.
+   */
+  function submitSecretCommand(command: NonNullable<ReturnType<typeof parseSecretCommand>>) {
+    if (command.kind === "mode") {
+      setSecret(true);
+      setText("");
+      textareaRef.current?.focus();
+      return;
+    }
+    if (command.kind === "incomplete") {
+      showToast("Type /secret, a title, then the password: /secret AWS-prod p4ssw0rd", "info");
+      return;
+    }
+    if (thread) {
+      showToast("Share secrets in the channel, not in a thread", "info");
+      return;
+    }
+    if (!tasksApiConfigured()) {
+      showToast("The Vault isn't set up on this deployment", "error");
+      return;
+    }
+    setText("");
+    textareaRef.current?.focus();
+    vaultApi
+      .create({ channelId, name: command.name, password: command.password, share: true })
+      .then(
+        (saved) =>
+          saved.shared
+            ? showToast(`🔒 ${saved.secret.name} saved to the Vault and shared here`, "success")
+            : showToast(
+                `${saved.secret.name} saved to the Vault; the card couldn't be posted`,
+                "error",
+              ),
+        (err: unknown) =>
+          showToast(
+            `Couldn't save the secret: ${err instanceof Error ? err.message : "try again"}`,
+            "error",
+          ),
+      );
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -703,6 +752,19 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
             >
               <CloseIcon />
             </button>
+          </div>
+        )}
+        {vaultCommand && (
+          <div
+            className="flex items-center gap-2 border-b border-line bg-primary/10 px-3 py-2 text-sm"
+            role="status"
+            data-vault-command
+          >
+            <LockIcon className="shrink-0 text-primary" />
+            <p className="min-w-0 flex-1 text-ink-secondary">
+              <strong className="text-ink">/secret {vaultCommand.name}</strong>: saved to the Vault,
+              encrypted, and shared here as a 🔒 card. The password isn&apos;t posted.
+            </p>
           </div>
         )}
         {autoSecret && !plainAnyway && (

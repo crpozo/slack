@@ -1,6 +1,6 @@
 [package]
 name = "mindfultech-slack"
-version = "0.3.0"
+version = "0.4.0"
 description = "MindfulTech Slack desktop app"
 authors = ["MindfulTech"]
 edition = "2021"
@@ -18,6 +18,8 @@ tauri-build = { version = "2.7", features = [] }
 tauri = { version = "2.12", features = ["macos-private-api"] }
 tauri-plugin-notification = "2.7"
 tauri-plugin-opener = "2"
+# Vault (Phase 45): `copy_secret` puts a password on the clipboard and wipes it after 30 s.
+tauri-plugin-clipboard-manager = "2"
 tauri-plugin-single-instance = "2.5"
 tauri-plugin-window-state = "2.5"
 # AI Skills (Phase 44): the files `install_skill` receives.
