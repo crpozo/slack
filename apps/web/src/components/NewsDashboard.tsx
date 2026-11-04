@@ -436,7 +436,7 @@ function SectionTabs({
   return (
     <nav
       aria-label="Secciones"
-      className="sticky top-0 z-20 -mx-4 flex gap-6 overflow-x-auto border-b border-line bg-surface px-4 sm:-mx-0 sm:px-0"
+      className="sticky top-0 z-20 -mx-4 flex gap-6 overflow-x-auto overflow-y-hidden border-b border-line bg-surface px-4 [scrollbar-width:none] sm:-mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden"
       data-news-sections
     >
       {shown.map((section) => {

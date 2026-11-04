@@ -373,47 +373,41 @@
   @apply mx-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-primary/40 bg-primary/15 px-1 align-[1px] font-mono text-[10px] font-semibold text-[#8fe0b0] no-underline hover:bg-primary/30;
 }
 
-/* AI News as a newspaper (Phase 51): paper, dark ink and a deep green, scoped
-   to the page. The tokens are redefined here, so everything inside that uses
-   `text-ink`, `bg-surface`, `border-line`… follows. `.news-dark` puts the
-   app's dark tokens back for what sits on a dark band (the MindfulTech
-   actions, the chat beside the news). */
+/* AI News as a newspaper (Phase 51), on the app's dark background (51b): the
+   editorial layout (serif headlines, rules, mono meta) with warm off-white ink
+   and the brand green. The tokens are redefined here, so everything inside
+   that uses `text-ink`, `bg-surface`, `border-line`… follows. `.news-dark`
+   is a raised band on it (the MindfulTech actions, the chat beside the news). */
 .news-paper {
   --c-primary: 64 179 117; /* #40B375 fills */
   --c-primary-hover: 54 156 101;
-  --c-primary-fg: 31 120 72; /* #1F7848: green text on paper, 5.2:1 */
+  --c-primary-fg: 111 207 151; /* #6FCF97: green text, 9.6:1 on the page */
   --c-on-primary: 0 0 0;
-  --c-ink: 26 26 23; /* #1A1A17 */
-  --c-ink-secondary: 98 94 84; /* #625E54, 5.9:1 on the paper */
-  --c-surface: 243 240 232; /* #F3F0E8 */
-  --c-surface-sidebar: 233 229 218; /* #E9E5DA */
-  --c-surface-hover: 226 221 208;
-  --c-surface-raised: 250 248 243;
-  --c-line: 214 208 194; /* #D6D0C2 hairlines */
-  --c-warning: 176 120 0;
-  --c-error: 178 52 52;
+  --c-ink: 240 237 230; /* #F0EDE6 warm off-white */
+  --c-ink-secondary: 163 159 150; /* #A39F96, 7.2:1 */
+  --c-surface: 23 25 28; /* #17191C */
+  --c-surface-sidebar: 33 36 40; /* #212428: the image placeholder */
+  --c-surface-hover: 44 47 52;
+  --c-surface-raised: 33 36 40;
+  --c-line: 50 53 58; /* #32353A hairlines */
+  --c-warning: 244 201 92;
+  --c-error: 229 115 115;
   color: rgb(var(--c-ink));
 }
 .news-paper .news-dark,
 .news-dark {
   --c-primary: 64 179 117;
   --c-primary-hover: 54 156 101;
-  --c-primary-fg: 111 207 151; /* #6FCF97 on the dark band */
+  --c-primary-fg: 111 207 151;
   --c-on-primary: 0 0 0;
   --c-ink: 248 248 248;
   --c-ink-secondary: 171 171 173;
-  --c-surface: 22 24 27; /* #16181B */
-  --c-surface-sidebar: 34 37 41;
-  --c-surface-hover: 44 47 52;
-  --c-surface-raised: 34 37 41;
-  --c-line: 53 55 59;
+  --c-surface: 32 35 40; /* #202328: a step up from the page */
+  --c-surface-sidebar: 40 43 48;
+  --c-surface-hover: 48 51 57;
+  --c-surface-raised: 40 43 48;
+  --c-line: 58 61 66;
   --c-warning: 244 201 92;
   --c-error: 229 115 115;
   color: rgb(var(--c-ink));
-}
-.news-paper .news-cite {
-  @apply text-primary;
-}
-.news-paper .news-dark .news-cite {
-  color: #8fe0b0;
 }

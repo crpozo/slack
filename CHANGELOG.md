@@ -7,12 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
-- **AI News as a newspaper:** a new editorial look on paper. A serif masthead with the date and
+- **AI News as a newspaper:** a new editorial look on the dark background. A serif masthead with the date and
   story count, the sections as tabs (the one you're reading underlined in green), the lead story
   large with its picture beside the numbered 02–06, the MindfulTech actions on a dark band ("Cinco
   acciones sugeridas para esta semana", each with when it applies), the trends in four columns,
   then A fondo, Para seguir de cerca and Más historias. Stories without a picture show a lined
-  placeholder with their source; the chat stays dark beside the page.
+  placeholder with their source.
 - **Pregunta a la IA opens on demand:** on wide screens the chat is closed by default and the
   news use the whole width; the **Pregunta a la IA** button beside Refresh news opens it at the
   side, and its ✕ closes it. The choice is remembered, and the conversation stays while it's
