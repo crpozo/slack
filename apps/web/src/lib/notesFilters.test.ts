@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   categoryCounts,
   fold,
+  groupByNoteDate,
   matchesNotesFilter,
   NO_FILTER,
+  noteDateGroup,
   notePreview,
   noteTitle,
+  noteWhen,
   topTopics,
   unfiledCount,
 } from "./notesFilters";
@@ -101,5 +104,44 @@ describe("AI Notes filters", () => {
     );
     expect(noteTitle(card("x", { topics: ["AWS"] }), "René")).toBe("AWS");
     expect(noteTitle(card("x", {}), "René")).toBe("Call with René");
+  });
+});
+
+describe("the hub's date groups (Phase 50)", () => {
+  // Thursday 5 November 2026, 15:00 local time.
+  const now = new Date(2026, 10, 5, 15, 0).getTime();
+  const at = (month: number, day: number, hour = 10) => new Date(2026, month, day, hour).getTime();
+
+  it("says Hoy, Ayer, Esta semana (from Monday), then the month", () => {
+    expect(noteDateGroup(at(10, 5, 9), now).label).toBe("Hoy");
+    expect(noteDateGroup(at(10, 4, 23), now).label).toBe("Ayer");
+    expect(noteDateGroup(at(10, 2, 8), now).label).toBe("Esta semana"); // Monday
+    expect(noteDateGroup(at(10, 1, 20), now).label).toBe("Noviembre 2026"); // Sunday before
+    expect(noteDateGroup(at(9, 29), now).label).toBe("Octubre 2026");
+    expect(noteDateGroup(new Date(2025, 11, 31).getTime(), now).label).toBe("Diciembre 2025");
+  });
+
+  it("keeps Ayer on a Monday, even though it was last week", () => {
+    const monday = new Date(2026, 10, 2, 9).getTime();
+    expect(noteDateGroup(new Date(2026, 10, 1, 18).getTime(), monday).label).toBe("Ayer");
+    expect(noteDateGroup(new Date(2026, 9, 31, 18).getTime(), monday).label).toBe("Octubre 2026");
+  });
+
+  it("groups newest-first notes in order, each heading once", () => {
+    const times = [at(10, 5), at(10, 4), at(10, 3), at(10, 2), at(9, 29), at(9, 3)];
+    const groups = groupByNoteDate(times, (t) => t, now);
+    expect(groups.map((g) => [g.label, g.items.length])).toEqual([
+      ["Hoy", 1],
+      ["Ayer", 1],
+      ["Esta semana", 2],
+      ["Octubre 2026", 2],
+    ]);
+  });
+
+  it("shows the time today and yesterday, the day too before that", () => {
+    const time = () => "10:00";
+    expect(noteWhen(at(10, 5), time, now)).toBe("10:00");
+    expect(noteWhen(at(10, 4), time, now)).toBe("10:00");
+    expect(noteWhen(at(10, 2), time, now)).toMatch(/^lun\.? 2 nov · 10:00$/);
   });
 });

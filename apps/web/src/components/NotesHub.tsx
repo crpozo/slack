@@ -1,5 +1,6 @@
 import {
   extractActionItems,
+  foldMeetingTopic,
   NOTES_CATEGORY_HINTS,
   NOTES_CATEGORY_LABELS,
   type Message,
@@ -14,10 +15,12 @@ import { notesApi } from "../lib/notesApi";
 import {
   categoryCounts,
   fold,
+  groupByNoteDate,
   matchesNotesFilter,
   NO_FILTER,
   notePreview,
   noteTitle,
+  noteWhen,
   topTopics,
   unfiledCount,
   type NotesFilter,
@@ -30,6 +33,7 @@ import {
   CheckCircleIcon,
   ChevronRightIcon,
   CloseIcon,
+  FolderIcon,
   KanbanIcon,
   MenuIcon,
   MicIcon,
@@ -38,6 +42,7 @@ import {
   SparklesIcon,
 } from "./icons";
 import { useModalDialog } from "./Modal";
+import { NoteTopicPicker } from "./NoteTopicPicker";
 import { UnreadAlertsDot } from "./NotificationBell";
 
 /** Each category's colour: a dot and a tinted chip, the same everywhere. */
@@ -82,7 +87,18 @@ function peerOf(message: Message, myUserId: string): string | null {
 export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => void }>) {
   const me = useChat((s) => s.me);
   const nameOf = useNameOf();
-  const { notes, status, error, nextCursor, loadingMore, load, loadMore } = useNotesHub();
+  const {
+    notes,
+    status,
+    error,
+    nextCursor,
+    loadingMore,
+    load,
+    loadMore,
+    topic: meetingTopic,
+    topics: meetingTopics,
+    showTopic,
+  } = useNotesHub();
   const showToast = useChat((s) => s.showToast);
   const [person, setPerson] = useState<string>("");
   const [filter, setFilter] = useState<NotesFilter>(NO_FILTER);
@@ -143,13 +159,16 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
     }
   }
 
-  const days: Array<{ day: string; items: Message[] }> = [];
-  for (const message of shown) {
-    const day = formatDay(message.createdAt);
-    const last = days.at(-1);
-    if (last?.day === day) last.items.push(message);
-    else days.push({ day, items: [message] });
-  }
+  // Phase 50: "Hoy", "Ayer", "Esta semana", then month by month.
+  const groups = groupByNoteDate(shown, (m) => m.createdAt);
+  const pickTopic = (topic: string | null) => {
+    setOpenKey(null);
+    void showTopic(
+      topic && meetingTopic && foldMeetingTopic(topic) === foldMeetingTopic(meetingTopic)
+        ? null
+        : topic,
+    );
+  };
 
   const keyOf = (m: Message) => `${m.channelId}|${m.sk}`;
   const opened = openKey ? notes.find((m) => keyOf(m) === openKey) : undefined;
@@ -201,7 +220,7 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
   );
 
   const topicChips = topics.length > 0 && (
-    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Topics">
+    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Tags">
       {topics.map(({ topic, count }) => {
         const active = fold(filter.topic) === fold(topic);
         return (
@@ -223,6 +242,38 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
       })}
     </div>
   );
+
+  // Phase 50: the meeting topics people filed their notes under, from the server.
+  const topicNav = (vertical: boolean) =>
+    (meetingTopics.length > 0 || meetingTopic) && (
+      <div
+        className={
+          vertical
+            ? "flex flex-col gap-0.5"
+            : "-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
+        }
+        role="group"
+        aria-label="Meeting topics"
+        data-meeting-topics
+      >
+        <TopicButton
+          vertical={vertical}
+          active={!meetingTopic}
+          onClick={() => pickTopic(null)}
+          label="All meetings"
+        />
+        {meetingTopics.map(({ topic, count }) => (
+          <TopicButton
+            key={topic}
+            vertical={vertical}
+            active={!!meetingTopic && foldMeetingTopic(topic) === foldMeetingTopic(meetingTopic)}
+            onClick={() => pickTopic(topic)}
+            label={topic}
+            count={count}
+          />
+        ))}
+      </div>
+    );
 
   const search = (
     <label className="relative block">
@@ -277,10 +328,18 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
 
       <div className="min-h-0 flex-1 overflow-y-auto md:pt-14">
         <div className="mx-auto w-full max-w-[1600px] px-3 pb-10 pt-4 sm:px-6 lg:grid lg:grid-cols-[248px_minmax(0,1fr)] lg:gap-8 lg:pt-6">
-          {notes.length > 0 && (
+          {(notes.length > 0 || meetingTopic) && (
             <aside className="hidden lg:block" aria-label="Filters" data-notes-filters="sidebar">
               <div className="sticky top-6 flex flex-col gap-5">
                 {search}
+                {topicNav(true) && (
+                  <div className="flex flex-col gap-2">
+                    <h2 className="px-2 text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">
+                      Meeting topics
+                    </h2>
+                    {topicNav(true)}
+                  </div>
+                )}
                 <div className="flex flex-col gap-2">
                   <h2 className="px-2 text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">
                     Categories
@@ -290,7 +349,7 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
                 {topicChips && (
                   <div className="flex flex-col gap-2">
                     <h2 className="px-2 text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">
-                      Topics
+                      AI tags
                     </h2>
                     <div className="px-1">{topicChips}</div>
                   </div>
@@ -300,9 +359,10 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
           )}
 
           <main className="min-w-0">
-            {notes.length > 0 && (
+            {(notes.length > 0 || meetingTopic) && (
               <div className="mb-4 flex flex-col gap-3 lg:hidden" data-notes-filters="top">
                 {search}
+                {topicNav(false)}
                 {categoryChips(false)}
                 {topicChips}
               </div>
@@ -327,6 +387,30 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
                   {classifying ? "Organizing…" : "Organize"}
                 </button>
               </div>
+            )}
+
+            {meetingTopic && (
+              <p
+                className="mb-3 flex flex-wrap items-center gap-2 text-sm text-ink"
+                role="status"
+                data-topic-filter
+              >
+                <FolderIcon className="text-primary" aria-hidden="true" />
+                <span className="font-semibold">{meetingTopic}</span>
+                <span className="text-xs text-ink-secondary">
+                  {status === "ready" &&
+                    (nextCursor
+                      ? `${notes.length}+ meetings`
+                      : `${notes.length} ${notes.length === 1 ? "meeting" : "meetings"}`)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => pickTopic(null)}
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink"
+                >
+                  <CloseIcon aria-hidden="true" /> All meetings
+                </button>
+              </p>
             )}
 
             {filtering && (
@@ -363,7 +447,13 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
               </div>
             )}
 
-            {status === "ready" && notes.length === 0 && (
+            {status === "ready" && notes.length === 0 && meetingTopic && (
+              <p className="pt-10 text-center text-sm text-ink-secondary">
+                No meetings filed under {meetingTopic}.
+              </p>
+            )}
+
+            {status === "ready" && notes.length === 0 && !meetingTopic && (
               <div className="mx-auto max-w-sm pt-16 text-center">
                 <SparklesIcon className="mx-auto text-4xl text-primary" aria-hidden="true" />
                 <h2 className="mt-3 text-base font-semibold text-ink">No AI notes yet</h2>
@@ -374,10 +464,13 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
               </div>
             )}
 
-            {days.map(({ day, items }) => (
-              <section key={day} aria-label={day} className="mb-6">
-                <h2 className="sticky top-0 z-10 -mx-1 bg-surface/95 px-1 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-secondary backdrop-blur">
-                  {day}
+            {groups.map(({ key, label, items }) => (
+              <section key={key} aria-label={label} className="mb-6" data-date-group={key}>
+                <h2 className="sticky top-0 z-10 -mx-1 flex items-baseline gap-2 bg-surface/95 px-1 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-secondary backdrop-blur">
+                  {label}
+                  <span className="font-normal normal-case tracking-normal opacity-70">
+                    {items.length}
+                  </span>
                 </h2>
                 <ul className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
                   {items.map((message) => (
@@ -388,6 +481,7 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
                         onOpen={() => setOpenKey(keyOf(message))}
                         onCategory={(category) => patch({ category, topic: "" })}
                         onTopic={(topic) => patch({ topic })}
+                        onMeetingTopic={pickTopic}
                       />
                     </li>
                   ))}
@@ -437,6 +531,52 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
         />
       )}
     </div>
+  );
+}
+
+/** A meeting topic in the hub's filters: a row in the side column, a chip on top. */
+function TopicButton({
+  vertical,
+  active,
+  onClick,
+  label,
+  count,
+}: Readonly<{
+  vertical: boolean;
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count?: number;
+}>) {
+  if (vertical) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={active}
+        className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
+          active
+            ? "bg-primary/20 font-semibold text-ink"
+            : "text-ink-secondary hover:bg-surface-hover hover:text-ink"
+        }`}
+      >
+        <FolderIcon className="shrink-0 text-[13px]" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {count !== undefined && <span className="tabular-nums text-xs opacity-70">{count}</span>}
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`${CHIP} ${chipState(active)}`}
+    >
+      <FolderIcon aria-hidden="true" />
+      {label}
+      {count !== undefined && <span className="tabular-nums opacity-70">{count}</span>}
+    </button>
   );
 }
 
@@ -509,12 +649,14 @@ function MeetingCard({
   onOpen,
   onCategory,
   onTopic,
+  onMeetingTopic,
 }: Readonly<{
   message: Message;
   peerName: string;
   onOpen: () => void;
   onCategory: (category: NotesCategory) => void;
   onTopic: (topic: string) => void;
+  onMeetingTopic: (topic: string) => void;
 }>) {
   const notes = message.aiNotes!;
   const title = noteTitle(message, peerName);
@@ -569,9 +711,21 @@ function MeetingCard({
             Unsorted
           </span>
         ) : null}
-        <span className="ml-auto tabular-nums">
+        {notes.topic && (
+          <button
+            type="button"
+            onClick={() => onMeetingTopic(notes.topic!)}
+            className="relative z-10 inline-flex min-w-0 items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 font-medium text-ink hover:bg-primary/25"
+            title={`Show the meetings filed under ${notes.topic}`}
+            data-card-topic
+          >
+            <FolderIcon className="shrink-0" aria-hidden="true" />
+            <span className="truncate">{notes.topic}</span>
+          </button>
+        )}
+        <span className="ml-auto shrink-0 tabular-nums">
           <time dateTime={new Date(message.createdAt).toISOString()}>
-            {formatTime(message.createdAt)}
+            {noteWhen(message.createdAt, formatTime)}
           </time>{" "}
           · {formatCallDuration(notes.endedAt - notes.startedAt)}
         </span>
@@ -592,7 +746,7 @@ function MeetingCard({
       {body}
 
       {topics.length > 0 && (
-        <ul className="relative z-10 flex flex-wrap gap-1" aria-label="Topics">
+        <ul className="relative z-10 flex flex-wrap gap-1" aria-label="AI tags">
           {topics.slice(0, 3).map((topic) => (
             <li key={topic}>
               <button
@@ -710,8 +864,9 @@ function NoteDrawer({
           </button>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <NoteTopicPicker message={message} />
           {(notes.topics?.length ?? 0) > 0 && (
-            <ul className="mb-3 flex flex-wrap gap-1" aria-label="Topics">
+            <ul className="mb-3 flex flex-wrap gap-1" aria-label="AI tags">
               {notes.topics!.map((topic) => (
                 <li
                   key={topic}

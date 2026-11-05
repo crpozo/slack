@@ -11,16 +11,22 @@ import {
   AskNoteSchema,
   aiNotesText,
   dmMembers,
+  foldMeetingTopic,
   MAX_QUESTIONS_PER_NOTE,
+  meetingTopicKey,
   MAX_TRANSCRIPT_CHARS,
   newMessageSk,
   NoteAudioSchema,
   NOTE_QUESTION_HISTORY,
   NOTES_PAGE_SIZE,
+  NotesTopicQuerySchema,
+  SetMeetingTopicSchema,
   SummarizeCallSchema,
   type AiNotes,
   type Channel,
   type MeetingNoteIndexItem,
+  type MeetingTopicCount,
+  type MeetingTopicsResponse,
   type Message,
   type NoteDetail,
   type NoteQuestion,
@@ -30,7 +36,13 @@ import {
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
 import { deliver, listConnections } from "../lib/broadcast";
-import { settleNotesCard, tagNotesCard, transcriptFor, type NotesJob } from "../lib/callNotes";
+import {
+  announceCard,
+  settleNotesCard,
+  tagNotesCard,
+  transcriptFor,
+  type NotesJob,
+} from "../lib/callNotes";
 import { metaFrom, metaRequest } from "../lib/noteMeta";
 import { bedrockModel, type ClaudeModel } from "../lib/claude";
 import {
@@ -42,6 +54,7 @@ import {
   putQuestion,
   questionSk,
   RAW_SK,
+  TOPIC_SK,
   type NoteRawRow,
 } from "../lib/noteDetails";
 import { answerFrom, questionRequest } from "../lib/noteQuestions";
@@ -288,23 +301,47 @@ async function getMessages(keys: Array<{ channelId: string; sk: string }>) {
   return found;
 }
 
+/** Phase 50: your pointers by meeting topic (`topicKey` + the card's sort key). */
+export const NOTES_BY_TOPIC_INDEX = "byTopic";
+
 /**
- * `GET /notes?cursor=` (Phase 29): your notes cards from every conversation,
- * newest first. One query on your pointers in `meeting-notes`, one batch get
- * of the cards themselves (the messages stay the single source of truth:
- * status, summary, "sent to board"). Access is checked again on read; a
- * pointer whose card or conversation is gone is skipped.
+ * `GET /notes?cursor=&topic=` (Phase 29): your notes cards from every
+ * conversation, newest first. One query on your pointers in `meeting-notes`
+ * (Phase 50: with `topic`, on its `byTopic` index instead, so a topic's notes
+ * page just as fast), one batch get of the cards themselves (the messages
+ * stay the single source of truth: status, summary, "sent to board"). Access
+ * is checked again on read; a pointer whose card or conversation is gone is
+ * skipped.
  */
 async function listNotes(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const cursor = event.queryStringParameters?.cursor;
+  const parsedTopic = NotesTopicQuerySchema.safeParse(event.queryStringParameters?.topic);
+  if (!parsedTopic.success) throw new HttpError(400, "topic: at most 40 characters of text");
+  const topic = parsedTopic.data;
+  const after = cursor ? decodeCursor(cursor) : undefined;
+  const topicKey = topic ? meetingTopicKey(caller.userId, topic) : undefined;
   const { Items, LastEvaluatedKey } = await ddb.send(
     new QueryCommand({
       TableName: tables.meetingNotes,
-      KeyConditionExpression: "userId = :me",
-      ExpressionAttributeValues: { ":me": caller.userId },
+      ...(topicKey
+        ? {
+            IndexName: NOTES_BY_TOPIC_INDEX,
+            KeyConditionExpression: "topicKey = :k",
+            ExpressionAttributeValues: { ":k": topicKey },
+          }
+        : {
+            KeyConditionExpression: "userId = :me",
+            ExpressionAttributeValues: { ":me": caller.userId },
+          }),
       ScanIndexForward: false,
       Limit: NOTES_PAGE_SIZE,
-      ...(cursor && { ExclusiveStartKey: { userId: caller.userId, sk: decodeCursor(cursor) } }),
+      ...(after && {
+        ExclusiveStartKey: {
+          userId: caller.userId,
+          sk: after,
+          ...(topicKey && { topicKey }),
+        },
+      }),
     }),
   );
   const pointers = (Items ?? []) as MeetingNoteIndexItem[];
@@ -338,6 +375,144 @@ async function listNotes(event: HttpEvent, caller: HttpCaller): Promise<HttpResu
     nextCursor: LastEvaluatedKey ? encodeCursor(String(LastEvaluatedKey.sk)) : null,
   };
   return json(200, page);
+}
+
+// --- Phase 50: meeting topics -------------------------------------------------------
+
+/**
+ * `GET /notes/topics`: the topics your notes are filed under, with how many,
+ * most first. One query over your own pointers, reading only their `topic`.
+ */
+async function listTopics(_event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const counts = new Map<string, MeetingTopicCount>();
+  let startKey: Record<string, unknown> | undefined;
+  do {
+    const page = await ddb.send(
+      new QueryCommand({
+        TableName: tables.meetingNotes,
+        KeyConditionExpression: "userId = :me",
+        FilterExpression: "attribute_exists(topic)",
+        ProjectionExpression: "topic",
+        ExpressionAttributeValues: { ":me": caller.userId },
+        // Newest first: the newest spelling of a topic is the one shown.
+        ScanIndexForward: false,
+        ...(startKey && { ExclusiveStartKey: startKey }),
+      }),
+    );
+    for (const item of page.Items ?? []) {
+      if (typeof item.topic !== "string" || !item.topic) continue;
+      const key = foldMeetingTopic(item.topic);
+      const found = counts.get(key);
+      if (found) found.count++;
+      else counts.set(key, { topic: item.topic, count: 1 });
+    }
+    startKey = page.LastEvaluatedKey;
+  } while (startKey);
+  const body: MeetingTopicsResponse = {
+    topics: [...counts.values()].sort(
+      (a, b) => b.count - a.count || a.topic.localeCompare(b.topic),
+    ),
+  };
+  return json(200, body);
+}
+
+/**
+ * `PUT /notes/{callId}/topic`: files a meeting under a topic (or clears it),
+ * for everyone in it. Anyone in the call may. In one transaction: the card
+ * (`aiNotes.topic`), the call's `note-details` (`topic`: who set it, when) and
+ * each person's pointer (`topic`, `topicKey` for the `byTopic` index); then
+ * the card's people hear `message.updated`.
+ */
+async function setTopic(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const callId = callIdOf(event);
+  const input = parseBody(SetMeetingTopicSchema, event);
+  const [card] = await getMessages([{ channelId: input.channelId, sk: input.sk }]);
+  const notes = card?.aiNotes as AiNotes | undefined;
+  if (card?.kind !== "ai_notes" || notes?.callId !== callId) throw notFound("Notes not found");
+  const dm = dmMembers(input.channelId);
+  const readable = dm
+    ? dm.includes(caller.userId)
+    : !!(await getAccessibleChannel(input.channelId, caller.userId, { allowArchived: true }));
+  if (!readable || !notes.participants.includes(caller.userId)) throw notFound("Notes not found");
+
+  // Only the pointers that exist (an update would otherwise create a stray one).
+  const { Responses } = await ddb.send(
+    new BatchGetCommand({
+      RequestItems: {
+        [tables.meetingNotes]: {
+          Keys: notes.participants.map((userId) => ({ userId, sk: input.sk })),
+          ProjectionExpression: "userId",
+        },
+      },
+    }),
+  );
+  const holders = (Responses?.[tables.meetingNotes] ?? []).map((p) => String(p.userId));
+  const topic = input.topic;
+  const now = Date.now();
+  try {
+    await ddb.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          {
+            Update: {
+              TableName: tables.messages,
+              Key: { channelId: input.channelId, sk: input.sk },
+              UpdateExpression: topic ? "SET aiNotes.topic = :topic" : "REMOVE aiNotes.topic",
+              ConditionExpression: "kind = :kind AND aiNotes.callId = :callId",
+              ExpressionAttributeValues: {
+                ":kind": "ai_notes",
+                ":callId": callId,
+                ...(topic && { ":topic": topic }),
+              },
+            },
+          },
+          topic
+            ? {
+                Put: {
+                  TableName: tables.noteDetails,
+                  Item: { callId, sk: TOPIC_SK, topic, setBy: caller.userId, setAt: now },
+                },
+              }
+            : { Delete: { TableName: tables.noteDetails, Key: { callId, sk: TOPIC_SK } } },
+          ...holders.map((userId) => ({
+            Update: {
+              TableName: tables.meetingNotes,
+              Key: { userId, sk: input.sk },
+              UpdateExpression: topic
+                ? "SET topic = :topic, topicKey = :key"
+                : "REMOVE topic, topicKey",
+              ConditionExpression: "attribute_exists(sk)",
+              ...(topic && {
+                ExpressionAttributeValues: {
+                  ":topic": topic,
+                  ":key": meetingTopicKey(userId, topic),
+                },
+              }),
+            },
+          })),
+        ],
+      }),
+    );
+  } catch (err) {
+    if (err instanceof Error && err.name === "TransactionCanceledException") {
+      throw new HttpError(409, "The notes changed meanwhile. Try again.");
+    }
+    throw err;
+  }
+  const aiNotes: AiNotes = { ...notes, ...(topic ? { topic } : {}) };
+  if (!topic) delete aiNotes.topic;
+  await announceCard(
+    {
+      channelId: input.channelId,
+      sk: input.sk,
+      messageId: String(card.messageId),
+      members: notes.participants,
+    },
+    String(card.text ?? ""),
+    aiNotes,
+  );
+  log.info("notes topic set", { callId, userId: caller.userId, cleared: !topic });
+  return json(200, { aiNotes });
 }
 
 // --- Phase 40: the recording, the full notes and questions about them ---------------
@@ -572,6 +747,8 @@ async function classifyNotes(_event: HttpEvent, caller: HttpCaller): Promise<Htt
 const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<HttpResult>> = {
   "POST /calls/summary": summarizeCall,
   "GET /notes": listNotes,
+  "GET /notes/topics": listTopics,
+  "PUT /notes/{callId}/topic": setTopic,
   "POST /notes/classify": classifyNotes,
   "PUT /calls/{callId}/audio": attachAudio,
   "GET /notes/{callId}": getNote,

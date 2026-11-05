@@ -5,6 +5,7 @@ import { useTasks } from "../store/tasks";
 import { TrashIcon } from "./icons";
 import { Modal } from "./Modal";
 import { PasteStatus, usePastedFiles } from "./TaskImages";
+import { stripAttachmentRefs } from "../lib/taskText";
 import {
   AttachmentsSection,
   Field,
@@ -33,7 +34,8 @@ function useDraft(value: string, save: (next: string) => void) {
   };
   const field = {
     value: draft,
-    onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(e.target.value),
+    onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setDraft(stripAttachmentRefs(e.target.value)),
     onFocus: () => setFocused(true),
     onBlur: commit,
     /** Enter commits single-line fields; Escape reverts. */
@@ -75,7 +77,12 @@ export function TaskDetails({
 
   const title = useDraft(task?.title ?? "", (v) => v && void editTask(taskId, { title: v }));
   const project = useDraft(task?.project ?? "", (v) => void editTask(taskId, { project: v }));
-  const notes = useDraft(task?.notes ?? "", (v) => void editTask(taskId, { notes: v }));
+  // Older notes may hold `![…](attachment:…)` (pastes before the attachments took
+  // them): shown without it, and saved without it once the notes are edited.
+  const notes = useDraft(
+    stripAttachmentRefs(task?.notes ?? ""),
+    (v) => void editTask(taskId, { notes: v }),
+  );
 
   const { uploads, addFiles, full } = useFileUploads(
     board.boardId,

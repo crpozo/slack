@@ -40,6 +40,23 @@ const uploaded = (name: string): Attachment => ({
   contentType: "image/png",
 });
 
+const baseTask: Task = {
+  taskId: "t_1",
+  boardId: BOARD.boardId,
+  title: "Fix the header",
+  description: "",
+  status: "TODO",
+  assigneeId: null,
+  project: "",
+  notes: "Seen on Safari",
+  attachments: [],
+  createdBy: ME.userId,
+  createdAt: 1,
+  updatedAt: 1,
+  doneAt: null,
+  isArchived: false,
+};
+
 /** A paste event carrying `files` (and optional text), as the browser sends it. */
 function paste(target: HTMLElement, files: File[], text = "") {
   const event = new Event("paste", { bubbles: true, cancelable: true });
@@ -118,24 +135,34 @@ describe("pasting a screenshot into a new task's notes", () => {
   });
 });
 
+describe("text that carries image markdown", () => {
+  it("is pasted without it", () => {
+    render(<NewTaskModal board={BOARD} onClose={() => {}} />);
+    const notes = screen.getByLabelText("Notes") as HTMLTextAreaElement;
+    fireEvent.change(notes, { target: { value: "Before " } });
+    notes.setSelectionRange(7, 7);
+    const event = paste(
+      notes,
+      [],
+      "See:\n![pasted-20261029-162703.png](attachment:attachments/b_1/01X-pasted.png)\nthanks",
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(notes.value).toBe("Before See:\nthanks");
+  });
+
+  it("is never kept when typed or dropped in either", () => {
+    render(<NewTaskModal board={BOARD} onClose={() => {}} />);
+    const notes = screen.getByLabelText("Notes") as HTMLTextAreaElement;
+    fireEvent.change(notes, {
+      target: { value: "x ![a.png](attachment:attachments/b_1/01X-a.png) y" },
+    });
+    expect(notes.value).toBe("x  y");
+  });
+});
+
 describe("pasting into an existing task's notes", () => {
   it("saves the file to the task's attachments and leaves the notes untouched", async () => {
-    const task: Task = {
-      taskId: "t_1",
-      boardId: BOARD.boardId,
-      title: "Fix the header",
-      description: "",
-      status: "TODO",
-      assigneeId: null,
-      project: "",
-      notes: "Seen on Safari",
-      attachments: [],
-      createdBy: ME.userId,
-      createdAt: 1,
-      updatedAt: 1,
-      doneAt: null,
-      isArchived: false,
-    };
+    const task: Task = baseTask;
     const editTask = vi.fn(async (_id: string, patch: Partial<Task>) => {
       useTasks.setState((s) => ({
         tasksByBoard: {
@@ -157,5 +184,29 @@ describe("pasting into an existing task's notes", () => {
     fireEvent.blur(notes);
     expect(editTask).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.getByText("Attachments (1)")).toBeTruthy());
+  });
+
+  it("shows older notes without their image markdown, and saves them clean once edited", () => {
+    const old = {
+      ...baseTask,
+      notes:
+        "Seen on Safari\n![pasted-20261029-162703.png](attachment:attachments/b_1/01ABC-shot.png)\nok",
+      attachments: [uploaded("shot.png")],
+    };
+    const editTask = vi.fn(async () => {});
+    useTasks.setState({ tasksByBoard: { [BOARD.boardId]: [old] }, editTask } as never);
+    render(<TaskDetails taskId="t_1" board={BOARD} onClose={() => {}} />);
+    const notes = screen.getByLabelText("Notes") as HTMLTextAreaElement;
+    expect(notes.value).toBe("Seen on Safari\nok");
+    // Just looking saves nothing; an edit saves the clean text.
+    fireEvent.focus(notes);
+    fireEvent.blur(notes);
+    expect(editTask).not.toHaveBeenCalled();
+    fireEvent.focus(notes);
+    fireEvent.change(notes, { target: { value: "Seen on Safari\nok, fixed" } });
+    fireEvent.blur(notes);
+    expect(editTask).toHaveBeenCalledWith("t_1", { notes: "Seen on Safari\nok, fixed" });
+    // The image is still the task's, as a thumbnail.
+    expect(screen.getByText("Attachments (1)")).toBeTruthy();
   });
 });

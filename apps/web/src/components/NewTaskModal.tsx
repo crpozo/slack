@@ -8,6 +8,7 @@ import {
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTasks } from "../store/tasks";
 import { Modal, SecondaryButton } from "./Modal";
+import { stripAttachmentRefs } from "../lib/taskText";
 import { PasteStatus, usePastedFiles } from "./TaskImages";
 import {
   AttachmentsSection,
@@ -108,7 +109,7 @@ export function NewTaskModal({ board, onClose }: Readonly<{ board: Board; onClos
             placeholder="A line or two shown on the card (optional). Paste a screenshot to add it."
             maxLength={MAX_TASK_DESCRIPTION_LENGTH}
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => setDescription(stripAttachmentRefs(e.target.value))}
             onPaste={descriptionPaste.onPaste}
           />
           <PasteStatus pending={descriptionPaste.pending} />
@@ -128,7 +129,7 @@ export function NewTaskModal({ board, onClose }: Readonly<{ board: Board; onClos
             placeholder="Context, links, decisions… (paste screenshots too)"
             maxLength={MAX_TASK_NOTES_LENGTH}
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            onChange={(e) => setNotes(stripAttachmentRefs(e.target.value))}
             onPaste={notesPaste.onPaste}
           />
           <PasteStatus pending={notesPaste.pending} />

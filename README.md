@@ -518,6 +518,14 @@ pnpm --filter infra backfill-notes prod --apply    # writes the hub's entries (s
 It scans the messages table once (only notes cards come back) with your AWS credentials, which
 need `dynamodb:Scan` on the messages table and `dynamodb:BatchWriteItem` on the new one.
 
+**Meeting topics (Phase 50): nothing to run.** Anyone in a call can file its notes under a topic
+("Daily Sync", "Client Call", "Planning" or their own) from the note's panel. One transaction
+writes the card (`aiNotes.topic`), the call's `note-details` row (`sk: "topic"`, with who set it)
+and each participant's pointer in `meeting-notes`, which also gets `topicKey`
+(`<userId>#<folded topic>`). The table's `byTopic` index (`topicKey` + `sk`) answers "my notes
+in Planning, newest first" in one query (`GET /notes?topic=`); `GET /notes/topics` counts yours.
+The index is created by the deploy; notes filed before it have no topic yet.
+
 **Files & Links (Phase 38), once per stage after deploying it:** a conversation's Files & Links
 tab reads a per-conversation index table (`slack-<stage>-channel-media`) that new messages fill as
 they're sent, edited and deleted. Messages from before the deploy need their rows written once:
