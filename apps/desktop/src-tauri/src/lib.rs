@@ -8,6 +8,7 @@ use serde::Deserialize;
 use tauri::webview::{NewWindowResponse, PermissionKind, PermissionResponse};
 use tauri::window::{Color, Effect, EffectState, EffectsBuilder};
 use tauri::{Manager, Theme, Url, WebviewWindowBuilder};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_opener::OpenerExt;
 
 /// The window's label in `tauri.conf.json`.
@@ -213,6 +214,56 @@ fn install_skill<R: tauri::Runtime>(
     Ok(target.display().to_string())
 }
 
+/// How long a copied Vault password stays on the clipboard, unless the site asks
+/// for another time within `MIN_CLEAR_SECS..=MAX_CLEAR_SECS`.
+const DEFAULT_CLEAR_SECS: u64 = 30;
+const MIN_CLEAR_SECS: u64 = 5;
+const MAX_CLEAR_SECS: u64 = 300;
+/// The Vault keeps passwords of at most 1,024 characters.
+const MAX_SECRET_CHARS: usize = 4096;
+
+fn clear_delay(asked: Option<u64>) -> std::time::Duration {
+    std::time::Duration::from_secs(
+        asked
+            .unwrap_or(DEFAULT_CLEAR_SECS)
+            .clamp(MIN_CLEAR_SECS, MAX_CLEAR_SECS),
+    )
+}
+
+/// Only the password we put there is wiped: anything copied since stays.
+fn should_clear(current: Option<&str>, copied: &str) -> bool {
+    current == Some(copied)
+}
+
+/// `copy_secret` (Phase 45): the Vault's Copy button. Puts the password on the
+/// clipboard through Tauri's clipboard, then, after `clear_after_secs` (30 by
+/// default), clears it if it's still what the clipboard holds. The check runs
+/// here, natively: the site itself is never allowed to read the clipboard.
+#[tauri::command]
+fn copy_secret<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    text: String,
+    clear_after_secs: Option<u64>,
+) -> Result<(), String> {
+    if text.is_empty() || text.chars().count() > MAX_SECRET_CHARS {
+        return Err("nothing to copy".into());
+    }
+    app.clipboard()
+        .write_text(text.clone())
+        .map_err(|e| e.to_string())?;
+    let delay = clear_delay(clear_after_secs);
+    std::thread::spawn(move || {
+        std::thread::sleep(delay);
+        let current = app.clipboard().read_text().ok();
+        if should_clear(current.as_deref(), &text) {
+            if let Err(err) = app.clipboard().clear() {
+                eprintln!("couldn't clear the clipboard: {err}");
+            }
+        }
+    });
+    Ok(())
+}
+
 fn open_in_browser<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url: &Url) {
     if let Err(err) = app.opener().open_url(url.as_str(), None::<&str>) {
         eprintln!("couldn't open {url}: {err}");
@@ -233,7 +284,8 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![install_skill])
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .invoke_handler(tauri::generate_handler![install_skill, copy_secret])
         .setup(|app| {
             // The window is declared in tauri.conf.json with `create: false` and
             // built here, so the navigation handlers can be attached to it.
@@ -411,6 +463,17 @@ mod tests {
             path: path.into(),
             content: content.into(),
         }
+    }
+
+    #[test]
+    fn a_copied_password_is_wiped_after_30_seconds_unless_replaced() {
+        assert_eq!(clear_delay(None).as_secs(), 30);
+        assert_eq!(clear_delay(Some(45)).as_secs(), 45);
+        assert_eq!(clear_delay(Some(0)).as_secs(), 5);
+        assert_eq!(clear_delay(Some(86_400)).as_secs(), 300);
+        assert!(should_clear(Some("hunter2"), "hunter2"));
+        assert!(!should_clear(Some("something copied later"), "hunter2"));
+        assert!(!should_clear(None, "hunter2"));
     }
 
     #[test]

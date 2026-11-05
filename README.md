@@ -609,6 +609,35 @@ yourself:
 aws ssm put-parameter --name /slack/prod/github-token --type SecureString --value "github_pat_..."
 ```
 
+### 10. Vault (the team's passwords and API keys)
+
+**Vault** (`/app/vault`, under APPS) keeps the team's credentials: a title, a website, a
+username and the password or key, each tied to a channel (the project it belongs to). Members of
+that channel (everyone, for a public one) can **Reveal** or **Copy** it; nobody else sees it
+exists. Add one with **Create Secret** (with **Generate strong password**), or type
+`/secret <title> <password>` in a channel: it's saved for that channel and a 🔒 card is posted
+there (`/secret` alone still turns on the composer's 24-hour secret mode).
+
+How it's kept:
+
+- The `vault` Lambda encrypts each password with **AWS KMS** before it's written: the
+  `slack-<stage>-vault` table holds only the ciphertext (`encryptedPassword`). The key
+  (`alias/slack-<stage>-vault`) is a customer-managed key with yearly rotation; prod keeps it if
+  the stack is ever deleted (without it, the passwords can't be read).
+- Every ciphertext is bound to its row and channel by the KMS encryption context, so a copied or
+  re-filed ciphertext doesn't decrypt. Only the `vault` Lambda may use the key, only to Encrypt and
+  Decrypt, and only with the Vault's context.
+- Lists (`GET /vault`, `GET /vault/{channelId}`) read a metadata-only index: the ciphertext never
+  leaves the table except to KMS. `GET /vault/reveal/{secretId}` checks channel membership first,
+  answers `no-store`, and is logged (who, which secret, never the value); KMS logs each decrypt in
+  CloudTrail. Whoever saved a secret, or an admin, can delete it.
+- In the browser a revealed password hides itself after 30 seconds. In the desktop app 0.4.0+,
+  **Copy** goes through Tauri's clipboard and wipes the password 30 seconds later if it's still
+  there.
+
+Everything comes with the deploy (the key, the table, the Lambda and its routes): nothing to set
+up by hand.
+
 ### Deploys and open tabs
 
 Every deploy uploads a new `index.html` naming a new, hashed app bundle. A tab opened before the
@@ -670,6 +699,14 @@ The builds aren't code-signed yet:
   notifications.
 
 Rust is only needed to build it yourself: `pnpm --filter desktop tauri dev`.
+
+### Desktop app: release after Phase 45 (0.4.0)
+
+The Vault's **Copy** calls the desktop app's `copy_secret` command (Tauri's clipboard plugin, used
+from Rust only; the site is allowed that command, `allow-copy-secret`, and no clipboard read). It
+wipes the copied password after 30 seconds unless something else was copied since. Older desktop
+apps copy with the web clipboard instead, which isn't wiped. Release 0.4.0 (_Actions → Desktop →
+Run workflow_) after deploying Phase 45.
 
 ### Desktop app: release after Phase 44 (0.3.0)
 

@@ -13,6 +13,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Vault:** a password manager for the team's credentials, under APPS (lock icon). Each secret
+  has a title, website, username and password, and belongs to a channel (its project): only that
+  channel's members can **Reveal** or **Copy** it.
+  - **Create Secret** includes **Generate strong password** (24 random characters), and
+    `/secret <title> <password>` in a channel saves one and posts a "🔒 Shared a Secret" card
+    there with Reveal and Copy. `/secret` on its own still turns on the 24-hour secret mode.
+  - Passwords are encrypted with a dedicated AWS KMS key before they're stored. The database only
+    holds the encrypted blob, listings never include it, and each reveal checks channel membership
+    and is logged.
+  - A revealed password hides itself after 30 seconds. In the desktop app 0.4.0, **Copy** uses the
+    native clipboard and wipes the password 30 seconds later.
+
 - **AI News as a newspaper:** a new editorial look on the dark background. A serif masthead with the date and
   story count, the sections as tabs (the one you're reading underlined in green), the lead story
   large with its picture beside the numbered 02–06 (each with its own picture), the MindfulTech actions on a dark band ("Cinco

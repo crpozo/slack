@@ -74,6 +74,10 @@ export const tables = {
   get skills() {
     return requireEnv("SKILLS_TABLE");
   },
+  /** Phase 45: the Vault, by `secretId`; `byChannel` lists a channel's (metadata only). */
+  get vault() {
+    return requireEnv("VAULT_TABLE");
+  },
 };
 
 /** Row of the `connections` table. */
