@@ -1,16 +1,14 @@
 import type { Attachment } from "@mindfultech/shared";
 import { describe, expect, it } from "vitest";
 import {
-  dropPlaceholder,
-  fillPlaceholder,
-  hasPlaceholders,
+  hasAttachmentRefs,
   imageRef,
-  insertBlock,
   parseTaskText,
-  pastedImages,
+  pastedFiles,
   pastedName,
-  placeholder,
   referencedImages,
+  stripAttachmentRefs,
+  taskImages,
   textWithoutImages,
 } from "./taskText";
 
@@ -43,44 +41,34 @@ describe("image references in task text", () => {
     expect(referencedImages(text, own).map((a) => a.key)).toEqual([KEY]);
   });
 
-  it("leaves image references out of a card's preview", () => {
-    const text = `Fix the header\n\n${imageRef("shot.png", KEY)}\n\n\n${placeholder("p1", "x.png")}\nthanks`;
+  it("leaves image references (and old upload placeholders) out of a card's preview", () => {
+    const text = `Fix the header\n\n${imageRef("shot.png", KEY)}\n\n\n![Uploading x.png…](uploading:p1)\nthanks`;
     expect(textWithoutImages(text)).toBe("Fix the header\n\nthanks");
+  });
+
+  it("shows a task's images: the ones its text refers to first, then its other image files", () => {
+    const pasted = file("attachments/b_1/02-pasted.png");
+    const pdf = file("attachments/b_1/x.pdf", "application/pdf");
+    const own = [pasted, file(KEY), pdf];
+    expect(taskImages(imageRef("a", KEY), own).map((a) => a.key)).toEqual([KEY, pasted.key]);
+    expect(taskImages("plain text", own).map((a) => a.key)).toEqual([pasted.key, KEY]);
   });
 });
 
 describe("pasting", () => {
-  it("puts an image on its own lines at the caret", () => {
-    expect(insertBlock("before after", 6, 7, "IMG")).toEqual({
-      text: "before\nIMG\nafter",
-      caret: 10,
-    });
-    expect(insertBlock("", 0, 0, "IMG")).toEqual({ text: "IMG", caret: 3 });
-    expect(insertBlock("line\n", 5, 5, "IMG")).toEqual({ text: "line\nIMG", caret: 8 });
-  });
-
-  it("swaps the placeholder for the reference when the upload finishes, or drops it", () => {
-    const text = `a\n${placeholder("p1", "x.png")}\nb`;
-    expect(hasPlaceholders(text)).toBe(true);
-    const done = fillPlaceholder(text, "p1", imageRef("x.png", KEY));
-    expect(done).toBe(`a\n${imageRef("x.png", KEY)}\nb`);
-    expect(hasPlaceholders(done)).toBe(false);
-    expect(dropPlaceholder(text, "p1")).toBe("a\nb");
-    expect(dropPlaceholder(placeholder("p1", "x.png"), "p1")).toBe("");
-    expect(fillPlaceholder(text, "other", "X")).toBe(text);
-  });
-
-  it("intercepts pasted images, but not text that comes with a picture of itself", () => {
+  it("intercepts pasted images and files, but not text that comes with a picture of itself", () => {
     const png = new File(["x"], "image.png", { type: "image/png" });
+    const pdf = new File(["x"], "a.pdf", { type: "application/pdf" });
     const clip = (files: File[], text = "") => ({
       files: files as unknown as FileList,
       types: text ? ["Files", "text/plain"] : ["Files"],
       getData: () => text,
     });
-    expect(pastedImages(clip([png]))).toEqual([png]);
-    expect(pastedImages(clip([png], "A1\tB1"))).toEqual([]); // spreadsheet cells
-    expect(pastedImages(clip([new File(["x"], "a.pdf", { type: "application/pdf" })]))).toEqual([]);
-    expect(pastedImages(clip([]))).toEqual([]);
+    expect(pastedFiles(clip([png]))).toEqual([png]);
+    expect(pastedFiles(clip([png], "A1\tB1"))).toEqual([]); // spreadsheet cells
+    expect(pastedFiles(clip([pdf]))).toEqual([pdf]);
+    expect(pastedFiles(clip([pdf], "a.pdf"))).toEqual([pdf]); // a copied file and its name
+    expect(pastedFiles(clip([]))).toEqual([]);
   });
 
   it("names screenshots after the moment they were pasted", () => {
@@ -92,5 +80,24 @@ describe("pasting", () => {
       "pasted-20261023-140509.jpg",
     );
     expect(pastedName(new File(["x"], "mockup.png", { type: "image/png" }), at)).toBe("mockup.png");
+  });
+});
+
+describe("cleaning image markdown out of a task's text", () => {
+  it("drops the references and the lines they had, and nothing else", () => {
+    const ref = imageRef("pasted-20261029-162703.png", KEY);
+    expect(hasAttachmentRefs(`a ${ref}`)).toBe(true);
+    expect(hasAttachmentRefs("![x](https://example.com/x.png)")).toBe(false);
+    expect(stripAttachmentRefs(`Steps:\n${ref}\n\nThen ${ref} done\n${ref}`)).toBe(
+      "Steps:\n\nThen  done",
+    );
+    expect(stripAttachmentRefs("![Uploading x.png…](uploading:p1)")).toBe("");
+    // Text without any stays exactly as written.
+    const plain = "  keep\n\n\n  spacing  ";
+    expect(stripAttachmentRefs(plain)).toBe(plain);
+    // A normal markdown image is the person's text.
+    expect(stripAttachmentRefs("![logo](https://example.com/logo.png)")).toBe(
+      "![logo](https://example.com/logo.png)",
+    );
   });
 });

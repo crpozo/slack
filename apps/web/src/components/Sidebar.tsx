@@ -1,4 +1,5 @@
 import {
+  canArchiveChannel,
   canDeleteChannel,
   canEditChannel,
   dmChannelId,
@@ -22,7 +23,7 @@ import { selectUnread, useChat, useNameOf } from "../store";
 import { useNewsInsights } from "../store/newsInsights";
 import { Avatar, PresenceDot, StatusBadge } from "./Avatar";
 import { ChannelIcon } from "./ChannelIcon";
-import { DeleteChannelModal, EditChannelModal } from "./ChannelModals";
+import { ArchiveChannelModal, DeleteChannelModal, EditChannelModal } from "./ChannelModals";
 import { Modal } from "./Modal";
 import { NotificationBell } from "./NotificationBell";
 import { Popover } from "./Popover";
@@ -614,6 +615,7 @@ export function Sidebar({
   }, []);
   const [deleting, setDeleting] = useState<{ channel: Channel; label: string } | null>(null);
   const [editing, setEditing] = useState<Channel | null>(null);
+  const [archiving, setArchiving] = useState<Channel | null>(null);
   const { me, status, channels, pinned, team, directory, users, online } = useChat(
     useShallow((s) => ({
       me: s.me,
@@ -718,6 +720,14 @@ export function Sidebar({
     if (me && canEditChannel(c, me.userId, me.role)) {
       items.push({ label: "Edit channel", icon: <PencilIcon />, onSelect: () => setEditing(c) });
     }
+    // Its creator or an admin; archived channels live under Archived already.
+    if (me && !c.archived && canArchiveChannel(c, me.userId, me.role)) {
+      items.push({
+        label: "Archive channel",
+        icon: <ArchiveIcon />,
+        onSelect: () => setArchiving(c),
+      });
+    }
     // Until the directory arrives, assume the creator exists (never offer it wrongly).
     const creatorKnown = Object.keys(users).length === 0 || !!users[c.createdBy];
     if (me && canDeleteChannel(c, me.userId, creatorKnown)) {
@@ -736,6 +746,7 @@ export function Sidebar({
   const modals = (
     <>
       {editing && <EditChannelModal channel={editing} onClose={() => setEditing(null)} />}
+      {archiving && <ArchiveChannelModal channel={archiving} onClose={() => setArchiving(null)} />}
       {deleting && (
         <DeleteChannelModal
           channel={deleting.channel}

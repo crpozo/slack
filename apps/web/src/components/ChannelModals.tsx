@@ -27,7 +27,7 @@ import {
 import { tasksApiConfigured } from "../lib/tasksApi";
 import { useChat } from "../store";
 import { useTasks } from "../store/tasks";
-import { GlobeIcon, KanbanIcon, LockIcon } from "./icons";
+import { ArchiveIcon, GlobeIcon, KanbanIcon, LockIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 import { UserPicker } from "./UserPicker";
 
@@ -414,6 +414,67 @@ export function DeleteChannelModal({
 }
 
 /**
+ * Archives a channel (Phase 32: its creator or an admin): read-only, listed
+ * under Archived. Archived from inside it (or one of its threads), the app
+ * moves on to #general (or the first channel still active) instead of staying
+ * on a channel that just went read-only, and it's no longer a recent place to
+ * go back to. Shared by the sidebar's menu and Edit channel.
+ */
+export function useArchiveChannel(): (channel: Channel) => void {
+  const me = useChat((s) => s.me);
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const showToast = useChat((s) => s.showToast);
+  return (channel) => {
+    chat.updateChannel(channel.channelId, { archived: true });
+    if (me) forgetRecent(me.userId, channel.channelId);
+    if (showsChannel(pathname, channel.channelId)) {
+      const next = fallbackChannelId(useChat.getState().channels, channel.channelId);
+      void navigate(`/app/${encodeURIComponent(next)}`, { replace: true });
+    }
+    showToast(`#${channel.name} archived. It's under Archived in the sidebar.`, "success");
+  };
+}
+
+/** Confirms archiving a channel from the sidebar's ⋯ menu. */
+export function ArchiveChannelModal({
+  channel,
+  onClose,
+}: Readonly<{ channel: Channel; onClose: () => void }>) {
+  const archive = useArchiveChannel();
+  return (
+    <Modal
+      title="Archive channel"
+      width="sm"
+      onClose={onClose}
+      footer={
+        <>
+          <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-lg bg-warning px-4 py-2 text-sm font-semibold text-on-accent hover:opacity-90"
+            onClick={() => {
+              onClose();
+              archive(channel);
+            }}
+          >
+            <ArchiveIcon aria-hidden="true" /> Archive
+          </button>
+        </>
+      }
+    >
+      <p className="text-sm text-ink">
+        Archive <strong>#{channel.name}</strong>? It becomes read-only for everyone and moves under
+        Archived in the sidebar.
+      </p>
+      <p className="mt-2 text-xs text-ink-secondary">
+        Nothing is deleted: its creator or an admin can restore it later.
+      </p>
+    </Modal>
+  );
+}
+
+/**
  * A channel's name, topic and description. Its creator or an admin edits them
  * (`#general`'s name is fixed); everyone else sees them read-only.
  */
@@ -454,22 +515,11 @@ export function EditChannelModal({
   // Phase 32: the channel's creator too, not only admins.
   const canArchive = !!me && canArchiveChannel(channel, me.userId, me.role);
   const [confirmArchive, setConfirmArchive] = useState(false);
-  const navigate = useNavigate();
-  const { pathname } = useLocation();
-  const showToast = useChat((s) => s.showToast);
+  const archive = useArchiveChannel();
   function toggleArchive() {
-    const archiving = !channel.archived;
-    chat.updateChannel(channel.channelId, { archived: archiving });
     onClose();
-    if (!archiving) return;
-    // Archived from inside it: on to #general (or the first active channel),
-    // and it's no longer a recent place to go back to.
-    if (me) forgetRecent(me.userId, channel.channelId);
-    if (showsChannel(pathname, channel.channelId)) {
-      const next = fallbackChannelId(useChat.getState().channels, channel.channelId);
-      void navigate(`/app/${encodeURIComponent(next)}`, { replace: true });
-    }
-    showToast(`#${channel.name} archived. It's under Archived in the sidebar.`, "success");
+    if (channel.archived) chat.updateChannel(channel.channelId, { archived: false });
+    else archive(channel);
   }
 
   if (!canEdit) {

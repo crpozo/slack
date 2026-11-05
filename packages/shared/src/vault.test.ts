@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  canAccessVaultSecret,
+  canManageVaultSecret,
   CreateVaultSecretSchema,
   generatePassword,
+  MAX_VAULT_ALLOWED,
+  SetVaultPinSchema,
+  VAULT_PIN_MAX_ATTEMPTS,
+  vaultLockMs,
+  vaultPinProblem,
+  VaultPinSchema,
   MAX_VAULT_PASSWORD,
   normalizeWebsite,
   parseSecretCommand,
@@ -136,5 +144,68 @@ describe("CreateVaultSecretSchema", () => {
       CreateVaultSecretSchema.safeParse({ ...base, website: "javascript:alert(1)" }).success,
     ).toBe(false);
     expect(CreateVaultSecretSchema.safeParse({ ...base, name: "" }).success).toBe(false);
+  });
+});
+
+describe("who may see a secret (Phase 46)", () => {
+  const secret = { createdBy: "u-owner", allowedUserIds: ["u-ana"] };
+
+  it("admins see everything; staff only what they saved or are listed in", () => {
+    expect(canAccessVaultSecret(secret, "u-anyone", "admin")).toBe(true);
+    expect(canAccessVaultSecret(secret, "u-owner", "member")).toBe(true);
+    expect(canAccessVaultSecret(secret, "u-ana", "member")).toBe(true);
+    expect(canAccessVaultSecret(secret, "u-bob", "member")).toBe(false);
+    expect(
+      canAccessVaultSecret({ createdBy: "u-owner", allowedUserIds: [] }, "u-ana", "member"),
+    ).toBe(false);
+  });
+
+  it("never lets a guest in, even one listed or its saver", () => {
+    expect(canAccessVaultSecret(secret, "u-ana", "guest")).toBe(false);
+    expect(canAccessVaultSecret(secret, "u-owner", "guest")).toBe(false);
+  });
+
+  it("lets only the saver or an admin manage it", () => {
+    expect(canManageVaultSecret(secret, "u-owner", "member")).toBe(true);
+    expect(canManageVaultSecret(secret, "u-x", "admin")).toBe(true);
+    expect(canManageVaultSecret(secret, "u-ana", "member")).toBe(false);
+  });
+
+  it("dedupes the access list and caps it", () => {
+    const base = { channelId: "c", name: "n", password: "p" };
+    expect(
+      CreateVaultSecretSchema.parse({ ...base, allowedUserIds: ["a", "b", "a"] }).allowedUserIds,
+    ).toEqual(["a", "b"]);
+    expect(
+      CreateVaultSecretSchema.safeParse({
+        ...base,
+        allowedUserIds: Array.from({ length: MAX_VAULT_ALLOWED + 1 }, (_, i) => `u${i}`),
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("the Vault PIN (Phase 46)", () => {
+  it("takes exactly four digits, and refuses ones anybody would guess first", () => {
+    expect(vaultPinProblem("4821")).toBeNull();
+    expect(vaultPinProblem("2580")).toBeNull();
+    for (const weak of ["0000", "7777", "1234", "6789", "4321", "9876"]) {
+      expect([weak, vaultPinProblem(weak)]).toEqual([weak, expect.stringMatching(/guess/)]);
+    }
+    expect(vaultPinProblem("123")).toMatch(/4 digits/);
+    expect(vaultPinProblem("12a4")).toMatch(/4 digits/);
+    expect(SetVaultPinSchema.safeParse({ pin: "1234" }).success).toBe(false);
+    expect(SetVaultPinSchema.safeParse({ pin: "4821" }).success).toBe(true);
+    // Verifying takes any four digits: a weak PIN set long ago still opens.
+    expect(VaultPinSchema.safeParse({ pin: "1234" }).success).toBe(true);
+    expect(VaultPinSchema.safeParse({ pin: "12345" }).success).toBe(false);
+  });
+
+  it("locks for 15 minutes after five wrong PINs, doubling each time up to a day", () => {
+    expect(VAULT_PIN_MAX_ATTEMPTS).toBe(5);
+    expect(vaultLockMs(0)).toBe(15 * 60_000);
+    expect(vaultLockMs(1)).toBe(30 * 60_000);
+    expect(vaultLockMs(3)).toBe(2 * 3_600_000);
+    expect(vaultLockMs(20)).toBe(24 * 3_600_000);
   });
 });

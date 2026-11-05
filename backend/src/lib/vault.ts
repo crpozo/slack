@@ -1,12 +1,6 @@
 import { DecryptCommand, EncryptCommand, KMSClient } from "@aws-sdk/client-kms";
-import {
-  DeleteCommand,
-  GetCommand,
-  paginateScan,
-  PutCommand,
-  QueryCommand,
-} from "@aws-sdk/lib-dynamodb";
-import type { VaultSecret } from "@mindfultech/shared";
+import { DeleteCommand, GetCommand, paginateScan, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { VAULT_METADATA_ATTRIBUTES, type VaultSecret } from "@mindfultech/shared";
 import { ddb, tables } from "./ddb";
 import { requireEnv } from "./env";
 
@@ -21,12 +15,12 @@ import { requireEnv } from "./env";
 // decrypt; the Lambda's IAM policy also only allows `purpose: vault`. KMS
 // logs each Encrypt and Decrypt in CloudTrail, context included.
 //
-// The table: `secretId` (`vs_<ulid>`) is the key; the `byChannel` index
-// (`channelId` + `createdAt`) projects the metadata only, so listing never
-// reads a ciphertext at all.
+// The table: `secretId` (`vs_<ulid>`) is the key. Lists (Phase 46: filtered
+// by who may see each secret) Scan it for `VAULT_METADATA_ATTRIBUTES` only, and the
+// Lambda's IAM policy only allows a Scan that asks for exactly those, so a
+// list can never read a ciphertext.
 // ---------------------------------------------------------------------------
 
-export const VAULT_BY_CHANNEL_INDEX = "byChannel";
 export const SECRET_ID = /^vs_[0-9A-HJKMNP-TV-Z]{26}$/;
 
 /** A `vault` row. */
@@ -46,32 +40,43 @@ let kms: KMSClient | undefined;
 const kmsClient = () => (kms ??= new KMSClient({}));
 const keyId = () => requireEnv("VAULT_KEY_ID");
 
-/** The password, encrypted under the Vault key for `row` only. */
-export async function encryptPassword(password: string, row: ContextOf): Promise<string> {
+/** `plaintext` encrypted under the Vault key, bound to `context` (base64). */
+export async function kmsEncrypt(
+  plaintext: string,
+  context: Record<string, string>,
+): Promise<string> {
   const { CiphertextBlob } = await kmsClient().send(
     new EncryptCommand({
       KeyId: keyId(),
-      Plaintext: Buffer.from(password, "utf8"),
-      EncryptionContext: encryptionContextOf(row),
+      Plaintext: Buffer.from(plaintext, "utf8"),
+      EncryptionContext: context,
     }),
   );
   if (!CiphertextBlob?.length) throw new Error("KMS returned no ciphertext");
   return Buffer.from(CiphertextBlob).toString("base64");
 }
 
-/** The row's password, decrypted by KMS (which checks the key and the context). */
-export async function decryptPassword(row: VaultRow): Promise<string> {
+/** A `kmsEncrypt` blob back to text; KMS checks the key and the context. */
+export async function kmsDecrypt(blob: string, context: Record<string, string>): Promise<string> {
   const { Plaintext } = await kmsClient().send(
     new DecryptCommand({
       // Pinned: a ciphertext made under any other key is refused.
       KeyId: keyId(),
-      CiphertextBlob: Buffer.from(row.encryptedPassword, "base64"),
-      EncryptionContext: encryptionContextOf(row),
+      CiphertextBlob: Buffer.from(blob, "base64"),
+      EncryptionContext: context,
     }),
   );
   if (!Plaintext) throw new Error("KMS returned no plaintext");
   return Buffer.from(Plaintext).toString("utf8");
 }
+
+/** The password, encrypted under the Vault key for `row` only. */
+export const encryptPassword = (password: string, row: ContextOf): Promise<string> =>
+  kmsEncrypt(password, encryptionContextOf(row));
+
+/** The row's password, decrypted by KMS. */
+export const decryptPassword = (row: VaultRow): Promise<string> =>
+  kmsDecrypt(row.encryptedPassword, encryptionContextOf(row));
 
 /** What clients get: the metadata, field by field (a ciphertext can't slip through). */
 export function toVaultSecret(item: Record<string, unknown>): VaultSecret {
@@ -85,7 +90,12 @@ export function toVaultSecret(item: Record<string, unknown>): VaultSecret {
     ...(text("website") && { website: text("website") }),
     createdBy: String(item.createdBy ?? ""),
     ...(text("createdByName") && { createdByName: text("createdByName") }),
+    // Rows from before Phase 46 have none: their saver and admins only.
+    allowedUserIds: Array.isArray(item.allowedUserIds)
+      ? item.allowedUserIds.filter((id): id is string => typeof id === "string")
+      : [],
     createdAt: typeof item.createdAt === "number" ? item.createdAt : 0,
+    ...(typeof item.updatedAt === "number" && { updatedAt: item.updatedAt }),
   };
 }
 
@@ -113,38 +123,30 @@ export async function deleteVaultRow(secretId: string): Promise<void> {
   await ddb.send(new DeleteCommand({ TableName: tables.vault, Key: { secretId } }));
 }
 
-/** One channel's secrets (metadata only, from the index), newest first. */
-export async function listChannelSecrets(channelId: string): Promise<VaultSecret[]> {
-  const secrets: VaultSecret[] = [];
-  let ExclusiveStartKey: Record<string, unknown> | undefined;
-  do {
-    const page = await ddb.send(
-      new QueryCommand({
-        TableName: tables.vault,
-        IndexName: VAULT_BY_CHANNEL_INDEX,
-        KeyConditionExpression: "channelId = :c",
-        ExpressionAttributeValues: { ":c": channelId },
-        ScanIndexForward: false,
-        ExclusiveStartKey,
-      }),
-    );
-    secrets.push(...(page.Items ?? []).map(toVaultSecret));
-    ExclusiveStartKey = page.LastEvaluatedKey;
-  } while (ExclusiveStartKey);
-  return secrets.sort(newestFirst);
+/** Replaces an existing row (an edit); a row deleted meanwhile isn't brought back. */
+export async function replaceVaultRow(row: VaultRow): Promise<void> {
+  await ddb.send(
+    new PutCommand({
+      TableName: tables.vault,
+      Item: row,
+      ConditionExpression: "attribute_exists(secretId)",
+    }),
+  );
 }
 
-/** The secrets of the given channels (a Scan of the metadata index: small at this scale). */
-export async function listSecretsIn(channelIds: Set<string>): Promise<VaultSecret[]> {
+/** Every secret's metadata (a Scan for `VAULT_METADATA_ATTRIBUTES` only), newest first. */
+export async function scanSecrets(): Promise<VaultSecret[]> {
+  const names = Object.fromEntries(VAULT_METADATA_ATTRIBUTES.map((a, i) => [`#a${i}`, a]));
   const secrets: VaultSecret[] = [];
   const pages = paginateScan(
     { client: ddb },
-    { TableName: tables.vault, IndexName: VAULT_BY_CHANNEL_INDEX },
+    {
+      TableName: tables.vault,
+      Select: "SPECIFIC_ATTRIBUTES",
+      ProjectionExpression: Object.keys(names).join(", "),
+      ExpressionAttributeNames: names,
+    },
   );
-  for await (const page of pages) {
-    for (const item of page.Items ?? []) {
-      if (channelIds.has(String(item.channelId))) secrets.push(toVaultSecret(item));
-    }
-  }
+  for await (const page of pages) secrets.push(...(page.Items ?? []).map(toVaultSecret));
   return secrets.sort(newestFirst);
 }

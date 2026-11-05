@@ -94,6 +94,7 @@ describe("task manager API", () => {
       "DELETE /push/subscribe",
       "DELETE /skills/{id}",
       "DELETE /tasks/{taskId}",
+      "DELETE /vault/pin/{userId}",
       "DELETE /vault/secrets/{secretId}",
       "GET /boards",
       "GET /boards/{id}/tasks",
@@ -106,14 +107,15 @@ describe("task manager API", () => {
       "GET /news/insights",
       "GET /notes",
       "GET /notes/{callId}",
+      "GET /notes/topics",
       "GET /push/key",
       "GET /search",
       "GET /skills",
       "GET /skills/{id}",
       "GET /skills/{id}/download",
       "GET /vault",
-      "GET /vault/{channelId}",
-      "GET /vault/reveal/{secretId}",
+      "GET /vault/channels/{channelId}",
+      "GET /vault/pin",
       "POST /boards",
       "POST /boards/{id}/invites",
       "POST /boards/{id}/members",
@@ -132,12 +134,17 @@ describe("task manager API", () => {
       "POST /skills/generate",
       "POST /skills/import-github",
       "POST /vault",
+      "POST /vault/pin",
+      "POST /vault/pin/verify",
+      "POST /vault/reveal/{secretId}",
       "PUT /boards/{id}",
       "PUT /calendar/balances/{userId}/{year}",
       "PUT /calendar/events/{id}",
       "PUT /calendar/vacations/{id}/status",
       "PUT /calls/{callId}/audio",
+      "PUT /notes/{callId}/topic",
       "PUT /tasks/{taskId}",
+      "PUT /vault/secrets/{secretId}",
     ]);
     expect(routes.every((r) => r.AuthorizationType === "JWT")).toBe(true);
   });
@@ -158,7 +165,7 @@ describe("task manager API", () => {
     ]);
     expect(JSON.stringify(cors.AllowOrigins[2])).toMatch(/https:\/\/.*DomainName/); // CloudFront
     expect(cors.AllowMethods).toEqual(["GET", "POST", "PUT", "DELETE", "OPTIONS"]);
-    expect(cors.AllowHeaders).toEqual(["authorization", "content-type"]);
+    expect(cors.AllowHeaders).toEqual(["authorization", "content-type", "x-vault-session"]);
   });
 
   it("grants the tasks Lambda only what the handler calls", () => {

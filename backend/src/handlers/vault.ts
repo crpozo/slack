@@ -1,27 +1,30 @@
 import {
+  canAccessVaultSecret,
+  canManageVaultSecret,
   CreateVaultSecretSchema,
   newMessageSk,
   normalizeWebsite,
+  SetVaultPinSchema,
+  UpdateVaultSecretSchema,
+  VAULT_SESSION_HEADER,
   vaultCardText,
+  VaultPinSchema,
+  type Channel,
   type Message,
   type VaultCard,
   type VaultPage,
+  type VaultPinRefusal,
   type VaultReveal,
   type VaultSecret,
 } from "@mindfultech/shared";
-import { PutCommand } from "@aws-sdk/lib-dynamodb";
+import { paginateScan, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
 import { deliver, listConnections } from "../lib/broadcast";
-import {
-  channelAudience,
-  getAccessibleChannel,
-  scanChannels,
-  touchChannel,
-  visibleTo,
-} from "../lib/channels";
+import { channelAudience, getAccessibleChannel, touchChannel } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import {
   forbidden,
+  HttpError,
   httpHandler,
   json,
   notFound,
@@ -38,15 +41,22 @@ import {
   deleteVaultRow,
   encryptPassword,
   getVaultRow,
-  listChannelSecrets,
-  listSecretsIn,
   putVaultRow,
+  replaceVaultRow,
+  scanSecrets,
   SECRET_ID,
   type VaultRow,
 } from "../lib/vault";
+import { checkPin, pinStatus, resetPin, sessionIsOpen, setPin, unlock } from "../lib/vaultPin";
 
 /** Never cached by a browser or a proxy. */
 const NO_STORE = { "cache-control": "no-store", pragma: "no-cache" };
+
+const noStore = (status: number, body: unknown): HttpResult => ({
+  statusCode: status,
+  headers: { "content-type": "application/json", ...NO_STORE },
+  body: JSON.stringify(body),
+});
 
 function secretIdOf(event: HttpEvent): string {
   const id = pathParam(event, "secretId");
@@ -55,8 +65,8 @@ function secretIdOf(event: HttpEvent): string {
 }
 
 /**
- * The channel the caller may use (public, or theirs). Anything else is "not
- * found", so private channels and their secrets stay hidden.
+ * The channel the caller may file a secret under (public, or theirs). Anything
+ * else is "not found", so private channels stay hidden.
  */
 async function channelFor(channelId: string, caller: HttpCaller, allowArchived: boolean) {
   const channel = await getAccessibleChannel(channelId, caller.userId, { allowArchived });
@@ -64,9 +74,68 @@ async function channelFor(channelId: string, caller: HttpCaller, allowArchived: 
   return channel;
 }
 
+/** Everyone on the team who may be given a secret: the directory without guests. */
+async function teamMemberIds(): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const pages = paginateScan(
+    { client: ddb },
+    {
+      TableName: tables.users,
+      Select: "SPECIFIC_ATTRIBUTES",
+      ProjectionExpression: "userId, #role",
+      ExpressionAttributeNames: { "#role": "role" },
+    },
+  );
+  for await (const page of pages) {
+    for (const item of page.Items ?? []) {
+      if (item.role !== "guest") ids.add(String(item.userId));
+    }
+  }
+  return ids;
+}
+
+/** The people a secret is shared with, checked against the team (no guests, no strangers). */
+async function allowedList(ids: string[], ownerId: string): Promise<string[]> {
+  const others = ids.filter((id) => id !== ownerId);
+  if (others.length === 0) return [];
+  const team = await teamMemberIds();
+  const unknown = others.filter((id) => !team.has(id));
+  if (unknown.length) {
+    throw new HttpError(400, "allowedUserIds: only teammates (not guests) can be given a secret");
+  }
+  return others;
+}
+
+/** `/secret`: the card is posted for the channel's members, so they get the secret. */
+async function channelMemberIds(channel: Channel, ownerId: string): Promise<string[]> {
+  const members =
+    channel.type === "public" ? [...(await teamMemberIds())] : (channel.members ?? []);
+  return [...new Set(members)].filter((id) => id !== ownerId);
+}
+
+/** The caller's secret, if they may see it; "not found" otherwise (it isn't theirs to know of). */
+async function accessibleRow(secretId: string, caller: HttpCaller): Promise<VaultRow> {
+  const row = await getVaultRow(secretId);
+  if (!row || !canAccessVaultSecret(row, caller.userId, caller.role)) {
+    if (row) log.warn("vault access refused", { secretId, userId: caller.userId });
+    throw notFound("Secret not found");
+  }
+  return row;
+}
+
+/** Lists, edits and deletes need the Vault unlocked with the PIN (`POST /vault/pin/verify`). */
+async function requireSession(event: HttpEvent, caller: HttpCaller): Promise<HttpResult | null> {
+  const token = event.headers?.[VAULT_SESSION_HEADER];
+  if (await sessionIsOpen(caller.userId, token)) return null;
+  const body: VaultPinRefusal & { message: string } = {
+    code: "VAULT_LOCKED",
+    message: "The Vault is locked: enter your PIN",
+  };
+  return noStore(401, body);
+}
+
 /** Posts the "🔒 Shared a Secret" card in the secret's channel (best effort past the write). */
-async function postCard(secret: VaultSecret, caller: HttpCaller): Promise<Message> {
-  const channel = await channelFor(secret.channelId, caller, false);
+async function postCard(secret: VaultSecret, channel: Channel, caller: HttpCaller) {
   const now = Date.now();
   const card: VaultCard = {
     secretId: secret.secretId,
@@ -106,13 +175,26 @@ async function postCard(secret: VaultSecret, caller: HttpCaller): Promise<Messag
   return message;
 }
 
-/** `POST /vault`: encrypts the password with KMS, then stores it; optionally a card in chat. */
+const websiteOf = (input: string | undefined) =>
+  input ? (normalizeWebsite(input) ?? undefined) : undefined;
+
+/**
+ * `POST /vault`: encrypts the password with KMS, then stores it, shared with
+ * `allowedUserIds` (or, with `share`, the channel's members); optionally a
+ * card in the chat.
+ */
 async function create(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const input = parseBody(CreateVaultSecretSchema, event);
-  await channelFor(input.channelId, caller, false);
+  const channel = await channelFor(input.channelId, caller, false);
   const now = Date.now();
   const secretId = `vs_${ulid(now)}`;
-  const website = input.website ? (normalizeWebsite(input.website) ?? undefined) : undefined;
+  const website = websiteOf(input.website);
+  const allowedUserIds =
+    input.allowedUserIds !== undefined
+      ? await allowedList(input.allowedUserIds, caller.userId)
+      : input.share
+        ? await channelMemberIds(channel, caller.userId)
+        : [];
   const secret: VaultSecret = {
     secretId,
     channelId: input.channelId,
@@ -121,6 +203,7 @@ async function create(event: HttpEvent, caller: HttpCaller): Promise<HttpResult>
     ...(website && { website }),
     createdBy: caller.userId,
     createdByName: await displayNameOf(caller),
+    allowedUserIds,
     createdAt: now,
   };
   const row: VaultRow = {
@@ -128,12 +211,17 @@ async function create(event: HttpEvent, caller: HttpCaller): Promise<HttpResult>
     encryptedPassword: await encryptPassword(input.password, secret),
   };
   await putVaultRow(row);
-  log.info("vault secret saved", { secretId, channelId: secret.channelId, userId: caller.userId });
+  log.info("vault secret saved", {
+    secretId,
+    channelId: secret.channelId,
+    userId: caller.userId,
+    allowed: allowedUserIds.length,
+  });
 
   let message: Message | undefined;
   if (input.share) {
     try {
-      message = await postCard(secret, caller);
+      message = await postCard(secret, channel, caller);
     } catch (err) {
       // The secret is saved either way; the client says the card didn't go out.
       log.error("vault card not posted", { secretId, ...errorFields(err) });
@@ -143,41 +231,75 @@ async function create(event: HttpEvent, caller: HttpCaller): Promise<HttpResult>
 }
 
 /**
- * `GET /vault/reveal/{secretId}`: the password, decrypted by KMS, for a member
- * of the secret's channel only (anyone else gets "not found"). Logged, never
- * with the password.
+ * `PUT /vault/secrets/{secretId}` (Phase 46): its saver or an admin changes
+ * the details, who it's shared with, the channel, or the password. Moving it
+ * to another channel re-encrypts it (the channel is in its KMS context).
+ */
+async function update(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const secretId = secretIdOf(event);
+  const input = parseBody(UpdateVaultSecretSchema, event);
+  const row = await accessibleRow(secretId, caller);
+  if (!canManageVaultSecret(row, caller.userId, caller.role)) {
+    throw forbidden("Only whoever saved this secret, or an admin, can change it");
+  }
+  if (input.channelId !== row.channelId) await channelFor(input.channelId, caller, false);
+  const website = websiteOf(input.website);
+  const next: VaultSecret = {
+    secretId,
+    channelId: input.channelId,
+    name: input.name,
+    ...(input.username && { username: input.username }),
+    ...(website && { website }),
+    createdBy: row.createdBy,
+    ...(row.createdByName && { createdByName: row.createdByName }),
+    allowedUserIds: await allowedList(input.allowedUserIds, row.createdBy),
+    createdAt: row.createdAt,
+    updatedAt: Date.now(),
+  };
+  const password =
+    input.password ?? (input.channelId !== row.channelId ? await decryptPassword(row) : null);
+  await replaceVaultRow({
+    ...next,
+    encryptedPassword:
+      password === null ? row.encryptedPassword : await encryptPassword(password, next),
+  });
+  log.info("vault secret updated", {
+    secretId,
+    userId: caller.userId,
+    newPassword: input.password !== undefined,
+    moved: input.channelId !== row.channelId,
+    allowed: next.allowedUserIds.length,
+  });
+  return json(200, { secret: next });
+}
+
+/**
+ * `POST /vault/reveal/{secretId}`: the password, for someone the secret is
+ * shared with (anyone else gets "not found") who gives their PIN again.
+ * Logged, never with the password.
  */
 async function reveal(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const secretId = secretIdOf(event);
+  const { pin } = parseBody(VaultPinSchema, event);
   const row = await getVaultRow(secretId);
   if (!row) throw notFound("This secret was deleted");
-  const channel = await getAccessibleChannel(row.channelId, caller.userId, {
-    allowArchived: true,
-  });
-  if (!channel) {
-    log.warn("vault reveal refused", { secretId, channelId: row.channelId, userId: caller.userId });
+  if (!canAccessVaultSecret(row, caller.userId, caller.role)) {
+    log.warn("vault reveal refused", { secretId, userId: caller.userId });
     throw notFound("Secret not found");
   }
+  const check = await checkPin(caller.userId, pin);
+  if (!check.ok) return noStore(check.status, check.body);
   const password = await decryptPassword(row);
   log.info("vault secret revealed", { secretId, channelId: row.channelId, userId: caller.userId });
   const body: VaultReveal = { secretId, password };
-  return {
-    statusCode: 200,
-    headers: { "content-type": "application/json", ...NO_STORE },
-    body: JSON.stringify(body),
-  };
+  return noStore(200, body);
 }
 
 /** `DELETE /vault/secrets/{secretId}`: whoever saved it, or an admin. */
 async function remove(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const secretId = secretIdOf(event);
-  const row = await getVaultRow(secretId);
-  if (!row) throw notFound("Secret not found");
-  const visible = await getAccessibleChannel(row.channelId, caller.userId, {
-    allowArchived: true,
-  });
-  if (!visible) throw notFound("Secret not found");
-  if (row.createdBy !== caller.userId && caller.role !== "admin") {
+  const row = await accessibleRow(secretId, caller);
+  if (!canManageVaultSecret(row, caller.userId, caller.role)) {
     throw forbidden("Only whoever saved this secret, or an admin, can delete it");
   }
   await deleteVaultRow(secretId);
@@ -185,30 +307,70 @@ async function remove(event: HttpEvent, caller: HttpCaller): Promise<HttpResult>
   return json(200, { deleted: secretId });
 }
 
+/** What the caller may see: every secret for an admin, else theirs and those shared with them. */
+async function visibleSecrets(caller: HttpCaller, channelId?: string): Promise<VaultSecret[]> {
+  return (await scanSecrets()).filter(
+    (s) =>
+      (!channelId || s.channelId === channelId) &&
+      canAccessVaultSecret(s, caller.userId, caller.role),
+  );
+}
+
 /**
- * Vault (Phase 45): the team's passwords and API keys, per channel. Lists are
- * metadata only; a password leaves the server only through `reveal`. Guests
- * never reach it.
+ * Vault (Phase 45; access and the PIN, Phase 46): the team's passwords and API
+ * keys. Lists are metadata only and need the Vault unlocked; a password leaves
+ * the server only through `reveal`, with the PIN. Guests never reach it.
  */
 export const handler = httpHandler(async (event, caller): Promise<HttpResult> => {
   if (caller.role === "guest") throw forbidden("Guests only have access to their boards");
   switch (event.routeKey) {
-    case "GET /vault": {
-      const channels = visibleTo(await scanChannels(), caller.userId);
-      const body: VaultPage = {
-        secrets: await listSecretsIn(new Set(channels.map((c) => c.channelId))),
-      };
-      return json(200, body);
+    case "GET /vault/pin":
+      return noStore(200, await pinStatus(caller.userId));
+    case "POST /vault/pin": {
+      const { pin } = parseBody(SetVaultPinSchema, event);
+      return noStore(201, await setPin(caller.userId, pin));
     }
-    case "GET /vault/{channelId}": {
-      const channel = await channelFor(pathParam(event, "channelId"), caller, true);
-      const body: VaultPage = { secrets: await listChannelSecrets(channel.channelId) };
-      return json(200, body);
+    case "POST /vault/pin/verify": {
+      const { pin } = parseBody(VaultPinSchema, event);
+      const result = await unlock(caller.userId, pin);
+      return result.ok ? noStore(200, result.unlock) : noStore(result.status, result.body);
+    }
+    case "DELETE /vault/pin/{userId}": {
+      if (caller.role !== "admin") throw forbidden("Only an admin can reset someone's Vault PIN");
+      const userId = pathParam(event, "userId");
+      try {
+        await resetPin(userId);
+      } catch (err) {
+        if (err instanceof Error && err.name === "ConditionalCheckFailedException") {
+          throw notFound("No such person");
+        }
+        throw err;
+      }
+      log.info("vault pin reset", { userId, by: caller.userId });
+      return json(200, { reset: userId });
     }
     case "POST /vault":
       return create(event, caller);
-    case "GET /vault/reveal/{secretId}":
+    case "POST /vault/reveal/{secretId}":
       return reveal(event, caller);
+  }
+
+  // Everything else shows or changes the Vault's contents: unlocked only.
+  const locked = await requireSession(event, caller);
+  if (locked) return locked;
+  switch (event.routeKey) {
+    case "GET /vault": {
+      const body: VaultPage = { secrets: await visibleSecrets(caller) };
+      return noStore(200, body);
+    }
+    case "GET /vault/channels/{channelId}": {
+      const body: VaultPage = {
+        secrets: await visibleSecrets(caller, pathParam(event, "channelId")),
+      };
+      return noStore(200, body);
+    }
+    case "PUT /vault/secrets/{secretId}":
+      return update(event, caller);
     case "DELETE /vault/secrets/{secretId}":
       return remove(event, caller);
     default:

@@ -1,6 +1,7 @@
 import type {
   AiNotes,
   ClassifyNotesResponse,
+  MeetingTopicsResponse,
   Message,
   NoteAudio,
   NoteDetail,
@@ -8,6 +9,7 @@ import type {
   NotesClipQuery,
   NotesClipResult,
   NotesPage,
+  SetMeetingTopicInput,
   SummarizeCallInput,
 } from "@mindfultech/shared";
 import { request } from "./tasksApi";
@@ -50,9 +52,24 @@ export const notesApi = {
    * (`message.updated` follows for each); call again while `remaining > 0`.
    */
   classify: () => request<ClassifyNotesResponse>("POST", "/notes/classify"),
-  /** The AI Notes hub (Phase 29): your notes cards from every conversation, newest first. */
-  list: (cursor: string | null) =>
-    request<NotesPage>("GET", cursor ? `/notes?cursor=${encodeURIComponent(cursor)}` : "/notes"),
+  /**
+   * The AI Notes hub (Phase 29): your notes cards from every conversation,
+   * newest first; Phase 50: only one meeting topic's, with `topic`.
+   */
+  list: (cursor: string | null, topic?: string | null) => {
+    const params = new URLSearchParams();
+    if (cursor) params.set("cursor", cursor);
+    if (topic) params.set("topic", topic);
+    const query = params.toString();
+    return request<NotesPage>("GET", query ? `/notes?${query}` : "/notes");
+  },
+  /** Phase 50: the meeting topics your notes are filed under, most notes first. */
+  topics: () => request<MeetingTopicsResponse>("GET", "/notes/topics").then((r) => r.topics),
+  /** Phase 50: files a meeting under a topic (`null` clears it), for everyone in it. */
+  setTopic: (callId: string, input: SetMeetingTopicInput) =>
+    request<{ aiNotes: AiNotes }>("PUT", `/notes/${encodeURIComponent(callId)}/topic`, input).then(
+      (r) => r.aiNotes,
+    ),
   /** Phase 40: attaches the uploaded recording to the call's card (`message.updated` follows). */
   attachAudio: (callId: string, audio: NoteAudio) =>
     request<{ aiNotes: AiNotes }>("PUT", `/calls/${encodeURIComponent(callId)}/audio`, audio),

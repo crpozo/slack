@@ -22,6 +22,8 @@ import { notFound } from "./http";
 // ---------------------------------------------------------------------------
 
 export const RAW_SK = "raw";
+/** Phase 50: the meeting's topic (`topic`, `setBy`, `setAt`), one per call. */
+export const TOPIC_SK = "topic";
 export const POLISHED_SK = "polished";
 
 export interface NoteRawRow {

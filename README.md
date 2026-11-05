@@ -518,6 +518,14 @@ pnpm --filter infra backfill-notes prod --apply    # writes the hub's entries (s
 It scans the messages table once (only notes cards come back) with your AWS credentials, which
 need `dynamodb:Scan` on the messages table and `dynamodb:BatchWriteItem` on the new one.
 
+**Meeting topics (Phase 50): nothing to run.** Anyone in a call can file its notes under a topic
+("Daily Sync", "Client Call", "Planning" or their own) from the note's panel. One transaction
+writes the card (`aiNotes.topic`), the call's `note-details` row (`sk: "topic"`, with who set it)
+and each participant's pointer in `meeting-notes`, which also gets `topicKey`
+(`<userId>#<folded topic>`). The table's `byTopic` index (`topicKey` + `sk`) answers "my notes
+in Planning, newest first" in one query (`GET /notes?topic=`); `GET /notes/topics` counts yours.
+The index is created by the deploy; notes filed before it have no topic yet.
+
 **Files & Links (Phase 38), once per stage after deploying it:** a conversation's Files & Links
 tab reads a per-conversation index table (`slack-<stage>-channel-media`) that new messages fill as
 they're sent, edited and deleted. Messages from before the deploy need their rows written once:
@@ -611,12 +619,35 @@ aws ssm put-parameter --name /slack/prod/github-token --type SecureString --valu
 
 ### 10. Vault (the team's passwords and API keys)
 
-**Vault** (`/app/vault`, under APPS) keeps the team's credentials: a title, a website, a
-username and the password or key, each tied to a channel (the project it belongs to). Members of
-that channel (everyone, for a public one) can **Reveal** or **Copy** it; nobody else sees it
-exists. Add one with **Create Secret** (with **Generate strong password**), or type
-`/secret <title> <password>` in a channel: it's saved for that channel and a 🔒 card is posted
-there (`/secret` alone still turns on the composer's 24-hour secret mode).
+**Vault** (`/app/vault`, under APPS) keeps the team's credentials: a title, a website (a
+**Launch** button opens it in a new tab, or in the desktop app in your default browser), a
+username and the password or key, each filed under a channel (its project). Add one with
+**Create Secret** (with **Generate strong password**), or type `/secret <title> <password>` in a
+channel: it's shared with that channel's members and a 🔒 card is posted there (`/secret` alone
+still turns on the composer's 24-hour secret mode).
+
+Who sees what (Phase 46):
+
+- **Admins** (the Cognito `admins` group) see every secret. **Everyone else** sees only the ones
+  they saved and the ones shared with them (`allowedUserIds`, picked in **Create/Edit Secret**;
+  "+ Everyone in this channel" fills it in). Guests never reach the Vault. A secret that isn't
+  yours to see is "not found", in lists, reveals and edits alike.
+- Whoever saved a secret, or an admin, can edit it (details, password, channel, who sees it) or
+  delete it. Secrets saved before Phase 46 are shared with nobody yet: their saver and admins
+  see them, and can share them from **Edit**.
+
+The **Vault PIN**: everyone chooses 4 digits on their first visit (not 1234, 0000 and the like).
+The Vault opens on a lock screen every time; the PIN unlocks it for 15 minutes (leaving the view
+or **Lock** locks it again), and every Reveal or Copy asks for it again.
+
+- Stored on the person's `users` row as a bcrypt hash (cost 12), itself encrypted with the Vault's
+  KMS key, so a copy of the table alone isn't enough to try the 10,000 PINs offline.
+- **5 wrong PINs in a row lock it** for 15 minutes, then 30, 60… up to a day; a right PIN resets
+  the count. Each attempt is counted _before_ the PIN is compared, so guesses sent all at once get
+  no more than 5 tries.
+- Forgot it? An admin uses **Reset a PIN** in the Vault; the person chooses a new one next visit.
+- The unlocked Vault is a random session token (sent as `x-vault-session`; only its SHA-256 is
+  stored, with its expiry). Lists, edits and deletes need it; reveals need the PIN itself.
 
 How it's kept:
 
@@ -626,17 +657,18 @@ How it's kept:
   the stack is ever deleted (without it, the passwords can't be read).
 - Every ciphertext is bound to its row and channel by the KMS encryption context, so a copied or
   re-filed ciphertext doesn't decrypt. Only the `vault` Lambda may use the key, only to Encrypt and
-  Decrypt, and only with the Vault's context.
-- Lists (`GET /vault`, `GET /vault/{channelId}`) read a metadata-only index: the ciphertext never
-  leaves the table except to KMS. `GET /vault/reveal/{secretId}` checks channel membership first,
-  answers `no-store`, and is logged (who, which secret, never the value); KMS logs each decrypt in
-  CloudTrail. Whoever saved a secret, or an admin, can delete it.
+  Decrypt, and only with the Vault's contexts (passwords, PIN hashes).
+- Least privilege, enforced by IAM: the Lambda's Scans of the Vault may only ask for the metadata
+  (`VAULT_METADATA_ATTRIBUTES`: never the ciphertext); on `users` it may only write the PIN's own
+  attributes and Scan ids and roles. A reveal checks access first, then the PIN, answers
+  `no-store`, and is logged (who, which secret, never the value); KMS logs each decrypt in
+  CloudTrail.
 - In the browser a revealed password hides itself after 30 seconds. In the desktop app 0.4.0+,
   **Copy** goes through Tauri's clipboard and wipes the password 30 seconds later if it's still
   there.
 
 Everything comes with the deploy (the key, the table, the Lambda and its routes): nothing to set
-up by hand.
+up by hand. Admins are the members of the user pool's `admins` group.
 
 ### Deploys and open tabs
 

@@ -19,6 +19,7 @@ import { formatBytes, getDownloadUrl, MAX_SIZE_LABEL, uploadFile } from "../lib/
 import { useChat, useNameOf } from "../store";
 import { useTasks } from "../store/tasks";
 import { DownloadIcon, FileIcon, PaperclipIcon, TrashIcon } from "./icons";
+import { TaskImage } from "./TaskImages";
 
 /**
  * The pieces of a task form, shared by the Task details modal (edits save as
@@ -222,7 +223,13 @@ function AttachmentRow({
   }
   return (
     <li className="flex items-center gap-2 rounded-lg border border-line px-3 py-2">
-      <FileIcon className="shrink-0 text-ink-secondary" />
+      {attachment.contentType.startsWith("image/") ? (
+        <span className="shrink-0" data-attachment-thumb>
+          <TaskImage file={attachment} compact />
+        </span>
+      ) : (
+        <FileIcon className="shrink-0 text-ink-secondary" />
+      )}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm text-ink">{attachment.name}</span>
         <span className="block text-xs text-ink-secondary">{formatBytes(attachment.size)}</span>

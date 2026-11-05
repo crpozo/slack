@@ -102,8 +102,14 @@ describe("AI call notes", () => {
       "dynamodb:UpdateItem",
     ]);
     expect(actionsOn(st, "DataChannels")).toEqual(["dynamodb:GetItem"]);
-    expect(actionsOn(st, "DataMeetingNotes")).toEqual(["dynamodb:PutItem", "dynamodb:Query"]);
+    expect(actionsOn(st, "DataMeetingNotes")).toEqual([
+      "dynamodb:BatchGetItem",
+      "dynamodb:PutItem",
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+    ]);
     expect(actionsOn(st, "DataNoteDetails")).toEqual([
+      "dynamodb:DeleteItem",
       "dynamodb:GetItem",
       "dynamodb:PutItem",
       "dynamodb:Query",
@@ -118,6 +124,33 @@ describe("AI call notes", () => {
     expect(JSON.stringify(bedrock[0]?.Resource)).toMatch(
       /inference-profile\/us\.anthropic\.claude-haiku-5-5/,
     );
+  });
+
+  it("finds a person's notes by meeting topic through an index (Phase 50)", () => {
+    template.hasResourceProperties("AWS::DynamoDB::Table", {
+      TableName: "slack-dev-meeting-notes",
+      GlobalSecondaryIndexes: [
+        {
+          IndexName: "byTopic",
+          KeySchema: [
+            { AttributeName: "topicKey", KeyType: "HASH" },
+            { AttributeName: "sk", KeyType: "RANGE" },
+          ],
+          Projection: { ProjectionType: "ALL" },
+        },
+      ],
+    });
+    for (const key of ["GET /notes/topics", "PUT /notes/{callId}/topic"]) {
+      const route = Object.values(
+        template.findResources("AWS::ApiGatewayV2::Route", { Properties: { RouteKey: key } }),
+      )[0]?.Properties as { AuthorizationType: string; Target: unknown };
+      expect([key, route.AuthorizationType]).toEqual([key, "JWT"]);
+      expect(JSON.stringify(route.Target)).toMatch(/CallNotesIntegration/);
+    }
+    // The endpoint's Query reaches the index.
+    const st = statementsOf("TasksApiCallNotesFnServiceRoleDefaultPolicy");
+    const pointers = st.filter((s) => JSON.stringify(s.Resource).includes("DataMeetingNotes"));
+    expect(JSON.stringify(pointers)).toMatch(/\/index\/\*/);
   });
 
   it("keeps each call's full notes in their own table: callId + raw / polished / qa#user#time", () => {

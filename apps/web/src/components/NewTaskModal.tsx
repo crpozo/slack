@@ -8,7 +8,8 @@ import {
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTasks } from "../store/tasks";
 import { Modal, SecondaryButton } from "./Modal";
-import { PasteStatus, TaskImages, useImagePaste } from "./TaskImages";
+import { stripAttachmentRefs } from "../lib/taskText";
+import { PasteStatus, usePastedFiles } from "./TaskImages";
 import {
   AttachmentsSection,
   Field,
@@ -39,18 +40,16 @@ export function NewTaskModal({ board, onClose }: Readonly<{ board: Board; onClos
     setAttachments((list) => [...list, ...added]),
   );
   const drop = useFileDrop((files) => void addFiles(files));
-  // Pasted images (Phase 33): uploaded as task files, referenced from the text.
+  // Pasted screenshots and files join the attachments; the text stays text.
   const addFile = (file: Attachment) => setAttachments((list) => [...list, file]);
-  const descriptionPaste = useImagePaste({
+  const descriptionPaste = usePastedFiles({
     boardId: board.boardId,
     attached: attachments.length + uploads.length,
-    apply: setDescription,
     onUploaded: addFile,
   });
-  const notesPaste = useImagePaste({
+  const notesPaste = usePastedFiles({
     boardId: board.boardId,
     attached: attachments.length + uploads.length + descriptionPaste.pending,
-    apply: setNotes,
     onUploaded: addFile,
   });
   const uploading = uploads.length + descriptionPaste.pending + notesPaste.pending;
@@ -110,11 +109,10 @@ export function NewTaskModal({ board, onClose }: Readonly<{ board: Board; onClos
             placeholder="A line or two shown on the card (optional). Paste a screenshot to add it."
             maxLength={MAX_TASK_DESCRIPTION_LENGTH}
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => setDescription(stripAttachmentRefs(e.target.value))}
             onPaste={descriptionPaste.onPaste}
           />
           <PasteStatus pending={descriptionPaste.pending} />
-          <TaskImages text={description} attachments={attachments} />
         </Field>
 
         <ProjectAndAssignee
@@ -131,11 +129,10 @@ export function NewTaskModal({ board, onClose }: Readonly<{ board: Board; onClos
             placeholder="Context, links, decisions… (paste screenshots too)"
             maxLength={MAX_TASK_NOTES_LENGTH}
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            onChange={(e) => setNotes(stripAttachmentRefs(e.target.value))}
             onPaste={notesPaste.onPaste}
           />
           <PasteStatus pending={notesPaste.pending} />
-          <TaskImages text={notes} attachments={attachments} />
         </Field>
 
         <AttachmentsSection

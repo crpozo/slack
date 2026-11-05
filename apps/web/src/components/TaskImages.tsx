@@ -1,89 +1,75 @@
 import { MAX_TASK_ATTACHMENTS, type Attachment } from "@mindfultech/shared";
 import { useEffect, useRef, useState, type ClipboardEvent } from "react";
 import {
-  dropPlaceholder,
-  fillPlaceholder,
-  imageRef,
-  insertBlock,
-  pastedImages,
+  hasAttachmentRefs,
+  pastedFiles,
   pastedName,
-  placeholder,
-  referencedImages,
+  stripAttachmentRefs,
+  taskImages,
 } from "../lib/taskText";
 import { getDownloadUrl, uploadFile } from "../lib/upload";
 import { useChat } from "../store";
 import { Lightbox } from "./Lightbox";
 
-let nextPasteId = 0;
+/**
+ * Puts `text` in place of the selection the way typing would: the field's
+ * own `input` event follows, so a React-controlled textarea updates its state.
+ */
+function insertText(field: HTMLTextAreaElement, text: string): void {
+  field.setRangeText(text, field.selectionStart, field.selectionEnd, "end");
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+}
 
 /**
- * Paste an image into a task's description or notes (Phase 33). The image is
- * uploaded like any task file (the board's folder, its limits), becomes a file
- * of the task, and the text gets `![name](attachment:<key>)` where the caret
- * was. Meanwhile an "Uploading…" placeholder holds its place; a failed upload
- * takes it out again and says why. Text pastes are left alone.
- *
- * `apply` changes the field's text from what it is when the upload finishes
- * (the person may have typed meanwhile); `onUploaded` adds the file to the task.
+ * Paste a screenshot or file into a task's text field: it never becomes text.
+ * The paste is stopped (no `![…](attachment:…)` in the textarea), the file is
+ * uploaded in the background like any task file (the board's folder, its
+ * limits) and joins the task's attachments, where images show as thumbnails.
+ * A failed upload says why. Text pastes are left alone.
  */
-export function useImagePaste({
+export function usePastedFiles({
   boardId,
   attached,
-  apply,
   onUploaded,
 }: Readonly<{
   boardId: string;
-  /** Files the task already has (each image counts toward `MAX_TASK_ATTACHMENTS`). */
+  /** Files the task already has (each paste counts toward `MAX_TASK_ATTACHMENTS`). */
   attached: number;
-  apply: (change: (text: string) => string) => void;
   onUploaded: (file: Attachment) => void | Promise<void>;
 }>) {
   const showToast = useChat((s) => s.showToast);
   const [pending, setPending] = useState(0);
 
   function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
-    const images = pastedImages(e.clipboardData);
-    if (images.length === 0) return; // text: the textarea pastes it as usual
+    const pasted = pastedFiles(e.clipboardData);
+    if (pasted.length === 0) {
+      // Text copied from an older task can carry `![…](attachment:…)`: pasted without it.
+      const text = e.clipboardData.getData("text/plain");
+      if (hasAttachmentRefs(text)) {
+        e.preventDefault();
+        insertText(e.currentTarget, stripAttachmentRefs(text));
+      }
+      return; // any other text: the textarea pastes it as usual
+    }
     e.preventDefault();
     const room = MAX_TASK_ATTACHMENTS - attached - pending;
     if (room <= 0) {
       showToast(`A task can have at most ${MAX_TASK_ATTACHMENTS} attachments.`);
       return;
     }
-    const files = images.slice(0, room).map((file) => {
-      const name = pastedName(file);
-      return {
-        id: `p${(nextPasteId++).toString(36)}${Date.now().toString(36)}`,
-        name,
-        file: name === file.name ? file : new File([file], name, { type: file.type }),
-      };
-    });
-    if (files.length < images.length) {
+    if (pasted.length > room) {
       showToast(`A task can have at most ${MAX_TASK_ATTACHMENTS} attachments.`);
     }
-
-    const field = e.currentTarget;
-    const { selectionStart, selectionEnd } = field;
-    const block = files.map((f) => placeholder(f.id, f.name)).join("\n");
-    let caret = 0;
-    apply((text) => {
-      const next = insertBlock(text, selectionStart, selectionEnd, block);
-      caret = next.caret;
-      return next.text;
+    const files = pasted.slice(0, room).map((file) => {
+      const name = pastedName(file);
+      return name === file.name ? file : new File([file], name, { type: file.type });
     });
-    // After React has put the new text in: the caret goes after what was pasted.
-    requestAnimationFrame(() => field.setSelectionRange(caret, caret));
-
     setPending((n) => n + files.length);
-    for (const { id, name, file } of files) {
+    for (const file of files) {
       uploadFile(file, boardId)
-        .then(async (uploaded) => {
-          await onUploaded(uploaded);
-          apply((text) => fillPlaceholder(text, id, imageRef(name, uploaded.key)));
-        })
+        .then((uploaded) => onUploaded(uploaded))
         .catch((err: unknown) => {
-          apply((text) => dropPlaceholder(text, id));
-          showToast(err instanceof Error ? err.message : `Couldn't upload ${name}.`);
+          showToast(err instanceof Error ? err.message : `Couldn't upload ${file.name}.`);
         })
         .finally(() => setPending((n) => n - 1));
     }
@@ -92,7 +78,7 @@ export function useImagePaste({
   return { onPaste, pending };
 }
 
-/** "Uploading 2 images…" under the field while pasted images are on their way. */
+/** "Uploading 2 files…" under the field while pasted files are on their way. */
 export function PasteStatus({ pending }: Readonly<{ pending: number }>) {
   if (pending === 0) return null;
   return (
@@ -101,13 +87,13 @@ export function PasteStatus({ pending }: Readonly<{ pending: number }>) {
         className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent"
         aria-hidden="true"
       />
-      Uploading {pending === 1 ? "image" : `${pending} images`}…
+      Uploading {pending === 1 ? "pasted file" : `${pending} pasted files`} to the attachments…
     </p>
   );
 }
 
 /** One of the task's images, through a freshly signed link (thumbnail first, original on click). */
-function TaskImage({ file, compact }: Readonly<{ file: Attachment; compact: boolean }>) {
+export function TaskImage({ file, compact }: Readonly<{ file: Attachment; compact: boolean }>) {
   const previewKey = file.thumbKey ?? file.key;
   const [url, setUrl] = useState<string | null>(null);
   const [viewing, setViewing] = useState<string | null>(null);
@@ -179,9 +165,9 @@ function TaskImage({ file, compact }: Readonly<{ file: Attachment; compact: bool
 }
 
 /**
- * The images a task's text refers to (`attachment:` references to its own
- * files): a strip of thumbnails on a card (`compact`, at most `max`), larger
- * previews under the field in the forms.
+ * A task's images as a strip of thumbnails on its card (`compact`, at most
+ * `max`): those an older task's text refers to first, then its other image
+ * files (pasted screenshots among them).
  */
 export function TaskImages({
   text,
@@ -189,7 +175,7 @@ export function TaskImages({
   compact = false,
   max = Infinity,
 }: Readonly<{ text: string; attachments: Attachment[]; compact?: boolean; max?: number }>) {
-  const images = referencedImages(text, attachments);
+  const images = taskImages(text, attachments);
   if (images.length === 0) return null;
   const shown = images.slice(0, max);
   const more = images.length - shown.length;

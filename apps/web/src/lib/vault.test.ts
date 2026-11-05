@@ -7,6 +7,7 @@ const secret = (patch: Partial<VaultSecret>): VaultSecret => ({
   channelId: "ch_general",
   name: "AWS root",
   createdBy: "u1",
+  allowedUserIds: [],
   createdAt: 1,
   ...patch,
 });

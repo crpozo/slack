@@ -5,6 +5,45 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Added
+
+- **AI Notes by date and by topic:** the notes are grouped under **Hoy**, **Ayer**, **Esta
+  semana** and then month by month ("Octubre 2026"), with the heading staying on screen as you
+  scroll. A meeting can be filed under a **topic** (Daily Sync, Client Call, Planning, Retro, 1:1,
+  Demo, or your own) from its notes panel, for everyone in the call. The hub lists your topics
+  with their counts, and picking one shows all of its meetings, not just the ones already
+  loaded. The AI's own tags are now labelled "AI tags", to tell them apart.
+
+### Fixed
+
+- **No more `![…](attachment:…)` in task notes:** notes saved before attachments took over
+  pasted images still had that markdown in them. The text box now shows them without it, and
+  editing saves them clean (the images stay as thumbnails under Attachments). Pasting text that
+  carries it, such as notes copied from an older task, leaves it out too.
+
+- **Archive from the sidebar:** a channel's ⋯ menu has **Archive channel** (for its creator or
+  an admin), next to Pin to the top, Edit channel and Delete channel. It asks first, then
+  archives the channel. If you were in it, the app moves you to #general, as Edit channel does.
+- **Pasting a screenshot into a task's notes no longer writes `![…](attachment:…)` into the
+  text.** The image (or any pasted file) uploads in the background and joins the task's
+  attachments, where images show as thumbnails; the notes stay plain text. Cards show a task's
+  images as before.
+
+### Security
+
+- **Vault PIN and access control:** the Vault now opens on a lock screen.
+  - **PIN:** everyone chooses a 4-digit PIN on their first visit. It unlocks the list for 15
+    minutes and is asked again before any password is revealed or copied.
+  - **Lockout:** five wrong PINs in a row lock it for 15 minutes, then for twice as long each
+    time, up to a day. An admin can reset a forgotten PIN.
+  - **Storage:** the PIN is kept as a bcrypt hash, itself encrypted with the Vault's KMS key.
+  - **Access:** admins see every secret; everyone else sees only the ones they saved or that were
+    shared with them. Create Secret and Edit Secret have a people picker for that.
+  - **Locked down in AWS:** the Vault's server permissions only allow reading secret details,
+    never the encrypted passwords, when listing.
+  - **Launch:** each secret's website has a **Launch** button. It opens a new tab, or your default
+    browser in the desktop app.
+
 ### Fixed
 
 - **Spanish words aren't passwords:** the password detector counted accented letters ("ü", "ñ",

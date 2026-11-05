@@ -1,5 +1,6 @@
 import { App } from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
+import { VAULT_METADATA_ATTRIBUTES, VAULT_PIN_ATTRIBUTES } from "@mindfultech/shared";
+import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
 import { SlackStack } from "../lib/slack-stack";
 
@@ -36,36 +37,34 @@ describe("Vault (Phase 45)", () => {
     template.hasResourceProperties("AWS::KMS::Alias", { AliasName: "alias/slack-dev-vault" });
   });
 
-  it("keeps secrets by secretId, encrypted at rest, with a metadata-only index per channel", () => {
+  it("keeps secrets by secretId, encrypted at rest, with no index (Phase 46)", () => {
     template.hasResourceProperties("AWS::DynamoDB::Table", {
       TableName: "slack-dev-vault",
       BillingMode: "PAY_PER_REQUEST",
       KeySchema: [{ AttributeName: "secretId", KeyType: "HASH" }],
       SSESpecification: { SSEEnabled: true },
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
-      GlobalSecondaryIndexes: [
-        {
-          IndexName: "byChannel",
-          KeySchema: [
-            { AttributeName: "channelId", KeyType: "HASH" },
-            { AttributeName: "createdAt", KeyType: "RANGE" },
-          ],
-          Projection: {
-            ProjectionType: "INCLUDE",
-            NonKeyAttributes: ["name", "username", "website", "createdBy", "createdByName"],
-          },
-        },
-      ],
     });
+    const vault = Object.values(
+      template.findResources("AWS::DynamoDB::Table", {
+        Properties: { TableName: "slack-dev-vault" },
+      }),
+    )[0]?.Properties as { GlobalSecondaryIndexes?: unknown };
+    expect(vault.GlobalSecondaryIndexes).toBeUndefined();
   });
 
   it("serves every route behind the JWT authorizer from the vault Lambda", () => {
     for (const key of [
       "GET /vault",
       "POST /vault",
-      "GET /vault/{channelId}",
-      "GET /vault/reveal/{secretId}",
+      "GET /vault/channels/{channelId}",
+      "POST /vault/reveal/{secretId}",
+      "PUT /vault/secrets/{secretId}",
       "DELETE /vault/secrets/{secretId}",
+      "GET /vault/pin",
+      "POST /vault/pin",
+      "POST /vault/pin/verify",
+      "DELETE /vault/pin/{userId}",
     ]) {
       const route = Object.values(
         template.findResources("AWS::ApiGatewayV2::Route", { Properties: { RouteKey: key } }),
@@ -92,14 +91,14 @@ describe("Vault (Phase 45)", () => {
     expect(JSON.stringify(fn.Environment.Variables.VAULT_KEY_ID)).toMatch(/DataVaultKey/);
   });
 
-  it("lets only the vault Lambda use the key: Encrypt and Decrypt, with the Vault's context", () => {
+  it("lets only the vault Lambda use the key: Encrypt and Decrypt, with the Vault's contexts", () => {
     const st = statementsOf("TasksApiVaultFnServiceRoleDefaultPolicy");
     const kms = st.filter((s) => JSON.stringify(s.Action).includes("kms:"));
     expect(kms).toHaveLength(1);
     expect(actionsOf(kms)).toEqual(["kms:Decrypt", "kms:Encrypt"]);
     expect(JSON.stringify(kms[0]?.Resource)).toMatch(/DataVaultKey/);
     expect(kms[0]?.Condition).toEqual({
-      StringEquals: { "kms:EncryptionContext:purpose": "vault" },
+      StringEquals: { "kms:EncryptionContext:purpose": ["vault", "vault-pin"] },
     });
     // No other function's policy mentions the key.
     const others = Object.entries(template.findResources("AWS::IAM::Policy")).filter(
@@ -108,21 +107,49 @@ describe("Vault (Phase 45)", () => {
     expect(others.map(([id]) => id)).toEqual([]);
   });
 
-  it("reads rows one at a time and lists only through the metadata index", () => {
+  it("reads rows one at a time; its Scans can only ask for the metadata, never the ciphertext", () => {
     const st = statementsOf("TasksApiVaultFnServiceRoleDefaultPolicy");
     const vault = on(st, "DataVault").filter((s) => !JSON.stringify(s.Action).includes("kms:"));
-    const query = vault.filter((s) => [s.Action].flat().includes("dynamodb:Query"));
-    expect(query).toHaveLength(1);
-    expect(actionsOf(query)).toEqual(["dynamodb:Query", "dynamodb:Scan"]);
-    expect(JSON.stringify(query[0]?.Resource)).toContain("/index/byChannel");
-    const rows = vault.filter((s) => s !== query[0]);
+    const scans = vault.filter((s) => [s.Action].flat().includes("dynamodb:Scan"));
+    expect(scans).toHaveLength(1);
+    expect(actionsOf(scans)).toEqual(["dynamodb:Scan"]);
+    expect(scans[0]?.Condition).toEqual({
+      StringEquals: { "dynamodb:Select": "SPECIFIC_ATTRIBUTES" },
+      "ForAllValues:StringEquals": { "dynamodb:Attributes": [...VAULT_METADATA_ATTRIBUTES] },
+    });
+    expect(VAULT_METADATA_ATTRIBUTES).not.toContain("encryptedPassword");
+    expect(JSON.stringify(st)).not.toMatch(/index\/byChannel|dynamodb:Query/);
+    const rows = vault.filter((s) => s !== scans[0]);
     expect(actionsOf(rows)).toEqual([
       "dynamodb:DeleteItem",
       "dynamodb:GetItem",
       "dynamodb:PutItem",
     ]);
     expect(actionsOf(on(st, "DataMessages"))).toEqual(["dynamodb:PutItem"]);
-    expect(actionsOf(on(st, "DataUsers"))).toEqual(["dynamodb:GetItem"]);
+    expect(actionsOf(on(st, "DataChannels"))).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);
     expect(JSON.stringify(st)).not.toMatch(/s3:|bedrock|ssm:/);
+  });
+
+  it("touches only the PIN's attributes on users rows, and reads only ids and roles in bulk", () => {
+    const st = on(statementsOf("TasksApiVaultFnServiceRoleDefaultPolicy"), "DataUsers");
+    const byAction = (action: string) => st.filter((s) => [s.Action].flat().includes(action));
+    expect(byAction("dynamodb:GetItem")).toHaveLength(1);
+    expect(byAction("dynamodb:UpdateItem")[0]?.Condition).toEqual({
+      "ForAllValues:StringEquals": { "dynamodb:Attributes": [...VAULT_PIN_ATTRIBUTES] },
+    });
+    expect(byAction("dynamodb:Scan")[0]?.Condition).toEqual({
+      StringEquals: { "dynamodb:Select": "SPECIFIC_ATTRIBUTES" },
+      "ForAllValues:StringEquals": { "dynamodb:Attributes": ["userId", "role"] },
+    });
+    expect(actionsOf(st)).toEqual(["dynamodb:GetItem", "dynamodb:Scan", "dynamodb:UpdateItem"]);
+  });
+
+  it("lets browsers send the Vault's session header", () => {
+    template.hasResourceProperties("AWS::ApiGatewayV2::Api", {
+      Name: "slack-dev-tasks",
+      CorsConfiguration: Match.objectLike({
+        AllowHeaders: ["authorization", "content-type", "x-vault-session"],
+      }),
+    });
   });
 });
