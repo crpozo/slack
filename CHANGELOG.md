@@ -5,6 +5,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Security
+
+- **Vault PIN and access control:** the Vault now opens on a lock screen.
+  - **PIN:** everyone chooses a 4-digit PIN on their first visit. It unlocks the list for 15
+    minutes and is asked again before any password is revealed or copied.
+  - **Lockout:** five wrong PINs in a row lock it for 15 minutes, then for twice as long each
+    time, up to a day. An admin can reset a forgotten PIN.
+  - **Storage:** the PIN is kept as a bcrypt hash, itself encrypted with the Vault's KMS key.
+  - **Access:** admins see every secret; everyone else sees only the ones they saved or that were
+    shared with them. Create Secret and Edit Secret have a people picker for that.
+  - **Locked down in AWS:** the Vault's server permissions only allow reading secret details,
+    never the encrypted passwords, when listing.
+  - **Launch:** each secret's website has a **Launch** button. It opens a new tab, or your default
+    browser in the desktop app.
+
 ### Fixed
 
 - **AI News with the chat open:** the layout now follows the room the news have, not the window.

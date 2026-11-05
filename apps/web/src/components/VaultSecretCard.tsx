@@ -2,27 +2,21 @@ import type { VaultCard } from "@mindfultech/shared";
 import { useEffect, useState } from "react";
 import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
-import { TasksApiError } from "../lib/tasksApi";
 import { copySecret, REVEAL_MS } from "../lib/vault";
 import { vaultApi } from "../lib/vaultApi";
 import { useChat } from "../store";
 import { CheckIcon, CopyIcon, ExternalLinkIcon, EyeIcon, EyeOffIcon, LockIcon } from "./icons";
+import { PinPrompt } from "./VaultPin";
 
 const ICON_BUTTON =
   "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-ink-secondary transition hover:border-primary/50 hover:bg-primary/[0.1] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50";
 
-const revealError = (err: unknown) =>
-  err instanceof TasksApiError && err.status === 404
-    ? "This secret was deleted, or it's not shared with you."
-    : err instanceof Error && err.message
-      ? err.message
-      : "Couldn't reach the Vault. Try again.";
-
 /**
- * A secret's password, masked, with Reveal (eye) and Copy. Both ask the
- * server, which decrypts it for members of the secret's channel only. A
- * revealed password hides itself again after `REVEAL_MS`, when the tab is
- * hidden, and when this unmounts; it's never stored anywhere else.
+ * A secret's password, masked, with Reveal (eye) and Copy. Both ask for the
+ * Vault PIN again (Phase 46), then the server, which decrypts it only for
+ * someone it's shared with. A revealed password hides itself again after
+ * `REVEAL_MS`, when the tab is hidden, and when this unmounts; it's never
+ * stored anywhere else. Copying a password already on screen needs no PIN.
  */
 export function PasswordControls({
   secretId,
@@ -31,7 +25,7 @@ export function PasswordControls({
 }: Readonly<{ secretId: string; name: string; compact?: boolean }>) {
   const showToast = useChat((s) => s.showToast);
   const [password, setPassword] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"reveal" | "copy" | null>(null);
+  const [asking, setAsking] = useState<"reveal" | "copy" | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -53,25 +47,9 @@ export function PasswordControls({
     return () => clearTimeout(t);
   }, [copied]);
 
-  async function toggleReveal() {
-    if (password !== null) {
-      setPassword(null);
-      return;
-    }
-    setBusy("reveal");
+  async function copy(value: string) {
     try {
-      setPassword(await vaultApi.reveal(secretId));
-    } catch (err) {
-      showToast(revealError(err), "error");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function copy() {
-    setBusy("copy");
-    try {
-      const where = await copySecret(password ?? (await vaultApi.reveal(secretId)));
+      const where = await copySecret(value);
       setCopied(true);
       showToast(
         where === "desktop"
@@ -79,13 +57,8 @@ export function PasswordControls({
           : `Copied the ${name} password`,
         "success",
       );
-    } catch (err) {
-      showToast(
-        err instanceof TasksApiError ? revealError(err) : "Couldn't copy the password",
-        "error",
-      );
-    } finally {
-      setBusy(null);
+    } catch {
+      showToast("Couldn't copy the password", "error");
     }
   }
 
@@ -103,8 +76,7 @@ export function PasswordControls({
       <button
         type="button"
         className={ICON_BUTTON}
-        onClick={() => void toggleReveal()}
-        disabled={busy !== null}
+        onClick={() => (password === null ? setAsking("reveal") : setPassword(null))}
         aria-label={password === null ? `Reveal the ${name} password` : "Hide the password"}
         title={password === null ? "Reveal" : "Hide"}
         data-reveal
@@ -114,31 +86,70 @@ export function PasswordControls({
       <button
         type="button"
         className={ICON_BUTTON}
-        onClick={() => void copy()}
-        disabled={busy !== null}
+        onClick={() => (password === null ? setAsking("copy") : void copy(password))}
         aria-label={`Copy the ${name} password`}
         title="Copy to clipboard"
         data-copy-password
       >
         {copied ? <CheckIcon className="text-success" /> : <CopyIcon />}
       </button>
+      {asking && (
+        <PinPrompt
+          title={asking === "reveal" ? `Reveal ${name}` : `Copy ${name}`}
+          onClose={() => setAsking(null)}
+          onSubmit={async (pin) => {
+            const value = await vaultApi.reveal(secretId, pin);
+            if (asking === "reveal") setPassword(value);
+            else await copy(value);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-/** The secret's website, opened outside the app (validated `http(s)` on the server). */
-export function WebsiteLink({ href }: Readonly<{ href: string }>) {
-  let host = href;
-  try {
-    host = new URL(href).host;
-  } catch {
-    // shown as stored
-  }
+/**
+ * "Launch": the secret's website (validated `http(s)` on the server), opened
+ * outside the app. Web: a new tab without access back to this page. Desktop:
+ * the OS's default browser through Tauri's opener plugin (Tauri 2's
+ * successor to `shell.open`), never inside the app's window.
+ */
+export function LaunchButton({ href, name }: Readonly<{ href: string; name: string }>) {
   return (
     <a
       href={href}
       target="_blank"
-      rel="noreferrer noopener"
+      rel="noopener noreferrer"
+      onClick={(e) => {
+        if (!isDesktopApp()) return;
+        e.preventDefault();
+        void openExternal(href);
+      }}
+      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/[0.1] px-2.5 text-xs font-semibold text-[#6fcf97] transition hover:border-primary hover:bg-primary/20 hover:text-[#8fe0b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      title={`Open ${href}`}
+      aria-label={`Launch ${name} (${hostOf(href)})`}
+      data-launch
+    >
+      <ExternalLinkIcon aria-hidden="true" /> Launch
+    </a>
+  );
+}
+
+const hostOf = (href: string) => {
+  try {
+    return new URL(href).host;
+  } catch {
+    return href;
+  }
+};
+
+/** The secret's website, opened outside the app (validated `http(s)` on the server). */
+export function WebsiteLink({ href }: Readonly<{ href: string }>) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
       onClick={(e) => {
         if (!isDesktopApp()) return;
         e.preventDefault();
@@ -147,7 +158,7 @@ export function WebsiteLink({ href }: Readonly<{ href: string }>) {
       className="inline-flex min-w-0 items-center gap-1 text-xs text-primary hover:underline"
       title={href}
     >
-      <span className="truncate">{host}</span>
+      <span className="truncate">{hostOf(href)}</span>
       <ExternalLinkIcon className="shrink-0" aria-hidden="true" />
     </a>
   );
@@ -155,8 +166,9 @@ export function WebsiteLink({ href }: Readonly<{ href: string }>) {
 
 /**
  * "🔒 Shared a Secret" in the chat (`/secret`, Phase 45): the secret's name,
- * username and website; Reveal and Copy fetch the password from the Vault,
- * which only answers members of this channel. The card never holds it.
+ * username and website; Reveal and Copy ask for the PIN, then fetch the
+ * password from the Vault, which only answers people it's shared with. The
+ * card never holds it.
  */
 export function VaultSecretCard({ card, mine }: Readonly<{ card: VaultCard; mine: boolean }>) {
   return (
@@ -187,7 +199,7 @@ export function VaultSecretCard({ card, mine }: Readonly<{ card: VaultCard; mine
               User: <span className="font-mono text-ink/90">{card.username}</span>
             </span>
           )}
-          {card.website && <WebsiteLink href={card.website} />}
+          {card.website && <LaunchButton href={card.website} name={card.name} />}
         </div>
       )}
       <PasswordControls secretId={card.secretId} name={card.name} />

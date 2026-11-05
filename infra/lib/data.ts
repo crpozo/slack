@@ -65,9 +65,10 @@ export class Data extends Construct {
   readonly skills: Table;
   /**
    * Vault (Phase 45): the team's passwords, by `secretId`. Passwords are
-   * encrypted with `vaultKey` before they're written (`encryptedPassword`);
-   * the `byChannel` index lists a channel's secrets without the ciphertext.
-   * See backend/src/lib/vault.ts.
+   * encrypted with `vaultKey` before they're written (`encryptedPassword`).
+   * Phase 46: lists Scan for the metadata only (the Lambda's policy allows no
+   * other Scan) and filter by who each secret is shared with
+   * (`allowedUserIds`). See backend/src/lib/vault.ts.
    */
   readonly vault: Table;
   /** The customer-managed KMS key the Vault's passwords are encrypted with (rotated yearly). */
@@ -239,14 +240,6 @@ export class Data extends Construct {
       encryption: TableEncryption.AWS_MANAGED,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       deletionProtection: props.stage === "prod",
-    });
-    // A channel's secrets, newest first: the metadata only, never the ciphertext.
-    this.vault.addGlobalSecondaryIndex({
-      indexName: "byChannel",
-      partitionKey: { name: "channelId", type: AttributeType.STRING },
-      sortKey: { name: "createdAt", type: AttributeType.NUMBER },
-      projectionType: ProjectionType.INCLUDE,
-      nonKeyAttributes: ["name", "username", "website", "createdBy", "createdByName"],
     });
   }
 }

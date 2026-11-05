@@ -1,4 +1,4 @@
-import { isDmChannel, type VaultSecret } from "@mindfultech/shared";
+import { canManageVaultSecret, isDmChannel, type VaultSecret } from "@mindfultech/shared";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { channelLabel, displayName } from "../lib/channels";
 import { tasksApiConfigured, TasksApiError } from "../lib/tasksApi";
@@ -6,12 +6,22 @@ import { filterSecrets } from "../lib/vault";
 import { vaultApi } from "../lib/vaultApi";
 import { useChat } from "../store";
 import { useVault } from "../store/vault";
-import { CopyIcon, LockIcon, MenuIcon, PlusIcon, SearchIcon, TrashIcon } from "./icons";
+import {
+  CopyIcon,
+  LockIcon,
+  MenuIcon,
+  PencilIcon,
+  PlusIcon,
+  SearchIcon,
+  TrashIcon,
+  UsersIcon,
+} from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 import { UnreadAlertsDot } from "./NotificationBell";
-import { GLASS_CARD, PRIMARY_BUTTON } from "./SkillsView";
-import { CreateSecretModal } from "./VaultModals";
-import { PasswordControls, WebsiteLink } from "./VaultSecretCard";
+import { GLASS_CARD, OUTLINE_BUTTON, PRIMARY_BUTTON } from "./SkillsView";
+import { ResetPinModal, SecretFormModal } from "./VaultModals";
+import { VaultLockScreen } from "./VaultPin";
+import { LaunchButton, PasswordControls } from "./VaultSecretCard";
 
 const SMALL_BUTTON =
   "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-secondary transition hover:bg-white/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
@@ -39,25 +49,34 @@ function useChannelNamer(): (channelId: string) => string {
 
 /**
  * Vault (`/app/vault`, Phase 45): the team's passwords and API keys, each
- * tied to a channel (project). The list is metadata only; Reveal and Copy
- * ask the server, which decrypts one password with KMS for members of its
- * channel. "Create Secret" adds one; `/secret` in a channel does too.
+ * filed under a channel (project). Phase 46: the lock screen comes first,
+ * every visit (the PIN opens it for 15 minutes; leaving the view locks it
+ * again); the list shows what the person may see (admins all, staff theirs
+ * and those shared with them); Reveal and Copy ask for the PIN again.
  */
 export function VaultView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => void }>) {
-  const { status, secrets, error, load, put, drop } = useVault();
+  const { status, session, secrets, error, unlocked, lock, load, put, drop } = useVault();
   const showToast = useChat((s) => s.showToast);
   const me = useChat((s) => s.me);
   const configured = tasksApiConfigured();
   const channelName = useChannelNamer();
   const [query, setQuery] = useState("");
   const [channelId, setChannelId] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState<"create" | { edit: VaultSecret } | null>(null);
   const [deleting, setDeleting] = useState<VaultSecret | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     document.title = "Vault · MindfulTech";
-    if (configured) void load(true);
-  }, [configured, load]);
+  }, []);
+  // Leaving the Vault locks it: the next visit asks for the PIN again.
+  useEffect(() => () => lock(), [lock]);
+  // The session runs out on its own: back to the lock screen.
+  useEffect(() => {
+    if (!session) return;
+    const t = setTimeout(lock, Math.max(0, session.expiresAt - Date.now()));
+    return () => clearTimeout(t);
+  }, [session, lock]);
 
   const shown = useMemo(
     () => filterSecrets(secrets, query, channelId, channelName),
@@ -70,12 +89,12 @@ export function VaultView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
         .sort((a, b) => a.label.localeCompare(b.label)),
     [secrets, channelName],
   );
-  const mayDelete = (secret: VaultSecret) =>
-    secret.createdBy === me?.userId || me?.role === "admin";
+  const mayManage = (secret: VaultSecret) =>
+    !!me && canManageVaultSecret(secret, me.userId, me.role);
 
   async function remove(secret: VaultSecret) {
     try {
-      await vaultApi.remove(secret.secretId);
+      await vaultApi.remove(secret.secretId, session?.token ?? "");
       drop(secret.secretId);
       showToast(`${secret.name} deleted from the Vault`, "success");
     } catch (err) {
@@ -124,15 +143,31 @@ export function VaultView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
                 project
               </p>
             </div>
-            {configured && (
-              <button type="button" className={PRIMARY_BUTTON} onClick={() => setCreating(true)}>
-                <PlusIcon aria-hidden="true" /> Create Secret
-              </button>
+            {configured && session && (
+              <div className="flex flex-wrap gap-2">
+                {me?.role === "admin" && (
+                  <button
+                    type="button"
+                    className={OUTLINE_BUTTON}
+                    onClick={() => setResetting(true)}
+                  >
+                    <UsersIcon aria-hidden="true" /> Reset a PIN
+                  </button>
+                )}
+                <button type="button" className={OUTLINE_BUTTON} onClick={lock} data-vault-lock-now>
+                  <LockIcon aria-hidden="true" /> Lock
+                </button>
+                <button type="button" className={PRIMARY_BUTTON} onClick={() => setForm("create")}>
+                  <PlusIcon aria-hidden="true" /> Create Secret
+                </button>
+              </div>
             )}
           </header>
 
           {!configured ? (
             <Notice>The Vault isn&apos;t set up on this deployment.</Notice>
+          ) : status === "locked" || !session ? (
+            <VaultLockScreen onUnlocked={(s) => void unlocked(s)} />
           ) : (
             <>
               <div className={`${GLASS_CARD} flex flex-col gap-3 p-3 sm:flex-row sm:items-center`}>
@@ -173,7 +208,7 @@ export function VaultView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
                   <button
                     type="button"
                     className="font-semibold text-primary"
-                    onClick={() => void load(true)}
+                    onClick={() => void load()}
                   >
                     Retry
                   </button>
@@ -206,8 +241,9 @@ export function VaultView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
                         <th className="px-4 py-3 font-semibold">Name</th>
                         <th className="px-4 py-3 font-semibold">Project</th>
                         <th className="px-4 py-3 font-semibold">Username</th>
-                        <th className="w-[320px] px-4 py-3 font-semibold">Password</th>
-                        <th className="w-10 px-2 py-3">
+                        <th className="w-[300px] px-4 py-3 font-semibold">Password</th>
+                        <th className="px-2 py-3 font-semibold">Link</th>
+                        <th className="w-20 px-2 py-3">
                           <span className="sr-only">Actions</span>
                         </th>
                       </tr>
@@ -218,7 +254,9 @@ export function VaultView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
                           key={secret.secretId}
                           secret={secret}
                           channel={channelName(secret.channelId)}
-                          canDelete={mayDelete(secret)}
+                          canManage={mayManage(secret)}
+                          sharedWith={secret.allowedUserIds.length}
+                          onEdit={() => setForm({ edit: secret })}
                           onDelete={() => setDeleting(secret)}
                         />
                       ))}
@@ -231,15 +269,18 @@ export function VaultView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
         </div>
       </div>
 
-      {creating && (
-        <CreateSecretModal
-          onClose={() => setCreating(false)}
+      {form && (
+        <SecretFormModal
+          editing={typeof form === "object" ? form.edit : undefined}
+          session={session?.token}
+          onClose={() => setForm(null)}
           onSaved={(secret) => {
             put(secret);
-            setCreating(false);
+            setForm(null);
           }}
         />
       )}
+      {resetting && <ResetPinModal onClose={() => setResetting(false)} />}
       {deleting && (
         <Modal
           title="Delete secret"
@@ -272,12 +313,16 @@ export function VaultView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
 function SecretRow({
   secret,
   channel,
-  canDelete,
+  canManage,
+  sharedWith,
+  onEdit,
   onDelete,
 }: Readonly<{
   secret: VaultSecret;
   channel: string;
-  canDelete: boolean;
+  canManage: boolean;
+  sharedWith: number;
+  onEdit: () => void;
   onDelete: () => void;
 }>) {
   const showToast = useChat((s) => s.showToast);
@@ -296,13 +341,10 @@ function SecretRow({
           </span>
           <div className="flex min-w-0 flex-col">
             <span className="truncate font-semibold text-ink">{secret.name}</span>
-            {secret.website ? (
-              <WebsiteLink href={secret.website} />
-            ) : (
-              <span className="text-xs text-ink-secondary">
-                {secret.createdByName ? `Added by ${secret.createdByName}` : " "}
-              </span>
-            )}
+            <span className="text-xs text-ink-secondary">
+              {secret.createdByName ?? ""}
+              {` · ${sharedWith === 0 ? "only them" : `+${sharedWith} ${sharedWith === 1 ? "person" : "people"}`}`}
+            </span>
           </div>
         </div>
       </td>
@@ -338,16 +380,34 @@ function SecretRow({
         <PasswordControls secretId={secret.secretId} name={secret.name} />
       </td>
       <td className="md:px-2 md:py-3">
-        {canDelete && (
-          <button
-            type="button"
-            className={`${SMALL_BUTTON} hover:text-error`}
-            onClick={onDelete}
-            aria-label={`Delete ${secret.name}`}
-            title="Delete"
-          >
-            <TrashIcon />
-          </button>
+        {secret.website ? (
+          <LaunchButton href={secret.website} name={secret.name} />
+        ) : (
+          <span className="hidden text-xs text-ink-secondary md:inline">—</span>
+        )}
+      </td>
+      <td className="md:px-2 md:py-3">
+        {canManage && (
+          <span className="flex gap-0.5">
+            <button
+              type="button"
+              className={SMALL_BUTTON}
+              onClick={onEdit}
+              aria-label={`Edit ${secret.name}`}
+              title="Edit and share"
+            >
+              <PencilIcon />
+            </button>
+            <button
+              type="button"
+              className={`${SMALL_BUTTON} hover:text-error`}
+              onClick={onDelete}
+              aria-label={`Delete ${secret.name}`}
+              title="Delete"
+            >
+              <TrashIcon />
+            </button>
+          </span>
         )}
       </td>
     </tr>
