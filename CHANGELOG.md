@@ -5,6 +5,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Fixed
+
+- **AI News on phones:** the page no longer slides sideways. A long story title under a trend
+  stretched its column past the screen; every single-column section now stays the screen's
+  width, and the page never scrolls horizontally.
+
 ### Added
 
 - **AI News as a newspaper:** a new editorial look on the dark background. A serif masthead with the date and

@@ -132,7 +132,7 @@ export function NewsDashboard({
         <section
           id="news-top"
           aria-label="Lo esencial"
-          className="grid gap-10 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] lg:gap-12"
+          className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] lg:gap-12"
         >
           <LeadStory story={lead} now={now} />
           {rest.length > 0 && (
@@ -153,7 +153,7 @@ export function NewsDashboard({
       <section
         id="news-impact"
         aria-labelledby="news-impact-title"
-        className="news-dark -mx-4 grid gap-10 bg-surface px-6 py-10 sm:mx-0 sm:px-10 sm:py-12 2xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] 2xl:gap-14"
+        className="news-dark -mx-4 grid grid-cols-[minmax(0,1fr)] gap-10 bg-surface px-6 py-10 sm:mx-0 sm:px-10 sm:py-12 2xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] 2xl:gap-14"
         data-news-impact
       >
         <div className="flex flex-col gap-4">
@@ -170,7 +170,7 @@ export function NewsDashboard({
           {insightsAction && <div className="mt-1">{insightsAction}</div>}
         </div>
         {takeaways.length > 0 ? (
-          <ol className="grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-2">
+          <ol className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-2">
             {takeaways.map((t, i) => (
               <li
                 key={`${i}-${t.lead}`}
@@ -200,7 +200,7 @@ export function NewsDashboard({
           data-news-trends
         >
           <SectionHeader id="news-trends-title" kicker="Lo que se repite" title="Tendencias" />
-          <ol className="grid gap-x-8 gap-y-10 sm:grid-cols-2 xl:grid-cols-4">
+          <ol className="grid grid-cols-[minmax(0,1fr)] gap-x-8 gap-y-10 sm:grid-cols-2 xl:grid-cols-4">
             {trends.map((trend, i) => (
               <li
                 key={`${i}-${trend.topic}`}
@@ -267,7 +267,7 @@ export function NewsDashboard({
             kicker="A fondo"
             title="La historia del día, explicada"
           />
-          <div className="grid gap-10 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] lg:gap-12">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] lg:gap-12">
             <div className="flex flex-col gap-4">
               <a
                 href={deepDive.link}
@@ -336,7 +336,7 @@ export function NewsDashboard({
             kicker="Los próximos días"
             title="Para seguir de cerca"
           />
-          <ul className="grid gap-x-8 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid grid-cols-[minmax(0,1fr)] gap-x-8 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
             {watchlist.map((w, i) => (
               <li key={`${i}-${w.topic}`} className="flex flex-col gap-2 border-t border-ink pt-4">
                 <span className={KICKER}>{pad(i + 1)}</span>
@@ -359,7 +359,7 @@ export function NewsDashboard({
             kicker={`${moreStories.length} más`}
             title="Más historias"
           />
-          <ul className="grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          <ul className="grid grid-cols-[minmax(0,1fr)] gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {moreStories.map((story) => (
               <li key={story.link} className="flex">
                 <MoreStory story={story} now={now} />

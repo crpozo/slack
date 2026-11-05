@@ -69,7 +69,7 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
       className="news-paper relative flex h-full min-h-0 flex-1 flex-col bg-surface"
       data-news-view
     >
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         {/* Phase 50: the news and, beside them on wide screens, "Pregunta a la IA". */}
         <div
           className={`mx-auto w-full max-w-[1680px] px-4 pb-24 pt-6 sm:px-8 sm:pt-10 xl:pb-16 ${
