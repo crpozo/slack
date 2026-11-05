@@ -171,7 +171,7 @@ describe("the Vault's lock screen", () => {
     expect(api.setPin).toHaveBeenCalledWith("4821");
   });
 
-  it("locks again when you leave, and with the Lock button", async () => {
+  it("stays open when you leave and come back; locks with the Lock button and when it runs out", async () => {
     const view = await (async () => {
       const r = render(<VaultView />);
       await waitFor(() => expect(document.querySelector("[data-pin-input]")).toBeTruthy());
@@ -184,48 +184,60 @@ describe("the Vault's lock screen", () => {
     expect(useVault.getState().secrets).toEqual([]);
     await typePin("4821");
     await waitFor(() => expect(rows()).toHaveLength(2));
+    // Leaving keeps the session: coming back shows the list with no PIN.
     view.unmount();
+    expect(useVault.getState().session).toBe(SESSION);
+    api.unlock.mockClear();
+    render(<VaultView />);
+    await waitFor(() => expect(rows()).toHaveLength(2));
+    expect(api.unlock).not.toHaveBeenCalled();
+    // A session that ran out locks the Vault by itself.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    act(() => useVault.getState().remember({ token: "t2", expiresAt: Date.now() + 1000 }));
+    act(() => vi.advanceTimersByTime(1000));
     expect(useVault.getState()).toMatchObject({ status: "locked", session: null, secrets: [] });
   });
 });
 
 describe("the unlocked Vault", () => {
-  it("asks for the PIN again before revealing, and hides the password after 30 s", async () => {
+  it("reveals with the open session (no PIN again), and hides the password after 30 s", async () => {
     api.reveal.mockResolvedValue("Tr0ub4dor&3");
     await openVault();
-    fireEvent.click(
-      within(rows()[0]!).getByRole("button", { name: "Reveal the AWS root password" }),
-    );
-    expect(api.reveal).not.toHaveBeenCalled();
-    const prompt = document.querySelector("[data-pin-prompt]") as HTMLElement;
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    await typePin("4821", within(prompt).getByLabelText("Vault PIN") as HTMLInputElement);
-    expect(api.reveal).toHaveBeenCalledWith(aws.secretId, "4821");
+    await act(async () => {
+      fireEvent.click(
+        within(rows()[0]!).getByRole("button", { name: "Reveal the AWS root password" }),
+      );
+    });
+    expect(document.querySelector("[data-pin-prompt]")).toBeNull();
+    expect(api.reveal).toHaveBeenCalledWith(aws.secretId, "tok");
     expect(within(rows()[0]!).getByLabelText("AWS root password").textContent).toBe("Tr0ub4dor&3");
     act(() => vi.advanceTimersByTime(30_000));
     expect(within(rows()[0]!).getByLabelText("Hidden password")).toBeTruthy();
   });
 
-  it("keeps the prompt open on a wrong PIN, with the tries left", async () => {
-    api.reveal.mockRejectedValue(
-      pinError(401, { code: "PIN_WRONG", attemptsLeft: 2, message: "Wrong PIN. 2 tries left." }),
-    );
+  it("goes back to the lock screen when the server says the session ran out", async () => {
+    api.reveal.mockRejectedValue(pinError(401, { code: "VAULT_LOCKED", message: "locked" }));
     await openVault();
-    fireEvent.click(within(rows()[0]!).getByRole("button", { name: "Copy the AWS root password" }));
-    const prompt = document.querySelector("[data-pin-prompt]") as HTMLElement;
-    await typePin("0000", within(prompt).getByLabelText("Vault PIN") as HTMLInputElement);
-    expect(within(prompt).getByRole("alert").textContent).toBe("Wrong PIN. 2 tries left.");
-    expect(within(rows()[0]!).getByLabelText("Hidden password")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(
+        within(rows()[0]!).getByRole("button", { name: "Copy the AWS root password" }),
+      );
+    });
+    await waitFor(() => expect(screen.getByText("Enter your Vault PIN")).toBeTruthy());
+    expect(useVault.getState()).toMatchObject({ status: "locked", session: null, secrets: [] });
   });
 
-  it("copies through the desktop app's clipboard after the PIN", async () => {
+  it("copies through the desktop app's clipboard", async () => {
     api.reveal.mockResolvedValue("Tr0ub4dor&3");
     const invoke = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("__TAURI__", { core: { invoke } });
     await openVault();
-    fireEvent.click(within(rows()[0]!).getByRole("button", { name: "Copy the AWS root password" }));
-    const prompt = document.querySelector("[data-pin-prompt]") as HTMLElement;
-    await typePin("4821", within(prompt).getByLabelText("Vault PIN") as HTMLInputElement);
+    await act(async () => {
+      fireEvent.click(
+        within(rows()[0]!).getByRole("button", { name: "Copy the AWS root password" }),
+      );
+    });
     expect(invoke).toHaveBeenCalledWith("copy_secret", { text: "Tr0ub4dor&3", clearAfterSecs: 30 });
     expect(within(rows()[0]!).getByLabelText("Hidden password")).toBeTruthy();
   });
@@ -342,9 +354,9 @@ describe("the unlocked Vault", () => {
 });
 
 describe("the 🔒 card in the chat", () => {
-  it("reveals only after the PIN, and says when it isn't shared with you", async () => {
+  it("asks for the PIN once, unlocks the Vault with it, and says when it isn't shared with you", async () => {
     api.reveal.mockRejectedValueOnce(new TasksApiError(404, "Secret not found"));
-    api.reveal.mockResolvedValueOnce("sk_live_123");
+    api.reveal.mockResolvedValue("sk_live_123");
     render(<VaultSecretCard card={{ secretId: aws.secretId, name: "Stripe" }} mine={false} />);
     fireEvent.click(screen.getByRole("button", { name: "Reveal the Stripe password" }));
     const prompt = () => document.querySelector("[data-pin-prompt]") as HTMLElement;
@@ -353,6 +365,16 @@ describe("the 🔒 card in the chat", () => {
       "This secret was deleted, or it's not shared with you.",
     );
     await typePin("4821", within(prompt()).getByLabelText("Vault PIN") as HTMLInputElement);
+    expect(api.unlock).toHaveBeenCalledWith("4821");
+    expect(api.reveal).toHaveBeenLastCalledWith(aws.secretId, "tok");
     expect(screen.getByLabelText("Stripe password").textContent).toBe("sk_live_123");
+    // The Vault is open now: Copy needs no PIN.
+    api.unlock.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Hide the password" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy the Stripe password" }));
+    });
+    expect(document.querySelector("[data-pin-prompt]")).toBeNull();
+    expect(api.unlock).not.toHaveBeenCalled();
   });
 });

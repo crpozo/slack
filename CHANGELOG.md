@@ -16,6 +16,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **Vault: one PIN for 15 minutes:** the Vault no longer asks for the PIN again on every Reveal
+  and Copy or each time you come back to it. The PIN opens it for the session (15 minutes),
+  wherever you type it (the Vault or a 🔒 card in the chat); it then locks by itself, or with
+  the Lock button. The server reveals a password with the open session, or with the PIN.
 - **No more `![…](attachment:…)` in task notes:** notes saved before attachments took over
   pasted images still had that markdown in them. The text box now shows them without it, and
   editing saves them clean (the images stay as thumbnails under Attachments). Pasting text that

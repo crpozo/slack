@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
 import { copySecret, REVEAL_MS } from "../lib/vault";
-import { vaultApi } from "../lib/vaultApi";
+import { pinRefusalOf, vaultApi } from "../lib/vaultApi";
 import { useChat } from "../store";
+import { useVault } from "../store/vault";
 import { CheckIcon, CopyIcon, ExternalLinkIcon, EyeIcon, EyeOffIcon, LockIcon } from "./icons";
 import { PinPrompt } from "./VaultPin";
 
@@ -12,11 +13,12 @@ const ICON_BUTTON =
   "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-ink-secondary transition hover:border-primary/50 hover:bg-primary/[0.1] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50";
 
 /**
- * A secret's password, masked, with Reveal (eye) and Copy. Both ask for the
- * Vault PIN again (Phase 46), then the server, which decrypts it only for
- * someone it's shared with. A revealed password hides itself again after
+ * A secret's password, masked, with Reveal (eye) and Copy. Both need the
+ * Vault unlocked (Phase 52: one PIN opens it for the session, wherever it's
+ * typed, so only the first asks), then the server, which decrypts it only
+ * for someone it's shared with. A revealed password hides itself again after
  * `REVEAL_MS`, when the tab is hidden, and when this unmounts; it's never
- * stored anywhere else. Copying a password already on screen needs no PIN.
+ * stored anywhere else. Copying a password already on screen asks nothing.
  */
 export function PasswordControls({
   secretId,
@@ -47,6 +49,25 @@ export function PasswordControls({
     return () => clearTimeout(t);
   }, [copied]);
 
+  /** Reveals or copies with the open session; without one (or a stale one), asks for the PIN. */
+  async function act(what: "reveal" | "copy") {
+    const token = useVault.getState().openToken();
+    if (!token) return setAsking(what);
+    try {
+      await use(what, await vaultApi.reveal(secretId, token));
+    } catch (err) {
+      if (pinRefusalOf(err)?.code === "VAULT_LOCKED") {
+        useVault.getState().lock();
+        return setAsking(what);
+      }
+      showToast(err instanceof Error && err.message ? err.message : "Couldn't reveal it", "error");
+    }
+  }
+  async function use(what: "reveal" | "copy", value: string) {
+    if (what === "reveal") setPassword(value);
+    else await copy(value);
+  }
+
   async function copy(value: string) {
     try {
       const where = await copySecret(value);
@@ -76,7 +97,7 @@ export function PasswordControls({
       <button
         type="button"
         className={ICON_BUTTON}
-        onClick={() => (password === null ? setAsking("reveal") : setPassword(null))}
+        onClick={() => (password === null ? void act("reveal") : setPassword(null))}
         aria-label={password === null ? `Reveal the ${name} password` : "Hide the password"}
         title={password === null ? "Reveal" : "Hide"}
         data-reveal
@@ -86,7 +107,7 @@ export function PasswordControls({
       <button
         type="button"
         className={ICON_BUTTON}
-        onClick={() => (password === null ? setAsking("copy") : void copy(password))}
+        onClick={() => void (password === null ? act("copy") : copy(password))}
         aria-label={`Copy the ${name} password`}
         title="Copy to clipboard"
         data-copy-password
@@ -98,9 +119,10 @@ export function PasswordControls({
           title={asking === "reveal" ? `Reveal ${name}` : `Copy ${name}`}
           onClose={() => setAsking(null)}
           onSubmit={async (pin) => {
-            const value = await vaultApi.reveal(secretId, pin);
-            if (asking === "reveal") setPassword(value);
-            else await copy(value);
+            // The PIN unlocks the Vault for the session: the next reveal won't ask.
+            const session = await vaultApi.unlock(pin);
+            useVault.getState().remember(session);
+            await use(asking, await vaultApi.reveal(secretId, session.token));
           }}
         />
       )}

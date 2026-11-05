@@ -520,9 +520,27 @@ describe("the Vault PIN", () => {
     expect((await verify(PIN)).status).toBe(423);
   });
 
-  it("is asked again for every reveal; a wrong one counts against the same limit", async () => {
+  it("reveals while the Vault is unlocked, with no PIN again", async () => {
+    const token = await unlockAs(ALICE);
+    const { json } = await save({ password: "S3cret" });
+    const res = await call("POST /vault/reveal/{secretId}", {
+      params: { secretId: json.secret.secretId },
+      token,
+    });
+    expect(res.json.password).toBe("S3cret");
+    // A made-up session is no session: the PIN is asked for.
+    const forged = await call("POST /vault/reveal/{secretId}", {
+      params: { secretId: json.secret.secretId },
+      token: "not-a-session",
+    });
+    expect(forged.status).toBe(400);
+    expect(forged.body).not.toContain("S3cret");
+  });
+
+  it("without a session asks for the PIN; a wrong one counts against the same limit", async () => {
     await unlockAs(ALICE);
     const { json } = await save({ password: "S3cret" });
+    sessions.delete(ALICE.userId);
     const wrong = await reveal(json.secret.secretId, ALICE, "0001");
     expect([wrong.status, wrong.json.attemptsLeft]).toEqual([401, 4]);
     expect(wrong.body).not.toContain("S3cret");

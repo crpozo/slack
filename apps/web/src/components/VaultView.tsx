@@ -49,10 +49,10 @@ function useChannelNamer(): (channelId: string) => string {
 
 /**
  * Vault (`/app/vault`, Phase 45): the team's passwords and API keys, each
- * filed under a channel (project). Phase 46: the lock screen comes first,
- * every visit (the PIN opens it for 15 minutes; leaving the view locks it
- * again); the list shows what the person may see (admins all, staff theirs
- * and those shared with them); Reveal and Copy ask for the PIN again.
+ * filed under a channel (project). Phase 46: the lock screen comes first;
+ * the PIN opens it for 15 minutes (Phase 52: across visits, and for Reveal
+ * and Copy too, here and on chat cards); the list shows what the person may
+ * see (admins all, staff theirs and those shared with them).
  */
 export function VaultView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => void }>) {
   const { status, session, secrets, error, unlocked, lock, load, put, drop } = useVault();
@@ -69,14 +69,12 @@ export function VaultView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
   useEffect(() => {
     document.title = "Vault · MindfulTech";
   }, []);
-  // Leaving the Vault locks it: the next visit asks for the PIN again.
-  useEffect(() => () => lock(), [lock]);
-  // The session runs out on its own: back to the lock screen.
+  // Phase 52: the Vault stays open for the session (the store locks it when it
+  // runs out), so coming back needs no PIN: refresh the list instead. Opened
+  // from a chat card, the session is there but the list isn't loaded yet.
   useEffect(() => {
-    if (!session) return;
-    const t = setTimeout(lock, Math.max(0, session.expiresAt - Date.now()));
-    return () => clearTimeout(t);
-  }, [session, lock]);
+    if (useVault.getState().openToken()) void load();
+  }, [load]);
 
   const shown = useMemo(
     () => filterSecrets(secrets, query, channelId, channelName),

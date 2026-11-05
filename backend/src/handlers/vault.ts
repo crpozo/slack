@@ -275,22 +275,31 @@ async function update(event: HttpEvent, caller: HttpCaller): Promise<HttpResult>
 
 /**
  * `POST /vault/reveal/{secretId}`: the password, for someone the secret is
- * shared with (anyone else gets "not found") who gives their PIN again.
- * Logged, never with the password.
+ * shared with (anyone else gets "not found"), while their Vault is unlocked
+ * (the session header, Phase 52: one PIN for `VAULT_SESSION_MS`) or with
+ * their PIN in the body. Logged, never with the password.
  */
 async function reveal(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const secretId = secretIdOf(event);
-  const { pin } = parseBody(VaultPinSchema, event);
+  const unlocked = await sessionIsOpen(caller.userId, event.headers?.[VAULT_SESSION_HEADER]);
+  const pin = unlocked ? null : parseBody(VaultPinSchema, event).pin;
   const row = await getVaultRow(secretId);
   if (!row) throw notFound("This secret was deleted");
   if (!canAccessVaultSecret(row, caller.userId, caller.role)) {
     log.warn("vault reveal refused", { secretId, userId: caller.userId });
     throw notFound("Secret not found");
   }
-  const check = await checkPin(caller.userId, pin);
-  if (!check.ok) return noStore(check.status, check.body);
+  if (pin !== null) {
+    const check = await checkPin(caller.userId, pin);
+    if (!check.ok) return noStore(check.status, check.body);
+  }
   const password = await decryptPassword(row);
-  log.info("vault secret revealed", { secretId, channelId: row.channelId, userId: caller.userId });
+  log.info("vault secret revealed", {
+    secretId,
+    channelId: row.channelId,
+    userId: caller.userId,
+    via: unlocked ? "session" : "pin",
+  });
   const body: VaultReveal = { secretId, password };
   return noStore(200, body);
 }

@@ -24,7 +24,7 @@ const session = (token: string) => ({ headers: { [VAULT_SESSION_HEADER]: token }
 /**
  * Vault (Phase 45; the PIN and access lists, Phase 46), on the same HTTP API
  * and auth as the Task Manager. The list, edits and deletes need an unlocked
- * Vault's session token; a reveal needs the PIN itself.
+ * Vault's session token, and so does a reveal (Phase 52).
  */
 export const vaultApi = {
   pinStatus: () => request<VaultPinStatus>("GET", "/vault/pin"),
@@ -44,11 +44,17 @@ export const vaultApi = {
       input,
       session(token),
     ).then((r) => r.secret),
-  /** The password, decrypted on the server for someone it's shared with, given their PIN. */
-  reveal: (secretId: string, pin: string) =>
-    request<VaultReveal>("POST", `/vault/reveal/${encodeURIComponent(secretId)}`, { pin }).then(
-      (r) => r.password,
-    ),
+  /**
+   * The password, decrypted on the server for someone it's shared with, while
+   * their Vault is unlocked (Phase 52: the session token, no PIN again).
+   */
+  reveal: (secretId: string, token: string) =>
+    request<VaultReveal>(
+      "POST",
+      `/vault/reveal/${encodeURIComponent(secretId)}`,
+      undefined,
+      session(token),
+    ).then((r) => r.password),
   remove: (secretId: string, token: string) =>
     request<{ deleted: string }>(
       "DELETE",
