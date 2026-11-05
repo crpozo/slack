@@ -17,6 +17,7 @@ import { DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import type { IBucket } from "aws-cdk-lib/aws-s3";
+import { VAULT_METADATA_ATTRIBUTES, VAULT_PIN_ATTRIBUTES } from "@mindfultech/shared";
 import { Construct } from "constructs";
 import type { Api } from "./api";
 import type { Auth } from "./auth";
@@ -168,14 +169,21 @@ export const SKILLS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
 
 /**
  * Vault (Phase 45): the team's passwords, encrypted with KMS. Lists are
- * metadata only; `reveal` decrypts one password for a member of its channel.
+ * metadata only; `reveal` decrypts one password. Phase 46: who sees which
+ * secret (admins all; staff theirs and those shared with them), and the
+ * 4-digit PIN that unlocks the Vault and every reveal.
  */
 export const VAULT_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/vault" },
   { method: HttpMethod.POST, path: "/vault" },
-  { method: HttpMethod.GET, path: "/vault/{channelId}" },
-  { method: HttpMethod.GET, path: "/vault/reveal/{secretId}" },
+  { method: HttpMethod.GET, path: "/vault/channels/{channelId}" },
+  { method: HttpMethod.POST, path: "/vault/reveal/{secretId}" },
+  { method: HttpMethod.PUT, path: "/vault/secrets/{secretId}" },
   { method: HttpMethod.DELETE, path: "/vault/secrets/{secretId}" },
+  { method: HttpMethod.GET, path: "/vault/pin" },
+  { method: HttpMethod.POST, path: "/vault/pin" },
+  { method: HttpMethod.POST, path: "/vault/pin/verify" },
+  { method: HttpMethod.DELETE, path: "/vault/pin/{userId}" },
 ];
 
 /** Web Push subscriptions (Phase 8), served by their own small Lambda on the same API. */
@@ -507,7 +515,8 @@ export class TasksApi extends Construct {
           CorsHttpMethod.DELETE,
           CorsHttpMethod.OPTIONS,
         ],
-        allowHeaders: ["authorization", "content-type"],
+        // x-vault-session: an unlocked Vault (Phase 46).
+        allowHeaders: ["authorization", "content-type", "x-vault-session"],
         maxAge: Duration.hours(1),
       },
     });
@@ -765,12 +774,13 @@ export class TasksApi extends Construct {
     grantReadParameter(this.skillsHandler, githubTokenParameterName(stage));
     this.skillsHandler.addToRolePolicy(notesModelPolicy());
 
-    // vault: one row at a time (Get/Put/Delete); lists only through the
-    // metadata index (Query/Scan on `byChannel`, never the table's rows with
-    // their ciphertexts); the channels to check membership, the saver's name,
-    // and a `/secret` card in the chat. KMS: Encrypt and Decrypt on the Vault
-    // key only, and only with the Vault's encryption context (no
-    // GenerateDataKey, ReEncrypt or key administration).
+    // vault: one row at a time (Get/Put/Delete), and Scans that ask for the
+    // metadata only (IAM checks the attributes requested: a Scan can never
+    // read a ciphertext); its channel and a `/secret` card in the chat; on
+    // `users`, the saver's name, the team (id and role, for sharing) and the
+    // PIN's own attributes, nothing else. KMS: Encrypt and Decrypt on the
+    // Vault key only, with the Vault's contexts (passwords, PIN hashes); no
+    // GenerateDataKey, ReEncrypt or key administration.
     data.vault.grant(
       this.vaultHandler,
       "dynamodb:GetItem",
@@ -779,24 +789,44 @@ export class TasksApi extends Construct {
     );
     this.vaultHandler.addToRolePolicy(
       new PolicyStatement({
-        actions: ["dynamodb:Query", "dynamodb:Scan"],
-        resources: [`${data.vault.tableArn}/index/byChannel`],
+        actions: ["dynamodb:Scan"],
+        resources: [data.vault.tableArn],
+        conditions: {
+          StringEquals: { "dynamodb:Select": "SPECIFIC_ATTRIBUTES" },
+          "ForAllValues:StringEquals": { "dynamodb:Attributes": [...VAULT_METADATA_ATTRIBUTES] },
+        },
       }),
     );
     this.vaultHandler.addToRolePolicy(
       new PolicyStatement({
         actions: ["kms:Encrypt", "kms:Decrypt"],
         resources: [data.vaultKey.keyArn],
-        conditions: { StringEquals: { "kms:EncryptionContext:purpose": "vault" } },
+        conditions: {
+          StringEquals: { "kms:EncryptionContext:purpose": ["vault", "vault-pin"] },
+        },
       }),
     );
-    data.channels.grant(
-      this.vaultHandler,
-      "dynamodb:GetItem",
-      "dynamodb:Scan",
-      "dynamodb:UpdateItem",
-    );
     data.users.grant(this.vaultHandler, "dynamodb:GetItem");
+    this.vaultHandler.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["dynamodb:UpdateItem"],
+        resources: [data.users.tableArn],
+        conditions: {
+          "ForAllValues:StringEquals": { "dynamodb:Attributes": [...VAULT_PIN_ATTRIBUTES] },
+        },
+      }),
+    );
+    this.vaultHandler.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["dynamodb:Scan"],
+        resources: [data.users.tableArn],
+        conditions: {
+          StringEquals: { "dynamodb:Select": "SPECIFIC_ATTRIBUTES" },
+          "ForAllValues:StringEquals": { "dynamodb:Attributes": ["userId", "role"] },
+        },
+      }),
+    );
+    data.channels.grant(this.vaultHandler, "dynamodb:GetItem", "dynamodb:UpdateItem");
     data.messages.grant(this.vaultHandler, "dynamodb:PutItem");
     data.connections.grant(this.vaultHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.vaultHandler);

@@ -23,6 +23,7 @@
     "@aws-sdk/util-dynamodb": "^3.996.9",
     "@mindfultech/shared": "workspace:*",
     "aws-jwt-verify": "^5.2.1",
+    "bcryptjs": "^3.0.3",
     "fast-xml-parser": "^5.11.2",
     "openai": "^7.45.1",
     "ulid": "^3.0.2",

@@ -10,11 +10,12 @@ import type {
 } from "@mindfultech/shared";
 import { getIdToken } from "./auth";
 
-/** A failed request, with the server's message when it sent one. */
+/** A failed request, with the server's message (and its whole answer) when it sent one. */
 export class TasksApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly data?: Record<string, unknown>,
   ) {
     super(message);
   }
@@ -38,7 +39,7 @@ export async function request<T>(
   method: string,
   path: string,
   body?: unknown,
-  options: { keepalive?: boolean; cache?: RequestCache } = {},
+  options: { keepalive?: boolean; cache?: RequestCache; headers?: Record<string, string> } = {},
 ): Promise<T> {
   if (!baseUrl) throw new TasksApiError(0, "The Task Manager isn't configured on this deployment.");
   const token = await getIdToken();
@@ -49,6 +50,7 @@ export async function request<T>(
       method,
       headers: {
         authorization: `Bearer ${token}`,
+        ...options.headers,
         ...(body === undefined ? {} : { "content-type": blob ? blob.type : "application/json" }),
       },
       body: body === undefined ? undefined : (blob ?? JSON.stringify(body)),
@@ -60,20 +62,21 @@ export async function request<T>(
   }
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
+    let data: Record<string, unknown> | undefined;
     try {
-      const data: unknown = await response.json();
-      if (
-        data &&
-        typeof data === "object" &&
-        typeof (data as { message?: unknown }).message === "string"
-      ) {
-        message = (data as { message: string }).message;
+      const parsed: unknown = await response.json();
+      if (parsed && typeof parsed === "object") {
+        data = parsed as Record<string, unknown>;
+        if (typeof data.message === "string") message = data.message;
       }
     } catch {
       // No JSON body: keep the generic message.
     }
-    if (response.status === 401) message = "Your session expired. Please sign in again.";
-    throw new TasksApiError(response.status, message);
+    // A 401 with a `code` is the Vault's PIN or lock (Phase 46), not the sign-in.
+    if (response.status === 401 && typeof data?.code !== "string") {
+      message = "Your session expired. Please sign in again.";
+    }
+    throw new TasksApiError(response.status, message, data);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
