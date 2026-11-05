@@ -5,6 +5,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Fixed
+
+- **Archive from the sidebar:** a channel's ⋯ menu has **Archive channel** (for its creator or
+  an admin), next to Pin to the top, Edit channel and Delete channel. It asks first, then
+  archives the channel. If you were in it, the app moves you to #general, as Edit channel does.
+- **Pasting a screenshot into a task's notes no longer writes `![…](attachment:…)` into the
+  text.** The image (or any pasted file) uploads in the background and joins the task's
+  attachments, where images show as thumbnails; the notes stay plain text. Cards show a task's
+  images as before.
+
 ### Security
 
 - **Vault PIN and access control:** the Vault now opens on a lock screen.

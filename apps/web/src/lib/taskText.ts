@@ -3,24 +3,20 @@ import type { Attachment } from "@mindfultech/shared";
 // ---------------------------------------------------------------------------
 // Images in a task's description and notes (Phase 33). Task files live in a
 // private bucket behind download links that expire within hours, so the text
-// never holds a link: a pasted image becomes a file of the task and the text
-// refers to it as `![name](attachment:<key>)`. Whoever shows the text signs a
-// fresh link for that key, and only for files the task itself holds.
+// never holds a link. Tasks from Phase 33 refer to pasted images in their text
+// as `![name](attachment:<key>)`; whoever shows the text signs a fresh link
+// for that key, and only for files the task itself holds. Since then a pasted
+// file only joins the task's attachments: the text stays text.
 // ---------------------------------------------------------------------------
 
 const SCHEME = "attachment:";
 /** `![alt](attachment:<key>)`; alt has no `]` or line break, keys no `)` or spaces. */
 const IMAGE_REF = /!\[([^\]\n]{0,200})\]\(attachment:([^)\s]{1,1024})\)/g;
-/** While its upload runs: `![Uploading name…](uploading:<id>)`. */
-const placeholderRef = (id: string) =>
-  new RegExp(String.raw`\n?!\[[^\]\n]*\]\(uploading:${id}\)\n?`);
 
 /** Alt text can't close the brackets or break the line. */
 const safeAlt = (name: string) => name.replace(/[[\]\n\r]/g, " ").slice(0, 200) || "image";
 
 export const imageRef = (name: string, key: string) => `![${safeAlt(name)}](${SCHEME}${key})`;
-export const placeholder = (id: string, name: string) =>
-  `![Uploading ${safeAlt(name)}…](uploading:${id})`;
 
 export type TaskTextPart =
   { kind: "text"; text: string } | { kind: "image"; alt: string; key: string };
@@ -54,7 +50,7 @@ export function referencedImages(text: string, attachments: Attachment[]): Attac
   return images;
 }
 
-/** The text without image references (or upload placeholders), for a card's preview. */
+/** The text without image references (or old upload placeholders), for a card's preview. */
 export function textWithoutImages(text: string): string {
   return text
     .replace(IMAGE_REF, "")
@@ -64,44 +60,28 @@ export function textWithoutImages(text: string): string {
 }
 
 /**
- * Puts `insertion` in place of the selection `start`–`end`, on lines of its
- * own (an image never runs into the words around it). Returns the new text
- * and where the caret goes.
+ * Files pasted into a task's text (screenshots, copied files). Text that comes
+ * with a picture of itself (a spreadsheet's cells, a selection in a document)
+ * pastes as the text it is.
  */
-export function insertBlock(
-  text: string,
-  start: number,
-  end: number,
-  insertion: string,
-): { text: string; caret: number } {
-  const before = text.slice(0, start);
-  const after = text.slice(end);
-  const lead = before && !before.endsWith("\n") ? "\n" : "";
-  const trail = after && !after.startsWith("\n") ? "\n" : "";
-  const block = `${lead}${insertion}${trail}`;
-  return { text: before + block + after, caret: before.length + lead.length + insertion.length };
+export function pastedFiles(data: Pick<DataTransfer, "files" | "getData" | "types">): File[] {
+  const files = [...data.files];
+  if (files.length === 0) return [];
+  const onlyImages = files.every((f) => f.type.startsWith("image/"));
+  if (onlyImages && data.types.includes("text/plain") && data.getData("text/plain").trim()) {
+    return [];
+  }
+  return files;
 }
 
-/** The upload placeholder `id` replaced by `replacement` (the image reference). */
-export const fillPlaceholder = (text: string, id: string, replacement: string) =>
-  text.replace(new RegExp(String.raw`!\[[^\]\n]*\]\(uploading:${id}\)`), replacement);
-
-/** The upload placeholder `id` taken out (its upload failed), with the line it had. */
-export function dropPlaceholder(text: string, id: string): string {
-  return text.replace(placeholderRef(id), (found) =>
-    found.startsWith("\n") && found.endsWith("\n") ? "\n" : "",
-  );
-}
-
-/** Whether the text still waits for an upload. */
-export const hasPlaceholders = (text: string) => /\]\(uploading:[^)\s]+\)/.test(text);
-
-/** What a paste carries that should become task images; none when it's text (a spreadsheet's cells come with a picture of them too). */
-export function pastedImages(data: Pick<DataTransfer, "files" | "getData" | "types">): File[] {
-  const images = [...data.files].filter((f) => f.type.startsWith("image/"));
-  if (images.length === 0) return [];
-  if (data.types.includes("text/plain") && data.getData("text/plain").trim()) return [];
-  return images;
+/** The task's images: those its text shows first (older tasks), then its other image files. */
+export function taskImages(text: string, attachments: Attachment[]): Attachment[] {
+  const referenced = referencedImages(text, attachments);
+  const shown = new Set(referenced.map((a) => a.key));
+  return [
+    ...referenced,
+    ...attachments.filter((a) => a.contentType.startsWith("image/") && !shown.has(a.key)),
+  ];
 }
 
 /** Screenshots arrive as "image.png": give each paste a name worth reading in the file list. */
