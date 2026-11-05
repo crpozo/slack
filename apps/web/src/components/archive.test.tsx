@@ -8,6 +8,7 @@ import { loadRecents, recordVisit } from "../lib/recents";
 import { useChat } from "../store";
 import { ChannelView } from "./ChannelView";
 import { EditChannelModal } from "./ChannelModals";
+import { Sidebar } from "./Sidebar";
 import { Composer } from "./Composer";
 
 // Regression: archiving the open channel (or opening an archived channel's
@@ -193,5 +194,79 @@ describe("archiving the channel you're in", () => {
     const other: Channel = { ...general, channelId: "ch_other", name: "other" };
     const old: Channel = { ...general, channelId: "ch_old", name: "old", archived: true };
     expect(archiveFrom(`/app/${CH}`, [old, other, channel()]).location()).toBe("/app/ch_other");
+  });
+});
+
+describe("archiving from the sidebar's ⋯ menu", () => {
+  function renderSidebar(path: string, channels: Channel[], me = ME) {
+    useChat.setState({ me, channels, channelsLoaded: true });
+    return render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route
+            path="*"
+            element={
+              <>
+                <Sidebar
+                  activeChannelId={CH}
+                  collapsed={false}
+                  onOpenSwitcher={() => {}}
+                  onCreateChannel={() => {}}
+                  onNewDm={() => {}}
+                  onOpenSettings={() => {}}
+                  onSignOut={() => {}}
+                />
+                <Location />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+  const openMenu = (name: string) =>
+    fireEvent.click(screen.getByRole("button", { name: `More options for ${name}` }));
+
+  it("offers Archive channel next to Pin, Edit and Delete, and archives with the safe redirect", () => {
+    recordVisit(ME.userId, CH, 2);
+    const update = vi.spyOn(chat, "updateChannel").mockImplementation(() => {});
+    renderSidebar(`/app/${CH}`, [general, channel()]);
+    openMenu("proyecto-x");
+    const items = screen.getAllByRole("menuitem").map((i) => i.textContent?.trim());
+    expect(items).toEqual(["Pin to the top", "Edit channel", "Archive channel", "Delete channel"]);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Archive channel/ }));
+    // A confirmation first: nothing happens until it's confirmed.
+    expect(update).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /^Archive$/ }));
+    expect(update).toHaveBeenCalledWith(CH, { archived: true });
+    expect(screen.getByTestId("location").textContent).toBe(`/app/${GENERAL_CHANNEL_ID}`);
+    expect(loadRecents(ME.userId).map((r) => r.channelId)).not.toContain(CH);
+    expect(useChat.getState().toast?.message).toMatch(/#proyecto-x archived/);
+  });
+
+  it("stays where you are when you archive another channel, and Cancel archives nothing", () => {
+    const update = vi.spyOn(chat, "updateChannel").mockImplementation(() => {});
+    const other: Channel = { ...channel(), channelId: "ch_other", name: "other" };
+    renderSidebar(`/app/${CH}`, [general, channel(), other]);
+    openMenu("other");
+    fireEvent.click(screen.getByRole("menuitem", { name: /Archive channel/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(update).not.toHaveBeenCalled();
+    openMenu("other");
+    fireEvent.click(screen.getByRole("menuitem", { name: /Archive channel/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Archive$/ }));
+    expect(update).toHaveBeenCalledWith("ch_other", { archived: true });
+    expect(screen.getByTestId("location").textContent).toBe(`/app/${CH}`);
+  });
+
+  it("isn't offered to someone who may not archive the channel, nor on #general", () => {
+    renderSidebar(`/app/${CH}`, [general, channel({ createdBy: "u-someone" })]);
+    openMenu("proyecto-x");
+    expect(screen.queryByRole("menuitem", { name: /Archive channel/ })).toBeNull();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    cleanup();
+    renderSidebar(`/app/${CH}`, [general, channel()], { ...ME, role: "admin" as never });
+    openMenu("general");
+    expect(screen.queryByRole("menuitem", { name: /Archive channel/ })).toBeNull();
   });
 });

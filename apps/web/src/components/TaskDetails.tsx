@@ -1,10 +1,10 @@
 import { MAX_TASK_NOTES_LENGTH, MAX_TASK_TITLE_LENGTH, type Board } from "@mindfultech/shared";
-import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { useNameOf } from "../store";
 import { useTasks } from "../store/tasks";
 import { TrashIcon } from "./icons";
 import { Modal } from "./Modal";
-import { PasteStatus, TaskImages, useImagePaste } from "./TaskImages";
+import { PasteStatus, usePastedFiles } from "./TaskImages";
 import {
   AttachmentsSection,
   Field,
@@ -22,9 +22,6 @@ import {
 function useDraft(value: string, save: (next: string) => void) {
   const [draft, setDraft] = useState(value);
   const [focused, setFocused] = useState(false);
-  // For `apply`, which runs whenever an upload finishes, focused or not.
-  const latest = useRef({ draft, focused, value });
-  latest.current = { draft, focused, value };
   useEffect(() => {
     if (!focused) setDraft(value);
   }, [value, focused]);
@@ -52,18 +49,6 @@ function useDraft(value: string, save: (next: string) => void) {
   return {
     /** Spread on the input or textarea. */
     field,
-    /**
-     * Changes the text from outside the keyboard (a pasted image's reference
-     * arriving, Phase 33): into the draft while the field is being edited,
-     * saved at once otherwise (it was left before the upload finished).
-     */
-    apply: (change: (text: string) => string) => {
-      const { draft: current, focused: editing, value: saved } = latest.current;
-      const next = change(editing ? current : saved);
-      latest.current = { ...latest.current, draft: next };
-      setDraft(next);
-      if (!editing && next.trim() !== saved) save(next.trim());
-    },
   };
 }
 
@@ -103,11 +88,10 @@ export function TaskDetails({
     },
   );
   const drop = useFileDrop((files) => void addFiles(files));
-  // A pasted image (Phase 33) joins the task's files; the notes refer to it.
-  const notesPaste = useImagePaste({
+  // A pasted screenshot or file joins the task's attachments; the notes stay text.
+  const notesPaste = usePastedFiles({
     boardId: board.boardId,
     attached: (task?.attachments.length ?? 0) + uploads.length,
-    apply: notes.apply,
     onUploaded: async (file) => {
       const current =
         useTasks.getState().tasksByBoard[board.boardId]?.find((t) => t.taskId === taskId)
@@ -170,7 +154,6 @@ export function TaskDetails({
             onPaste={notesPaste.onPaste}
           />
           <PasteStatus pending={notesPaste.pending} />
-          <TaskImages text={notes.field.value} attachments={task.attachments} />
         </Field>
 
         <AttachmentsSection
