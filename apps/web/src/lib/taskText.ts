@@ -59,6 +59,30 @@ export function textWithoutImages(text: string): string {
     .trim();
 }
 
+/** `![…](attachment:…)` references and old `![…](uploading:…)` placeholders, anywhere. */
+const ATTACHMENT_MARKDOWN = /!\[[^\]\n]{0,200}\]\((?:attachment|uploading):[^)\s]{1,1024}\)/g;
+
+/** Whether `text` holds image markdown that belongs in the attachments, not the text. */
+export const hasAttachmentRefs = (text: string): boolean =>
+  new RegExp(ATTACHMENT_MARKDOWN.source).test(text);
+
+/**
+ * `text` with its image markdown taken out (the files themselves are the
+ * task's attachments, shown as thumbnails): a line that held only a reference
+ * goes with it; everything else, blank lines included, stays as written.
+ */
+export function stripAttachmentRefs(text: string): string {
+  if (!hasAttachmentRefs(text)) return text;
+  return text
+    .split("\n")
+    .flatMap((line) => {
+      if (!hasAttachmentRefs(line)) return [line];
+      const rest = line.replace(ATTACHMENT_MARKDOWN, "").replace(/[ \t]+$/, "");
+      return rest.trim() ? [rest] : [];
+    })
+    .join("\n");
+}
+
 /**
  * Files pasted into a task's text (screenshots, copied files). Text that comes
  * with a picture of itself (a spreadsheet's cells, a selection in a document)

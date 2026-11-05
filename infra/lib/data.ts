@@ -179,6 +179,14 @@ export class Data extends Construct {
       partitionKey: { name: "userId", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
     });
+    // Phase 50: one person's notes in one meeting topic, newest first
+    // (`topicKey` is `<userId>#<folded topic>`; only filed pointers have it).
+    this.meetingNotes.addGlobalSecondaryIndex({
+      indexName: "byTopic",
+      partitionKey: { name: "topicKey", type: AttributeType.STRING },
+      sortKey: { name: "sk", type: AttributeType.STRING },
+      projectionType: ProjectionType.ALL,
+    });
 
     this.noteDetails = new Table(this, "NoteDetails", {
       ...common,

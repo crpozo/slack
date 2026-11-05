@@ -220,7 +220,11 @@ export interface NotesCardRef {
 }
 
 /** Tells the card's people it changed (`message.updated`); a failure here is logged, not thrown. */
-async function announceCard(card: NotesCardRef, text: string, aiNotes: AiNotes): Promise<void> {
+export async function announceCard(
+  card: NotesCardRef,
+  text: string,
+  aiNotes: AiNotes,
+): Promise<void> {
   try {
     const members = new Set(card.members);
     await deliver(await listConnections(), (c) =>

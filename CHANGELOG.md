@@ -5,7 +5,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Added
+
+- **AI Notes by date and by topic:** the notes are grouped under **Hoy**, **Ayer**, **Esta
+  semana** and then month by month ("Octubre 2026"), with the heading staying on screen as you
+  scroll. A meeting can be filed under a **topic** (Daily Sync, Client Call, Planning, Retro, 1:1,
+  Demo, or your own) from its notes panel, for everyone in the call. The hub lists your topics
+  with their counts, and picking one shows all of its meetings, not just the ones already
+  loaded. The AI's own tags are now labelled "AI tags", to tell them apart.
+
 ### Fixed
+
+- **No more `![…](attachment:…)` in task notes:** notes saved before attachments took over
+  pasted images still had that markdown in them. The text box now shows them without it, and
+  editing saves them clean (the images stay as thumbnails under Attachments). Pasting text that
+  carries it, such as notes copied from an older task, leaves it out too.
 
 - **Archive from the sidebar:** a channel's ⋯ menu has **Archive channel** (for its creator or
   an admin), next to Pin to the top, Edit channel and Delete channel. It asks first, then

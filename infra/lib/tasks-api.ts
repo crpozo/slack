@@ -71,6 +71,9 @@ export const CALL_NOTES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/notes" },
   // Phase 46: filing older notes under a category and topics.
   { method: HttpMethod.POST, path: "/notes/classify" },
+  // Phase 50: meeting topics, chosen by the people in the call.
+  { method: HttpMethod.GET, path: "/notes/topics" },
+  { method: HttpMethod.PUT, path: "/notes/{callId}/topic" },
   // Phase 40: the recording, the full notes, and private questions about them.
   { method: HttpMethod.PUT, path: "/calls/{callId}/audio" },
   { method: HttpMethod.GET, path: "/notes/{callId}" },
@@ -695,7 +698,15 @@ export class TasksApi extends Construct {
       "dynamodb:UpdateItem",
       "dynamodb:BatchGetItem",
     );
-    data.meetingNotes.grant(this.callNotesHandler, "dynamodb:PutItem", "dynamodb:Query");
+    // Phase 50: pointers by topic (Query on `byTopic`), whose pointers exist
+    // (BatchGetItem) and filing them (UpdateItem, in the topic's transaction).
+    data.meetingNotes.grant(
+      this.callNotesHandler,
+      "dynamodb:PutItem",
+      "dynamodb:Query",
+      "dynamodb:BatchGetItem",
+      "dynamodb:UpdateItem",
+    );
     data.connections.grant(this.callNotesHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.callNotesHandler);
     this.callNotesWorker.grantInvoke(this.callNotesHandler);
@@ -727,6 +738,8 @@ export class TasksApi extends Construct {
       "dynamodb:PutItem",
       "dynamodb:GetItem",
       "dynamodb:Query",
+      // Phase 50: clearing a meeting's topic row.
+      "dynamodb:DeleteItem",
     );
     this.callNotesHandler.addToRolePolicy(notesModelPolicy());
     // Phase 43, call-transcribe: the DM (GetItem); whether the notes were

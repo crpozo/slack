@@ -1,9 +1,24 @@
 import { MAX_TASK_ATTACHMENTS, type Attachment } from "@mindfultech/shared";
 import { useEffect, useRef, useState, type ClipboardEvent } from "react";
-import { pastedFiles, pastedName, taskImages } from "../lib/taskText";
+import {
+  hasAttachmentRefs,
+  pastedFiles,
+  pastedName,
+  stripAttachmentRefs,
+  taskImages,
+} from "../lib/taskText";
 import { getDownloadUrl, uploadFile } from "../lib/upload";
 import { useChat } from "../store";
 import { Lightbox } from "./Lightbox";
+
+/**
+ * Puts `text` in place of the selection the way typing would: the field's
+ * own `input` event follows, so a React-controlled textarea updates its state.
+ */
+function insertText(field: HTMLTextAreaElement, text: string): void {
+  field.setRangeText(text, field.selectionStart, field.selectionEnd, "end");
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+}
 
 /**
  * Paste a screenshot or file into a task's text field: it never becomes text.
@@ -27,7 +42,15 @@ export function usePastedFiles({
 
   function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
     const pasted = pastedFiles(e.clipboardData);
-    if (pasted.length === 0) return; // text: the textarea pastes it as usual
+    if (pasted.length === 0) {
+      // Text copied from an older task can carry `![…](attachment:…)`: pasted without it.
+      const text = e.clipboardData.getData("text/plain");
+      if (hasAttachmentRefs(text)) {
+        e.preventDefault();
+        insertText(e.currentTarget, stripAttachmentRefs(text));
+      }
+      return; // any other text: the textarea pastes it as usual
+    }
     e.preventDefault();
     const room = MAX_TASK_ATTACHMENTS - attached - pending;
     if (room <= 0) {

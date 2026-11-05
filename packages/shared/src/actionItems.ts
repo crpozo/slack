@@ -454,6 +454,9 @@ export interface MeetingNoteIndexItem {
   channelId: string;
   callId: string;
   endedAt: number;
+  /** Phase 50: the meeting's topic, and `<userId>#<folded topic>` for the `byTopic` index. */
+  topic?: string;
+  topicKey?: string;
 }
 
 export interface NotesPage {

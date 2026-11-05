@@ -107,6 +107,7 @@ describe("task manager API", () => {
       "GET /news/insights",
       "GET /notes",
       "GET /notes/{callId}",
+      "GET /notes/topics",
       "GET /push/key",
       "GET /search",
       "GET /skills",
@@ -141,6 +142,7 @@ describe("task manager API", () => {
       "PUT /calendar/events/{id}",
       "PUT /calendar/vacations/{id}/status",
       "PUT /calls/{callId}/audio",
+      "PUT /notes/{callId}/topic",
       "PUT /tasks/{taskId}",
       "PUT /vault/secrets/{secretId}",
     ]);

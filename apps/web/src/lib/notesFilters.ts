@@ -122,3 +122,80 @@ export function noteTitle(message: Message, peerName: string): string {
   const notes = notesOf(message);
   return notes?.title || notes?.topics?.[0] || (peerName ? `Call with ${peerName}` : "Call");
 }
+
+// --- Phase 50: the hub's date groups -----------------------------------------------
+
+const MONTHS = [
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre",
+] as const;
+
+/** Local midnight of `ts`, `days` later (calendar days, so a DST change doesn't matter). */
+const dayStart = (ts: number, days = 0) => {
+  const d = new Date(ts);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + days).getTime();
+};
+
+export interface NoteDateGroup {
+  key: string;
+  label: string;
+}
+
+/**
+ * The hub's heading for a meeting at `ts`: "Hoy", "Ayer", "Esta semana"
+ * (from Monday), then the month ("Octubre 2026"). Newest-first notes fall
+ * into these in order.
+ */
+export function noteDateGroup(ts: number, now = Date.now()): NoteDateGroup {
+  const today = dayStart(now);
+  if (ts >= today) return { key: "today", label: "Hoy" };
+  if (ts >= dayStart(now, -1)) return { key: "yesterday", label: "Ayer" };
+  const weekday = (new Date(now).getDay() + 6) % 7; // Monday 0 … Sunday 6
+  if (ts >= dayStart(now, -weekday)) return { key: "week", label: "Esta semana" };
+  const d = new Date(ts);
+  return {
+    key: `${d.getFullYear()}-${d.getMonth()}`,
+    label: `${MONTHS[d.getMonth()]} ${d.getFullYear()}`,
+  };
+}
+
+/** `items` (newest first) under their date headings, in order. */
+export function groupByNoteDate<T>(
+  items: T[],
+  timeOf: (item: T) => number,
+  now = Date.now(),
+): Array<NoteDateGroup & { items: T[] }> {
+  const groups: Array<NoteDateGroup & { items: T[] }> = [];
+  for (const item of items) {
+    const group = noteDateGroup(timeOf(item), now);
+    const last = groups.at(-1);
+    if (last?.key === group.key) last.items.push(item);
+    else groups.push({ ...group, items: [item] });
+  }
+  return groups;
+}
+
+const shortDay = new Intl.DateTimeFormat("es", {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+});
+
+/** When a meeting was, for its card: the time today and yesterday, the day before that. */
+export function noteWhen(ts: number, formatTime: (ts: number) => string, now = Date.now()): string {
+  const { key } = noteDateGroup(ts, now);
+  if (key === "today" || key === "yesterday") return formatTime(ts);
+  // "lun, 2 nov" in some engines, "lun 2 nov" in others: the same without the comma.
+  const day = shortDay.format(ts).replace(",", "").replace(/\.$/, "");
+  return `${day} · ${formatTime(ts)}`;
+}

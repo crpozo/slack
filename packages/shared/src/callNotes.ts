@@ -107,6 +107,12 @@ export interface AiNotes {
   /** Phase 48: the meeting's name, written by the AI with its category. */
   title?: string;
   /**
+   * Phase 50: the kind of meeting, chosen by the people in it ("Daily Sync",
+   * "Client Call", "Planning", or their own), to browse the notes by. Not the
+   * AI's `topics` (tags of what was discussed).
+   */
+  topic?: string;
+  /**
    * Phase 40: the full notes are kept apart (`GET /notes/{callId}`): the raw
    * transcript, the polished minutes and your own questions. Cards from before
    * Phase 40 have none.
@@ -114,6 +120,71 @@ export interface AiNotes {
   details?: true;
   /** Phase 40: the call's recording (both voices, while notes were on). */
   audio?: NoteAudio;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 50: meeting topics. Anyone in a call files its notes under a topic
+// (one per meeting, shared by everyone in it). The card carries it, the
+// call's `note-details` keep who set it (`sk: "topic"`), and each person's
+// pointer in `meeting-notes` carries `topicKey` (`<userId>#<folded topic>`),
+// which the `byTopic` index pages through: "my notes in Planning, newest
+// first" is one query.
+// ---------------------------------------------------------------------------
+
+export const MAX_MEETING_TOPIC_LENGTH = 40;
+/** Offered first in the topic picker; anything else can be typed. */
+export const MEETING_TOPIC_SUGGESTIONS = [
+  "Daily Sync",
+  "Client Call",
+  "Planning",
+  "Retro",
+  "1:1",
+  "Demo",
+] as const;
+
+/** The same topic however it's written: trimmed, one space, case and accents folded. */
+export function foldMeetingTopic(topic: string): string {
+  return topic
+    .trim()
+    .replace(/\s+/g, " ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+/** The `byTopic` index key of one person's pointer. */
+export const meetingTopicKey = (userId: string, topic: string): string =>
+  `${userId}#${foldMeetingTopic(topic)}`;
+
+const topicText = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_MEETING_TOPIC_LENGTH)
+  .refine((v) => !/\p{Cc}/u.test(v), "cannot contain control characters")
+  .transform((v) => v.replace(/\s+/g, " "));
+
+/** `PUT /notes/{callId}/topic`: the meeting's topic, or `null` to clear it. */
+export const SetMeetingTopicSchema = z.object({
+  /** The notes card: its conversation and sort key. */
+  channelId: z.string().min(1).max(256),
+  sk: z.string().min(1).max(128),
+  topic: topicText.nullable(),
+});
+export type SetMeetingTopicInput = z.input<typeof SetMeetingTopicSchema>;
+
+/** `GET /notes?topic=`: the topic asked for (as typed; matched folded). */
+export const NotesTopicQuerySchema = topicText.optional();
+
+export interface MeetingTopicCount {
+  /** As it was last written. */
+  topic: string;
+  count: number;
+}
+
+/** `GET /notes/topics`: your topics, most notes first. */
+export interface MeetingTopicsResponse {
+  topics: MeetingTopicCount[];
 }
 
 /** A call's recording, uploaded like any attachment under the conversation's folder. */

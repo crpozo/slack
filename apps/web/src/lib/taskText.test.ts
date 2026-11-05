@@ -1,11 +1,13 @@
 import type { Attachment } from "@mindfultech/shared";
 import { describe, expect, it } from "vitest";
 import {
+  hasAttachmentRefs,
   imageRef,
   parseTaskText,
   pastedFiles,
   pastedName,
   referencedImages,
+  stripAttachmentRefs,
   taskImages,
   textWithoutImages,
 } from "./taskText";
@@ -78,5 +80,24 @@ describe("pasting", () => {
       "pasted-20261023-140509.jpg",
     );
     expect(pastedName(new File(["x"], "mockup.png", { type: "image/png" }), at)).toBe("mockup.png");
+  });
+});
+
+describe("cleaning image markdown out of a task's text", () => {
+  it("drops the references and the lines they had, and nothing else", () => {
+    const ref = imageRef("pasted-20261029-162703.png", KEY);
+    expect(hasAttachmentRefs(`a ${ref}`)).toBe(true);
+    expect(hasAttachmentRefs("![x](https://example.com/x.png)")).toBe(false);
+    expect(stripAttachmentRefs(`Steps:\n${ref}\n\nThen ${ref} done\n${ref}`)).toBe(
+      "Steps:\n\nThen  done",
+    );
+    expect(stripAttachmentRefs("![Uploading x.png…](uploading:p1)")).toBe("");
+    // Text without any stays exactly as written.
+    const plain = "  keep\n\n\n  spacing  ";
+    expect(stripAttachmentRefs(plain)).toBe(plain);
+    // A normal markdown image is the person's text.
+    expect(stripAttachmentRefs("![logo](https://example.com/logo.png)")).toBe(
+      "![logo](https://example.com/logo.png)",
+    );
   });
 });
