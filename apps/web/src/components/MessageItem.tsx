@@ -220,7 +220,8 @@ function MessageActions({
           <CopyIcon />
         </button>
       )}
-      {pressed && onDelete && (
+      {/* Delete: in the hover bar too, not only behind right-click (Phase 52). */}
+      {onDelete && (
         <button
           type="button"
           onClick={() => {

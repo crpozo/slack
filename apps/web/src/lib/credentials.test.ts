@@ -22,6 +22,7 @@ describe("detectCredentials", () => {
     // The whole message is one random-looking string
     ["MyP@ssw0rd", "token"],
     ["Summer2024!", "token"],
+    ["Pingüino2024!", "token"], // an accented password still counts
     ["sk-ant-api03-xY9fQ2mZ7pLk4rT8vW1", "token"],
     ["AKIAIOSFODNN7EXAMPLE", "token"],
     // A URL carrying a login
@@ -56,6 +57,11 @@ describe("detectCredentials", () => {
     "",
     "Meeting at 10:30, room B2",
     "I'll pass on that",
+    // Accented letters are letters, not symbols
+    "Averigüu",
+    "Averigüe",
+    "Mañanaaa",
+    "Pingüino",
   ])("leaves %j alone", (text) => {
     expect(detectCredentials(text)).toBe(false);
   });

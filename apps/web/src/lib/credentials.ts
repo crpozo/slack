@@ -56,11 +56,13 @@ function entropyPerChar(token: string): number {
   return bits;
 }
 
+// Letters in any language: "ü", "ñ", "é" are letters, not symbols, so an
+// ordinary word like "Averigüe" or "Mañana" is never one of three kinds.
 const classesOf = (token: string) => ({
-  lower: /[a-z]/.test(token),
-  upper: /[A-Z]/.test(token),
-  digit: /\d/.test(token),
-  symbol: /[^A-Za-z0-9]/.test(token),
+  lower: /\p{Ll}/u.test(token),
+  upper: /\p{Lu}/u.test(token),
+  digit: /\p{N}/u.test(token),
+  symbol: /[^\p{L}\p{N}]/u.test(token),
 });
 
 /**
