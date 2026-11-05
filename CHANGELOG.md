@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **AI News with the chat open:** the layout now follows the room the news have, not the window.
+  With "Pregunta a la IA" open the stories 02–06 no longer squeeze into a narrow column (their
+  titles broke one word per line under the picture): Lo esencial stacks, the list keeps its
+  pictures when there's room and drops them when there isn't.
 - **AI News on phones:** the page no longer slides sideways. A long story title under a trend
   stretched its column past the screen; every single-column section now stays the screen's
   width, and the page never scrolls horizontally.

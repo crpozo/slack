@@ -1,4 +1,19 @@
 // @ts-check
+import plugin from "tailwindcss/plugin";
+
+/**
+ * Container breakpoints (Phase 51d): `cq-lg:` applies when the nearest
+ * `[container-type:inline-size]` ancestor is at least that wide, whatever the
+ * window. AI News lays out by the room it has (the chat beside it takes 400 px).
+ */
+const CONTAINER_BREAKPOINTS = {
+  "2xs": 320,
+  xs: 440,
+  sm: 560,
+  md: 720,
+  lg: 900,
+  xl: 1100,
+};
 
 /** Token backed by a CSS variable holding "R G B", so Tailwind's opacity modifiers keep working. */
 const token = (name) => `rgb(var(--c-${name}) / <alpha-value>)`;
@@ -81,5 +96,10 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    plugin(({ addVariant }) => {
+      for (const [name, px] of Object.entries(CONTAINER_BREAKPOINTS))
+        addVariant(`cq-${name}`, `@container (min-width: ${px}px)`);
+    }),
+  ],
 };
