@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { findMentions, isAllowedPushEndpoint, mentionHandle, PushSubscriptionSchema } from "../src";
+import {
+  findMentions,
+  isAllowedPushEndpoint,
+  mentionHandle,
+  pushLevelOf,
+  PushSubscriptionSchema,
+} from "../src";
 
 describe("push endpoints", () => {
   it("accepts the browsers' push services only", () => {
@@ -61,5 +67,13 @@ describe("mentions", () => {
 
   it("derives a handle from a display name", () => {
     expect(mentionHandle("Ana María")).toBe("anamaría");
+  });
+});
+
+describe("pushLevelOf", () => {
+  it("notifies every message of DMs and private channels, only @mentions of public ones", () => {
+    expect(pushLevelOf("dm")).toBe("all");
+    expect(pushLevelOf("private")).toBe("all");
+    expect(pushLevelOf("public")).toBe("mentions");
   });
 });

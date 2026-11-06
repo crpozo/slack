@@ -2,6 +2,7 @@ import {
   findMentions,
   mentionHandle,
   PUSH_PREVIEW_LENGTH,
+  pushLevelOf,
   SECRET_PREVIEW,
   type Channel,
   type Message,
@@ -98,7 +99,7 @@ export function shouldNotify(
 ): boolean {
   if (!channel || message.userId === me.userId) return false;
   // DMs and private channels (small groups): every message. Public: @mentions only.
-  if (channel.type === "dm" || channel.type === "private") return true;
+  if (pushLevelOf(channel.type) === "all") return true;
   const handles = new Set(findMentions(message.text));
   const local = (me.email.split("@")[0] ?? "").toLowerCase();
   return (
