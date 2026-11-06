@@ -3,6 +3,7 @@ import {
   dmChannelId,
   isDmChannel,
   MAX_PINNED_CHATS,
+  pushLevelOf,
   type BoardEvent,
   type CalendarPushEvent,
   type CallEvent,
@@ -813,7 +814,7 @@ class ChatController {
     const dm = channel.type === "dm";
     raiseAlert(
       {
-        kind: dm || channel.type === "private" ? "message" : "mention",
+        kind: pushLevelOf(channel.type) === "all" ? "message" : "mention",
         title: dm || !("name" in channel) ? sender : `${sender} in #${channel.name}`,
         body: notificationBody(message),
         url: `/app/${encodeURIComponent(message.channelId)}`,

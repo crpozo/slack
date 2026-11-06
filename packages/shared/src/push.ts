@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ChannelType } from "./protocol";
 
 // ---------------------------------------------------------------------------
 // Web Push (Phase 8): browsers subscribe through the HTTP API; the message
@@ -66,6 +67,40 @@ export interface PushPayload {
    * native wrapper (Tauri/APNs) that forwards the payload.
    */
   sound: "default";
+  /**
+   * What the push is about (Phase 53). Absent on pushes from before it, and on
+   * board pushes, which only need `url`.
+   */
+  kind?: "message";
+}
+
+/**
+ * A chat message push (Phase 53): the conversation it belongs to and who wrote
+ * it, so the mobile client can route a tap to the right screen (and group or
+ * label it) without parsing `title` or `url`.
+ */
+export interface MessagePushPayload extends PushPayload {
+  kind: "message";
+  channelId: string;
+  /** The channel's name; for a DM, the sender (how the recipient sees the DM). */
+  channelName: string;
+  channelType: ChannelType;
+  senderName: string;
+}
+
+/**
+ * Which messages of a conversation reach its members' devices.
+ * `"all"`: every message. `"mentions"`: only those that `@mention` them.
+ */
+export type PushLevel = "all" | "mentions";
+
+/**
+ * The push level of a conversation: DMs and private channels (small groups,
+ * which behave like a group DM) notify on every message; public channels only
+ * on `@mentions`. One rule for the server's pushes and the apps' own alerts.
+ */
+export function pushLevelOf(type: ChannelType): PushLevel {
+  return type === "public" ? "mentions" : "all";
 }
 
 export const PUSH_PREVIEW_LENGTH = 120;

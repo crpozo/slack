@@ -6,11 +6,12 @@ import {
   isChannelMember,
   mentionHandle,
   PUSH_PREVIEW_LENGTH,
+  pushLevelOf,
   SECRET_PREVIEW,
   type Board,
   type Channel,
   type Message,
-  type PushPayload,
+  type MessagePushPayload,
   type Task,
   type TaskStatus,
 } from "@mindfultech/shared";
@@ -41,17 +42,19 @@ export async function displayNameOf(userId: string, email: string): Promise<stri
 }
 
 /**
- * Who should hear about `message` beyond the open sockets: the other person
- * of a DM; every other member of a private channel (a small group, like a
- * DM); in a public channel, the members it `@mentions` (by display name
- * without spaces, or by email local part). Never the sender.
+ * Who should hear about `message` beyond the open sockets, per the
+ * conversation's push level (`pushLevelOf`): the other person of a DM; every
+ * other member of a private channel (a small group, like a group DM), read
+ * from the channel row loaded for this very message, so someone invited a
+ * second ago is included; in a public channel, the members it `@mentions` (by
+ * display name without spaces, or by email local part). Never the sender.
  */
 export async function pushRecipients(channel: Channel, message: Message): Promise<string[]> {
   if (channel.type === "dm") {
     const peer = dmPeerOf(channel, message.userId);
     return peer ? [peer] : [];
   }
-  if (channel.type === "private") {
+  if (pushLevelOf(channel.type) === "all") {
     return [...new Set(channel.members ?? [])].filter((id) => id !== message.userId);
   }
   const handles = new Set(findMentions(message.text));
@@ -83,6 +86,32 @@ function preview(message: Message): string {
 }
 
 /**
+ * What a message push carries: the notification itself (`title`, `body`) and,
+ * for the mobile client, where it belongs (`channelId`, `channelName`,
+ * `channelType`) and who wrote it (`senderName`), so a tap opens that screen.
+ */
+export function messagePushPayload(
+  channel: Channel,
+  message: Message,
+  senderName: string,
+): MessagePushPayload {
+  const dm = channel.type === "dm";
+  return {
+    kind: "message",
+    title: dm ? senderName : `${senderName} in #${channel.name}`,
+    body: preview(message),
+    url: `/app/${encodeURIComponent(channel.channelId)}`,
+    tag: channel.channelId,
+    sound: "default",
+    channelId: channel.channelId,
+    // A DM's row is named after its id; its recipient knows it by the sender.
+    channelName: dm ? senderName : channel.name,
+    channelType: channel.type,
+    senderName,
+  };
+}
+
+/**
  * Pushes `message` to its recipients who aren't in front of the app right now
  * (not in `activeUserIds`, see `ACTIVE_WINDOW_MS`). Best effort: never throws,
  * never delays a failure into the sender's reply.
@@ -93,22 +122,27 @@ export async function notifyOffline(
   activeUserIds: Set<string>,
 ): Promise<void> {
   try {
-    const offline = (await pushRecipients(channel, message)).filter((id) => !activeUserIds.has(id));
-    if (offline.length === 0) return;
-    const sender = await displayNameOf(message.userId, message.userEmail);
-    const payload: PushPayload = {
-      title: channel.type === "dm" ? sender : `${sender} in #${channel.name}`,
-      body: preview(message),
-      url: `/app/${encodeURIComponent(channel.channelId)}`,
-      tag: channel.channelId,
-      sound: "default",
-    };
-    const sent = await sendPush(offline, payload);
-    log.info("offline recipients notified", {
+    const recipients = await pushRecipients(channel, message);
+    const offline = recipients.filter((id) => !activeUserIds.has(id));
+    // Every decision is logged, so "no push" can be told apart in CloudWatch:
+    // nobody to notify, everyone in front of the app, or no device subscribed.
+    const fields = {
       channelId: channel.channelId,
-      recipients: offline.length,
-      sent,
-    });
+      channelType: channel.type,
+      recipients: recipients.length,
+      offline: offline.length,
+    };
+    if (offline.length === 0) {
+      log.info("push skipped: no offline recipients", fields);
+      return;
+    }
+    const payload = messagePushPayload(
+      channel,
+      message,
+      await displayNameOf(message.userId, message.userEmail),
+    );
+    const sent = await sendPush(offline, payload);
+    log.info("offline recipients notified", { ...fields, sent });
   } catch (err) {
     log.error("offline notification failed", { channelId: channel.channelId, ...errorFields(err) });
   }

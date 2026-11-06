@@ -215,8 +215,9 @@ async function storeReplyOnce(
 
 /**
  * `message`: persists a message, fans it out as `message.new` to the channel's
- * audience, and sends a Web Push to recipients (the DM peer, or people
- * `@mentioned`) who have no live connection.
+ * audience, and sends a Web Push to recipients (the DM peer, every other
+ * member of a private channel, or the people a public message `@mentions`)
+ * who aren't in front of the app (see `notifyOffline`).
  */
 export const handler = wsHandler(async (event, caller) => {
   const parsed = parseAction(MessageActionSchema, event.body);
