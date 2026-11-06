@@ -172,6 +172,21 @@ export interface SecretPart {
   /** "Email", "User", "Password", or the line's own label ("API key: …"). */
   label: string | null;
   value: string;
+  /**
+   * A title for the parts under it, not a value to copy (Phase 52): "Acme
+   * Store:" above an account's email and password, or a first line that just
+   * names what the whole secret is for.
+   */
+  heading?: true;
+}
+
+/** Words only (any language), as an account or company name: no digits, no symbols but & . ' - / ( ). */
+const NAME_LIKE = /^[\p{L}][\p{L} &.'\-/()]{0,59}$/u;
+
+/** "Acme Store:": a name ending in a colon, with nothing after it. */
+function headingOf(line: string): string | null {
+  const m = /^(.+?)\s*:$/u.exec(line);
+  return m && NAME_LIKE.test(m[1]!) ? m[1]! : null;
 }
 
 const LABELED = /^(?<label>[\p{L}][\p{L}\d _.-]{0,29}?)\s*[:=]\s*(?<value>\S.*)$/u;
@@ -187,13 +202,32 @@ function labelFor(token: string): string | null {
  * The parts of a secret to copy one by one: each line, a "Label: value" line
  * by its label, and a line of 2–3 tokens with an email, username or password
  * among them split per token ("admin@company.com MyP@ssw0rd" → Email,
- * Password). Anything else stays one part: a single value is shown as before.
+ * Password). A lone email or password line is labeled too, a "Name:" line
+ * (or a first line that's just a name) is a heading over the parts below it,
+ * and anything else stays one part: a single value is shown as before.
  */
 export function secretParts(text: string): SecretPart[] {
   const parts: SecretPart[] = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) continue;
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  for (const [i, line] of lines.entries()) {
+    const heading = headingOf(line);
+    if (heading && lines.length > 1) {
+      parts.push({ label: null, value: heading, heading: true });
+      continue;
+    }
+    // The first of several lines, just a name: what the secret is for.
+    if (
+      i === 0 &&
+      lines.length > 2 &&
+      NAME_LIKE.test(line) &&
+      !USERNAMES.includes(line.toLowerCase())
+    ) {
+      parts.push({ label: null, value: line, heading: true });
+      continue;
+    }
     const labeled = LABELED.exec(line);
     // "https://…" isn't a label "https": a URL stays whole (below).
     if (labeled?.groups && !/^\w+:\/\//.test(line)) {
@@ -206,7 +240,11 @@ export function secretParts(text: string): SecretPart[] {
       tokens.forEach((value, i) => parts.push({ label: labels[i] ?? null, value }));
       continue;
     }
-    parts.push({ label: null, value: line });
+    // One value on its own line, among others: say what it is (an email, a password).
+    parts.push({
+      label: lines.length > 1 && tokens.length === 1 ? labelFor(line) : null,
+      value: line,
+    });
   }
   return parts.length > 0 ? parts : [{ label: null, value: text }];
 }

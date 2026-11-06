@@ -16,6 +16,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **Secrets keep their layout:** a secret with several accounts ("Store name:", then its email
+  and password) showed every line as a copyable part, and a name ending in ":" was labeled
+  "Password". Now "Name:" lines (and a first line that just names the secret) are headings
+  over their email and password, and a lone email or password line says which it is.
 - **Vault: one PIN for 15 minutes:** the Vault no longer asks for the PIN again on every Reveal
   and Copy or each time you come back to it. The PIN opens it for the session (15 minutes),
   wherever you type it (the Vault or a 🔒 card in the chat); it then locks by itself, or with

@@ -104,10 +104,37 @@ describe("secretParts", () => {
     ]);
   });
 
-  it("gives one part per line for several values", () => {
-    expect(secretParts("abc123XYZ\nsecond-Token-9")).toEqual([
-      { label: null, value: "abc123XYZ" },
-      { label: null, value: "second-Token-9" },
+  it("gives one part per line for several values, labeled when it can tell", () => {
+    expect(secretParts("abc123XYZ\nsecond-Token-9\nnotes here")).toEqual([
+      { label: "Password", value: "abc123XYZ" },
+      { label: "Password", value: "second-Token-9" },
+      { label: null, value: "notes here" },
+    ]);
+  });
+
+  it("groups accounts under their names: 'Name:' lines and a first-line title are headings", () => {
+    const text = [
+      "Example Group",
+      "Acme Store:",
+      "ana@example.com",
+      "Sample123!",
+      "Bob Smith:",
+      "bob@example.org",
+      "Demo2020!!",
+    ].join("\n");
+    expect(secretParts(text)).toEqual([
+      { label: null, value: "Example Group", heading: true },
+      { label: null, value: "Acme Store", heading: true },
+      { label: "Email", value: "ana@example.com" },
+      { label: "Password", value: "Sample123!" },
+      { label: null, value: "Bob Smith", heading: true },
+      { label: "Email", value: "bob@example.org" },
+      { label: "Password", value: "Demo2020!!" },
+    ]);
+    // A label with its value on the next line: the label heads it, the value stays copyable.
+    expect(secretParts("API key:\nexample-Key-123")).toEqual([
+      { label: null, value: "API key", heading: true },
+      { label: "Password", value: "example-Key-123" },
     ]);
   });
 });

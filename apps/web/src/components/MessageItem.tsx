@@ -323,7 +323,7 @@ function SecretBody({ message, mine }: Readonly<{ message: ChatMessage; mine: bo
           </code>
         ) : revealed ? (
           <span className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-wide text-ink-secondary">
-            Secret · {parts.length} parts
+            Secret · {parts.filter((p) => !p.heading).length} parts
           </span>
         ) : (
           <span className="font-mono tracking-widest text-ink" aria-label="Hidden secret">
@@ -345,6 +345,20 @@ function SecretBody({ message, mine }: Readonly<{ message: ChatMessage; mine: bo
       {revealed && !single && (
         <ul className="flex min-w-0 flex-col gap-1" aria-label="Secret parts" data-secret-parts>
           {parts.map((part, i) => {
+            // A heading ("Acme Store:") names the account below it: a title, nothing to copy.
+            if (part.heading) {
+              return (
+                <li
+                  key={`${i}:${part.value}`}
+                  className={`min-w-0 break-words px-1 text-[13px] font-bold text-ink ${
+                    i > 0 ? "mt-2" : ""
+                  }`}
+                  data-secret-heading
+                >
+                  {part.value}
+                </li>
+              );
+            }
             const what = part.label ?? `Line ${i + 1}`;
             return (
               <li
