@@ -16,6 +16,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **Private channel pushes:** every message in a private channel notifies its other members'
+  phones, like a group DM, whether or not it `@mentions` them (public channels stay
+  @mentions-only). One shared rule now decides this for the server's pushes and the apps' own
+  alerts. A message push also says which conversation it belongs to and who sent it
+  (`channelId`, `channelName`, `channelType`, `senderName`), so tapping it opens that chat, and
+  the server logs why a message pushed nobody (no one offline, or no device with push turned
+  on).
 - **Vault: one PIN for 15 minutes:** the Vault no longer asks for the PIN again on every Reveal
   and Copy or each time you come back to it. The PIN opens it for the session (15 minutes),
   wherever you type it (the Vault or a 🔒 card in the chat); it then locks by itself, or with

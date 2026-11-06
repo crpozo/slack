@@ -75,6 +75,11 @@ export async function sendPush(userIds: string[], payload: PushPayload): Promise
     const vapid = await vapidConfig();
     if (!vapid) return 0;
     const rows = (await Promise.all(userIds.map(subscriptionsOf))).flat();
+    if (rows.length === 0) {
+      // Nobody asked has push turned on (on any device): nothing to send.
+      log.info("push skipped: no subscribed devices", { users: userIds.length });
+      return 0;
+    }
     const body = JSON.stringify(payload);
     const results = await Promise.allSettled(
       rows.map(async (row) => {

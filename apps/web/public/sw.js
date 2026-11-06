@@ -17,6 +17,18 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+/**
+ * Where a tap goes: the payload's `url`, else (Phase 53) the conversation of a
+ * message push (`channelId`), else the app's home.
+ */
+function targetPath(data) {
+  if (typeof data.url === "string" && data.url.startsWith("/")) return data.url;
+  if (typeof data.channelId === "string" && data.channelId) {
+    return `/app/${encodeURIComponent(data.channelId)}`;
+  }
+  return "/";
+}
+
 /** The payload sent by the server (`PushPayload`), or a plain-text fallback. */
 function parsePayload(event) {
   if (!event.data) return {};
@@ -33,8 +45,13 @@ self.addEventListener("push", (event) => {
   // One notification per conversation (the tag is the channel/DM id): a newer
   // message replaces the older one of the same chat and re-announces it, while
   // notifications from different chats stack.
-  const tag = typeof data.tag === "string" && data.tag ? data.tag : undefined;
-  log("push received", { tag, hasTitle: typeof data.title === "string" });
+  const tag =
+    typeof data.tag === "string" && data.tag
+      ? data.tag
+      : typeof data.channelId === "string" && data.channelId
+        ? data.channelId
+        : undefined;
+  log("push received", { tag, kind: data.kind, channelType: data.channelType });
   // iOS (and Chrome) revoke the subscription when a push shows no notification:
   // always show one, even for an unparseable payload.
   event.waitUntil(
@@ -49,7 +66,10 @@ self.addEventListener("push", (event) => {
         vibrate: [120, 60, 120],
         icon: "/icons/icon-192.png?v=b0ae91fbc6",
         badge: "/icons/badge-96.png?v=b0ae91fbc6",
-        data: { url: typeof data.url === "string" ? data.url : "/" },
+        data: {
+          url: targetPath(data),
+          ...(typeof data.channelId === "string" && { channelId: data.channelId }),
+        },
       })
       .then(
         () => log("notification shown", { tag }),

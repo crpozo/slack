@@ -5,17 +5,30 @@ import {
   PutCommand,
   QueryCommand,
   ScanCommand,
+  TransactWriteCommand,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { dmChannelId, type Channel, type Message } from "@mindfultech/shared";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import webpush, { WebPushError } from "web-push";
+import { handler as messageHandler } from "../src/handlers/message";
 import { handler } from "../src/handlers/push";
 import type { HttpEvent } from "../src/lib/http";
 import { notifyOffline, pushRecipients } from "../src/lib/notify";
 import { endpointKey, sendPush } from "../src/lib/push";
 import { resetVapidCache } from "../src/lib/vapid";
-import { ALICE, BOB, ddbMock, dmRow, GENERAL, privateRow, resetMocks } from "./helpers";
+import {
+  ALICE,
+  BOB,
+  ddbMock,
+  dmRow,
+  GENERAL,
+  mockChannels,
+  privateRow,
+  resetMocks,
+  wsEvent,
+} from "./helpers";
 
 vi.mock("web-push", async (importOriginal) => {
   const actual = await importOriginal<{ default: Record<string, unknown> }>();
@@ -276,6 +289,49 @@ describe("notifyOffline", () => {
     expect(payload).not.toContain("hunter2");
   });
 
+  it("tells the mobile client which conversation a DM push is, named after the sender", async () => {
+    await notifyOffline(dm, message(dm.channelId, "hi"), new Set());
+    expect(JSON.parse(String(sendNotification.mock.calls[0]?.[1]))).toMatchObject({
+      kind: "message",
+      channelId: dm.channelId,
+      channelName: "Alicia",
+      channelType: "dm",
+      senderName: "Alicia",
+    });
+  });
+
+  it("pushes every private channel message to each other offline member, with its channel", async () => {
+    const team = privateRow("ch_team", ALICE.userId, [ALICE.userId, BOB.userId, CAROL.userId]);
+    ddbMock
+      .on(QueryCommand, { TableName: PUSH })
+      .callsFake((input: { ExpressionAttributeValues: Record<string, string> }) => {
+        const userId = input.ExpressionAttributeValues[":u"]!;
+        return { Items: [{ userId, sk: userId, subscription: subscription(), createdAt: 1 }] };
+      });
+
+    // No @mention: in a private channel every message notifies, like a group DM.
+    await notifyOffline(team, message("ch_team", "standup in 5"), new Set([CAROL.userId]));
+
+    // Carol is in front of the app; Bob gets it; Alicia wrote it.
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+    const queried = ddbMock
+      .commandCalls(QueryCommand, { TableName: PUSH })
+      .map((c) => c.args[0].input.ExpressionAttributeValues?.[":u"]);
+    expect(queried).toEqual([BOB.userId]);
+    expect(JSON.parse(String(sendNotification.mock.calls[0]?.[1]))).toEqual({
+      kind: "message",
+      title: "Alicia in #team",
+      body: "standup in 5",
+      url: "/app/ch_team",
+      tag: "ch_team",
+      sound: "default",
+      channelId: "ch_team",
+      channelName: "team",
+      channelType: "private",
+      senderName: "Alicia",
+    });
+  });
+
   it("titles channel notifications with the channel name", async () => {
     ddbMock.on(ScanCommand, { TableName: "slack-test-users" }).resolves({
       Items: [{ userId: BOB.userId, email: BOB.email, displayName: "Bob" }],
@@ -284,6 +340,51 @@ describe("notifyOffline", () => {
     expect(JSON.parse(String(sendNotification.mock.calls[0]?.[1])).title).toBe(
       "Alicia in #general",
     );
+  });
+});
+
+describe("message handler → push", () => {
+  const TEAM = privateRow("ch_01JABCDEFGHJKMNPQRSTVWXYZ", ALICE.userId, [ALICE.userId, BOB.userId]);
+  beforeEach(() => {
+    mockChannels(GENERAL, TEAM);
+    ddbMock.on(UpdateCommand).resolves({});
+    ddbMock.on(TransactWriteCommand).resolves({});
+    ddbMock.on(QueryCommand, { TableName: PUSH }).resolves({
+      Items: [{ userId: BOB.userId, sk: "a", subscription: subscription(), createdAt: 1 }],
+    });
+  });
+  const send = (channelId: string, text: string) =>
+    messageHandler(wsEvent("message", { action: "message", channelId, text, clientId: "c1" }));
+
+  it("pushes a private channel message to a member whose phone is only connected in the background", async () => {
+    ddbMock.on(ScanCommand, { TableName: "slack-test-connections" }).resolves({
+      Items: [
+        { connectionId: "conn-alice", userId: ALICE.userId, activeAt: Date.now() },
+        { connectionId: "conn-bob-phone", userId: BOB.userId }, // asleep, socket still open
+      ],
+    });
+
+    expect((await send(TEAM.channelId, "no mention here")).statusCode).toBe(200);
+
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+    const [, body, options] = sendNotification.mock.calls[0]!;
+    expect(JSON.parse(String(body))).toMatchObject({
+      kind: "message",
+      channelId: TEAM.channelId,
+      channelType: "private",
+      senderName: "Alicia",
+      url: `/app/${TEAM.channelId}`,
+    });
+    // A valid Web Push Topic (RFC 8030: at most 32 URL-safe base64 characters).
+    expect(options?.topic).toMatch(/^[\w-]{1,32}$/);
+  });
+
+  it("doesn't push to a member who is in front of the app", async () => {
+    ddbMock.on(ScanCommand, { TableName: "slack-test-connections" }).resolves({
+      Items: [{ connectionId: "conn-bob", userId: BOB.userId, activeAt: Date.now() }],
+    });
+    await send(TEAM.channelId, "hi");
+    expect(sendNotification).not.toHaveBeenCalled();
   });
 });
 
