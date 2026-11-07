@@ -55,7 +55,8 @@ export function NewsChat({
   return (
     <section
       aria-label="Pregunta a la IA"
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.03] shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)]"
+      tabIndex={-1}
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] focus:outline-none border border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.03] shadow-[0_14px_40px_rgb(0_0_0/0.3),inset_0_1px_0_rgb(255_255_255/0.06)]"
       data-news-chat
     >
       <header className="flex items-center gap-2.5 border-b border-white/10 px-4 py-3">
@@ -156,7 +157,7 @@ export function NewsChat({
       </div>
 
       <form
-        className="flex items-end gap-2 border-t border-white/10 p-3"
+        className="flex items-end gap-2 border-t border-white/10 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
         onSubmit={(e) => {
           e.preventDefault();
           send(draft);
@@ -174,7 +175,7 @@ export function NewsChat({
           rows={1}
           maxLength={MAX_NEWS_QUESTION_LENGTH}
           placeholder="Pregunta sobre las noticias…"
-          className="input max-h-32 min-h-[40px] flex-1 resize-none py-2 text-sm [field-sizing:content]"
+          className="input max-h-32 min-h-[40px] min-w-0 flex-1 resize-none py-2 text-base [field-sizing:content] sm:text-sm"
         />
         <button
           type="submit"
@@ -246,7 +247,7 @@ export function NewsChatLauncher({ storyCount }: Readonly<{ storyCount: number }
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-5 z-30 inline-flex items-center gap-2 rounded-full border border-primary/50 bg-primary px-4 py-3 text-sm font-semibold text-on-primary shadow-[0_8px_28px_rgb(0_0_0/0.45),0_0_24px_rgb(64_179_117/0.35)] transition active:scale-95 xl:hidden"
+        className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] right-4 z-30 inline-flex items-center gap-2 rounded-full border border-primary/50 bg-primary px-4 py-3 text-sm font-semibold text-on-primary shadow-[0_8px_28px_rgb(0_0_0/0.45),0_0_24px_rgb(64_179_117/0.35)] transition active:scale-95 md:bottom-[max(1.25rem,env(safe-area-inset-bottom))] md:right-5 xl:hidden"
         aria-haspopup="dialog"
         data-news-chat-launcher
       >
@@ -263,13 +264,19 @@ export function NewsChatLauncher({ storyCount }: Readonly<{ storyCount: number }
 
 function ChatSheet({ storyCount, onClose }: Readonly<{ storyCount: number; onClose: () => void }>) {
   const dialog = useModalDialog(onClose);
+  // The dialog focuses its first button on opening (Clear): start on the chat instead.
+  useEffect(() => {
+    dialog.current?.querySelector<HTMLElement>("[data-news-chat]")?.focus();
+  }, [dialog]);
   return createPortal(
     <dialog
       ref={dialog}
       aria-label="Pregunta a la IA"
-      className="m-0 mt-auto h-[85vh] max-h-none w-full max-w-full bg-transparent p-2 backdrop:bg-scrim/50 backdrop:backdrop-blur-sm sm:m-auto sm:h-[80vh] sm:max-w-lg"
+      // Phones: a sheet from the bottom, the dynamic viewport's height so the
+      // field stays above the keyboard; wider: a centered panel.
+      className="m-0 mt-auto h-[92dvh] max-h-none w-full max-w-full bg-transparent p-0 backdrop:bg-scrim/50 backdrop:backdrop-blur-sm sm:m-auto sm:h-[80dvh] sm:max-w-lg sm:p-2"
     >
-      <div className="h-full bg-surface rounded-[18px]">
+      <div className="h-full overflow-hidden rounded-t-[18px] bg-surface sm:rounded-[18px]">
         <NewsChat storyCount={storyCount} onClose={onClose} />
       </div>
     </dialog>,

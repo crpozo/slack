@@ -45,7 +45,7 @@ export function PdfViewer({ fileKey, name, onClose }: Readonly<PdfViewerProps>) 
     <dialog
       ref={dialog}
       aria-label={name}
-      className="m-auto h-[92vh] max-h-none w-[min(96vw,72rem)] max-w-none overflow-hidden rounded-2xl border border-line bg-surface-raised p-0 text-ink shadow-xl backdrop:bg-scrim/60 backdrop:backdrop-blur-sm"
+      className="m-auto h-[92dvh] max-h-none w-[min(96vw,72rem)] max-w-none overflow-hidden rounded-2xl border border-line bg-surface-raised p-0 text-ink shadow-xl backdrop:bg-scrim/60 backdrop:backdrop-blur-sm"
     >
       <div className="flex h-full flex-col">
         <header className="flex items-center gap-1 border-b border-line px-3 py-2">

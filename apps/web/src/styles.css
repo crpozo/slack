@@ -44,6 +44,9 @@
      above the home indicator, so no bare strip shows under it. */
   #root {
     padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+    /* Phase 52: something too wide is clipped instead of letting the whole app
+       pan sideways on a phone (clip, not hidden: no scroll box, sticky works). */
+    overflow-x: clip;
   }
 
   body {
@@ -77,6 +80,19 @@
   }
   html.native-glass body::before {
     display: none;
+  }
+
+  /* Touch screens (Phase 52): iOS Safari zooms the whole page into any field
+     under 16px when it gets focus, and the layout stays zoomed. Every field is
+     16px there, whatever its own size class; desktops keep the compact sizes. */
+  @media (pointer: coarse) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not(
+        [type="color"]
+      ),
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
   }
 
   /* No browser back/forward swipe or sideways rubber-banding: horizontal

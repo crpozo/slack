@@ -658,7 +658,9 @@ export function MobileScreen({
         <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-ink">{title}</h1>
         {actions}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-24 [-webkit-overflow-scrolling:touch]">
+        {children}
+      </div>
     </div>
   );
 }

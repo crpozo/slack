@@ -16,6 +16,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **Phones: the Home list scrolls:** resting a finger on a channel before swiping opened its
+  options and froze the list. A row's options now need a deliberate hold (0.6 s), and any
+  scrolling cancels it.
+- **Phones: no zoom on text fields:** iPhones zoomed the whole page into fields smaller than
+  16px (the AI chat, search boxes…) and the layout stayed zoomed. On touch screens every field
+  is 16px now.
+- **Pregunta a la IA on phones:** the button sits above the tab bar instead of over it, and the
+  chat opens as a full sheet that stays above the keyboard (no more `vh` hiding the field).
+  Dialogs and the PDF viewer use the visible height too.
+- **Boards on tablets:** next to the sidebar the board's three columns didn't fit and the board
+  scrolled sideways; the columns now follow the board's own width (a swipeable strip when
+  narrow, three columns with room), and the boards list shows on wide screens (a picker
+  otherwise). Long board names end with "…".
+- **No sideways panning:** anything too wide is clipped instead of letting the app slide
+  horizontally on a phone.
 - **Secrets keep their layout:** a secret with several accounts ("Store name:", then its email
   and password) showed every line as a copyable part, and a name ending in ":" was labeled
   "Password". Now "Name:" lines (and a first line that just names the secret) are headings

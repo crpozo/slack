@@ -501,7 +501,7 @@ function Column({
       className={`flex h-full min-h-[12rem] shrink-0 flex-col rounded-2xl border bg-surface-sidebar p-3 transition-colors ${
         compact
           ? "w-64 snap-start"
-          : "w-[calc(100vw-3rem)] max-w-[22rem] snap-center md:w-auto md:min-w-0 md:max-w-none"
+          : "w-[min(calc(100cqw-1rem),22rem)] snap-center cq-md:w-auto cq-md:min-w-0 cq-md:max-w-none"
       } ${over ? "border-primary bg-primary/10" : "border-line"}`}
     >
       <header className="mb-3 flex items-center gap-2 px-1">
@@ -585,7 +585,10 @@ function BoardTitle({
     if (name && name !== board.name) void renameBoard(board.boardId, name);
   }
 
-  if (!editable) return <h2 className="truncate text-lg font-semibold text-ink">{board.name}</h2>;
+  if (!editable)
+    return (
+      <h2 className="min-w-0 max-w-full truncate text-lg font-semibold text-ink">{board.name}</h2>
+    );
   if (editing) {
     return (
       <input
@@ -607,13 +610,13 @@ function BoardTitle({
     );
   }
   return (
-    <h2 className="truncate text-lg font-semibold text-ink">
+    <h2 className="min-w-0 max-w-full truncate text-lg font-semibold text-ink">
       <button
         type="button"
         onClick={() => setEditing(true)}
         title="Click to rename"
         aria-label={`Rename board "${board.name}"`}
-        className="rounded-md px-1 -mx-1 hover:bg-surface-hover"
+        className="-mx-1 max-w-full truncate rounded-md px-1 text-left hover:bg-surface-hover"
       >
         {board.name}
       </button>
@@ -932,17 +935,19 @@ export function BoardView({
 
       <div
         ref={strip}
-        className={`min-h-0 w-full flex-1 snap-x snap-mandatory overflow-auto overscroll-x-contain p-4 ${
-          compact ? "" : "sm:p-6 md:snap-none"
+        className={`min-h-0 w-full flex-1 snap-x snap-mandatory overflow-auto overscroll-x-contain p-4 [container-type:inline-size] ${
+          compact ? "" : "sm:p-6"
         } ${phone ? "pb-24" : ""}`}
         aria-busy={loading && !tasks}
       >
-        {/* Phones and the side pane: columns in a strip, swiped with snapping. md+: three equal columns spanning the area. */}
+        {/* Narrow (phones, the side pane, a tablet beside the sidebar): columns in a
+            strip, swiped with snapping. Room for three (Phase 52: the board's own
+            width, not the window's): three equal columns spanning the area. */}
         <div
           className={
             compact
               ? "flex min-h-full w-max gap-3"
-              : "flex min-h-full w-max gap-3 md:grid md:w-full md:min-w-[42rem] md:grid-cols-3 md:items-stretch md:gap-4"
+              : "flex min-h-full w-max gap-3 cq-md:grid cq-md:w-full cq-md:grid-cols-3 cq-md:items-stretch cq-md:gap-4"
           }
         >
           {COLUMNS.map((column) => (
@@ -1118,10 +1123,10 @@ export function TaskManager({
         <KanbanIcon className="text-ink-secondary" />
         <h1 className="truncate font-semibold text-ink">Task Manager</h1>
         {boards.length > 0 && (
-          <label className="ml-auto flex items-center gap-2 text-sm md:hidden">
+          <label className="ml-auto flex min-w-0 items-center gap-2 text-sm lg:hidden">
             <span className="sr-only">Board</span>
             <select
-              className="input w-40 py-1.5"
+              className="input w-40 min-w-0 max-w-[45vw] py-1.5 sm:w-52"
               value={board?.boardId ?? ""}
               onChange={(e) => navigate(boardPath(e.target.value))}
               aria-label="Board"
@@ -1151,7 +1156,7 @@ export function TaskManager({
           <button
             type="button"
             onClick={() => setCreating(true)}
-            className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink md:ml-auto"
+            className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink lg:ml-auto"
             aria-label="New board"
             title="New board"
           >
@@ -1165,7 +1170,7 @@ export function TaskManager({
         {configured && boards.length > 0 && (
           <nav
             aria-label="Boards"
-            className="hidden w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-line bg-surface-sidebar p-3 md:flex"
+            className="hidden w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-line bg-surface-sidebar p-3 lg:flex"
           >
             <BoardList title="My boards" boards={mine} activeId={board?.boardId} />
             <BoardList title="Shared with me" boards={shared} activeId={board?.boardId} />

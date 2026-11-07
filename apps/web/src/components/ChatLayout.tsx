@@ -459,7 +459,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
             onOpenHistory={() => setSheet("recents")}
             onOpenProfile={() => setSettingsOpen(true)}
           />
-          <div className="min-h-0 flex-1 overflow-y-auto pb-24">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-24 [-webkit-overflow-scrolling:touch]">
             <ShortcutCards onOpenHuddles={() => setSheet("huddles")} />
             <Sidebar phone {...sidebarProps} />
           </div>

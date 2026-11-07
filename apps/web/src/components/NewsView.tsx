@@ -141,7 +141,7 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
           {chatOpen && configured && (articles.length > 0 || insights) && (
             <aside className="hidden xl:block" aria-label="Pregunta a la IA">
               {/* The chat stays dark on the paper, like the MindfulTech band. */}
-              <div className="news-dark sticky top-6 h-[calc(100vh-6rem)] min-h-[420px] rounded-[18px] bg-surface">
+              <div className="news-dark sticky top-6 h-[calc(100dvh-6rem)] min-h-[420px] rounded-[18px] bg-surface">
                 <NewsChat
                   storyCount={insights?.storyCount ?? articles.length}
                   onClose={() => toggleChat(false)}

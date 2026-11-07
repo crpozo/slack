@@ -291,35 +291,60 @@ function Section({
  * sheet, like Slack's, instead of a ⋯ on every row. Keyboard users still get
  * a ⋯ button, shown when it has focus.
  */
+/**
+ * A row's hold before its options open (Phase 52): longer than a message's,
+ * like iOS's own, so resting a finger on a channel before swiping the list
+ * scrolls it instead of opening the sheet (which froze the list).
+ */
+const ROW_LONG_PRESS_MS = LONG_PRESS_MS + 200;
+
 function useLongPress(enabled: boolean, onLongPress: () => void) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
   /** It fired: the lift that follows must not click, nor reach the sheet's backdrop. */
   const fired = useRef(false);
+  const stopWatching = useRef<(() => void) | null>(null);
   const cancel = () => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
     start.current = null;
+    stopWatching.current?.();
+    stopWatching.current = null;
   };
   useEffect(() => cancel, []);
   if (!enabled) return {};
+  const moved = (x: number, y: number) => {
+    const from = start.current;
+    if (from && Math.hypot(x - from.x, y - from.y) > SLOP_PX) cancel();
+  };
   return {
     onPointerDown: (e: React.PointerEvent) => {
       if (e.pointerType !== "touch") return;
+      cancel();
       start.current = { x: e.clientX, y: e.clientY };
       fired.current = false;
+      // Any scrolling (the list, the page) means a swipe, never a long press:
+      // some browsers stop sending pointer moves once they start scrolling.
+      const onScroll = () => cancel();
+      const onTouchMove = (t: TouchEvent) => {
+        const touch = t.touches[0];
+        if (touch) moved(touch.clientX, touch.clientY);
+      };
+      window.addEventListener("scroll", onScroll, { capture: true, passive: true });
+      window.addEventListener("touchmove", onTouchMove, { capture: true, passive: true });
+      stopWatching.current = () => {
+        window.removeEventListener("scroll", onScroll, { capture: true });
+        window.removeEventListener("touchmove", onTouchMove, { capture: true });
+      };
       timer.current = setTimeout(() => {
         cancel();
         fired.current = true;
         swallowNextClick(); // the lift mustn't also open the conversation
         navigator.vibrate?.(10);
         onLongPress();
-      }, LONG_PRESS_MS);
+      }, ROW_LONG_PRESS_MS);
     },
-    onPointerMove: (e: React.PointerEvent) => {
-      const from = start.current;
-      if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) > SLOP_PX) cancel();
-    },
+    onPointerMove: (e: React.PointerEvent) => moved(e.clientX, e.clientY),
     onPointerUp: cancel,
     onPointerCancel: cancel,
     // Not passive in React: cancelling it stops the mouse events a lift makes.
