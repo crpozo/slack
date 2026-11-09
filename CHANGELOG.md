@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI News audio for the analysis on screen:** an analysis written without its audio (before
+  the audio existed, or when making it failed) gets it the first time someone opens AI News:
+  "Preparando el resumen en audio…" shows, and the player appears by itself about a minute
+  later. After a Refresh, the player now shows up once its audio is ready (it used to need a
+  reload). A failed try is retried after 10 minutes.
+- **AI News with fewer lines:** the sections' white rules are gone; trends, actions and "Para
+  seguir de cerca" sit on soft panels instead.
 - **Externals: invite people from outside MindfulTech to a channel:** in a private channel,
   **Invite** now takes an email ("Invite someone outside MindfulTech"). A new address gets an
   account and an email with a temporary password, and joins as an **external**: they see only

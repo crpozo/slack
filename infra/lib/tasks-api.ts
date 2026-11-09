@@ -766,7 +766,14 @@ export class TasksApi extends Construct {
     // Bedrock; it reads the feed over the internet. news-insights: the newest
     // row (Query), the refresh cooldown's own row (UpdateItem) and starting
     // the worker.
-    data.newsInsights.grant(this.newsInsightsWorker, "dynamodb:PutItem");
+    // Phase 55: UpdateItem (the audio's claim, and adding the audio to its analysis) and
+    // Query (the newest analysis, when only its audio is asked for).
+    data.newsInsights.grant(
+      this.newsInsightsWorker,
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:Query",
+    );
     // The worker streams its answer (Phase 49): that's its own Bedrock action.
     this.newsInsightsWorker.addToRolePolicy(notesModelPolicy(true));
     // "Pregunta a la IA" (Phase 50): the endpoint asks the model itself (one short answer).

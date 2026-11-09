@@ -518,3 +518,72 @@ export async function claimRefresh(
     return { ok: false, retryAfterSeconds: Math.max(1, Math.ceil(left / 1000)) };
   }
 }
+
+// --- The summary in audio (Phase 54), made once per analysis --------------------------
+
+/** The audio's own lock row, in the refresh lock's partition (never read as an analysis). */
+export const AUDIO_LOCK_KEY = { feed: "news-refresh", day: "audio" } as const;
+
+/** An analysis's audio is tried again this long after a try that didn't land. */
+export const AUDIO_RETRY_MS = 10 * 60_000;
+/** A try is "on its way" this long: the page says the audio is being prepared. */
+export const AUDIO_PENDING_MS = 3 * 60_000;
+
+/**
+ * Claims making the audio of the analysis written at `generatedAt` (Phase 55):
+ * one atomic write, so many page loads start one worker. A claim for another
+ * analysis, or one older than `AUDIO_RETRY_MS`, gives way. `force` (the
+ * worker, right after writing an analysis) always claims.
+ * @returns whether this call claimed it, and whether a try is on its way now.
+ */
+export async function claimAudio(
+  generatedAt: number,
+  now: number,
+  force = false,
+): Promise<{ claimed: boolean; pending: boolean }> {
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: tables.newsInsights,
+        Key: AUDIO_LOCK_KEY,
+        UpdateExpression: "SET requestedAt = :now, forAnalysis = :g",
+        ...(!force && {
+          ConditionExpression:
+            "attribute_not_exists(requestedAt) OR forAnalysis <> :g OR requestedAt <= :cutoff",
+          ReturnValuesOnConditionCheckFailure: "ALL_OLD",
+        }),
+        ExpressionAttributeValues: {
+          ":now": now,
+          ":g": generatedAt,
+          ...(!force && { ":cutoff": now - AUDIO_RETRY_MS }),
+        },
+      }),
+    );
+    return { claimed: true, pending: true };
+  } catch (err) {
+    if (!(err instanceof ConditionalCheckFailedException)) throw err;
+    // Raw attribute values: the document client doesn't convert errors.
+    const last = Number(err.Item?.requestedAt?.N);
+    return { claimed: false, pending: Number.isFinite(last) && now - last < AUDIO_PENDING_MS };
+  }
+}
+
+/** Adds its audio to the analysis of `day`, if it's still the one written at `generatedAt`. */
+export async function saveAudio(
+  analysis: Pick<NewsInsightsItem, "day" | "generatedAt">,
+  audio: { key: string; chars: number },
+): Promise<void> {
+  await ddb.send(
+    new UpdateCommand({
+      TableName: tables.newsInsights,
+      Key: { feed: NEWS_INSIGHTS_FEED, day: analysis.day },
+      UpdateExpression: "SET audioKey = :key, audioChars = :chars",
+      ConditionExpression: "generatedAt = :g",
+      ExpressionAttributeValues: {
+        ":key": audio.key,
+        ":chars": audio.chars,
+        ":g": analysis.generatedAt,
+      },
+    }),
+  );
+}

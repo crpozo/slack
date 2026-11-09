@@ -44,6 +44,10 @@ function writePending(pending: PendingAnalysis | null): void {
 export const INSIGHTS_FRESH_MS = 5 * 60_000;
 /** While a requested analysis is being written, the view asks this often whether it's there. */
 export const INSIGHTS_POLL_MS = 5_000;
+/** Phase 55: while the analysis's audio is being made, the view asks this often… */
+export const AUDIO_POLL_MS = 10_000;
+/** …this many times (the server retries a failed try later by itself). */
+export const AUDIO_POLLS = 12;
 
 /**
  * The AI Insights section's data (Phase 39): the latest morning analysis,
@@ -63,6 +67,8 @@ export interface NewsInsightsState {
   generateError: string | null;
   /** The last request wasn't needed: one was started a moment ago. */
   generateNotice: string | null;
+  /** Phase 55: the analysis's audio is being made; it shows up by itself when it's ready. */
+  audioPending: boolean;
   load: (force?: boolean) => Promise<void>;
   generate: () => Promise<void>;
   /**
@@ -82,11 +88,39 @@ export function createNewsInsightsStore(
   sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
 ) {
   return create<NewsInsightsState>((set, get) => {
+    let audioPolling = false;
+    /**
+     * Phase 55: the analysis on screen has no audio yet and the server is
+     * making it: ask again every `AUDIO_POLL_MS` until it's there (or the
+     * server stops saying it's on its way).
+     */
+    async function followAudio(response: { audioPending?: boolean }): Promise<void> {
+      set({ audioPending: !!response.audioPending });
+      if (!response.audioPending || audioPolling) return;
+      audioPolling = true;
+      try {
+        for (let i = 0; i < AUDIO_POLLS; i++) {
+          await sleep(AUDIO_POLL_MS);
+          const next = await api.latest().catch(() => null);
+          if (!next) continue;
+          const shown = get().insights;
+          if (next.insights?.audio && next.insights.generatedAt === shown?.generatedAt) {
+            set({ insights: next.insights, audioPending: false });
+            return;
+          }
+          if (!next.audioPending) break;
+        }
+        set({ audioPending: false });
+      } finally {
+        audioPolling = false;
+      }
+    }
     /** Polls until an analysis newer than `before` is there, or `deadline` passes. */
     async function waitFor(before: number, deadline: number, since = 0): Promise<void> {
       while (now() < deadline) {
         await sleep(INSIGHTS_POLL_MS);
-        const { insights, failure } = await api.latest();
+        const latest = await api.latest();
+        const { insights, failure } = latest;
         // Phase 49b: the run failed (after this wait began): say why now, not minutes later.
         if (failure && failure.at >= since) {
           writePending(null);
@@ -106,6 +140,8 @@ export function createNewsInsightsStore(
             generating: false,
             generatingSince: null,
           });
+          // Its audio comes a few seconds after it.
+          void followAudio(latest);
           return;
         }
       }
@@ -125,14 +161,16 @@ export function createNewsInsightsStore(
       generatingSince: null,
       generateError: null,
       generateNotice: null,
+      audioPending: false,
       load: async (force = false) => {
         const s = get();
         if (s.status === "loading") return;
         if (!force && s.loadedAt && now() - s.loadedAt < INSIGHTS_FRESH_MS) return;
         set({ status: "loading", error: null });
         try {
-          const { insights } = await api.latest();
-          set({ status: "ready", insights, loadedAt: now() });
+          const latest = await api.latest();
+          set({ status: "ready", insights: latest.insights, loadedAt: now() });
+          void followAudio(latest);
         } catch (err) {
           set({
             status: get().loadedAt ? "ready" : "error",
@@ -203,6 +241,7 @@ export function createNewsInsightsStore(
           generatingSince: null,
           generateError: null,
           generateNotice: null,
+          audioPending: false,
         }),
     };
   });

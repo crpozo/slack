@@ -46,6 +46,8 @@ export interface NewsDashboardProps {
   leading?: ReactNode;
   /** Phase 54: the summary read aloud in Spanish, when it's made. */
   audio?: NewsAudio;
+  /** Phase 55: the audio is being made (a minute at most); it appears by itself. */
+  audioPending?: boolean;
 }
 
 /**
@@ -74,6 +76,7 @@ export function NewsDashboard({
   banner,
   leading,
   audio,
+  audioPending = false,
 }: Readonly<NewsDashboardProps>) {
   const [lead, ...rest] = stories;
   return (
@@ -82,7 +85,7 @@ export function NewsDashboard({
       data-news-dashboard
     >
       <div className="flex flex-col gap-0">
-        <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4 border-b-[3px] border-ink pb-5">
+        <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4 pb-6">
           <div className="flex min-w-0 flex-col gap-3">
             <div className="flex items-center gap-2">
               {leading}
@@ -100,7 +103,20 @@ export function NewsDashboard({
                 </span>
               </span>
             </p>
-            {audio && <AudioSummary audio={audio} />}
+            {audio ? (
+              <AudioSummary audio={audio} />
+            ) : (
+              audioPending && (
+                <p
+                  className="mt-1 inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-secondary"
+                  role="status"
+                  data-news-audio-pending
+                >
+                  <HeadphonesIcon className="animate-pulse text-primary" aria-hidden="true" />
+                  Preparando el resumen en audio…
+                </p>
+              )
+            )}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {headerActions}
@@ -158,7 +174,7 @@ export function NewsDashboard({
       <section
         id="news-impact"
         aria-labelledby="news-impact-title"
-        className="news-dark -mx-4 grid grid-cols-[minmax(0,1fr)] gap-10 bg-surface px-6 py-10 sm:mx-0 sm:px-10 sm:py-12 cq-xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] cq-xl:gap-14"
+        className="news-dark -mx-4 grid grid-cols-[minmax(0,1fr)] gap-10 bg-surface px-6 py-10 sm:mx-0 sm:rounded-3xl sm:px-10 sm:py-12 cq-xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] cq-xl:gap-14"
         data-news-impact
       >
         <div className="flex flex-col gap-4">
@@ -175,11 +191,11 @@ export function NewsDashboard({
           {insightsAction && <div className="mt-1">{insightsAction}</div>}
         </div>
         {takeaways.length > 0 ? (
-          <ol className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-8 cq-sm:grid-cols-2 cq-lg:grid-cols-3 cq-xl:grid-cols-2">
+          <ol className="grid grid-cols-[minmax(0,1fr)] gap-4 cq-sm:grid-cols-2 cq-lg:grid-cols-3 cq-xl:grid-cols-2">
             {takeaways.map((t, i) => (
               <li
                 key={`${i}-${t.lead}`}
-                className="flex flex-col gap-2 border-t border-white/15 pt-4"
+                className={`flex flex-col gap-2 ${CARD}`}
                 data-horizon={t.horizon}
               >
                 <span className={KICKER}>
@@ -205,12 +221,9 @@ export function NewsDashboard({
           data-news-trends
         >
           <SectionHeader id="news-trends-title" kicker="Lo que se repite" title="Tendencias" />
-          <ol className="grid grid-cols-[minmax(0,1fr)] gap-x-8 gap-y-10 cq-sm:grid-cols-2 cq-xl:grid-cols-4">
+          <ol className="grid grid-cols-[minmax(0,1fr)] gap-4 cq-sm:grid-cols-2 cq-xl:grid-cols-4">
             {trends.map((trend, i) => (
-              <li
-                key={`${i}-${trend.topic}`}
-                className="flex flex-col gap-3 border-t-[3px] border-ink pt-4"
-              >
+              <li key={`${i}-${trend.topic}`} className={`flex flex-col gap-3 ${CARD}`}>
                 <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-secondary">
                   Tendencia {pad(i + 1)}
                 </span>
@@ -230,7 +243,7 @@ export function NewsDashboard({
                 </p>
                 {trend.evidence && trend.evidence.length > 0 && (
                   <ul
-                    className="mt-1 flex flex-col gap-1.5 border-t border-line pt-3"
+                    className="mt-2 flex flex-col gap-1.5"
                     aria-label="Historias detrás de la tendencia"
                   >
                     {trend.evidence.map((e) => (
@@ -341,9 +354,9 @@ export function NewsDashboard({
             kicker="Los próximos días"
             title="Para seguir de cerca"
           />
-          <ul className="grid grid-cols-[minmax(0,1fr)] gap-x-8 gap-y-8 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
+          <ul className="grid grid-cols-[minmax(0,1fr)] gap-4 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
             {watchlist.map((w, i) => (
-              <li key={`${i}-${w.topic}`} className="flex flex-col gap-2 border-t border-ink pt-4">
+              <li key={`${i}-${w.topic}`} className={`flex flex-col gap-2 ${CARD}`}>
                 <span className={KICKER}>{pad(i + 1)}</span>
                 <h3 className="font-serif text-[19px] font-medium leading-snug text-ink">
                   {w.topic}
@@ -410,6 +423,8 @@ function AudioSummary({ audio }: Readonly<{ audio: NewsAudio }>) {
 }
 
 const KICKER = "font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-primary";
+/** Phase 55: a soft panel instead of rules above every item (fewer lines on the page). */
+const CARD = "rounded-2xl bg-white/[0.04] p-5";
 const META = "font-mono text-[11px] uppercase tracking-[0.12em] text-ink-secondary";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -420,7 +435,7 @@ function SectionHeader({
   title,
 }: Readonly<{ id: string; kicker: string; title: string }>) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-1 border-b border-ink pb-3">
+    <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-1">
       <h2
         id={id}
         className="font-serif text-[30px] font-medium leading-none tracking-[-0.01em] text-ink sm:text-[34px]"

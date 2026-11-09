@@ -23,6 +23,7 @@ import { getNews } from "../lib/news";
 import { newsAnswerFrom, newsChatRequest } from "../lib/newsChat";
 import { NEWS_AUDIO_PREFIX, spokenSeconds } from "../lib/newsAudio";
 import {
+  claimAudio,
   claimRefresh,
   lastFailure,
   latestInsights,
@@ -65,10 +66,14 @@ export const handler = httpHandler(async (event, caller): Promise<HttpResult> =>
     case "GET /news/insights": {
       const [stored, failure] = await Promise.all([latestInsights(), lastFailure()]);
       const insights = stored && (await withAudioUrl(stored));
+      // Phase 55: an analysis without its audio gets it now (once; the page asks again).
+      const audioPending =
+        !!stored && !insights?.audio && (await ensureAudio(stored, caller.userId));
       const body: NewsInsightsResponse = {
         insights,
         // Only a failure after the analysis on screen is news to the page.
         ...(failure && failure.at > (insights?.generatedAt ?? 0) && { failure }),
+        ...(audioPending && { audioPending }),
       };
       return json(200, body);
     }
@@ -117,14 +122,35 @@ async function withAudioUrl(stored: StoredInsights): Promise<NewsInsights> {
 }
 
 /** Starts the worker without waiting for it (it writes the row in about half a minute). */
-async function startWorker(requestedBy: string): Promise<void> {
+async function startWorker(requestedBy: string, extra: { audioOnly?: true } = {}): Promise<void> {
   await lambdaClient().send(
     new InvokeCommand({
       FunctionName: requireEnv("INSIGHTS_WORKER_FUNCTION"),
       InvocationType: "Event",
-      Payload: new TextEncoder().encode(JSON.stringify({ requestedBy })),
+      Payload: new TextEncoder().encode(JSON.stringify({ requestedBy, ...extra })),
     }),
   );
+}
+
+/**
+ * Phase 55: the analysis on screen has no audio (written before audio
+ * existed, or its try failed): the first page load claims making it and
+ * starts the worker for that alone; later loads see it on its way. A failed
+ * try is retried after `AUDIO_RETRY_MS`. Never fails the request.
+ * @returns whether the audio is being made now.
+ */
+async function ensureAudio(stored: StoredInsights, userId: string): Promise<boolean> {
+  try {
+    const { claimed, pending } = await claimAudio(stored.generatedAt, Date.now());
+    if (claimed) {
+      await startWorker(userId, { audioOnly: true });
+      log.info("news audio requested", { day: stored.day, userId });
+    }
+    return pending;
+  } catch (err) {
+    log.warn("news audio request failed", errorFields(err));
+    return false;
+  }
 }
 
 /**

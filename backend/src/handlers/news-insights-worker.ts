@@ -5,9 +5,12 @@ import { errorFields, log } from "../lib/logger";
 import { readAllSources } from "../lib/news";
 import { writeNewsAudio } from "../lib/newsAudio";
 import {
+  claimAudio,
   insightsFrom,
   insightsItem,
   insightsRequest,
+  latestInsights,
+  saveAudio,
   saveFailure,
   saveInsights,
 } from "../lib/newsInsights";
@@ -45,7 +48,12 @@ export interface InsightsRun {
  * same day. Any failure throws, so the schedule's retries get another go:
  * nothing is half-written, since the row is put in one piece at the end.
  */
-export const handler = async (): Promise<InsightsRun> => {
+export const handler = async (event?: { audioOnly?: boolean }): Promise<InsightsRun | null> => {
+  // Phase 55: only the audio of the analysis on screen (it was written without one).
+  if (event?.audioOnly) {
+    await audioForLatest();
+    return null;
+  }
   try {
     return await run();
   } catch (err) {
@@ -111,13 +119,37 @@ async function run(): Promise<InsightsRun> {
   log.info("news insights written", { ...run, ms: Date.now() - started });
   // Phase 54: then the summary read aloud. The page already has the analysis;
   // the row gains its audio a few seconds later. Never fails the run.
-  try {
-    const audioStarted = Date.now();
-    const { key, chars } = await writeNewsAudio(item);
-    await saveInsights({ ...item, audioKey: key, audioChars: chars });
-    log.info("news audio written", { day, chars, ms: Date.now() - audioStarted });
-  } catch (err) {
-    log.warn("news audio failed", { day, ...errorFields(err) });
-  }
+  await makeAudio(item, true);
   return run;
+}
+
+/**
+ * Reads `analysis` aloud and adds the MP3 to its row. Claimed first (the
+ * page sees it's on its way and doesn't start another). Never throws.
+ */
+async function makeAudio(
+  analysis: Parameters<typeof writeNewsAudio>[0] & { day: string },
+  force: boolean,
+): Promise<void> {
+  const started = Date.now();
+  try {
+    if (!(await claimAudio(analysis.generatedAt, started, force)).claimed) return;
+    const audio = await writeNewsAudio(analysis);
+    await saveAudio(analysis, audio);
+    log.info("news audio written", {
+      day: analysis.day,
+      chars: audio.chars,
+      ms: Date.now() - started,
+    });
+  } catch (err) {
+    log.warn("news audio failed", { day: analysis.day, ...errorFields(err) });
+  }
+}
+
+/** Phase 55: the newest analysis has no audio (written before audio existed, or it failed). */
+async function audioForLatest(): Promise<void> {
+  const latest = await latestInsights();
+  if (!latest || latest.audioKey) return;
+  // The endpoint claimed it already: this run makes it.
+  await makeAudio(latest, true);
 }

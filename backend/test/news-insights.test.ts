@@ -379,12 +379,44 @@ describe("the morning worker", () => {
       Key: `news-audio/2026-10-27-${NOW}.mp3`,
       ContentType: "audio/mpeg",
     });
-    // The analysis first (the page has it at once), then the same row with its audio.
+    // The analysis first (the page has it at once), then its audio added to that row,
+    // only if it's still the same analysis.
     const rows = analysesWritten();
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(1);
     expect(rows[0]!.audioKey).toBeUndefined();
-    expect(rows[1]).toMatchObject({ audioKey: `news-audio/2026-10-27-${NOW}.mp3` });
-    expect(rows[1]!.audioChars).toBeGreaterThan(100);
+    const updates = ddbMock.commandCalls(UpdateCommand).map((c) => c.args[0].input);
+    // Claimed first (the page sees it's on its way and doesn't ask for another).
+    expect(updates[0]).toMatchObject({ Key: { feed: "news-refresh", day: "audio" } });
+    expect(updates[0]!.ExpressionAttributeValues).toMatchObject({ ":g": NOW });
+    expect(updates[1]).toMatchObject({
+      Key: { feed: NEWS_INSIGHTS_FEED, day: "2026-10-27" },
+      ConditionExpression: "generatedAt = :g",
+    });
+    expect(updates[1]!.ExpressionAttributeValues).toMatchObject({
+      ":key": `news-audio/2026-10-27-${NOW}.mp3`,
+      ":g": NOW,
+    });
+    expect(updates[1]!.ExpressionAttributeValues![":chars"]).toBeGreaterThan(100);
+  });
+
+  it("makes only the audio of the newest analysis when asked (Phase 55), and only if it's missing", async () => {
+    await worker(); // an analysis to read aloud (as the morning's would be)
+    const stored = analysesWritten()[0]!;
+    create.mockClear();
+    store.mockClear();
+    ddbMock.resetHistory();
+    ddbMock.on(QueryCommand).resolves({ Items: [stored] });
+    await expect(worker({ audioOnly: true })).resolves.toBeNull();
+    expect(create).not.toHaveBeenCalled(); // no new analysis
+    expect(store).toHaveBeenCalledTimes(1);
+    expect(
+      ddbMock.commandCalls(UpdateCommand).some((c) => c.args[0].input.Key?.day === stored.day),
+    ).toBe(true);
+    // Already has one: nothing to do.
+    store.mockClear();
+    ddbMock.on(QueryCommand).resolves({ Items: [{ ...stored, audioKey: "news-audio/x.mp3" }] });
+    await worker({ audioOnly: true });
+    expect(store).not.toHaveBeenCalled();
   });
 
   it("keeps the analysis when the audio fails", async () => {
@@ -575,9 +607,14 @@ describe("GET and POST /news/insights", () => {
 
   it("answers the newest row without its key, and null before the first one", async () => {
     ddbMock.on(QueryCommand).resolves({ Items: [row] });
+    // Phase 55: no audio yet: this load claims making it and starts the worker for it alone.
     expect(await call(event("GET /news/insights"))).toEqual({
       status: 200,
-      body: { insights: { ...row, feed: undefined } },
+      body: { insights: { ...row, feed: undefined }, audioPending: true },
+    });
+    const invoke = lambdaMock.commandCalls(InvokeCommand)[0]!.args[0].input;
+    expect(JSON.parse(new TextDecoder().decode(invoke.Payload as Uint8Array))).toMatchObject({
+      audioOnly: true,
     });
     const query = ddbMock.commandCalls(QueryCommand)[0]!.args[0].input;
     expect(query).toMatchObject({ TableName: TABLE, ScanIndexForward: false, Limit: 1 });

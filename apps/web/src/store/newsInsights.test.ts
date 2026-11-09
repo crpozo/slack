@@ -15,6 +15,27 @@ const insights = (generatedAt: number): NewsInsights => ({
 });
 
 describe("news insights store", () => {
+  it("follows an audio being made until it's there (Phase 55)", async () => {
+    const audio = { url: "https://bucket/news-audio/a.mp3", seconds: 150 };
+    const latest = vi
+      .fn()
+      .mockResolvedValueOnce({ insights: insights(1), audioPending: true })
+      .mockResolvedValueOnce({ insights: insights(1), audioPending: true })
+      .mockResolvedValueOnce({ insights: { ...insights(1), audio } });
+    const slept: number[] = [];
+    const store = createNewsInsightsStore(
+      { latest, refresh: vi.fn() },
+      () => 1,
+      async (ms) => void slept.push(ms),
+    );
+    await store.getState().load();
+    expect(store.getState().audioPending).toBe(true);
+    await vi.waitFor(() => expect(store.getState().insights?.audio).toEqual(audio));
+    expect(store.getState().audioPending).toBe(false);
+    expect(latest).toHaveBeenCalledTimes(3);
+    expect(slept).toEqual([10_000, 10_000]);
+  });
+
   it("loads the latest once, then again only after 5 minutes or when forced", async () => {
     let t = 1_000_000;
     const api: NewsInsightsApi = {

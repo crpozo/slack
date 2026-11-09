@@ -266,6 +266,11 @@ export interface NewsInsightsResponse {
    * page waiting for an analysis stops at once and says why.
    */
   failure?: NewsInsightsFailure;
+  /**
+   * Phase 55: the analysis has no audio yet and it is being made right now
+   * (a minute at most): ask again in a moment.
+   */
+  audioPending?: boolean;
 }
 
 export interface NewsInsightsFailure {

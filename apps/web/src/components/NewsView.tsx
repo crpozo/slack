@@ -89,6 +89,7 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
               <NewsDashboard
                 leading={menu}
                 audio={insights?.audio}
+                audioPending={insightsState.audioPending}
                 dateLabel={dashboardDateLabel(insights?.day ?? null, now)}
                 storyCount={insights?.storyCount ?? articles.length}
                 stories={top}

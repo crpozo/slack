@@ -61,7 +61,12 @@ describe("AI Insights (Phase 39)", () => {
 
   it("the worker may only write the row and call the model; the endpoint read it, claim a refresh and start the worker", () => {
     const worker = statementsOf("TasksApiNewsInsightsWorkerFnServiceRoleDefaultPolicy");
-    expect(actionsOn(worker, "DataNewsInsights")).toEqual(["dynamodb:PutItem"]);
+    // Phase 55: UpdateItem (the audio's claim, the audio added to its row), Query (the newest).
+    expect(actionsOn(worker, "DataNewsInsights")).toEqual([
+      "dynamodb:PutItem",
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+    ]);
     expect(worker.flatMap((st) => [st.Action].flat())).toContain("bedrock:InvokeModel");
     // Phase 49: it streams the answer, which is its own action (without it every run is refused).
     expect(worker.flatMap((st) => [st.Action].flat())).toContain(
