@@ -713,6 +713,26 @@ describe("channel rename", () => {
     expect(input?.ExpressionAttributeValues).toEqual({ ":topic": "" });
   });
 
+  it("marks a channel informational (its own sidebar section), or not, for whoever may edit it", async () => {
+    await update({ informational: true }, BOB);
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+
+    await update({ informational: true });
+    const input = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(input?.UpdateExpression).toBe("SET #informational = :informational");
+    expect(input?.ExpressionAttributeValues).toEqual({ ":informational": true });
+    expect(sentEvents().at(-1)).toEqual([
+      "conn-alice",
+      expect.objectContaining({ type: "channel.updated" }),
+    ]);
+    // `false` is stored too, so a name that looks informational can stay a regular channel.
+    await update({ informational: false });
+    expect(ddbMock.commandCalls(UpdateCommand)[1]?.args[0].input.ExpressionAttributeValues).toEqual(
+      { ":informational": false },
+    );
+  });
+
   it("lets only admins edit #general's details, and nobody rename it", async () => {
     await update({ topic: "Hi" }, ALICE, "ch_general");
     expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });

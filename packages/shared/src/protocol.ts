@@ -220,6 +220,12 @@ export interface Channel {
   /** The Kanban board of a project channel (`/app/tasks/<boardId>`). */
   linkedBoardId?: string;
   /**
+   * Informational, not a project (Phase 53): news, tools, announcements. The
+   * sidebar lists it in its own section, away from the project channels.
+   * Absent: the app guesses from the name (see the web's `isInformational`).
+   */
+  informational?: boolean;
+  /**
    * Read watermarks: per user, the newest message `sk` they have seen (and
    * when). One row per channel, however many messages: a message is read by
    * someone iff their watermark is >= its `sk` (sort keys order by time).
@@ -613,6 +619,8 @@ export const ChannelUpdateActionSchema = z
     board: ProjectBoardSchema.optional(),
     /** Admins: archive (read-only, out of the sidebar) or restore the channel. */
     archived: z.boolean().optional(),
+    /** Informational (its own sidebar section) or a regular channel again. */
+    informational: z.boolean().optional(),
   })
   .refine(
     (a) =>
@@ -621,7 +629,8 @@ export const ChannelUpdateActionSchema = z
       a.description !== undefined ||
       a.isProject !== undefined ||
       a.board !== undefined ||
-      a.archived !== undefined,
+      a.archived !== undefined ||
+      a.informational !== undefined,
     "nothing to update",
   );
 

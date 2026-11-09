@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Informational channels:** channels that inform rather than run a project (news, tools,
+  announcements) get their own **Informational** section in the sidebar, above Channels, on
+  desktop and phones. "News/Tools" and other channels named like that land there by
+  themselves (never a project); **Move to Informational** / **Move to Channels** in a
+  channel's ⋯ menu changes it for everyone, and the choice sticks.
 - **AI Notes by date and by topic:** the notes are grouped under **Hoy**, **Ayer**, **Esta
   semana** and then month by month ("Octubre 2026"), with the heading staying on screen as you
   scroll. A meeting can be filed under a **topic** (Daily Sync, Client Call, Planning, Retro, 1:1,

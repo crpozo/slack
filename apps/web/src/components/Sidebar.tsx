@@ -1,4 +1,5 @@
 import {
+  GENERAL_CHANNEL_ID,
   canArchiveChannel,
   canDeleteChannel,
   canEditChannel,
@@ -11,7 +12,7 @@ import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
 import { LONG_PRESS_MS, SLOP_PX, swallowNextClick } from "../lib/gestures";
-import { dmEntries, orderChannels, orderDms, type DmEntry } from "../lib/channels";
+import { dmEntries, isInformational, orderChannels, orderDms, type DmEntry } from "../lib/channels";
 import {
   loadPhoneSections,
   savePhoneSections,
@@ -704,7 +705,12 @@ export function Sidebar({
       return dm ? [{ kind: "dm", dm }] : [];
     },
   );
-  const shownChannels = namedChannels.filter((c) => !pinnedSet.has(c.channelId));
+  // Phase 53: informational channels (news, tools) get their own section,
+  // away from the project channels.
+  const shownInfo = namedChannels.filter((c) => !pinnedSet.has(c.channelId) && isInformational(c));
+  const shownChannels = namedChannels.filter(
+    (c) => !pinnedSet.has(c.channelId) && !isInformational(c),
+  );
   const shownDms = dms.filter((d) => !d.channelId || !pinnedSet.has(d.channelId));
   const myName = nameOf(me.userId, me.email);
   const compact = collapsed;
@@ -744,6 +750,15 @@ export function Sidebar({
     });
     if (me && canEditChannel(c, me.userId, me.role)) {
       items.push({ label: "Edit channel", icon: <PencilIcon />, onSelect: () => setEditing(c) });
+      // Phase 53: in or out of the Informational section (stored, so it sticks).
+      if (!c.archived && c.channelId !== GENERAL_CHANNEL_ID) {
+        const info = isInformational(c);
+        items.push({
+          label: info ? "Move to Channels" : "Move to Informational",
+          icon: info ? <HashIcon /> : <NewspaperIcon />,
+          onSelect: () => chat.updateChannel(c.channelId, { informational: !info }),
+        });
+      }
     }
     // Its creator or an admin; archived channels live under Archived already.
     if (me && !c.archived && canArchiveChannel(c, me.userId, me.role)) {
@@ -854,6 +869,16 @@ export function Sidebar({
               {pinnedItems.map((item) =>
                 item.kind === "channel" ? phoneChannelRow(item.channel) : phoneDmRow(item.dm),
               )}
+            </PhoneSectionBlock>
+          )}
+          {shownInfo.length > 0 && (
+            <PhoneSectionBlock
+              title="Informational"
+              icon={<NewspaperIcon />}
+              folded={folded.info}
+              onToggle={() => toggleSection("info")}
+            >
+              {shownInfo.map(phoneChannelRow)}
             </PhoneSectionBlock>
           )}
           <PhoneSectionBlock
@@ -1047,6 +1072,14 @@ export function Sidebar({
               {pinnedItems.map((item) =>
                 item.kind === "channel" ? channelNavItem(item.channel) : dmNavItem(item.dm),
               )}
+            </ul>
+          </Section>
+        )}
+
+        {only !== "dms" && shownInfo.length > 0 && (
+          <Section title="Informational" compact={compact}>
+            <ul className="space-y-0.5 px-2" aria-label="Informational channels">
+              {shownInfo.map(channelNavItem)}
             </ul>
           </Section>
         )}

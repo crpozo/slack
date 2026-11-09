@@ -415,6 +415,7 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
     description: "description" in action ? action.description : undefined,
     isProject: "isProject" in action ? action.isProject : undefined,
     board: "board" in action ? action.board : undefined,
+    informational: "informational" in action ? action.informational : undefined,
   };
   const renaming = fields.name !== undefined && fields.name !== channel.name;
   const allowed = renaming
@@ -457,6 +458,10 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
   if (fields.topic !== undefined) assign("topic", fields.topic);
   if (fields.description !== undefined) assign("description", fields.description);
   if (archiving !== undefined && archiving !== !!channel.archived) assign("archived", archiving);
+  // Phase 53: stored even when it matches the guess, so a choice sticks.
+  if (fields.informational !== undefined && fields.informational !== channel.informational) {
+    assign("informational", fields.informational);
+  }
 
   // Project settings: a board to link or create, or turning the project off.
   let newBoard: Board | undefined;

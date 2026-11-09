@@ -86,6 +86,8 @@ export interface ChannelEdit {
   description?: string;
   /** `false` unlinks the board; `true` needs `board` unless the channel already has one. */
   isProject?: boolean;
+  /** Informational (its own sidebar section), or a regular channel again. */
+  informational?: boolean;
   board?: ProjectBoard;
 }
 

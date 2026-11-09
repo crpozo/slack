@@ -207,3 +207,21 @@ export function orderDms(entries: DmEntry[], channels: Channel[], pinned: string
   const quiet = rest.filter((e) => activity(e) === undefined);
   return [...top, ...active, ...quiet];
 }
+
+/** Names that say a channel informs rather than runs a project (English and Spanish). */
+const INFORMATIONAL_NAME =
+  /\b(news|noticias|newsletter|tools|herramientas|resources|recursos|announcements?|anuncios|avisos|info|links|enlaces)\b/i;
+
+/**
+ * Whether `channel` belongs in the sidebar's Informativos section (Phase 53):
+ * as it was marked, or, never marked, by its name ("News/Tools", "Anuncios"),
+ * unless it's a project. #general and DMs never are.
+ */
+export function isInformational(
+  channel: Pick<Channel, "channelId" | "name" | "type"> &
+    Partial<Pick<Channel, "informational" | "isProject">>,
+): boolean {
+  if (channel.type === "dm" || channel.channelId === GENERAL_CHANNEL_ID) return false;
+  if (channel.informational !== undefined) return channel.informational;
+  return !channel.isProject && INFORMATIONAL_NAME.test(channel.name.replace(/[-_.]+/g, " "));
+}

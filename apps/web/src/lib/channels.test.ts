@@ -7,6 +7,7 @@ import {
   dmEntries,
   type DmEntry,
   formatDay,
+  isInformational,
   orderChannels,
   orderDms,
 } from "./channels";
@@ -275,5 +276,31 @@ describe("leaving a channel you archived", () => {
     expect(showsChannel("/app/ch_x/thread/m1", "ch_x")).toBe(true);
     expect(showsChannel("/app/ch_xy", "ch_x")).toBe(false);
     expect(showsChannel("/app/tasks", "ch_x")).toBe(false);
+  });
+});
+
+describe("isInformational", () => {
+  const ch = (name: string, extra: Partial<Channel> = {}) =>
+    ({ channelId: `ch_${name}`, name, type: "private", ...extra }) as Channel;
+
+  it("goes by the name until someone chooses", () => {
+    expect(isInformational(ch("News/Tools"))).toBe(true);
+    expect(isInformational(ch("Anuncios"))).toBe(true);
+    expect(isInformational(ch("ai-news"))).toBe(true);
+    expect(isInformational(ch("Paymerch Website"))).toBe(false);
+    expect(isInformational(ch("ClinicAI"))).toBe(false);
+    // A project with a newsy name is still a project.
+    expect(isInformational(ch("Newsroom App"))).toBe(false);
+    expect(isInformational(ch("News Portal", { isProject: true }))).toBe(false);
+  });
+
+  it("follows the stored choice, both ways", () => {
+    expect(isInformational(ch("News/Tools", { informational: false }))).toBe(false);
+    expect(isInformational(ch("Cybersecurity", { informational: true }))).toBe(true);
+  });
+
+  it("never #general or a DM", () => {
+    expect(isInformational({ channelId: "ch_general", name: "news", type: "public" })).toBe(false);
+    expect(isInformational(ch("news", { type: "dm" }))).toBe(false);
   });
 });

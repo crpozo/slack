@@ -233,7 +233,13 @@ describe("archiving from the sidebar's ⋯ menu", () => {
     renderSidebar(`/app/${CH}`, [general, channel()]);
     openMenu("proyecto-x");
     const items = screen.getAllByRole("menuitem").map((i) => i.textContent?.trim());
-    expect(items).toEqual(["Pin to the top", "Edit channel", "Archive channel", "Delete channel"]);
+    expect(items).toEqual([
+      "Pin to the top",
+      "Edit channel",
+      "Move to Informational",
+      "Archive channel",
+      "Delete channel",
+    ]);
     fireEvent.click(screen.getByRole("menuitem", { name: /Archive channel/ }));
     // A confirmation first: nothing happens until it's confirmed.
     expect(update).not.toHaveBeenCalled();
