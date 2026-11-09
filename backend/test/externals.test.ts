@@ -297,3 +297,41 @@ describe("the team's AI and calls stay closed to externals", () => {
     expect(ddbMock.calls()).toHaveLength(0);
   });
 });
+
+describe("Vault cards never reach an external with their details", () => {
+  const card = {
+    messageId: "m1",
+    channelId: "ch_client",
+    sk: "1#m1",
+    userId: ALICE.userId,
+    userEmail: ALICE.email,
+    text: "🔒 Shared a Secret: AWS root",
+    attachments: [],
+    createdAt: 1,
+    reactions: {},
+    kind: "vault" as const,
+    vault: { secretId: "vs_1", name: "AWS root", username: "admin@aws" },
+  };
+
+  it("live: the team gets the card, the external only a line", async () => {
+    await deliver(CONNECTIONS as Parameters<typeof deliver>[0], () => ({
+      type: "message.new",
+      message: card,
+      clientId: "",
+    }));
+    const byConn = new Map(sentEvents().map(([id, e]) => [id, JSON.stringify(e)]));
+    expect(byConn.get("conn-alice")).toContain("admin@aws");
+    expect(byConn.get("conn-guest")).not.toContain("admin@aws");
+    expect(byConn.get("conn-guest")).not.toContain("AWS root");
+    expect(byConn.get("conn-guest")).toContain("A secret shared with the MindfulTech team");
+  });
+
+  it("in history too", async () => {
+    ddbMock.on(QueryCommand).resolves({ Items: [card] });
+    await history(wsEvent("history", { action: "history", channelId: "ch_client" }, asGuest));
+    const page = JSON.stringify(sentEvents().at(-1)?.[1]);
+    expect(page).toContain("history.page");
+    expect(page).not.toContain("AWS root");
+    expect(page).not.toContain("admin@aws");
+  });
+});

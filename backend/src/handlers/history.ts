@@ -6,6 +6,7 @@ import {
   parseAction,
   THREAD_SK_PREFIX,
   threadSkPrefix,
+  withoutVaultCard,
 } from "@mindfultech/shared";
 import { getAccessibleChannel } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
@@ -87,7 +88,9 @@ export const handler = wsHandler(async (event, caller) => {
   const now = Date.now();
   const ordered = (page.Items ?? []).map(toWireMessage).filter((m) => !isExpired(m, now));
   if (!thread) ordered.reverse();
-  const items = await Promise.all(ordered.map((m) => signAttachments(m)));
+  // An external never gets a Vault card's details (Phase 55).
+  const visible = caller.role === "guest" ? ordered.map(withoutVaultCard) : ordered;
+  const items = await Promise.all(visible.map((m) => signAttachments(m)));
   const last = page.LastEvaluatedKey as MessageKey | undefined;
   await reply(caller.connectionId, {
     type: "history.page",

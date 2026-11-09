@@ -492,7 +492,7 @@ export function ChannelView({
   // The right pane on desktop: a thread while one is open, else the project's
   // board when it's toggled on (phones open the Task Manager instead).
   const boardId = channel?.isProject ? channel.linkedBoardId : undefined;
-  const showBoard = desktop && boardOpen && !!boardId && !threadParent;
+  const showBoard = desktop && boardOpen && !!boardId && !threadParent && me.role !== "guest";
   // Phones: the thread takes the whole screen, header included.
   const mobileThread = !!threadParent && !desktop;
   const access = channelAccess(channelId, channel, me, channelsLoaded, users);

@@ -19,6 +19,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   **External** chip, the message box reminds you who's from outside ("Jane is outside
   MindfulTech and can read this channel"), and their name carries an **External** badge in
   messages, in the member list and when picking people.
+- **Externals see only the chat they're invited to:** no Boards (unless someone invited
+  them to a board), no meeting **Join** or **View in Calendar**, no board of a project channel
+  (a new project board never includes them), and never a Vault card's details: they read
+  "🔒 A secret shared with the MindfulTech team" instead, live and in history. A secret can't
+  be shared (`/secret`) in a channel with externals at all. With nothing shared yet, they see
+  a short note.
 - **Remove people from a private channel:** its creator or an admin can take someone out from
   the channel's Members tab (two taps). An external loses the channel at once.
 - **AI News in audio:** "Escucha el resumen" under the AI News title plays the day's summary

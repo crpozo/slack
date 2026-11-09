@@ -809,6 +809,7 @@ describe("project channels", () => {
     ddbMock.on(UpdateCommand).resolves({});
     ddbMock.on(TransactWriteCommand).resolves({});
     ddbMock.on(GetCommand, { TableName: "slack-test-boards" }).resolves({ Item: board });
+    ddbMock.on(BatchGetCommand).resolves({ Responses: { "slack-test-users": [] } }); // no externals
   });
 
   it("creates the channel and a new board in one transaction, then announces both", async () => {
@@ -886,6 +887,21 @@ describe("project channels", () => {
     const events = sentEvents().map(([to, e]) => [to, e.type]);
     expect(events).toContainEqual(["conn-bob", "board.updated"]);
     expect(events).toContainEqual(["conn-alice", "channel.updated"]);
+  });
+
+  it("never puts an external in the channel on its new board (Phase 55)", async () => {
+    mockScans([general, { ...team, members: [ALICE.userId, BOB.userId, "user-client"] }]);
+    ddbMock.on(BatchGetCommand).resolves({
+      Responses: { "slack-test-users": [{ userId: "user-client", role: "guest" }] },
+    });
+    await update({ isProject: true, board: { mode: "create" } });
+    const items = transactions()[0]?.args[0].input.TransactItems ?? [];
+    expect(
+      items
+        .slice(2)
+        .map((i) => i.Put?.Item?.sk)
+        .sort(),
+    ).toEqual([`MEMBER#${ALICE.userId}`, `MEMBER#${BOB.userId}`].sort());
   });
 
   it("update unlinks the board when the project is turned off", async () => {

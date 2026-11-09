@@ -1,5 +1,10 @@
 import { DeleteCommand, paginateScan } from "@aws-sdk/lib-dynamodb";
-import { ACTIVE_WINDOW_MS, guestMayReceive, type ServerEvent } from "@mindfultech/shared";
+import {
+  ACTIVE_WINDOW_MS,
+  guestMayReceive,
+  withoutVaultCard,
+  type ServerEvent,
+} from "@mindfultech/shared";
 import { ddb, tables, type ConnectionItem } from "./ddb";
 import { log } from "./logger";
 import { reply } from "./response";
@@ -39,11 +44,16 @@ export async function deliver(
 ): Promise<number> {
   const results = await Promise.allSettled(
     connections.map(async (connection) => {
-      const event = eventFor(connection);
-      if (!event) return false;
+      const built = eventFor(connection);
+      if (!built) return false;
       // The one choke point for guests: whatever a handler meant to send, a
-      // guest's connection only ever gets their boards' events.
-      if (connection.role === "guest" && !guestMayReceive(event.type)) return false;
+      // guest's connection only ever gets their boards' and channels' events,
+      // and never a Vault card's details (Phase 55).
+      if (connection.role === "guest" && !guestMayReceive(built.type)) return false;
+      const event =
+        connection.role === "guest" && built.type === "message.new"
+          ? { ...built, message: withoutVaultCard(built.message) }
+          : built;
       const delivered = await reply(connection.connectionId, event);
       if (!delivered) {
         await ddb.send(

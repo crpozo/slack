@@ -155,7 +155,11 @@ async function resolveProjectBoard(
   if (caller.role === "guest") {
     return { ok: false, code: "FORBIDDEN", message: "Guests can't create boards" };
   }
-  const members = [...new Set([caller.userId, ...(channel.members ?? [])])].sort(compareIds);
+  // Externals in the channel (Phase 55) see its chat only: never its new board.
+  const externals = new Set(await guestsAmong(channel.members ?? []));
+  const members = [...new Set([caller.userId, ...(channel.members ?? [])])]
+    .filter((id) => !externals.has(id))
+    .sort(compareIds);
   const newBoard: Board = {
     boardId: `b_${ulid()}`,
     name: channel.name,

@@ -55,6 +55,8 @@ export function MeetingCard({
   const navigate = useNavigate();
   const nameOf = useNameOf();
   const showToast = useChat((s) => s.showToast);
+  // Phase 55: an external reads the card; calls and the calendar are the team's.
+  const guest = useChat((s) => s.me?.role === "guest");
   const inDmCall = useCall((s) => s.call !== null);
   const inGroupCall = useGroupCall((s) => s.call !== null);
   const inCall = inDmCall || inGroupCall;
@@ -167,7 +169,7 @@ export function MeetingCard({
             {listOf(card.participants.map((id) => (id === myUserId ? "You" : nameOf(id))))}
           </span>
         </div>
-        {join === "open" && (
+        {join === "open" && !guest && (
           <button
             type="button"
             onClick={joinCall}
@@ -179,7 +181,7 @@ export function MeetingCard({
           </button>
         )}
       </div>
-      {!card.cancelled && (
+      {!card.cancelled && !guest && (
         <button
           type="button"
           onClick={() => void navigate(calendarEventPath(card.eventId))}

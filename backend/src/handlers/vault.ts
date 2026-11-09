@@ -76,7 +76,13 @@ async function channelFor(channelId: string, caller: HttpCaller, allowArchived: 
 
 /** Everyone on the team who may be given a secret: the directory without guests. */
 async function teamMemberIds(): Promise<Set<string>> {
+  return (await scanDirectory()).team;
+}
+
+/** The directory split in two: the team, and the externals (guest accounts). */
+async function scanDirectory(): Promise<{ team: Set<string>; guests: Set<string> }> {
   const ids = new Set<string>();
+  const guests = new Set<string>();
   const pages = paginateScan(
     { client: ddb },
     {
@@ -88,10 +94,10 @@ async function teamMemberIds(): Promise<Set<string>> {
   );
   for await (const page of pages) {
     for (const item of page.Items ?? []) {
-      if (item.role !== "guest") ids.add(String(item.userId));
+      (item.role === "guest" ? guests : ids).add(String(item.userId));
     }
   }
-  return ids;
+  return { team: ids, guests };
 }
 
 /** The people a secret is shared with, checked against the team (no guests, no strangers). */
@@ -106,11 +112,21 @@ async function allowedList(ids: string[], ownerId: string): Promise<string[]> {
   return others;
 }
 
-/** `/secret`: the card is posted for the channel's members, so they get the secret. */
+/**
+ * `/secret`: the card is posted for the channel's members, so they get the
+ * secret: teammates only. A channel with people from outside MindfulTech
+ * (Phase 55) takes no secret at all: its card would be read by them.
+ */
 async function channelMemberIds(channel: Channel, ownerId: string): Promise<string[]> {
-  const members =
-    channel.type === "public" ? [...(await teamMemberIds())] : (channel.members ?? []);
-  return [...new Set(members)].filter((id) => id !== ownerId);
+  const { team, guests } = await scanDirectory();
+  const members = channel.type === "public" ? [...team] : (channel.members ?? []);
+  if (members.some((id) => guests.has(id))) {
+    throw new HttpError(
+      400,
+      "People from outside MindfulTech are in this channel: share the secret in a team channel",
+    );
+  }
+  return [...new Set(members)].filter((id) => id !== ownerId && team.has(id));
 }
 
 /** The caller's secret, if they may see it; "not found" otherwise (it isn't theirs to know of). */

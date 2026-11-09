@@ -108,6 +108,21 @@ export interface VaultCard {
 export const vaultCardText = (card: Pick<VaultCard, "name">): string =>
   `🔒 Shared a Secret: ${card.name}`;
 
+/** What an external reads instead of a Vault card (Phase 55). */
+export const VAULT_CARD_FOR_GUESTS = "🔒 A secret shared with the MindfulTech team";
+
+/**
+ * A message as an external (guest) may see it (Phase 55): a Vault card loses
+ * its details (name, username, website), which are the team's. Anything else
+ * is returned as is (the same object).
+ */
+export function withoutVaultCard<T extends { vault?: VaultCard; text: string }>(message: T): T {
+  if (!message.vault) return message;
+  const copy = { ...message, text: VAULT_CARD_FOR_GUESTS };
+  delete copy.vault;
+  return copy;
+}
+
 /**
  * The website as a link the app may open: `http(s)` only (no `javascript:`),
  * `https://` added when no scheme was typed; `null` when it isn't a URL.

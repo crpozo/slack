@@ -436,6 +436,18 @@ describe("/secret: sharing a secret as a chat card", () => {
     expect(JSON.stringify([messages, sentEvents()])).not.toContain("hunter2");
   });
 
+  it("refuses a channel with people from outside MindfulTech (Phase 55): nothing saved or posted", async () => {
+    mockChannels(
+      GENERAL,
+      privateRow("ch_client", ALICE.userId, [ALICE.userId, BOB.userId, GUEST.userId]),
+    );
+    const res = await save({ channelId: "ch_client", password: "pw", share: true });
+    expect(res.status).toBe(400);
+    expect(res.json.message).toMatch(/outside MindfulTech/);
+    expect(vault.size).toBe(0);
+    expect(messages).toHaveLength(0);
+  });
+
   it("in a public channel, shares it with the whole team but never guests", async () => {
     const res = await save({ channelId: "ch_general", password: "pw", share: true });
     expect(res.json.secret.allowedUserIds.sort()).toEqual(

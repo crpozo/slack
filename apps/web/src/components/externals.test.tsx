@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 import type { Channel } from "@mindfultech/shared";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chat } from "../lib/chat";
 import { channelsApi, configureTasksApi } from "../lib/tasksApi";
 import { useChat } from "../store";
 import { InviteModal } from "./ChannelModals";
 import { ConversationDetailsModal } from "./ConversationPanels";
+import { GuestLayout } from "./GuestLayout";
+import { useTasks } from "../store/tasks";
 
 // Phase 55: people from outside MindfulTech in private channels.
 
@@ -109,5 +111,66 @@ describe("a channel's members, with externals", () => {
     useChat.setState({ me: { userId: BOB.userId, email: BOB.email, role: "member" } });
     open();
     expect(screen.queryByRole("button", { name: /Remove .* from the channel/ })).toBeNull();
+  });
+});
+
+describe("what an external sees: the chat they're invited to, nothing else", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+        addListener() {},
+        removeListener() {},
+      })),
+    );
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    vi.spyOn(chat, "start").mockImplementation(() => {});
+    vi.spyOn(chat, "stop").mockImplementation(() => {});
+    vi.spyOn(chat, "loadHistory").mockImplementation(() => {});
+    vi.spyOn(chat, "viewed").mockImplementation(() => {});
+    vi.spyOn(useTasks.getState(), "loadBoards").mockResolvedValue();
+    useTasks.setState({ boards: [], boardsLoaded: true });
+    useChat.setState({
+      me: { userId: CLIENT.userId, email: CLIENT.email, role: "guest" },
+      channels: [cambridge],
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const renderAt = (path: string) =>
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/app/tasks/:boardId?" element={<GuestLayout wsUrl="ws://test" />} />
+          <Route path="/app/:channelId" element={<GuestLayout wsUrl="ws://test" />} />
+          <Route path="/app" element={<GuestLayout wsUrl="ws://test" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+  it("lists their channel and no Boards, calls or invites", () => {
+    renderAt("/app/ch_cambridge");
+    const nav = screen.getAllByRole("navigation", { name: "Your channels and boards" })[0]!;
+    expect(nav.textContent).toContain("Cambridge");
+    expect(nav.textContent).not.toMatch(/Boards/);
+    expect(screen.queryByRole("button", { name: /Invite/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /call/i })).toBeNull();
+  });
+
+  it("sends the Task Manager back to their channel when they have no board", () => {
+    renderAt("/app/tasks");
+    expect(screen.queryByText(/Loading boards/)).toBeNull();
+    expect(screen.getAllByText("Cambridge").length).toBeGreaterThan(0);
   });
 });

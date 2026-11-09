@@ -5,6 +5,7 @@ import { signOut } from "../lib/auth";
 import { chat } from "../lib/chat";
 import { orderChannels } from "../lib/channels";
 import { signOutPush, syncPush } from "../lib/push";
+import { tasksApiConfigured } from "../lib/tasksApi";
 import { selectUnread, useChat } from "../store";
 import { useTasks } from "../store/tasks";
 import { ChannelIcon } from "./ChannelIcon";
@@ -37,10 +38,13 @@ function GuestNav({
   activeChannelId,
   onBoards,
   boardsActive,
+  hasBoards,
   onNavigate,
 }: Readonly<{
   activeChannelId: string | null;
   boardsActive: boolean;
+  /** Only someone invited to a board sees Boards: a channel's external sees its chat only. */
+  hasBoards: boolean;
   onBoards: () => void;
   onNavigate: (channelId: string) => void;
 }>) {
@@ -94,19 +98,21 @@ function GuestNav({
           </ul>
         </div>
       )}
-      <div>
-        <p className="px-2.5 pb-1 text-xs font-semibold uppercase tracking-wide text-ink-secondary">
-          Apps
-        </p>
-        <button
-          type="button"
-          onClick={onBoards}
-          className={row(boardsActive)}
-          aria-current={boardsActive ? "page" : undefined}
-        >
-          <KanbanIcon /> <span className="flex-1">Boards</span>
-        </button>
-      </div>
+      {hasBoards && (
+        <div>
+          <p className="px-2.5 pb-1 text-xs font-semibold uppercase tracking-wide text-ink-secondary">
+            Boards
+          </p>
+          <button
+            type="button"
+            onClick={onBoards}
+            className={row(boardsActive)}
+            aria-current={boardsActive ? "page" : undefined}
+          >
+            <KanbanIcon /> <span className="flex-1">Your boards</span>
+          </button>
+        </div>
+      )}
     </nav>
   );
 }
@@ -137,6 +143,13 @@ export function GuestLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   );
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  // Phase 55: boards only for someone invited to one (an external of a channel has its chat only).
+  const boardsLoaded = useTasks((s) => s.boardsLoaded);
+  const hasBoards = useTasks((s) => s.boards.length > 0);
+  useEffect(() => {
+    if (tasksApiConfigured()) void useTasks.getState().loadBoards();
+    else useTasks.setState({ boardsLoaded: true });
+  }, []);
 
   const handleSignOut = useCallback(async () => {
     await signOutPush();
@@ -198,18 +211,24 @@ export function GuestLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     [navigate, channelId],
   );
 
-  // `/app`: their first channel, or their boards when they have no channel.
+  // `/app`: their first channel, else their boards; with neither, a note.
   if (!tasksMatch && !channelId) {
-    if (!channelsLoaded) {
+    if (!channelsLoaded || (!firstChannel && !boardsLoaded)) {
       return <div className="h-full bg-surface" aria-busy="true" aria-label="Loading" />;
     }
-    return <Navigate to={firstChannel ? `/app/${firstChannel}` : "/app/tasks"} replace />;
+    if (firstChannel) return <Navigate to={`/app/${firstChannel}`} replace />;
+    if (hasBoards) return <Navigate to="/app/tasks" replace />;
+  }
+  // The Task Manager is only for someone with a board.
+  if (tasksMatch && boardsLoaded && !hasBoards) {
+    return <Navigate to={firstChannel ? `/app/${firstChannel}` : "/app"} replace />;
   }
 
   const nav = (
     <GuestNav
       activeChannelId={channelId}
       boardsActive={!!tasksMatch}
+      hasBoards={hasBoards}
       onBoards={() => navigate("/app/tasks")}
       onNavigate={(id) => navigate(`/app/${encodeURIComponent(id)}`)}
     />
@@ -284,7 +303,14 @@ export function GuestLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         )}
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <PushPrompt />
-          {channelId ? (
+          {!channelId && !tasksMatch ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+              <p className="font-semibold text-ink">Nothing is shared with you yet</p>
+              <p className="max-w-sm text-sm text-ink-secondary">
+                When the MindfulTech team invites you to a channel, it shows up here.
+              </p>
+            </div>
+          ) : channelId ? (
             <ChannelView
               channelId={channelId}
               onOpenSidebar={() => setNavOpen(true)}
