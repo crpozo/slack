@@ -2,6 +2,7 @@ import {
   canArchiveChannel,
   isDmChannel,
   MAX_TEXT_LENGTH,
+  textTooLong,
   parseSecretCommand,
 } from "@mindfultech/shared";
 import {
@@ -384,7 +385,10 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
 
   // Never waits for uploads: the outbox sends the message once its files are up.
   // A secret is text only: files wait until secret mode is off.
-  const canSend = !disabled && (text.trim().length > 0 || (uploads.length > 0 && !secret));
+  // Phase 55: over the limit, the composer says so (with a counter) instead of failing to send.
+  const tooLong = textTooLong(text);
+  const canSend =
+    !disabled && !tooLong && (text.trim().length > 0 || (uploads.length > 0 && !secret));
 
   // Auto-grow up to MAX_HEIGHT_PX.
   useLayoutEffect(() => {
@@ -477,7 +481,7 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
   function submit() {
     if (editing) {
       const next = text.trim();
-      if (!next || disabled) return;
+      if (!next || disabled || tooLong) return;
       if (next !== editing.text) chat.editMessage(channelId, editing.sk, next);
       cancelEdit();
       textareaRef.current?.focus();
@@ -660,7 +664,6 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
       ref={textareaRef}
       rows={1}
       value={text}
-      maxLength={MAX_TEXT_LENGTH}
       onChange={(e) => handleChange(e.target.value)}
       onKeyDown={handleKeyDown}
       onPaste={handlePaste}
@@ -678,7 +681,7 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
     <button
       type="button"
       onClick={submit}
-      disabled={editing ? !text.trim() : !canSend}
+      disabled={editing ? !text.trim() || tooLong : !canSend}
       className={
         phone
           ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-lg text-on-primary disabled:opacity-40"
@@ -1035,9 +1038,21 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
           )}
         </div>
       </div>
-      <p className="mt-1 hidden px-1 text-[11px] text-ink-secondary sm:block">
-        <b>Enter</b> to send · <b>Shift + Enter</b> for a new line · **bold** _italic_ `code`
-      </p>
+      {tooLong || text.length > MAX_TEXT_LENGTH * 0.8 ? (
+        // Phase 55: how much room is left, and a plain "too long" before Send, not after.
+        <p
+          role={tooLong ? "alert" : undefined}
+          className={`mt-1 px-1 text-[11px] tabular-nums ${tooLong ? "text-error" : "text-ink-secondary"}`}
+          data-composer-length
+        >
+          {text.length.toLocaleString()} / {MAX_TEXT_LENGTH.toLocaleString()}
+          {tooLong && " · Too long to send: split it into two messages."}
+        </p>
+      ) : (
+        <p className="mt-1 hidden px-1 text-[11px] text-ink-secondary sm:block">
+          <b>Enter</b> to send · <b>Shift + Enter</b> for a new line · **bold** _italic_ `code`
+        </p>
+      )}
     </div>
   );
 });

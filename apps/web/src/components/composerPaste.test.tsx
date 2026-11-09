@@ -73,3 +73,16 @@ describe("pasting into the composer (Phase 54)", () => {
     expect(box.value).toBe("");
   });
 });
+
+describe("a message over the limit (Phase 55)", () => {
+  it("shows the count and why, and can't be sent, instead of failing after", () => {
+    render(<Composer channelId={CH} placeholder="Message" />);
+    const box = screen.getByPlaceholderText("Message") as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: "a".repeat(9_000) } });
+    expect(screen.getByText(/9,000 \/ 10,000/)).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.change(box, { target: { value: "a".repeat(10_001) } });
+    expect(screen.getByRole("alert").textContent).toMatch(/Too long to send/);
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});

@@ -11,7 +11,19 @@ import type { VaultCard } from "./vault";
 // Limits & constants
 // ---------------------------------------------------------------------------
 
-export const MAX_TEXT_LENGTH = 4000;
+/**
+ * A message's text (Phase 55: 10,000 characters, was 4,000, so a long brief
+ * pasted from a doc fits). Also capped in bytes (`MAX_TEXT_BYTES`): a frame on
+ * the WebSocket API must stay under 32 KB, and emoji take 4 bytes each.
+ */
+export const MAX_TEXT_LENGTH = 10_000;
+/** UTF-8 bytes a message's text may take (see `MAX_TEXT_LENGTH`). */
+export const MAX_TEXT_BYTES = 24_000;
+
+/** Whether `text` is over either limit (the composer says so instead of failing to send). */
+export function textTooLong(text: string): boolean {
+  return text.length > MAX_TEXT_LENGTH || new TextEncoder().encode(text).length > MAX_TEXT_BYTES;
+}
 export const MAX_ATTACHMENT_SIZE = 500 * 1024 * 1024; // 500 MB (videos, datasets)
 export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 /** Channel slug: what names must be unique on (see `slugifyChannelName`). */
@@ -489,7 +501,10 @@ export function canArchiveChannel(
 export const MessageActionSchema = z.object({
   action: z.literal("message"),
   channelId,
-  text: z.string().max(MAX_TEXT_LENGTH),
+  text: z
+    .string()
+    .max(MAX_TEXT_LENGTH)
+    .refine((t) => !textTooLong(t), "text is too long"),
   attachments: z.array(AttachmentSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
   clientId: z.string().min(1).max(64),
   /** A secret (text only): stored with a 24-hour TTL and shown masked. */
@@ -691,7 +706,12 @@ export const EditActionSchema = z.object({
   action: z.literal("edit"),
   channelId,
   sk: z.string().min(1).max(128),
-  text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
+  text: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_TEXT_LENGTH)
+    .refine((t) => !textTooLong(t), "text is too long"),
 });
 
 /**

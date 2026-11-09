@@ -39,6 +39,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **Long messages send:** a message could hold 4,000 characters; a long brief pasted from a doc
+  failed with "Failed to send" (and "That request isn't valid" on retry). Messages now take up
+  to 10,000 characters, and past 8,000 the box shows how many you've used; over the limit it
+  says so and won't send, instead of failing after. A message that failed for being long sends
+  now with **Click to retry**.
 - **Phones: the Home list scrolls:** resting a finger on a channel before swiping opened its
   options and froze the list. A row's options now need a deliberate hold (0.6 s), and any
   scrolling cancels it.
