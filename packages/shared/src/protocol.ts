@@ -221,7 +221,7 @@ export interface Channel {
   linkedBoardId?: string;
   /**
    * Informational, not a project (Phase 53): news, tools, announcements. The
-   * sidebar lists it in its own section (Updates), away from the project channels.
+   * sidebar lists it in its own section (Knowledge), away from the project channels.
    * Absent: the app guesses from the name (see the web's `isInformational`).
    */
   informational?: boolean;

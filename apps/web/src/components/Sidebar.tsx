@@ -827,11 +827,11 @@ export function Sidebar({
     }
     if (me && canEditChannel(c, me.userId, me.role)) {
       items.push({ label: "Edit channel", icon: <PencilIcon />, onSelect: () => setEditing(c) });
-      // Phase 53: in or out of the Updates section (stored, so it sticks).
+      // Phase 53: in or out of the Knowledge section (stored, so it sticks).
       if (!c.archived && c.channelId !== GENERAL_CHANNEL_ID) {
         const info = isInformational(c);
         items.push({
-          label: info ? "Move to Channels" : "Move to Updates",
+          label: info ? "Move to Channels" : "Move to Knowledge",
           icon: info ? <HashIcon /> : <NewspaperIcon />,
           onSelect: () => chat.updateChannel(c.channelId, { informational: !info }),
         });
@@ -950,7 +950,7 @@ export function Sidebar({
           )}
           {shownInfo.length > 0 && (
             <PhoneSectionBlock
-              title="Updates"
+              title="Knowledge"
               icon={<NewspaperIcon />}
               folded={folded.info}
               onToggle={() => toggleSection("info")}
@@ -1184,8 +1184,8 @@ export function Sidebar({
         )}
 
         {only !== "dms" && shownInfo.length > 0 && (
-          <Section title="Updates" compact={compact}>
-            <ul className="space-y-0.5 px-2" aria-label="Updates">
+          <Section title="Knowledge" compact={compact}>
+            <ul className="space-y-0.5 px-2" aria-label="Knowledge">
               {shownInfo.map(channelNavItem)}
             </ul>
           </Section>

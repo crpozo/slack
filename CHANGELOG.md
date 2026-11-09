@@ -7,15 +7,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
-- **Updates: a section for informational channels:** channels that inform rather than run a
-  project (news, tools, announcements) get their own **Updates** section in the sidebar, above
-  Channels, on desktop and phones. "News/Tools" and other channels named like that land there
-  by themselves (never a project); **Move to Updates** / **Move to Channels** in a channel's ⋯
-  menu changes it for everyone, and the choice sticks.
+- **Knowledge: a section for informational channels:** channels that inform rather than run a
+  project (news, tools, announcements) get their own **Knowledge** section in the sidebar,
+  above Channels, on desktop and phones. "News/Tools" and other channels named like that land
+  there by themselves (never a project); **Move to Knowledge** / **Move to Channels** in a
+  channel's ⋯ menu changes it for everyone, and the choice sticks.
 - **Your own channel order:** put your channels in the order you want (by priority, say): drag
   one onto another in the sidebar (desktop), or use **Move up** / **Move down** in its ⋯ menu
   (a long press on phones). The order is yours only, follows you to your other devices, and
-  each section (Updates, Channels) keeps its own; channels you haven't placed follow, by
+  each section (Knowledge, Channels) keeps its own; channels you haven't placed follow, by
   activity.
 - **AI Notes by date and by topic:** the notes are grouped under **Hoy**, **Ayer**, **Esta
   semana** and then month by month ("Octubre 2026"), with the heading staying on screen as you

@@ -213,7 +213,7 @@ const INFORMATIONAL_NAME =
   /\b(news|noticias|newsletter|tools|herramientas|resources|recursos|announcements?|anuncios|avisos|info|links|enlaces)\b/i;
 
 /**
- * Whether `channel` belongs in the sidebar's Updates section (Phase 53):
+ * Whether `channel` belongs in the sidebar's Knowledge section (Phase 53):
  * as it was marked, or, never marked, by its name ("News/Tools", "Anuncios"),
  * unless it's a project. #general and DMs never are.
  */

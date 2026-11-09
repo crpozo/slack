@@ -73,10 +73,10 @@ const names = (list: HTMLElement) =>
     .getAllByRole("listitem")
     .map((li) => li.textContent?.trim());
 
-describe("the sidebar's Updates section (Phase 53)", () => {
+describe("the sidebar's Knowledge section (Phase 53)", () => {
   it("lists News/Tools apart from the project channels", () => {
     renderSidebar();
-    const info = screen.getByRole("list", { name: "Updates" });
+    const info = screen.getByRole("list", { name: "Knowledge" });
     expect(names(info)).toEqual([expect.stringContaining("News/Tools")]);
     expect(screen.getByRole("heading", { name: "Channels" })).toBeTruthy();
     expect(within(info).queryByText("ClinicAI")).toBeNull();
@@ -90,7 +90,7 @@ describe("the sidebar's Updates section (Phase 53)", () => {
     expect(update).toHaveBeenCalledWith("ch_news", { informational: false });
 
     fireEvent.click(screen.getByRole("button", { name: "More options for ClinicAI" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /Move to Updates/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Move to Knowledge/ }));
     expect(update).toHaveBeenCalledWith("ch_clinic", { informational: true });
   });
 
@@ -101,7 +101,7 @@ describe("the sidebar's Updates section (Phase 53)", () => {
       ),
     }));
     renderSidebar();
-    expect(screen.queryByRole("list", { name: "Updates" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Knowledge" })).toBeNull();
   });
 });
 
@@ -125,7 +125,7 @@ describe("your own channel order (Phase 53)", () => {
     useChat.setState({ channelOrder: ["ch_general", "ch_web", "ch_clinic"] });
     const save = vi.spyOn(chat, "setChannelOrder").mockImplementation(() => {});
     renderSidebar();
-    // ClinicAI is last in Channels (News/Tools is in Updates): only Move up.
+    // ClinicAI is last in Channels (News/Tools is in Knowledge): only Move up.
     fireEvent.click(screen.getByRole("button", { name: "More options for ClinicAI" }));
     expect(screen.queryByRole("menuitem", { name: /Move down/ })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: /Move up/ }));
@@ -142,7 +142,7 @@ describe("your own channel order (Phase 53)", () => {
     fireEvent.dragOver(row("general"), { dataTransfer });
     fireEvent.drop(row("general"), { dataTransfer });
     expect(save).toHaveBeenLastCalledWith(["ch_clinic", "ch_general", "ch_web", "ch_news"]);
-    // Not across sections: Updates and Channels keep their own lists.
+    // Not across sections: Knowledge and Channels keep their own lists.
     save.mockClear();
     fireEvent.dragStart(row("News/Tools"), { dataTransfer });
     fireEvent.dragOver(row("general"), { dataTransfer });

@@ -237,7 +237,7 @@ describe("archiving from the sidebar's ⋯ menu", () => {
       "Pin to the top",
       "Move up",
       "Edit channel",
-      "Move to Updates",
+      "Move to Knowledge",
       "Archive channel",
       "Delete channel",
     ]);
