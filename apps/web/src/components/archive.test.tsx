@@ -133,11 +133,11 @@ describe("opening a channel by its link", () => {
     expect(screen.queryByRole("textbox", { name: /message/i })).toBeNull();
   });
 
-  it("says a channel that doesn't exist doesn't, with a way to #general", () => {
+  it("says a channel that doesn't exist doesn't, with a way back to the channels", () => {
     openAt("/app/ch_DOESNOTEXIST");
     act(() => useChat.getState().setChannels([general]));
     expect(screen.getByText(/doesn't exist or you don't have access/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Go to #general" }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: "Back to channels" }).getAttribute("href")).toBe(
       `/app/${GENERAL_CHANNEL_ID}`,
     );
   });

@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Paste keeps its formatting:** text copied from a doc, an email, a web page or an AI answer
+  pastes into the message box with its **bold**, _italics_, `code`, code blocks, numbered and
+  bulleted lists and headings (as bold lines), written as the markdown messages show, with
+  blank lines tidied. Plain text, and code from an editor, paste as before.
+- **Admins can delete #general:** it's in the channel's ⋯ menu for admins. It isn't recreated:
+  the app then opens your first channel instead (on start, after a deletion, and from "Back to
+  channels").
 - **Knowledge: a section for informational channels:** channels that inform rather than run a
   project (news, tools, announcements) get their own **Knowledge** section in the sidebar,
   above Channels, on desktop and phones. "News/Tools" and other channels named like that land

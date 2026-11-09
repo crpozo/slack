@@ -847,7 +847,7 @@ export function Sidebar({
     }
     // Until the directory arrives, assume the creator exists (never offer it wrongly).
     const creatorKnown = Object.keys(users).length === 0 || !!users[c.createdBy];
-    if (me && canDeleteChannel(c, me.userId, creatorKnown)) {
+    if (me && canDeleteChannel(c, me.userId, creatorKnown, me.role)) {
       items.push({
         label: "Delete channel",
         icon: <TrashIcon />,

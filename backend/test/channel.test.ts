@@ -565,6 +565,17 @@ describe("channel delete", () => {
     expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
   });
 
+  it("lets an admin delete #general (Phase 54), and only an admin", async () => {
+    expect((await remove("ch_general", BOB)).statusCode).toBe(400);
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
+
+    expect((await remove("ch_general", { ...BOB, role: "admin" })).statusCode).toBe(200);
+    expect(ddbMock.commandCalls(DeleteCommand).at(-1)?.args[0].input.Key).toEqual({
+      channelId: "ch_general",
+    });
+  });
+
   it("refuses #general, other people's channels and channels you can't see", async () => {
     expect((await remove("ch_general")).statusCode).toBe(400);
     expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });

@@ -347,12 +347,20 @@ async function deleteChannel(action: ActionOf<"delete">, caller: Caller) {
   if (!channel || !isChannelMember(channel, caller.userId)) {
     return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
   }
-  if (channel.channelId === GENERAL_CHANNEL_ID) {
-    return replyError(caller.connectionId, "FORBIDDEN", "#general can't be deleted");
+  // Phase 54: an admin may delete #general (it isn't recreated).
+  if (channel.channelId === GENERAL_CHANNEL_ID && caller.role !== "admin") {
+    return replyError(caller.connectionId, "FORBIDDEN", "Only an admin can delete #general");
   }
   // A DM belongs to both people; a channel to whoever created it — unless it is
   // legacy test data (no slug / no creator) or its creator no longer exists.
-  if (!canDeleteChannel(channel, caller.userId, await creatorKnown(channel, caller.userId))) {
+  if (
+    !canDeleteChannel(
+      channel,
+      caller.userId,
+      await creatorKnown(channel, caller.userId),
+      caller.role,
+    )
+  ) {
     return replyError(caller.connectionId, "FORBIDDEN", "Only the channel creator can delete it");
   }
 

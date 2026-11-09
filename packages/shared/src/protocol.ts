@@ -433,8 +433,11 @@ export function canDeleteChannel(
   channel: Pick<Channel, "channelId" | "type" | "slug" | "createdBy" | "members">,
   userId: string,
   creatorKnown: boolean,
+  role?: Role,
 ): boolean {
-  if (channel.channelId === GENERAL_CHANNEL_ID || !isChannelMember(channel, userId)) return false;
+  // `#general` (Phase 54): admins only; it isn't recreated, the app moves on to another channel.
+  if (channel.channelId === GENERAL_CHANNEL_ID) return role === "admin";
+  if (!isChannelMember(channel, userId)) return false;
   if (channel.type === "dm" || channel.createdBy === userId) return true;
   return isLegacyChannel(channel) || !creatorKnown;
 }

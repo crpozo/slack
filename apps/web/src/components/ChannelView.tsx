@@ -370,7 +370,7 @@ function NotFound() {
     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
       <p className="text-ink">This channel doesn't exist or you don't have access.</p>
       <Link to={`/app/${GENERAL_CHANNEL_ID}`} className="btn-primary">
-        Go to #general
+        Back to channels
       </Link>
     </div>
   );

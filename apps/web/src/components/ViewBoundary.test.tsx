@@ -25,7 +25,7 @@ describe("ViewBoundary", () => {
       </MemoryRouter>,
     );
     expect(screen.getByRole("alert").textContent).toMatch(/Something went wrong/);
-    expect(screen.getByRole("link", { name: "Go to #general" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to channels" })).toBeTruthy();
 
     rerender(
       <MemoryRouter>

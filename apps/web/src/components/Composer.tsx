@@ -35,6 +35,7 @@ import {
   type VoiceClip,
 } from "../lib/voice";
 import { detectCredentials } from "../lib/credentials";
+import { hasRichFormatting, htmlToMarkdown } from "../lib/pasteMarkdown";
 import { tasksApiConfigured } from "../lib/tasksApi";
 import { vaultApi } from "../lib/vaultApi";
 import { useUploadState, type UploadTask } from "../lib/outbox";
@@ -611,6 +612,17 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
     if (e.clipboardData.files.length > 0) {
       e.preventDefault();
       addFiles(e.clipboardData.files);
+      return;
+    }
+    // Phase 54: formatted text (a doc, an email, an AI answer) keeps its bold,
+    // lists and code as the markdown messages render. Plain text pastes as is.
+    const html = e.clipboardData.getData("text/html");
+    if (html && hasRichFormatting(html)) {
+      const markdown = htmlToMarkdown(html);
+      if (markdown) {
+        e.preventDefault();
+        insertAtCursor(markdown);
+      }
     }
   }
 

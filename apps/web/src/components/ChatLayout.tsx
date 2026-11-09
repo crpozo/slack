@@ -13,7 +13,7 @@ import { signOut } from "../lib/auth";
 import { retryPushSyncIfFailed, signOutPush, syncPush } from "../lib/push";
 import { chat } from "../lib/chat";
 import { useEdgeSwipe } from "../lib/gestures";
-import { dmPeer } from "../lib/channels";
+import { dmPeer, fallbackChannelId } from "../lib/channels";
 import {
   clampSidebarWidth,
   loadSidebarPrefs,
@@ -269,7 +269,9 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     () =>
       chat.onChannelDeleted((deletedId, by) => {
         if (deletedId !== channelIdRef.current) return;
-        navigate(`/app/${GENERAL_CHANNEL_ID}`, { replace: true });
+        // Phase 54: #general itself may be gone: the first channel left.
+        const next = fallbackChannelId(useChat.getState().channels, deletedId);
+        navigate(`/app/${next}`, { replace: true });
         if (by !== useChat.getState().me?.userId) {
           useChat.getState().showToast("This conversation was deleted.");
         }
@@ -280,6 +282,14 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   // A DM link for a conversation that doesn't exist yet: create it.
   const channelsLoaded = useChat((s) => s.channelsLoaded);
   const channelExists = useChat((s) => s.channels.some((c) => c.channelId === channelId));
+
+  // Phase 54: #general was deleted. Opening the app (or a "Go back" link) lands
+  // there by default: go to the first channel you have instead.
+  useEffect(() => {
+    if (channelId !== GENERAL_CHANNEL_ID || !channelsLoaded || channelExists) return;
+    const next = fallbackChannelId(useChat.getState().channels, GENERAL_CHANNEL_ID);
+    if (next !== GENERAL_CHANNEL_ID) navigate(`/app/${next}`, { replace: true });
+  }, [channelId, channelsLoaded, channelExists, navigate]);
   const myUserId = useChat((s) => s.me?.userId);
   useEffect(() => {
     if (!channelId || !channelsLoaded || channelExists || !myUserId || !isDmChannel(channelId))

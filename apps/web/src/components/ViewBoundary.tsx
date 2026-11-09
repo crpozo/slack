@@ -47,7 +47,7 @@ export class ViewBoundary extends Component<
             Try again
           </button>
           <Link to={`/app/${GENERAL_CHANNEL_ID}`} className="btn-primary">
-            Go to #general
+            Back to channels
           </Link>
         </div>
       </div>
