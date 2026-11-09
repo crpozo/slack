@@ -18,7 +18,8 @@ import { formatDay, formatTime, seenByLine } from "../lib/channels";
 import { QUICK_REACTIONS } from "../lib/emoji";
 import type { MenuContext } from "../lib/contextMenu";
 import { useMessageGestures } from "../lib/gestures";
-import { renderMarkdown } from "../lib/markdown";
+import { renderMarkdown, type MentionMarks } from "../lib/markdown";
+import { handlesOf } from "../lib/mentions";
 import { youTubeVideosIn } from "../lib/youtube";
 import { selectName, useChat, useNameOf, type ChatMessage } from "../store";
 import { Attachment } from "./Attachment";
@@ -48,6 +49,25 @@ import {
 import { ReactionPicker, Reactions } from "./Reactions";
 import { YouTubePreview } from "./YouTubePreview";
 
+/**
+ * Phase 56: the handles that mention someone in the directory, and yours, for
+ * highlighting. One object per directory change (all messages share it).
+ */
+let marksCache: { users: unknown; me: unknown; marks: MentionMarks } | null = null;
+function useMentionMarks(): MentionMarks {
+  const users = useChat((s) => s.users);
+  const me = useChat((s) => s.me);
+  if (marksCache && marksCache.users === users && marksCache.me === me) return marksCache.marks;
+  const known = new Set<string>();
+  for (const u of Object.values(users)) for (const h of handlesOf(u)) known.add(h);
+  const mine = new Set<string>();
+  const myProfile = me ? users[me.userId] : undefined;
+  if (myProfile) for (const h of handlesOf(myProfile)) mine.add(h);
+  else if (me) mine.add((me.email.split("@")[0] ?? "").toLowerCase());
+  for (const h of mine) known.add(h);
+  marksCache = { users, me, marks: { known, mine } };
+  return marksCache.marks;
+}
 /** The message whose toolbar a long press opened (touch screens; one at a time). */
 const usePressed = create<{ id: string | null; set: (id: string | null) => void }>((set) => ({
   id: null,
@@ -533,7 +553,11 @@ export const MessageItem = memo(function MessageItem({
   last = false,
   onOpenThread,
 }: Readonly<MessageItemProps>) {
-  const html = useMemo(() => renderMarkdown(message.text), [message.text]);
+  const mentionMarks = useMentionMarks();
+  const html = useMemo(
+    () => renderMarkdown(message.text, mentionMarks),
+    [message.text, mentionMarks],
+  );
   // Phase 33: YouTube links get a click-to-play player under the text (never for secrets or cards).
   const videos = useMemo(
     () =>

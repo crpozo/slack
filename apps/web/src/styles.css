@@ -146,6 +146,13 @@
   .md pre code {
     @apply bg-transparent p-0;
   }
+  /* Phase 56: @mentions (yours stand out). */
+  .md .mention {
+    @apply rounded bg-sky/15 px-0.5 font-semibold text-sky;
+  }
+  .md .mention-me {
+    @apply bg-warning/20 text-warning;
+  }
 
   /* Block markdown of AI call notes (see renderNotesMarkdown). */
   .md-notes > * + * {

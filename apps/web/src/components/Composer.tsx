@@ -1,5 +1,6 @@
 import {
   canArchiveChannel,
+  dmMembers,
   isDmChannel,
   MAX_TEXT_LENGTH,
   textTooLong,
@@ -42,8 +43,11 @@ import { vaultApi } from "../lib/vaultApi";
 import { useUploadState, type UploadTask } from "../lib/outbox";
 import { formatBytes, MAX_SIZE_LABEL, startUpload, validateFile } from "../lib/upload";
 import { MOBILE_QUERY, useMediaQuery } from "../lib/hooks";
+import { handleOf, insertMention, mentionCandidates, mentionQuery } from "../lib/mentions";
 import { useChat, useNameOf } from "../store";
 import { EmojiPicker } from "./EmojiPicker";
+import { Avatar } from "./Avatar";
+import { GuestBadge } from "./UserPicker";
 import {
   CloseIcon,
   FileIcon,
@@ -353,6 +357,43 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
   useEffect(() => setCommandIndex(0), [commandText]);
   const commandOpen = commands.length > 0;
 
+  // Phase 56: `@` suggests the people in this conversation, filtered as you type.
+  const [caret, setCaret] = useState(0);
+  const [mentionDismissed, setMentionDismissed] = useState<number | null>(null);
+  const conversation = useChat((s) => s.channels.find((c) => c.channelId === channelId));
+  const directory = useChat((s) => s.users);
+  const people = useMemo(() => {
+    const all = Object.values(directory);
+    const ids = isDmChannel(channelId)
+      ? new Set(dmMembers(channelId) ?? [])
+      : conversation?.type === "private"
+        ? new Set(conversation.members ?? [])
+        : null; // public: the whole team (externals never see one)
+    return all.filter((u) => u.userId !== userId && (ids ? ids.has(u.userId) : u.role !== "guest"));
+  }, [directory, conversation, channelId, userId]);
+  const mention = commandText === null ? mentionQuery(text, caret) : null;
+  const mentionText = mention ? mention.query : null;
+  const mentionPeople = useMemo(
+    () => (mentionText === null ? [] : mentionCandidates(people, mentionText)),
+    [people, mentionText],
+  );
+  const [mentionIndex, setMentionIndex] = useState(0);
+  useEffect(() => setMentionIndex(0), [mentionText]);
+  const mentionOpen = !!mention && mentionPeople.length > 0 && mentionDismissed !== mention.start;
+  const syncCaret = (el: HTMLTextAreaElement) => setCaret(el.selectionStart ?? el.value.length);
+
+  function pickMention(person: (typeof people)[number]) {
+    if (!mention) return;
+    const next = insertMention(text, mention.start, caret, handleOf(person));
+    setText(next.text);
+    setCaret(next.caret);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      el?.focus();
+      el?.setSelectionRange(next.caret, next.caret);
+    });
+  }
+
   function pickCommand(command: SlashCommand) {
     if (command.effect === "clear") {
       setText("");
@@ -582,6 +623,24 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionOpen && mention && !e.nativeEvent.isComposing) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const delta = e.key === "ArrowDown" ? 1 : -1;
+        setMentionIndex((i) => (i + delta + mentionPeople.length) % mentionPeople.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        pickMention(mentionPeople[mentionIndex] ?? mentionPeople[0]!);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionDismissed(mention.start);
+        return;
+      }
+    }
     if (commandOpen) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -670,7 +729,12 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
       ref={textareaRef}
       rows={1}
       value={text}
-      onChange={(e) => handleChange(e.target.value)}
+      onChange={(e) => {
+        handleChange(e.target.value);
+        syncCaret(e.target);
+      }}
+      onSelect={(e) => syncCaret(e.currentTarget)}
+      onClick={(e) => syncCaret(e.currentTarget)}
       onKeyDown={handleKeyDown}
       onPaste={handlePaste}
       placeholder={secret ? "Password or API key (deleted in 24 hours)" : placeholder}
@@ -842,6 +906,35 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
           </ul>
         )}
 
+        {mentionOpen && (
+          <ul
+            role="listbox"
+            aria-label="Mention someone"
+            className="mx-1.5 mb-1 max-h-64 overflow-y-auto rounded-lg glass-strong border border-white/10"
+            data-mention-menu
+          >
+            {mentionPeople.map((p, i) => (
+              <li key={p.userId} role="option" aria-selected={i === mentionIndex}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => pickMention(p)}
+                  onMouseEnter={() => setMentionIndex(i)}
+                  className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm ${
+                    i === mentionIndex ? "bg-surface-hover" : ""
+                  }`}
+                >
+                  <Avatar name={p.displayName} size="xs" />
+                  <span className="truncate font-semibold text-ink">{p.displayName}</span>
+                  {p.role === "guest" && <GuestBadge />}
+                  <span className="ml-auto truncate text-xs text-ink-secondary">
+                    @{handleOf(p)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         {commandOpen && (
           <ul
             role="listbox"

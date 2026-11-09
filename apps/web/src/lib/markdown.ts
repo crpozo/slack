@@ -60,7 +60,7 @@ function formatInline(html: string, keep: (html: string) => string, options: Inl
  * line breaks. The input is HTML-escaped first, so the output is safe to
  * inject; code and links are stashed so other rules never touch them.
  */
-export function renderMarkdown(text: string): string {
+export function renderMarkdown(text: string, mentions?: MentionMarks): string {
   const { keep, restore } = createStash();
 
   let html = escapeHtml(text.replaceAll("\uE000", ""));
@@ -69,9 +69,35 @@ export function renderMarkdown(text: string): string {
     keep(`<pre><code>${code}</code></pre>`),
   );
   html = formatInline(html, keep);
+  if (mentions) html = markMentions(html, mentions);
   html = html.replaceAll("\n", "<br>");
 
   return restore(html);
+}
+
+/** Phase 56: the handles that mention someone in the conversation, and the ones that mean you. */
+export interface MentionMarks {
+  known: ReadonlySet<string>;
+  mine: ReadonlySet<string>;
+}
+
+/**
+ * `@handle` of a known person as a highlighted span (yours more so), over
+ * escaped HTML with code and links already stashed (never touched). As
+ * `findMentions` reads them: not inside a word or an email address.
+ */
+function markMentions(html: string, { known, mine }: MentionMarks): string {
+  return html.replace(
+    /(^|[^\p{L}\p{N}_.@&;-])@([\p{L}\p{N}._-]{1,64})/gu,
+    (whole, before: string, raw: string) => {
+      // "@ana." at the end of a sentence means "ana".
+      const handle = raw.replace(/[._-]+$/, "");
+      const key = handle.toLowerCase();
+      if (!known.has(key)) return whole;
+      const cls = mine.has(key) ? "mention mention-me" : "mention";
+      return `${before}<span class="${cls}">@${handle}</span>${raw.slice(handle.length)}`;
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------

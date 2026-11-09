@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **@mentions that work:** typing `@` in the message box lists the people in the conversation
+  (a private channel's members, externals marked; the team in a public channel), filtered as
+  you type, accents aside. ↑/↓ and Enter or Tab pick one, Esc closes, and it writes the handle
+  notifications already match (`@martin`). Messages show mentions highlighted, yours in amber.
 - **AI News: an alert when Claude gets a new model:** a banner under the AI News title when
   Anthropic has just released a new Claude model (green, "nuevo modelo disponible") or one is
   on its way: announced, previewed or leaked (amber, "nuevo modelo en camino"). It names the
