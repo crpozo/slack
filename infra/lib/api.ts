@@ -245,8 +245,9 @@ export class Api extends Construct {
     // for a guest, the boards they're on decide whose names they get (Query + BatchGetItem).
     users.grant(handlers.user, "dynamodb:Scan", "dynamodb:GetItem", "dynamodb:UpdateItem");
     data.boards.grant(handlers.user, "dynamodb:Query", "dynamodb:BatchGetItem");
-    // Pinning checks you can see the conversation.
-    channels.grant(handlers.user, "dynamodb:GetItem");
+    // Pinning checks you can see the conversation; a guest's channels (Scan, Phase 55)
+    // decide whose names they get too.
+    channels.grant(handlers.user, "dynamodb:GetItem", "dynamodb:Scan");
     // Phase 38, the conversation's files/links/pins index (`channel-media`): a message
     // with files or links is stored in one transaction with its rows (PutItem); an
     // edit rewrites its link rows (BatchWriteItem); deleting a conversation removes

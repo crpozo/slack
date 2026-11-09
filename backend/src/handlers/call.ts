@@ -149,14 +149,14 @@ export const handler = wsHandler(async (event, caller) => {
 /** A channel the caller may hold a call in: theirs to use, not a DM, not archived. */
 async function callableChannel(channelId: string, caller: Caller): Promise<Channel | null> {
   if (dmMembers(channelId)) return null; // DM calls ring instead
-  return getAccessibleChannel(channelId, caller.userId);
+  return getAccessibleChannel(channelId, caller);
 }
 
 async function sendRooms(caller: Caller) {
   const rooms = await listRooms();
   const visible = await Promise.all(
     rooms.map(async (room) =>
-      (await getAccessibleChannel(room.channelId, caller.userId)) ? toRoom(room) : null,
+      (await getAccessibleChannel(room.channelId, caller)) ? toRoom(room) : null,
     ),
   );
   await reply(caller.connectionId, {
@@ -204,7 +204,7 @@ async function join(action: Extract<CallAction, { signal: "join" }>, caller: Cal
 }
 
 async function leave(action: Extract<CallAction, { signal: "leave" }>, caller: Caller) {
-  const channel = await getAccessibleChannel(action.channelId, caller.userId, {
+  const channel = await getAccessibleChannel(action.channelId, caller, {
     allowArchived: true,
   });
   if (!channel) return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");

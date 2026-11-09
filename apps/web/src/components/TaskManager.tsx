@@ -222,8 +222,8 @@ function ShareBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: (
             </button>
           </div>
           <p className="text-xs text-ink-secondary">
-            People outside the team join as <strong>guests</strong>: they see only the boards
-            they're invited to, never your channels or messages.
+            People outside the team join as <strong>externals</strong>: they see only the boards and
+            private channels they're invited to, nothing else of the team's.
           </p>
         </form>
         <div className="space-y-1.5">

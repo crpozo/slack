@@ -43,6 +43,8 @@ export const TASKS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.DELETE, path: "/boards/{id}" },
   { method: HttpMethod.POST, path: "/boards/{id}/members" },
   { method: HttpMethod.POST, path: "/boards/{id}/invites" },
+  // Phase 55: invite an external to a private channel by email (same Cognito path).
+  { method: HttpMethod.POST, path: "/channels/{channelId}/invites" },
   { method: HttpMethod.GET, path: "/boards/{id}/tasks" },
   { method: HttpMethod.POST, path: "/boards/{id}/tasks" },
   // Phase 29: an AI notes card's action items, all at once.

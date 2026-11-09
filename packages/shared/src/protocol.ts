@@ -399,6 +399,38 @@ export function isChannelMember(
 }
 
 /**
+ * Whether someone may see `channel`, by role (Phase 55). Externals (guests)
+ * see only the private channels they were invited to: never a public channel,
+ * a DM or anything else of the team's. Everyone else: `isChannelMember`.
+ * The server decides every channel read and delivery with this.
+ */
+export function canSeeChannel(
+  channel: Pick<Channel, "type" | "members">,
+  userId: string,
+  role: Role | undefined,
+): boolean {
+  if (role === "guest") {
+    return channel.type === "private" && (channel.members ?? []).includes(userId);
+  }
+  return isChannelMember(channel, userId);
+}
+
+/**
+ * Who may invite people to a private channel, or remove them (Phase 55): its
+ * creator or an admin, members of it; never a guest, never another kind of
+ * conversation. Externals can only come in this way.
+ */
+export function canManageMembers(
+  channel: Pick<Channel, "channelId" | "type" | "createdBy" | "members">,
+  userId: string,
+  role: Role | undefined,
+): boolean {
+  if (channel.type !== "private" || role === "guest") return false;
+  if (!(channel.members ?? []).includes(userId)) return false;
+  return channel.createdBy === userId || role === "admin";
+}
+
+/**
  * Lowercase, hyphenated, accent-free form of a channel name (`^[a-z0-9-]{1,32}$`
  * when non-empty): "Diseño Web!" → "diseno-web". Uniqueness is checked on this.
  */
@@ -591,6 +623,23 @@ export const ChannelInviteActionSchema = z.object({
 });
 
 /**
+ * Removes someone from a private channel (Phase 55): what takes an external's
+ * access away. Its creator or an admin (`canManageMembers`); never the creator.
+ */
+export const ChannelRemoveActionSchema = z.object({
+  action: z.literal("channel"),
+  op: z.literal("remove"),
+  channelId,
+  userId,
+});
+
+/** Invites someone to a private channel by email (Phase 55): a new address becomes an external. */
+export const InviteByEmailSchema = z.object({
+  email: z.string().trim().toLowerCase().pipe(z.email().max(254)),
+});
+export type InviteByEmailInput = z.infer<typeof InviteByEmailSchema>;
+
+/**
  * Deletes a channel (its creator only; never `#general`) or a DM (either member),
  * together with its messages.
  */
@@ -659,6 +708,7 @@ export const ChannelActionSchema = z.discriminatedUnion("op", [
   ChannelCreateActionSchema,
   ChannelDmActionSchema,
   ChannelInviteActionSchema,
+  ChannelRemoveActionSchema,
   ChannelDeleteActionSchema,
 ]);
 

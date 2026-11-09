@@ -62,6 +62,7 @@ import { channelAudience, getAccessibleChannel } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import { requireEnv } from "../lib/env";
 import {
+  forbidden,
   HttpError,
   httpHandler,
   json,
@@ -118,7 +119,7 @@ async function whisperSegments(
 async function summarizeCall(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const input = parseBody(SummarizeCallSchema, event);
   const members = dmMembers(input.channelId);
-  const channel = members ? await getAccessibleChannel(input.channelId, caller.userId) : null;
+  const channel = members ? await getAccessibleChannel(input.channelId, caller) : null;
   if (!members || !channel || channel.type !== "dm") throw notFound("Conversation not found");
   const participants = [...new Set(members)].sort((a, b) => a.localeCompare(b));
   // Only the two people of the call can have spoken in it.
@@ -357,10 +358,7 @@ async function listNotes(event: HttpEvent, caller: HttpCaller): Promise<HttpResu
     const dm = dmMembers(channelId);
     if (dm) return dm.includes(caller.userId);
     if (!channels.has(channelId)) {
-      channels.set(
-        channelId,
-        getAccessibleChannel(channelId, caller.userId, { allowArchived: true }),
-      );
+      channels.set(channelId, getAccessibleChannel(channelId, caller, { allowArchived: true }));
     }
     return (await channels.get(channelId)!) !== null;
   };
@@ -432,7 +430,7 @@ async function setTopic(event: HttpEvent, caller: HttpCaller): Promise<HttpResul
   const dm = dmMembers(input.channelId);
   const readable = dm
     ? dm.includes(caller.userId)
-    : !!(await getAccessibleChannel(input.channelId, caller.userId, { allowArchived: true }));
+    : !!(await getAccessibleChannel(input.channelId, caller, { allowArchived: true }));
   if (!readable || !notes.participants.includes(caller.userId)) throw notFound("Notes not found");
 
   // Only the pointers that exist (an update would otherwise create a stray one).
@@ -756,6 +754,8 @@ const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<H
 };
 
 export const handler = httpHandler(async (event, caller) => {
+  // AI Notes are the team's (Phase 55: externals are now in some channels, never in calls).
+  if (caller.role === "guest") throw forbidden("AI Notes are for the MindfulTech team");
   const route = ROUTES[event.routeKey];
   if (!route) throw notFound(`No route for ${event.routeKey}`);
   return route(event, caller);

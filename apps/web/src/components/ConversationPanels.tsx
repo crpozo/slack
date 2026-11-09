@@ -1,5 +1,6 @@
 import {
   canEditChannel,
+  canManageMembers,
   canPinMessage,
   dmChannelId,
   isDmChannel,
@@ -12,7 +13,7 @@ import {
 import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { chat } from "../lib/chat";
-import { dmPeer, formatDay, formatTime } from "../lib/channels";
+import { dmPeer, externalsIn, formatDay, formatTime } from "../lib/channels";
 import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
 import { renderMarkdown } from "../lib/markdown";
@@ -21,10 +22,19 @@ import { formatBytes, getDownloadUrl } from "../lib/upload";
 import { useChat, useNameOf } from "../store";
 import { attachmentKind, openAttachment } from "./Attachment";
 import { Avatar, PresenceDot } from "./Avatar";
-import { ExternalLinkIcon, FileIcon, PencilIcon, PinIcon, PinOffIcon } from "./icons";
+import {
+  ExternalLinkIcon,
+  FileIcon,
+  HandshakeIcon,
+  PencilIcon,
+  PinIcon,
+  PinOffIcon,
+  UserMinusIcon,
+} from "./icons";
 import { Lightbox } from "./Lightbox";
 import { Modal } from "./Modal";
 import { PdfViewer } from "./PdfViewer";
+import { GuestBadge } from "./UserPicker";
 
 // ---------------------------------------------------------------------------
 // Phase 38: a conversation's pinned messages, and its details (About,
@@ -293,6 +303,7 @@ function MembersTab({
   const users = useChat((s) => s.users);
   const online = useChat((s) => s.online);
   const nameOf = useNameOf();
+  const [confirming, setConfirming] = useState<string | null>(null);
   if (!me) return null;
   const peer = dmPeer(channelId, me.userId);
   // A public channel is everyone's; a private one and a DM list their members.
@@ -305,11 +316,23 @@ function MembersTab({
   const sorted = [...ids].sort((a, b) =>
     a === me.userId ? -1 : b === me.userId ? 1 : nameOf(a).localeCompare(nameOf(b)),
   );
+  // Phase 55: its creator or an admin may take people out (an external loses access at once).
+  const canRemove = !!channel && !channel.archived && canManageMembers(channel, me.userId, me.role);
+  const externals = channel ? externalsIn(channel, users) : [];
   return (
     <div>
       {channel?.type === "public" && (
         <p className="mb-3 text-sm text-ink-secondary">
           Public: everyone in MindfulTech can read and write here.
+        </p>
+      )}
+      {externals.length > 0 && (
+        <p className="mb-3 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-ink">
+          <HandshakeIcon className="mt-0.5 shrink-0 text-warning" aria-hidden="true" />
+          <span>
+            {externals.length === 1 ? "1 person" : `${externals.length} people`} from outside
+            MindfulTech can read everything here. They see only this channel.
+          </span>
         </p>
       )}
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-secondary">
@@ -319,33 +342,67 @@ function MembersTab({
         {sorted.map((userId) => {
           const isMe = userId === me.userId;
           const isOnline = isMe || !!online[userId];
+          const external = users[userId]?.role === "guest";
+          // You can't DM an external (they only have this channel), nor remove the creator.
+          const removable = canRemove && !isMe && userId !== channel?.createdBy;
           return (
-            <li key={userId}>
+            <li key={userId} className="flex items-center gap-1">
               <button
                 type="button"
-                disabled={isMe}
+                disabled={isMe || external}
                 onClick={() => {
                   onOpened();
                   navigate(`/app/${dmChannelId(me.userId, userId)}`);
                 }}
                 className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left enabled:hover:bg-surface-hover"
-                title={isMe ? undefined : `Message ${nameOf(userId)}`}
+                title={isMe || external ? undefined : `Message ${nameOf(userId)}`}
               >
                 <span className="relative inline-flex">
                   <Avatar name={nameOf(userId)} mine={isMe} size="md" />
                   <PresenceDot online={isOnline} overlay />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-ink">
-                    {nameOf(userId)}
+                  <span className="flex items-center gap-1.5 truncate text-sm font-semibold text-ink">
+                    <span className="truncate">{nameOf(userId)}</span>
                     {isMe && <span className="font-normal text-ink-secondary"> (you)</span>}
+                    {external && <GuestBadge />}
                   </span>
                   <span className="block truncate text-xs text-ink-secondary">
                     {users[userId]?.email ?? ""}
                   </span>
                 </span>
-                <span className="text-xs text-ink-secondary">{isOnline ? "Active" : "Away"}</span>
+                {!external && (
+                  <span className="text-xs text-ink-secondary">{isOnline ? "Active" : "Away"}</span>
+                )}
               </button>
+              {removable &&
+                (confirming === userId ? (
+                  // A second tap confirms: no modal over the modal.
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirming(null);
+                      chat.removeMember(channelId, userId);
+                    }}
+                    onBlur={() => setConfirming(null)}
+                    autoFocus
+                    className="shrink-0 rounded-md bg-error px-2.5 py-1.5 text-xs font-semibold text-on-accent hover:opacity-90"
+                    data-remove-member
+                  >
+                    Remove
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(userId)}
+                    className="shrink-0 rounded-md p-2 text-ink-secondary hover:bg-error/15 hover:text-error"
+                    aria-label={`Remove ${nameOf(userId)} from the channel`}
+                    title="Remove from channel"
+                    data-remove-member
+                  >
+                    <UserMinusIcon />
+                  </button>
+                ))}
             </li>
           );
         })}

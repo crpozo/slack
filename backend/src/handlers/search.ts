@@ -21,7 +21,7 @@ export const handler = httpHandler(async (event, caller): Promise<HttpResult> =>
     throw new HttpError(400, `The search can be at most ${SEARCH_MAX_QUERY} characters`);
   }
   const only = event.queryStringParameters?.channelId;
-  const visible = visibleTo(await scanChannels(), caller.userId);
+  const visible = visibleTo(await scanChannels(), caller.userId, caller.role);
   const channels = only ? visible.filter((c) => c.channelId === only) : visible;
   // A conversation you can't see is indistinguishable from one that doesn't exist.
   if (only && channels.length === 0) throw notFound("Conversation not found");

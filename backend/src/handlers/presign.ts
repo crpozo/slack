@@ -2,7 +2,7 @@ import { isBoardId, parseAction, PresignActionSchema } from "@mindfultech/shared
 import { ulid } from "ulid";
 import { getAccessibleBoard } from "../lib/boards";
 import { getAccessibleChannel } from "../lib/channels";
-import { wsHandler } from "../lib/handler";
+import { wsHandler, type Caller } from "../lib/handler";
 import { badRequest, ok, reply, replyError } from "../lib/response";
 import { objectExists, presignDownload, presignGet, presignPut } from "../lib/s3";
 
@@ -26,10 +26,10 @@ function channelOfKey(key: string): string | null {
  * Manager, a board (`attachments/<boardId>/…`): either way only its members may
  * upload to or download from that prefix.
  */
-async function canUseFolder(id: string, userId: string, guest: boolean): Promise<boolean> {
-  if (isBoardId(id)) return (await getAccessibleBoard(id, userId)) !== null;
-  if (guest) return false; // guests have no channels
-  return (await getAccessibleChannel(id, userId)) !== null;
+async function canUseFolder(id: string, caller: Caller): Promise<boolean> {
+  if (isBoardId(id)) return (await getAccessibleBoard(id, caller.userId)) !== null;
+  // A guest: only the private channels they're in (Phase 55; `canSeeChannel`).
+  return (await getAccessibleChannel(id, caller)) !== null;
 }
 
 /** `presign`: short-lived S3 URLs; the binary never goes through Lambda. */
@@ -39,7 +39,7 @@ export const handler = wsHandler(async (event, caller) => {
   const action = parsed.data;
 
   if (action.op === "put") {
-    if (!(await canUseFolder(action.channelId, caller.userId, caller.role === "guest"))) {
+    if (!(await canUseFolder(action.channelId, caller))) {
       return replyError(caller.connectionId, "CHANNEL_NOT_FOUND", undefined, action.requestId);
     }
     const key = `${KEY_PREFIX}${action.channelId}/${ulid()}-${sanitizeFileName(action.name)}`;
@@ -55,7 +55,7 @@ export const handler = wsHandler(async (event, caller) => {
 
   const channelId = channelOfKey(action.key);
   if (!channelId) return badRequest(caller.connectionId, "Invalid key", action.requestId);
-  if (!(await canUseFolder(channelId, caller.userId, caller.role === "guest"))) {
+  if (!(await canUseFolder(channelId, caller))) {
     return replyError(caller.connectionId, "CHANNEL_NOT_FOUND", undefined, action.requestId);
   }
   if (!(await objectExists(action.key))) {

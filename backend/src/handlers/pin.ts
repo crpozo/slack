@@ -105,7 +105,7 @@ export const handler = wsHandler(async (event, caller) => {
   if (!parsed.success) return badRequest(caller.connectionId, parsed.error);
   const { channelId, sk, pinned } = parsed.data;
 
-  const channel = await getAccessibleChannel(channelId, caller.userId, { allowArchived: true });
+  const channel = await getAccessibleChannel(channelId, caller, { allowArchived: true });
   if (!channel) return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
   if (channel.archived) {
     return replyError(caller.connectionId, "FORBIDDEN", "This channel is archived");

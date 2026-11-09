@@ -145,19 +145,19 @@ class ChatController {
       client.onStatus((status) => store().setStatus(status)),
 
       client.onOpen(({ reconnected }) => {
-        // Guests only have boards: the server refuses every chat request of theirs.
-        if (store().me?.role === "guest") {
-          client.send("user", { op: "list" });
-          return;
-        }
+        // Guests (externals) have their boards and, since Phase 55, their private
+        // channels: never calls (the server refuses them).
+        const guest = store().me?.role === "guest";
         client.send("channel", { op: "list" });
         client.send("user", { op: "list" });
         // The channel calls going on (Phase 36); after a reconnect, `groupCalls` asks.
-        if (!reconnected) client.send("call", { signal: "rooms" });
+        if (!reconnected && !guest) client.send("call", { signal: "rooms" });
         if (reconnected) {
           // A call being restored after a network drop can restart ICE now.
-          calls.signalingReconnected();
-          groupCalls.signalingReconnected();
+          if (!guest) {
+            calls.signalingReconnected();
+            groupCalls.signalingReconnected();
+          }
           // A read mark sent on the dead socket never arrived: send it again.
           this.readSent.clear();
           const viewing = store().activeChannelId;
@@ -950,6 +950,14 @@ class ChatController {
   invite(channelId: string, userIds: string[]): void {
     if (userIds.length === 0) return;
     this.client?.send("channel", { op: "invite", channelId, userIds });
+  }
+
+  /**
+   * Takes someone out of a private channel (Phase 55; its creator or an
+   * admin). An external loses it at once; everyone gets the new lists.
+   */
+  removeMember(channelId: string, userId: string): void {
+    this.client?.send("channel", { op: "remove", channelId, userId });
   }
 
   /** Sets your display name; resolves when the server confirms it. */

@@ -5,6 +5,8 @@ import {
   showsChannel,
   channelLabel,
   dmEntries,
+  externalsIn,
+  hasExternals,
   type DmEntry,
   formatDay,
   isInformational,
@@ -336,5 +338,22 @@ describe("your own channel order (Phase 53)", () => {
     expect(moveTo(list, "a", "c")).toEqual(["b", "c", "a", "d"]);
     expect(moveTo(list, "b", "a")).toEqual(["b", "a", "c", "d"]);
     expect(moveTo(list, "x", "a")).toBe(list);
+  });
+});
+
+describe("externals in a channel (Phase 55)", () => {
+  const users = {
+    "u-me": { role: "admin" as const },
+    "u-client": { role: "guest" as const },
+    "u-team": {},
+  };
+  it("are its members whose account is a guest; only a private channel has them", () => {
+    const priv = { type: "private" as const, members: ["u-me", "u-client", "u-team"] };
+    expect(externalsIn(priv, users)).toEqual(["u-client"]);
+    expect(hasExternals(priv, users)).toBe(true);
+    expect(hasExternals({ ...priv, members: ["u-me", "u-team"] }, users)).toBe(false);
+    expect(hasExternals({ type: "public" as const, members: ["u-client"] }, users)).toBe(false);
+    // Someone not in the directory yet isn't counted (the server sends the profile on invite).
+    expect(hasExternals({ type: "private" as const, members: ["u-unknown"] }, users)).toBe(false);
   });
 });

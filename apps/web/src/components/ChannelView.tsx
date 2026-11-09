@@ -1,13 +1,16 @@
 import {
   canAccessChannel,
+  canManageMembers,
   GENERAL_CHANNEL_ID,
   isDmChannel,
   type Channel,
+  type Role,
+  type UserProfile,
 } from "@mindfultech/shared";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { calls, useCall } from "../lib/call";
-import { channelLabel, dmPeer } from "../lib/channels";
+import { channelLabel, dmPeer, externalsIn, hasExternals } from "../lib/channels";
 import { supportsCalls } from "../lib/media";
 import { useChat, useIsOnline, useNameOf, type ChatMessage } from "../store";
 import { PresenceDot } from "./Avatar";
@@ -18,6 +21,7 @@ import { EditChannelModal, InviteModal } from "./ChannelModals";
 import {
   ArchiveIcon,
   ArrowDownIcon,
+  HandshakeIcon,
   HashIcon,
   LockIcon,
   MenuIcon,
@@ -55,23 +59,58 @@ const ICON_BUTTON =
 function channelAccess(
   channelId: string,
   channel: Channel | undefined,
-  myUserId: string,
+  me: { userId: string; role?: Role },
   channelsLoaded: boolean,
+  users: Readonly<Record<string, Pick<UserProfile, "role">>>,
 ) {
+  const myUserId = me.userId;
+  // Phase 55: an external (guest) only writes in their channels: no calls, no invites.
+  const guest = me.role === "guest";
   const dm = isDmChannel(channelId);
-  const allowed = canAccessChannel(channelId, myUserId);
+  const allowed = canAccessChannel(channelId, myUserId) && !(guest && dm);
   const peer = dm ? dmPeer(channelId, myUserId) : null;
   const isPrivate = channel?.type === "private";
   return {
     dm,
     isPrivate,
     peer,
+    guest,
+    /** Phase 55: people from outside MindfulTech are in it (what the team must know). */
+    external: !guest && !!channel && hasExternals(channel, users),
     notFound: !allowed || (channelsLoaded && !channel && !dm),
-    canCall: !!peer && peer !== myUserId && allowed && supportsCalls(),
+    canCall: !guest && !!peer && peer !== myUserId && allowed && supportsCalls(),
     /** Phase 36: channel calls (rooms) in any channel you can post in. */
-    canRoomCall: !dm && allowed && !!channel && !channel.archived && supportsCalls(),
-    canInvite: isPrivate && channel?.createdBy === myUserId,
+    canRoomCall: !guest && !dm && allowed && !!channel && !channel.archived && supportsCalls(),
+    /** Phase 55: its creator or an admin (it was the creator only). */
+    canInvite: !!channel && !channel.archived && canManageMembers(channel, myUserId, me.role),
   };
+}
+
+/**
+ * Phase 55: above the composer of a channel with externals, for the team: a
+ * reminder that people outside MindfulTech read everything written here.
+ */
+function ExternalNotice({ channel }: Readonly<{ channel: Channel }>) {
+  const users = useChat((s) => s.users);
+  const nameOf = useNameOf();
+  const names = externalsIn(channel, users).map((id) => nameOf(id));
+  const who =
+    names.length <= 2
+      ? names.join(" and ")
+      : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+  return (
+    <p
+      className="mx-3 mb-1 flex items-center gap-1.5 truncate rounded-md bg-warning/10 px-2.5 py-1 text-xs text-ink-secondary sm:mx-4"
+      role="note"
+      data-external-notice
+    >
+      <HandshakeIcon className="shrink-0 text-warning" aria-hidden="true" />
+      <span className="truncate">
+        <strong className="font-semibold text-warning">External</strong>: {who}{" "}
+        {names.length === 1 ? "is" : "are"} outside MindfulTech and can read this channel.
+      </span>
+    </p>
+  );
 }
 
 type Access = ReturnType<typeof channelAccess>;
@@ -199,8 +238,8 @@ function ChannelHeader({
   /** What's open now, so its button shows as pressed. */
   panel: "pins" | DetailsTab | null;
 }>) {
-  const { dm, isPrivate, peer } = access;
-  const KindIcon = isPrivate ? LockIcon : HashIcon;
+  const { dm, isPrivate, peer, external, guest } = access;
+  const KindIcon = external ? HandshakeIcon : isPrivate ? LockIcon : HashIcon;
   const pinCount = channel?.pinCount ?? 0;
   const sidebarPinned = useChat((s) => s.pinned.includes(channelId));
   const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
@@ -229,7 +268,9 @@ function ChannelHeader({
           <UnreadAlertsDot />
         </button>
       )}
-      {!dm && <KindIcon className="shrink-0 text-ink-secondary" />}
+      {!dm && (
+        <KindIcon className={`shrink-0 ${external ? "text-warning" : "text-ink-secondary"}`} />
+      )}
       {!channel ? (
         <h1 className="truncate font-semibold text-ink">{label}</h1>
       ) : dm ? (
@@ -258,7 +299,19 @@ function ChannelHeader({
       )}
       {peer && <PeerPresence peer={peer} myUserId={myUserId} />}
       {isPrivate && channel && <MemberCount channel={channel} />}
-      {channel?.isProject && channel.linkedBoardId && (
+      {external && (
+        <button
+          type="button"
+          onClick={() => onDetails("members")}
+          className="flex shrink-0 items-center gap-1 rounded-full border border-warning/40 bg-warning/15 px-2 py-0.5 text-xs font-semibold text-warning hover:bg-warning/25"
+          title="People from outside MindfulTech are in this channel"
+          data-external-chip
+        >
+          <HandshakeIcon aria-hidden="true" />
+          <span className="hidden sm:inline">External</span>
+        </button>
+      )}
+      {channel?.isProject && channel.linkedBoardId && !guest && (
         <BoardShortcut channelId={channelId} boardId={channel.linkedBoardId} />
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -334,18 +387,20 @@ function ChannelHeader({
               aria-label="Conversation options"
               className="glass-strong w-64 rounded-xl border border-white/10 p-1"
             >
-              <button
-                type="button"
-                role="menuitem"
-                className={menuItem}
-                onClick={() => {
-                  setMoreAnchor(null);
-                  chat.setPinned(channelId, !sidebarPinned);
-                }}
-              >
-                {sidebarPinned ? <PinOffIcon /> : <PinIcon />}
-                {sidebarPinned ? "Unpin from the sidebar" : "Pin to the top of the sidebar"}
-              </button>
+              {!guest && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={menuItem}
+                  onClick={() => {
+                    setMoreAnchor(null);
+                    chat.setPinned(channelId, !sidebarPinned);
+                  }}
+                >
+                  {sidebarPinned ? <PinOffIcon /> : <PinIcon />}
+                  {sidebarPinned ? "Unpin from the sidebar" : "Pin to the top of the sidebar"}
+                </button>
+              )}
               <button
                 type="button"
                 role="menuitem"
@@ -365,11 +420,11 @@ function ChannelHeader({
   );
 }
 
-function NotFound() {
+function NotFound({ guest = false }: Readonly<{ guest?: boolean }>) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
       <p className="text-ink">This channel doesn't exist or you don't have access.</p>
-      <Link to={`/app/${GENERAL_CHANNEL_ID}`} className="btn-primary">
+      <Link to={guest ? "/app" : `/app/${GENERAL_CHANNEL_ID}`} className="btn-primary">
         Back to channels
       </Link>
     </div>
@@ -396,6 +451,7 @@ export function ChannelView({
   const me = useChat((s) => s.me);
   const channel = useChat((s) => s.channels.find((c) => c.channelId === channelId));
   const channelsLoaded = useChat((s) => s.channelsLoaded);
+  const users = useChat((s) => s.users);
   const nameOf = useNameOf();
   const [inviting, setInviting] = useState(false);
   const [details, setDetails] = useState(false);
@@ -439,7 +495,7 @@ export function ChannelView({
   const showBoard = desktop && boardOpen && !!boardId && !threadParent;
   // Phones: the thread takes the whole screen, header included.
   const mobileThread = !!threadParent && !desktop;
-  const access = channelAccess(channelId, channel, me.userId, channelsLoaded);
+  const access = channelAccess(channelId, channel, me, channelsLoaded, users);
   const label = channelLabel(channelId, channel, me.userId, (id) => nameOf(id));
   const title = access.dm ? label : `#${label}`;
   // Phones (Phase 37): Slack's mobile header and the "very beginning" intro.
@@ -557,7 +613,7 @@ export function ChannelView({
       )}
 
       {access.notFound ? (
-        <NotFound />
+        <NotFound guest={access.guest} />
       ) : (
         <>
           <div
@@ -592,6 +648,7 @@ export function ChannelView({
                 }
               />
               <TypingIndicator channelId={channelId} />
+              {access.external && channel && !archived && <ExternalNotice channel={channel} />}
               <Composer
                 key={channelId}
                 ref={composer}

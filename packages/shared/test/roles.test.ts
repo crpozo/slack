@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   canEditChannel,
+  canManageMembers,
   canRenameChannel,
+  canSeeChannel,
   ChannelUpdateActionSchema,
   guestMayReceive,
   GUEST_ROUTES,
@@ -19,18 +21,65 @@ describe("roles", () => {
     expect(roleFromGroups("[admins]")).toBe("admin");
   });
 
-  it("lets guests receive board events only, and call only board-related routes", () => {
-    expect(guestMayReceive("board.task_created")).toBe(true);
+  it("lets guests receive their boards' and channels' events, never presence, calls or the calendar", () => {
+    for (const type of ["board.task_created", "message.new", "channel.list", "user.typing"]) {
+      expect(guestMayReceive(type)).toBe(true);
+    }
     for (const type of [
-      "message.new",
-      "channel.list",
       "user.connected",
+      "user.disconnected",
+      "user.updated",
       "call.offer",
+      "call.room",
       "user.prefs",
+      "calendar.event_created",
     ]) {
       expect(guestMayReceive(type)).toBe(false);
     }
-    expect([...GUEST_ROUTES].sort()).toEqual(["ping", "presign", "user"]);
+    expect([...GUEST_ROUTES].sort()).toEqual([
+      "channel",
+      "edit",
+      "history",
+      "message",
+      "ping",
+      "presign",
+      "react",
+      "read",
+      "typing",
+      "user",
+    ]);
+    expect(GUEST_ROUTES.has("call")).toBe(false);
+    expect(GUEST_ROUTES.has("pin")).toBe(false);
+  });
+
+  it("shows an external only the private channels they were invited to (Phase 55)", () => {
+    const pub = { type: "public" as const };
+    const priv = { type: "private" as const, members: ["u1", "g1"] };
+    const dm = { type: "dm" as const, members: ["g1", "u1"] };
+    expect(canSeeChannel(pub, "g1", "guest")).toBe(false);
+    expect(canSeeChannel(priv, "g1", "guest")).toBe(true);
+    expect(canSeeChannel(priv, "g2", "guest")).toBe(false);
+    expect(canSeeChannel(dm, "g1", "guest")).toBe(false);
+    // Members as before.
+    expect(canSeeChannel(pub, "u2", "member")).toBe(true);
+    expect(canSeeChannel(pub, "u2", undefined)).toBe(true);
+    expect(canSeeChannel(priv, "u2", "admin")).toBe(false);
+  });
+
+  it("lets a private channel's creator or an admin in it manage who's in it", () => {
+    const priv = {
+      channelId: "ch_x",
+      type: "private" as const,
+      createdBy: "u1",
+      members: ["u1", "u2", "a1", "g1"],
+    };
+    expect(canManageMembers(priv, "u1", "member")).toBe(true);
+    expect(canManageMembers(priv, "u2", "member")).toBe(false);
+    expect(canManageMembers(priv, "a1", "admin")).toBe(true);
+    expect(canManageMembers(priv, "a2", "admin")).toBe(false); // not in it
+    expect(canManageMembers(priv, "g1", "guest")).toBe(false);
+    expect(canManageMembers({ ...priv, createdBy: "g1" }, "g1", "guest")).toBe(false);
+    expect(canManageMembers({ ...priv, type: "public" as const }, "u1", "admin")).toBe(false);
   });
 
   it("lets the creator or an admin rename a channel, never #general or a DM", () => {

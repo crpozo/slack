@@ -9,7 +9,7 @@ import {
 } from "@mindfultech/shared";
 import { boardsOf } from "../lib/boards";
 import { broadcast, deliver, listConnections, onlineUserIds } from "../lib/broadcast";
-import { getAccessibleChannel } from "../lib/channels";
+import { getAccessibleChannel, scanChannels, visibleTo } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import { wsHandler, type Caller } from "../lib/handler";
 import { log } from "../lib/logger";
@@ -46,12 +46,20 @@ async function deliverPrefs(userId: string, prefs: { pinned: string[]; channelOr
 
 /**
  * The directory as `caller` may see it. Members see everyone. A guest sees
- * only the people on their boards (for assignees and names), and no presence.
+ * only the people on their boards (for assignees and names) and, since
+ * Phase 55, in their channels (authors, mentions), and no presence.
  */
 async function listUsers(caller: Caller) {
   if (caller.role === "guest") {
-    const [users, boards] = await Promise.all([scanUsers(), boardsOf(caller.userId)]);
+    const [users, boards, channels] = await Promise.all([
+      scanUsers(),
+      boardsOf(caller.userId),
+      scanChannels(),
+    ]);
     const visible = new Set(boards.flatMap((b) => [b.ownerId, ...b.members]));
+    for (const channel of visibleTo(channels, caller.userId, caller.role)) {
+      for (const id of channel.members ?? []) visible.add(id);
+    }
     visible.add(caller.userId);
     const list = users.filter((u) => visible.has(u.userId));
     await reply(caller.connectionId, { type: "user.list", users: list });
@@ -97,7 +105,7 @@ async function updateName(action: Extract<UserAction, { op: "update" }>, caller:
  */
 async function pin(action: Extract<UserAction, { op: "pin" }>, caller: Caller) {
   if (caller.role === "guest") return replyError(caller.connectionId, "FORBIDDEN");
-  if (action.pinned && !(await getAccessibleChannel(action.channelId, caller.userId))) {
+  if (action.pinned && !(await getAccessibleChannel(action.channelId, caller))) {
     return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
   }
   const prefs = await prefsOf(caller.userId);

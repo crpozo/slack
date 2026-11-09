@@ -69,7 +69,7 @@ function secretIdOf(event: HttpEvent): string {
  * else is "not found", so private channels stay hidden.
  */
 async function channelFor(channelId: string, caller: HttpCaller, allowArchived: boolean) {
-  const channel = await getAccessibleChannel(channelId, caller.userId, { allowArchived });
+  const channel = await getAccessibleChannel(channelId, caller, { allowArchived });
   if (!channel) throw notFound("Channel not found");
   return channel;
 }

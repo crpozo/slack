@@ -24,10 +24,10 @@ import {
   projectEdit,
   type ProjectChoice,
 } from "../lib/projects";
-import { tasksApiConfigured } from "../lib/tasksApi";
+import { channelsApi, tasksApiConfigured } from "../lib/tasksApi";
 import { useChat } from "../store";
 import { useTasks } from "../store/tasks";
-import { ArchiveIcon, GlobeIcon, KanbanIcon, LockIcon } from "./icons";
+import { ArchiveIcon, GlobeIcon, HandshakeIcon, KanbanIcon, LockIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 import { UserPicker } from "./UserPicker";
 
@@ -301,12 +301,57 @@ export function CreateChannelModal({
 }
 
 /** Invite more people to a private channel (only its creator sees this). */
+/** A plausible email address (the server checks it properly). */
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Invites people to a private channel: teammates (and externals already in
+ * the directory) from the list, or (Phase 55) anyone by email. An address
+ * outside MindfulTech becomes an external: they see this channel and nothing
+ * else of the team's, and the channel moves to Externals for everyone.
+ */
 export function InviteModal({
   channel,
   onClose,
 }: Readonly<{ channel: Channel; onClose: () => void }>) {
-  const others = useOtherUsers();
+  const myUserId = useChat((s) => s.me?.userId);
+  const users = useChat(useShallow((s) => Object.values(s.users)));
+  const showToast = useChat((s) => s.showToast);
+  // Teammates and externals already known (from a board or another channel).
+  const people = users
+    .filter((u) => u.userId !== myUserId)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
   const [selected, setSelected] = useState<string[]>([]);
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const emailValid = EMAIL.test(email.trim());
+  const byEmail = tasksApiConfigured();
+  const picksExternal = selected.some((id) => users.find((u) => u.userId === id)?.role === "guest");
+
+  async function sendInvite(e: FormEvent) {
+    e.preventDefault();
+    if (!emailValid || busy) return;
+    const address = email.trim();
+    setBusy(true);
+    setError(null);
+    try {
+      const { invited } = await channelsApi.inviteByEmail(channel.channelId, address);
+      chat.refreshUsers(); // their name (and the External badge) right away
+      showToast(
+        invited.role === "guest"
+          ? invited.created
+            ? `Invitation sent to ${address}. They'll get an email with a temporary password and will only see #${channel.name}.`
+            : `${address} (external) now has access to #${channel.name}.`
+          : `${address} joined #${channel.name}.`,
+        "success",
+      );
+      setEmail("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't send the invitation.");
+    }
+    setBusy(false);
+  }
 
   return (
     <Modal
@@ -314,7 +359,7 @@ export function InviteModal({
       onClose={onClose}
       footer={
         <>
-          <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+          <SecondaryButton onClick={onClose}>Close</SecondaryButton>
           <button
             type="button"
             className="btn-primary"
@@ -329,12 +374,61 @@ export function InviteModal({
         </>
       }
     >
-      <UserPicker
-        users={others}
-        selected={selected}
-        onChange={setSelected}
-        locked={channel.members ?? []}
-      />
+      <div className="space-y-4">
+        {byEmail && (
+          <form onSubmit={(e) => void sendInvite(e)} className="space-y-1.5" data-invite-email>
+            <label htmlFor="channel-invite-email" className="text-sm font-medium text-ink">
+              Invite someone outside MindfulTech
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="channel-invite-email"
+                type="email"
+                inputMode="email"
+                autoComplete="off"
+                placeholder="client@company.com"
+                className="input min-w-0 flex-1"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              <button type="submit" className="btn-primary" disabled={busy || !emailValid}>
+                {busy ? "Inviting…" : "Send invite"}
+              </button>
+            </div>
+            <p className="flex items-start gap-1.5 text-xs text-ink-secondary">
+              <HandshakeIcon className="mt-px shrink-0 text-warning" aria-hidden="true" />
+              <span>
+                They join as an <strong className="text-warning">external</strong>: they see only
+                this channel, never your other channels, DMs or files. The channel moves to{" "}
+                <strong>Externals</strong> and is marked for everyone.
+              </span>
+            </p>
+          </form>
+        )}
+        <div className="space-y-1.5">
+          {byEmail && <p className="text-sm font-medium text-ink">Or add people you know</p>}
+          <UserPicker
+            users={people}
+            selected={selected}
+            onChange={setSelected}
+            locked={channel.members ?? []}
+          />
+          {picksExternal && (
+            <p className="text-xs text-warning" role="note">
+              You're adding someone from outside MindfulTech: they'll see everything in #
+              {channel.name}.
+            </p>
+          )}
+        </div>
+        {error && (
+          <p
+            role="alert"
+            className="rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-sm text-ink"
+          >
+            {error}
+          </p>
+        )}
+      </div>
     </Modal>
   );
 }

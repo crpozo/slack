@@ -171,7 +171,7 @@ describe("user: pins and guests", () => {
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
   });
 
-  it("a guest's directory is only the people on their boards, without presence", async () => {
+  it("a guest's directory is only the people on their boards and channels, without presence", async () => {
     ddbMock.on(ScanCommand, { TableName: "slack-test-users" }).resolves({
       Items: [
         { userId: ALICE.userId, email: ALICE.email },
@@ -193,6 +193,35 @@ describe("user: pins and guests", () => {
         ],
       },
     });
+    // Phase 55: the private channel they're in brings Alice; #general (public) and
+    // a private channel without them bring nobody.
+    ddbMock.on(ScanCommand, { TableName: "slack-test-channels" }).resolves({
+      Items: [
+        { channelId: "ch_general", type: "public", createdBy: "system", createdAt: 1 },
+        {
+          channelId: "ch_client",
+          type: "private",
+          createdBy: ALICE.userId,
+          createdAt: 2,
+          members: [ALICE.userId, "user-guest"],
+        },
+        {
+          channelId: "ch_secret",
+          type: "private",
+          createdBy: "user-carol",
+          createdAt: 3,
+          members: ["user-carol", "user-dave"],
+        },
+      ],
+    });
+    ddbMock.on(ScanCommand, { TableName: "slack-test-users" }).resolves({
+      Items: [
+        { userId: ALICE.userId, email: ALICE.email },
+        { userId: BOB.userId, email: BOB.email },
+        { userId: "user-carol", email: "carol@example.com" },
+        { userId: "user-guest", email: "client@acme.com", role: "guest" },
+      ],
+    });
     await handler(
       wsEvent(
         "user",
@@ -201,7 +230,9 @@ describe("user: pins and guests", () => {
       ),
     );
     const [[, event]] = sentEvents() as [[string, UserListEvent]];
-    expect(event.users.map((u) => u.userId).sort()).toEqual([BOB.userId, "user-guest"].sort());
+    expect(event.users.map((u) => u.userId).sort()).toEqual(
+      [ALICE.userId, BOB.userId, "user-guest"].sort(),
+    );
     expect(event.online).toBeUndefined();
     expect(sentEvents()).toHaveLength(1); // no prefs for guests
   });

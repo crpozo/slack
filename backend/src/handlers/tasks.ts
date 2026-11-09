@@ -6,14 +6,20 @@ import {
   TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
+import {
+  ConditionalCheckFailedException,
+  TransactionCanceledException,
+} from "@aws-sdk/client-dynamodb";
 import {
   AddBoardMembersSchema,
   attachmentPrefixFor,
   canAccessBoard,
   canDeleteBoard,
+  canManageMembers,
+  compareIds,
   CreateBoardSchema,
   CreateTaskSchema,
+  InviteByEmailSchema,
   InviteToBoardSchema,
   MAX_BOARD_MEMBERS,
   taskProvenance,
@@ -40,7 +46,7 @@ import {
 } from "../lib/boards";
 import { activeUserIds, deliver, listConnections, type LiveConnection } from "../lib/broadcast";
 import { speakerNames } from "../lib/callNotes";
-import { channelAudience, getAccessibleChannel } from "../lib/channels";
+import { channelAudience, getAccessibleChannel, scanChannels, visibleTo } from "../lib/channels";
 import { purgeBoard, type PurgeReport } from "../lib/boardDeletion";
 import { ddb, tables } from "../lib/ddb";
 import {
@@ -56,9 +62,9 @@ import {
   type HttpResult,
 } from "../lib/http";
 import { errorFields, log } from "../lib/logger";
-import { findOrInviteGuest } from "../lib/cognito";
+import { findOrInviteGuest, type InvitedAccount } from "../lib/cognito";
 import { notifyTaskActivity, notifyTasksFromNotes } from "../lib/notify";
-import { defaultDisplayName, unknownUsers } from "../lib/users";
+import { defaultDisplayName, toUserProfile, unknownUsers } from "../lib/users";
 
 /**
  * Task Manager HTTP API. Rows of the `boards` table:
@@ -219,15 +225,13 @@ async function addMembers(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
  * account (Cognito emails a temporary password; they see only the boards they
  * are invited to); an existing account is simply added. Owner only.
  */
-async function inviteToBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
-  const board = await ownedBoard(pathParam(event, "id"), caller, "invite people");
-  const { email } = parseBody(InviteToBoardSchema, event);
-  if (board.members.length >= MAX_BOARD_MEMBERS) {
-    throw new HttpError(400, `A board can have at most ${MAX_BOARD_MEMBERS} members`);
-  }
-  const account = await findOrInviteGuest(email);
-  // The directory row now, so the board shows their name before they ever sign in.
-  await ddb.send(
+/**
+ * The invited person's directory row, written now so boards and channels show
+ * their name (and, for an external, that they are one) before they ever sign
+ * in. The team's open apps get it at once (`user.updated`; never a guest's).
+ */
+async function saveInvitedProfile(account: InvitedAccount): Promise<void> {
+  const { Attributes } = await ddb.send(
     new UpdateCommand({
       TableName: tables.users,
       Key: { userId: account.userId },
@@ -241,8 +245,27 @@ async function inviteToBoard(event: HttpEvent, caller: HttpCaller): Promise<Http
         ":name": defaultDisplayName(account.email),
         ":now": Date.now(),
       },
+      ReturnValues: "ALL_NEW",
     }),
   );
+  if (!account.created || !Attributes) return;
+  try {
+    const user = toUserProfile(Attributes);
+    const team = (await listConnections()).filter((c) => c.role !== "guest");
+    await deliver(team, () => ({ type: "user.updated", user }));
+  } catch (err) {
+    log.warn("invited profile not announced", { userId: account.userId, ...errorFields(err) });
+  }
+}
+
+async function inviteToBoard(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const board = await ownedBoard(pathParam(event, "id"), caller, "invite people");
+  const { email } = parseBody(InviteToBoardSchema, event);
+  if (board.members.length >= MAX_BOARD_MEMBERS) {
+    throw new HttpError(400, `A board can have at most ${MAX_BOARD_MEMBERS} members`);
+  }
+  const account = await findOrInviteGuest(email);
+  await saveInvitedProfile(account);
   log.info("board invite", {
     boardId: board.boardId,
     userId: caller.userId,
@@ -252,6 +275,71 @@ async function inviteToBoard(event: HttpEvent, caller: HttpCaller): Promise<Http
   const updated = await addToBoard(board, [account.userId], caller);
   return json(200, {
     board: updated,
+    invited: { userId: account.userId, role: account.role, created: account.created },
+  });
+}
+
+/**
+ * Invites someone to a private channel by email (Phase 55). An address with
+ * no account becomes an external: a guest account (Cognito emails the
+ * temporary password) that sees this channel, and whatever else they're
+ * invited to, and nothing more of the team's. An existing account (a team
+ * member, or an external already) is simply added. The channel's creator or
+ * an admin in it, as for inviting from the team (`canManageMembers`).
+ */
+async function inviteToChannel(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  if (caller.role === "guest") throw forbidden("Guests can't invite people");
+  const channelId = decodeURIComponent(pathParam(event, "channelId"));
+  const { email } = parseBody(InviteByEmailSchema, event);
+  const channel = await getAccessibleChannel(channelId, caller);
+  if (!channel || channel.archived) throw notFound("Channel not found");
+  if (channel.type !== "private") {
+    throw new HttpError(400, "Only private channels take invitations");
+  }
+  if (!canManageMembers(channel, caller.userId, caller.role)) {
+    throw forbidden("Only the channel creator or an admin can invite people");
+  }
+  const account = await findOrInviteGuest(email);
+  await saveInvitedProfile(account);
+  const members = [...new Set([...(channel.members ?? []), account.userId])].sort(compareIds);
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: tables.channels,
+        Key: { channelId: channel.channelId },
+        // Appended to whatever the list is now (another invite may have just landed).
+        UpdateExpression: "SET members = list_append(members, :new)",
+        ConditionExpression: "#type = :private AND NOT contains(members, :id)",
+        ExpressionAttributeNames: { "#type": "type" },
+        ExpressionAttributeValues: {
+          ":new": [account.userId],
+          ":id": account.userId,
+          ":private": "private",
+        },
+      }),
+    );
+  } catch (err) {
+    // Already in it: nothing to add (the account may still have been re-sent its email).
+    if (!(err instanceof ConditionalCheckFailedException)) throw err;
+  }
+  log.info("channel invite", {
+    channelId: channel.channelId,
+    userId: caller.userId,
+    role: account.role,
+    created: account.created,
+  });
+  // Everyone's list again, each filtered (the external now sees this channel).
+  try {
+    const all = await scanChannels();
+    await deliver(await listConnections(), (connection) => ({
+      type: "channel.list",
+      channels: visibleTo(all, connection.userId, connection.role),
+    }));
+  } catch (err) {
+    log.error("channel list broadcast failed", { channelId, ...errorFields(err) });
+  }
+  return json(200, {
+    channel: { ...channel, members },
     invited: { userId: account.userId, role: account.role, created: account.created },
   });
 }
@@ -439,7 +527,7 @@ async function createTasksFromNotes(event: HttpEvent, caller: HttpCaller): Promi
   const input = parseBody(TasksFromNotesSchema, event);
   for (const draft of input.tasks) validateTaskFields(board, draft);
 
-  const channel = await getAccessibleChannel(input.channelId, caller.userId, {
+  const channel = await getAccessibleChannel(input.channelId, caller, {
     allowArchived: true,
   });
   const { Item } = channel
@@ -640,6 +728,7 @@ const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<H
   "DELETE /boards/{id}": deleteBoard,
   "POST /boards/{id}/members": addMembers,
   "POST /boards/{id}/invites": inviteToBoard,
+  "POST /channels/{channelId}/invites": inviteToChannel,
   "GET /boards/{id}/tasks": listTasks,
   "POST /boards/{id}/tasks": createTask,
   "POST /boards/{id}/tasks/from-notes": createTasksFromNotes,

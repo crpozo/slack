@@ -56,7 +56,7 @@ export const handler = wsHandler(async (event, caller) => {
   if (!parsed.success) return badRequest(caller.connectionId, parsed.error);
   const { channelId, sk, text } = parsed.data;
 
-  const channel = await getAccessibleChannel(channelId, caller.userId);
+  const channel = await getAccessibleChannel(channelId, caller);
   if (!channel) return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
 
   const outcome = await applyEdit({ channelId, sk }, caller.userId, text);

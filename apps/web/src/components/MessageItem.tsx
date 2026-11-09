@@ -29,6 +29,7 @@ import { VaultSecretCard } from "./VaultSecretCard";
 import { DeleteMessageModal } from "./DeleteMessageModal";
 import { MessageContextMenu } from "./MessageContextMenu";
 import { Avatar } from "./Avatar";
+import { GuestBadge } from "./UserPicker";
 import {
   CheckCheckIcon,
   CheckIcon,
@@ -542,6 +543,10 @@ export const MessageItem = memo(function MessageItem({
   const time = formatTime(message.createdAt);
   // One string, not the whole directory: a refresh re-renders this row only if its name changed.
   const name = useChat((s) => selectName(s, message.userId, message.userEmail));
+  // Phase 55: the team always sees who's from outside MindfulTech (a guest doesn't need it).
+  const fromOutside = useChat(
+    (s) => s.me?.role !== "guest" && s.users[message.userId]?.role === "guest",
+  );
   const myUserId = useChat((s) => s.me?.userId);
   const role = useChat((s) => s.me?.role);
   const sent = !message.status;
@@ -643,6 +648,11 @@ export const MessageItem = memo(function MessageItem({
               <span className="text-sm font-semibold text-ink" title={message.userEmail}>
                 {name}
               </span>
+              {fromOutside && (
+                <span className="self-center">
+                  <GuestBadge />
+                </span>
+              )}
               <time
                 className="text-xs text-ink-secondary"
                 dateTime={new Date(message.createdAt).toISOString()}

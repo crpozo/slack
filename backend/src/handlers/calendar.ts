@@ -286,7 +286,7 @@ async function createLinkedMeeting(
 ): Promise<HttpResult> {
   const { channelId } = input;
   const members = dmMembers(channelId);
-  const channel = await getAccessibleChannel(channelId, caller.userId);
+  const channel = await getAccessibleChannel(channelId, caller);
   if (!channel || (members ? channel.type !== "dm" : channel.type === "dm")) {
     throw notFound("Conversation not found");
   }

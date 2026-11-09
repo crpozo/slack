@@ -14,6 +14,7 @@ import { chat } from "../lib/chat";
 import { LONG_PRESS_MS, SLOP_PX, swallowNextClick } from "../lib/gestures";
 import {
   dmEntries,
+  hasExternals,
   isInformational,
   moveTo,
   orderByPreference,
@@ -44,6 +45,7 @@ import {
   ChevronRightIcon,
   ChevronUpIcon,
   DmsIcon,
+  HandshakeIcon,
   HashIcon,
   KanbanIcon,
   LockIcon,
@@ -643,6 +645,21 @@ function AppTile({ app }: Readonly<{ app: PhoneApp }>) {
   );
 }
 
+/**
+ * Phase 55: the icon of a channel with externals (people outside MindfulTech),
+ * in the warning color, so it reads as "careful what you share" at a glance.
+ */
+export function ExternalGlyph({ className = "" }: Readonly<{ className?: string }>) {
+  return (
+    <HandshakeIcon
+      className={`text-warning ${className}`}
+      aria-label="Channel with people outside MindfulTech"
+      aria-hidden={false}
+      role="img"
+    />
+  );
+}
+
 interface SidebarProps {
   activeChannelId: string;
   /** Phones' tab screens: one section, full width, no header or footer. */
@@ -756,11 +773,14 @@ export function Sidebar({
     },
   );
   // Phase 53: informational channels (news, tools) get their own section,
-  // away from the project channels.
-  const shownInfo = namedChannels.filter((c) => !pinnedSet.has(c.channelId) && isInformational(c));
-  const shownChannels = namedChannels.filter(
-    (c) => !pinnedSet.has(c.channelId) && !isInformational(c),
-  );
+  // away from the project channels. Phase 55: so do channels with people from
+  // outside MindfulTech (Externals), whatever else they are: you always know.
+  const sectionOf = (c: Channel): "externals" | "info" | "channels" =>
+    hasExternals(c, users) ? "externals" : isInformational(c) ? "info" : "channels";
+  const unpinned = namedChannels.filter((c) => !pinnedSet.has(c.channelId));
+  const shownExternals = unpinned.filter((c) => sectionOf(c) === "externals");
+  const shownInfo = unpinned.filter((c) => sectionOf(c) === "info");
+  const shownChannels = unpinned.filter((c) => sectionOf(c) === "channels");
   const shownDms = dms.filter((d) => !d.channelId || !pinnedSet.has(d.channelId));
   const myName = nameOf(me.userId, me.email);
   const compact = collapsed;
@@ -798,7 +818,9 @@ export function Sidebar({
   }
   /** The section list a channel is ordered in (pinned ones keep their pin order). */
   const orderedList = (c: Channel) =>
-    pinnedSet.has(c.channelId) ? [] : isInformational(c) ? shownInfo : shownChannels;
+    pinnedSet.has(c.channelId)
+      ? []
+      : { externals: shownExternals, info: shownInfo, channels: shownChannels }[sectionOf(c)];
 
   function channelMenu(c: Channel): RowMenuItem[] {
     const items: RowMenuItem[] = [];
@@ -828,7 +850,8 @@ export function Sidebar({
     if (me && canEditChannel(c, me.userId, me.role)) {
       items.push({ label: "Edit channel", icon: <PencilIcon />, onSelect: () => setEditing(c) });
       // Phase 53: in or out of the Knowledge section (stored, so it sticks).
-      if (!c.archived && c.channelId !== GENERAL_CHANNEL_ID) {
+      // A channel with externals stays under Externals whatever it's marked.
+      if (!c.archived && c.channelId !== GENERAL_CHANNEL_ID && sectionOf(c) !== "externals") {
         const info = isInformational(c);
         items.push({
           label: info ? "Move to Channels" : "Move to Knowledge",
@@ -859,6 +882,13 @@ export function Sidebar({
   }
 
   const iconButton = "rounded-md p-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink";
+  /** Hover text: private, or (Phase 55) shared with people outside MindfulTech. */
+  const channelTitle = (c: Channel) =>
+    hasExternals(c, users)
+      ? `#${c.name} · includes people outside MindfulTech`
+      : c.type === "private"
+        ? `#${c.name} (private)`
+        : undefined;
 
   const modals = (
     <>
@@ -902,8 +932,14 @@ export function Sidebar({
       <PhoneRow
         key={c.channelId}
         label={c.name}
-        icon={<ChannelIcon channel={c} className="text-[22px] text-ink-secondary" />}
-        title={c.type === "private" ? `#${c.name} (private)` : undefined}
+        icon={
+          hasExternals(c, users) ? (
+            <ExternalGlyph className="text-[22px]" />
+          ) : (
+            <ChannelIcon channel={c} className="text-[22px] text-ink-secondary" />
+          )
+        }
+        title={channelTitle(c)}
         unread={unread[c.channelId] ?? 0}
         urgent={!!mentioned[c.channelId]}
         onClick={() => navigate(`/app/${c.channelId}`)}
@@ -956,6 +992,16 @@ export function Sidebar({
               onToggle={() => toggleSection("info")}
             >
               {shownInfo.map(phoneChannelRow)}
+            </PhoneSectionBlock>
+          )}
+          {shownExternals.length > 0 && (
+            <PhoneSectionBlock
+              title="Externals"
+              icon={<HandshakeIcon />}
+              folded={folded.externals}
+              onToggle={() => toggleSection("externals")}
+            >
+              {shownExternals.map(phoneChannelRow)}
             </PhoneSectionBlock>
           )}
           <PhoneSectionBlock
@@ -1034,9 +1080,7 @@ export function Sidebar({
     if (compact || pinnedSet.has(c.channelId)) return undefined;
     const sameSection = (id: string | null) => {
       const from = id && namedChannels.find((x) => x.channelId === id);
-      return (
-        !!from && !pinnedSet.has(from.channelId) && isInformational(from) === isInformational(c)
-      );
+      return !!from && !pinnedSet.has(from.channelId) && sectionOf(from) === sectionOf(c);
     };
     return {
       over: dropTarget === c.channelId && dragging !== c.channelId,
@@ -1064,8 +1108,8 @@ export function Sidebar({
       drag={dragFor(c)}
       compact={compact}
       label={c.name}
-      icon={<ChannelIcon channel={c} />}
-      title={c.type === "private" ? `#${c.name} (private)` : undefined}
+      icon={hasExternals(c, users) ? <ExternalGlyph /> : <ChannelIcon channel={c} />}
+      title={channelTitle(c)}
       active={c.channelId === activeChannelId}
       unread={c.channelId === activeChannelId ? 0 : (unread[c.channelId] ?? 0)}
       urgent={!!mentioned[c.channelId]}
@@ -1208,6 +1252,14 @@ export function Sidebar({
             }
           >
             <ul className="space-y-0.5 px-2">{shownChannels.map(channelNavItem)}</ul>
+          </Section>
+        )}
+
+        {only !== "dms" && shownExternals.length > 0 && (
+          <Section title="Externals" compact={compact}>
+            <ul className="space-y-0.5 px-2" aria-label="Externals">
+              {shownExternals.map(channelNavItem)}
+            </ul>
           </Section>
         )}
 

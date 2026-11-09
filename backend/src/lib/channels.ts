@@ -1,25 +1,36 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { GetCommand, paginateScan, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import { isChannelMember, type Channel } from "@mindfultech/shared";
+import { canSeeChannel, type Channel, type Role } from "@mindfultech/shared";
 import { ddb, tables } from "./ddb";
 import { errorFields, log } from "./logger";
 
 /**
- * Loads a channel the caller may use: it must exist, be public or list the
- * caller among its members, and (unless `allowArchived`: reading history,
+ * Who is asking for a channel: their id and role. The role is required so no
+ * caller can forget it: an external (guest) sees only the private channels
+ * they were invited to (`canSeeChannel`), never a public one.
+ */
+export interface ChannelViewer {
+  userId: string;
+  role: Role;
+}
+
+/**
+ * Loads a channel the caller may use: it must exist, be one they may see
+ * (`canSeeChannel`: public or listing them among its members; for a guest,
+ * private and listing them), and (unless `allowArchived`: reading history,
  * downloading a file) not be archived. Anything else returns `null`, which
  * handlers report as CHANNEL_NOT_FOUND so private channels stay hidden.
  */
 export async function getAccessibleChannel(
   channelId: string,
-  userId: string,
+  viewer: ChannelViewer,
   { allowArchived = false }: { allowArchived?: boolean } = {},
 ): Promise<Channel | null> {
   const { Item } = await ddb.send(
     new GetCommand({ TableName: tables.channels, Key: { channelId } }),
   );
   const channel = Item as Channel | undefined;
-  if (!channel || !isChannelMember(channel, userId)) return null;
+  if (!channel || !canSeeChannel(channel, viewer.userId, viewer.role)) return null;
   if (channel.archived && !allowArchived) return null;
   return channel;
 }
@@ -34,9 +45,14 @@ export function dmPeerOf(
   return members.find((m) => m !== userId) ?? (members.includes(userId) ? userId : null);
 }
 
-/** Broadcast filter: who may receive events of `channel`. */
+/**
+ * Broadcast filter: who may receive events of `channel`. By role: a guest's
+ * connection only for the private channels they're in. A connection row
+ * without a role predates roles: a member, as everywhere else.
+ */
 export function channelAudience(channel: Pick<Channel, "type" | "members">) {
-  return (connection: { userId: string }) => isChannelMember(channel, connection.userId);
+  return (connection: { userId: string; role?: Role }) =>
+    canSeeChannel(channel, connection.userId, connection.role ?? "member");
 }
 
 /**
@@ -73,10 +89,11 @@ export async function scanChannels(): Promise<Channel[]> {
 }
 
 /**
- * Public channels plus the private channels and DMs `userId` belongs to.
+ * Public channels plus the private channels and DMs `userId` belongs to; a
+ * guest only the private channels they're in (`canSeeChannel`).
  * Archived channels are listed too (the client shows them under "Archived",
  * read-only); posting to them is refused by `getAccessibleChannel`.
  */
-export function visibleTo(channels: Channel[], userId: string): Channel[] {
-  return channels.filter((c) => isChannelMember(c, userId));
+export function visibleTo(channels: Channel[], userId: string, role: Role | undefined): Channel[] {
+  return channels.filter((c) => canSeeChannel(c, userId, role ?? "member"));
 }

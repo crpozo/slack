@@ -14,11 +14,17 @@ interface UserPickerProps {
   mode?: "multi" | "single";
 }
 
-/** "Guest": an external person who only sees the boards they're invited to. */
+/**
+ * "External": someone outside MindfulTech (a guest account) who only sees the
+ * boards and private channels they're invited to (Phase 55: was "Guest").
+ */
 export function GuestBadge() {
   return (
-    <span className="shrink-0 rounded bg-sky/25 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-ink">
-      Guest
+    <span
+      className="shrink-0 rounded bg-warning/20 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-warning"
+      title="Outside MindfulTech: sees only what they're invited to"
+    >
+      External
     </span>
   );
 }

@@ -245,6 +245,8 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
 ) {
   const showToast = useChat((s) => s.showToast);
   const userId = useChat((s) => s.me?.userId);
+  // Phase 55: an external writes in their channels, without the team's calendar or Vault.
+  const guest = useChat((s) => s.me?.role === "guest");
   // This composer's unsent text survives switching away and reloads (see lib/drafts).
   const storageKey = userId ? draftKey(userId, channelId, thread?.sk) : null;
   const [text, setText] = useState(() => (storageKey ? loadDraft(storageKey) : ""));
@@ -271,8 +273,8 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
   // Direct messages: schedule a meeting with the other person from here.
   const [scheduling, setScheduling] = useState(false);
   const dm = isDmChannel(channelId) && !thread;
-  // Phase 36: meetings can be scheduled into channels too.
-  const canSchedule = !thread;
+  // Phase 36: meetings can be scheduled into channels too (never by an external).
+  const canSchedule = !thread && !guest;
 
   // Another conversation, or editing: back to a normal message.
   useEffect(() => setSecret(false), [channelId]);
@@ -553,6 +555,10 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
     }
     if (!tasksApiConfigured()) {
       showToast("The Vault isn't set up on this deployment", "error");
+      return;
+    }
+    if (guest) {
+      showToast("The Vault is for the MindfulTech team", "info");
       return;
     }
     setText("");

@@ -11,6 +11,7 @@ import OpenAI from "openai";
 import { getAccessibleChannel } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import {
+  forbidden,
   HttpError,
   httpHandler,
   json,
@@ -65,7 +66,7 @@ async function transcribeClip(event: HttpEvent, caller: HttpCaller): Promise<Htt
   }
   const clip = parsed.data;
   const members = dmMembers(clip.channelId);
-  const channel = members ? await getAccessibleChannel(clip.channelId, caller.userId) : null;
+  const channel = members ? await getAccessibleChannel(clip.channelId, caller) : null;
   if (!members || !channel || channel.type !== "dm") throw notFound("Conversation not found");
   if (!members.includes(clip.speaker)) {
     throw new HttpError(400, "speaker: not part of this conversation");
@@ -168,6 +169,8 @@ async function transcribeClip(event: HttpEvent, caller: HttpCaller): Promise<Htt
 }
 
 export const handler = httpHandler(async (event, caller) => {
+  // Externals (Phase 55: now in some channels) never join calls, so never send clips.
+  if (caller.role === "guest") throw forbidden("Calls are for the MindfulTech team");
   if (event.routeKey !== "POST /calls/{callId}/clips") {
     throw notFound(`No route for ${event.routeKey}`);
   }

@@ -444,9 +444,10 @@ describe("GET /channels/{channelId}/files|links|pins", () => {
     ]);
   });
 
-  it("never guests, never conversations the caller can't see", async () => {
+  it("never a public channel for a guest, never conversations the caller can't see", async () => {
+    // Phase 55: a guest only reads the private channels they're in, so #general is "not found".
     expect((await call(get("files", "ch_general", { ...ALICE, groups: ["guests"] }))).status).toBe(
-      403,
+      404,
     );
     expect((await call(get("links", "ch_team"))).status).toBe(404);
     expect(ddbMock.commandCalls(QueryCommand, { TableName: MEDIA })).toHaveLength(0);

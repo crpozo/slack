@@ -9,6 +9,7 @@ import { Avatar } from "./Avatar";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
+  HandshakeIcon,
   HashIcon,
   HeadphonesIcon,
   KanbanIcon,
@@ -36,6 +37,10 @@ export interface PhoneAccess {
   canCall: boolean;
   canRoomCall: boolean;
   canInvite: boolean;
+  /** Phase 55: people from outside MindfulTech are in it (shown to the team). */
+  external: boolean;
+  /** Phase 55: you are an external yourself: no calls, pins or boards. */
+  guest: boolean;
 }
 
 const ROUND =
@@ -121,12 +126,12 @@ export function PhoneChannelHeader({
   const room = useGroupCall((s) => s.rooms[channelId]);
   const peerOnline = useIsOnline(access.peer);
   const self = useChat((s) => s.me?.userId === access.peer);
-  const KindIcon = access.isPrivate ? LockIcon : HashIcon;
+  const KindIcon = access.external ? HandshakeIcon : access.isPrivate ? LockIcon : HashIcon;
   const subtitle: ReactNode[] = [];
   if (access.dm) subtitle.push(peerOnline || self ? "Active" : "Away");
   else {
     subtitle.push(`${members} member${members === 1 ? "" : "s"}`);
-    if (channel?.isProject && channel.linkedBoardId) subtitle.push("board");
+    if (channel?.isProject && channel.linkedBoardId && !access.guest) subtitle.push("board");
   }
   return (
     <header className="flex shrink-0 items-center gap-2.5 bg-surface px-3 py-2" data-phone-header>
@@ -143,7 +148,10 @@ export function PhoneChannelHeader({
         {access.dm ? (
           <Avatar name={label} size="sm" mine={self} />
         ) : (
-          <KindIcon className="shrink-0 text-[20px] text-ink" aria-hidden="true" />
+          <KindIcon
+            className={`shrink-0 text-[20px] ${access.external ? "text-warning" : "text-ink"}`}
+            aria-hidden="true"
+          />
         )}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[17px] font-bold leading-tight text-ink">
@@ -151,6 +159,12 @@ export function PhoneChannelHeader({
           </span>
           <span className="block truncate text-[13px] leading-tight text-ink-secondary">
             {subtitle.join(" • ")}
+            {access.external && (
+              <span className="font-semibold text-warning" data-external-chip>
+                {" "}
+                • externals
+              </span>
+            )}
             {room && (
               <span className="font-semibold text-success">
                 {" "}
@@ -252,13 +266,18 @@ export function PhoneChannelSheet({
         }
         onClick={then(() => onDetails(access.dm ? "members" : "about"))}
       />,
-      <OptionRow
-        key="sidebar-pin"
-        icon={sidebarPinned ? <PinOffIcon /> : <PinIcon />}
-        label={sidebarPinned ? "Unpin from Home" : "Pin to the top of Home"}
-        onClick={then(() => chat.setPinned(channelId, !sidebarPinned))}
-      />,
     );
+    // Externals have no Home of their own to pin to (Phase 55).
+    if (!access.guest) {
+      rows.push(
+        <OptionRow
+          key="sidebar-pin"
+          icon={sidebarPinned ? <PinOffIcon /> : <PinIcon />}
+          label={sidebarPinned ? "Unpin from Home" : "Pin to the top of Home"}
+          onClick={then(() => chat.setPinned(channelId, !sidebarPinned))}
+        />,
+      );
+    }
   }
   if (access.canInvite) {
     rows.push(
@@ -270,7 +289,7 @@ export function PhoneChannelSheet({
       />,
     );
   }
-  if (boardId) {
+  if (boardId && !access.guest) {
     rows.push(
       <OptionRow
         key="board"

@@ -51,13 +51,18 @@ export default function App({ config }: Readonly<{ config: AppConfig }>) {
     );
   }
 
-  // Guests (external clients) get the boards they're invited to and nothing else.
+  // Guests (externals) get the boards and, since Phase 55, the private
+  // channels they're invited to, and nothing else.
   if (me?.role === "guest") {
+    const guest = <GuestLayout wsUrl={config.wsUrl} />;
     return (
       <BrowserRouter>
         <Routes>
-          <Route path="/app/tasks/:boardId?" element={<GuestLayout wsUrl={config.wsUrl} />} />
-          <Route path="*" element={<Navigate to="/app/tasks" replace />} />
+          <Route path="/app/tasks/:boardId?" element={guest} />
+          <Route path="/app/:channelId/thread/:messageId" element={guest} />
+          <Route path="/app/:channelId" element={guest} />
+          <Route path="/app" element={guest} />
+          <Route path="*" element={<Navigate to="/app" replace />} />
         </Routes>
       </BrowserRouter>
     );

@@ -242,7 +242,7 @@ export const handler = wsHandler(async (event, caller) => {
     return badRequest(caller.connectionId, "Attachment does not belong to this channel");
   }
 
-  const channel = await getAccessibleChannel(channelId, caller.userId);
+  const channel = await getAccessibleChannel(channelId, caller);
   if (!channel) return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
   const quoted = replyTo ? await replySnapshot(channelId, replyTo) : null;
   if (replyTo && !quoted) return replyError(caller.connectionId, "MESSAGE_NOT_FOUND");

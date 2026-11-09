@@ -60,7 +60,7 @@ export const handler = wsHandler(async (event, caller) => {
   }
 
   // Archived channels stay readable (that's what archived means).
-  if (!(await getAccessibleChannel(channelId, caller.userId, { allowArchived: true }))) {
+  if (!(await getAccessibleChannel(channelId, caller, { allowArchived: true }))) {
     return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
   }
 

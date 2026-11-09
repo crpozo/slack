@@ -208,6 +208,25 @@ export function orderDms(entries: DmEntry[], channels: Channel[], pinned: string
   return [...top, ...active, ...quiet];
 }
 
+/**
+ * The externals in `channel` (Phase 55): its members whose account is a guest
+ * (someone outside MindfulTech, invited by email), per the directory. Only a
+ * private channel can have them; the server never lets one into anything else.
+ */
+export function externalsIn(
+  channel: Pick<Channel, "type"> & Partial<Pick<Channel, "members">>,
+  users: Readonly<Record<string, Pick<UserProfile, "role">>>,
+): string[] {
+  if (channel.type !== "private") return [];
+  return (channel.members ?? []).filter((id) => users[id]?.role === "guest");
+}
+
+/** Whether `channel` has people from outside MindfulTech in it: it goes under Externals. */
+export const hasExternals = (
+  channel: Pick<Channel, "type"> & Partial<Pick<Channel, "members">>,
+  users: Readonly<Record<string, Pick<UserProfile, "role">>>,
+): boolean => externalsIn(channel, users).length > 0;
+
 /** Names that say a channel informs rather than runs a project (English and Spanish). */
 const INFORMATIONAL_NAME =
   /\b(news|noticias|newsletter|tools|herramientas|resources|recursos|announcements?|anuncios|avisos|info|links|enlaces)\b/i;

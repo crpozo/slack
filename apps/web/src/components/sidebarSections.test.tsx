@@ -150,3 +150,47 @@ describe("your own channel order (Phase 53)", () => {
     expect(save).not.toHaveBeenCalled();
   });
 });
+
+describe("the sidebar's Externals section (Phase 55)", () => {
+  beforeEach(() => {
+    useChat.setState((s) => ({
+      users: {
+        [ME.userId]: { userId: ME.userId, email: ME.email, displayName: "ana", updatedAt: 1 },
+        "u-client": {
+          userId: "u-client",
+          email: "client@acme.com",
+          displayName: "client",
+          updatedAt: 1,
+          role: "guest" as const,
+        },
+      },
+      channels: [
+        ...s.channels,
+        channel("ch_cambridge", "Cambridge", { members: [ME.userId, "u-client"] }),
+      ],
+    }));
+  });
+
+  it("lists channels with people from outside MindfulTech on their own, with their icon", () => {
+    renderSidebar();
+    const externals = screen.getByRole("list", { name: "Externals" });
+    expect(names(externals)).toEqual([expect.stringContaining("Cambridge")]);
+    expect(within(externals).getByRole("img", { name: /outside MindfulTech/ })).toBeTruthy();
+    // Not under Channels any more.
+    const channelsSection = screen.getByRole("heading", { name: "Channels" }).closest("section")!;
+    expect(within(channelsSection).queryByText("Cambridge")).toBeNull();
+  });
+
+  it("isn't there when no channel has externals, and Knowledge can't take one", () => {
+    vi.spyOn(chat, "updateChannel").mockImplementation(() => {});
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: "More options for Cambridge" }));
+    expect(screen.queryByRole("menuitem", { name: /Move to Knowledge/ })).toBeNull();
+    cleanup();
+    useChat.setState((s) => ({
+      channels: s.channels.filter((c) => c.channelId !== "ch_cambridge"),
+    }));
+    renderSidebar();
+    expect(screen.queryByRole("list", { name: "Externals" })).toBeNull();
+  });
+});

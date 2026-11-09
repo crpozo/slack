@@ -360,7 +360,9 @@ describe("channel invite", () => {
     expect(update?.ExpressionAttributeValues?.[":members"]).toEqual(
       [ALICE.userId, BOB.userId, "user-carol", "user-dave"].sort(compareIds),
     );
-    expect(update?.ConditionExpression).toBe("createdBy = :me AND #type = :private");
+    // Only if nobody changed the list meanwhile (no lost invite), and still private.
+    expect(update?.ConditionExpression).toBe("#type = :private AND members = :before");
+    expect(update?.ExpressionAttributeValues?.[":before"]).toEqual([ALICE.userId, "user-carol"]);
     expect(sentEvents().every(([, e]) => e.type === "channel.list")).toBe(true);
   });
 
@@ -610,9 +612,11 @@ describe("guests and channels", () => {
     });
   });
 
-  it("refuses a DM with a guest and inviting a guest to a channel", async () => {
+  it("refuses a DM with a guest, but lets the creator invite one to a private channel (Phase 55)", async () => {
     await handler(wsEvent("channel", { action: "channel", op: "dm", withUserId: BOB.userId }));
     expect(sentEvents().at(-1)?.[1]).toMatchObject({ type: "error", code: "FORBIDDEN" });
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    ddbMock.on(UpdateCommand).resolves({});
     await handler(
       wsEvent("channel", {
         action: "channel",
@@ -621,15 +625,23 @@ describe("guests and channels", () => {
         userIds: [BOB.userId],
       }),
     );
-    expect(sentEvents().at(-1)?.[1]).toMatchObject({ type: "error", code: "FORBIDDEN" });
-    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
-    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+    const update = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(update?.ExpressionAttributeValues?.[":members"]).toEqual(
+      [ALICE.userId, BOB.userId].sort(compareIds),
+    );
   });
 
-  it("a guest's own chat requests are refused before any handler logic", async () => {
+  it("a guest may only list channels: creating, DMs, invites and settings are refused", async () => {
     const asGuest = { user: { ...BOB, role: "guest" }, connectionId: "conn-bob" };
-    for (const op of ["list", "create"] as const) {
-      const body = op === "list" ? { action: "channel", op } : { action: "channel", op, name: "x" };
+    const bodies = [
+      { action: "channel", op: "create", name: "x" },
+      { action: "channel", op: "dm", withUserId: ALICE.userId },
+      { action: "channel", op: "invite", channelId: "ch_team", userIds: [ALICE.userId] },
+      { action: "channel", op: "remove", channelId: "ch_team", userId: ALICE.userId },
+      { action: "channel", op: "update", channelId: "ch_team", topic: "mine" },
+      { action: "channel", op: "delete", channelId: "ch_team" },
+    ];
+    for (const body of bodies) {
       await handler(wsEvent("channel", body, asGuest));
       expect(sentEvents().at(-1)).toEqual([
         "conn-bob",
@@ -637,6 +649,8 @@ describe("guests and channels", () => {
       ]);
     }
     expect(ddbMock.commandCalls(ScanCommand)).toHaveLength(0);
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
   });
 });
 

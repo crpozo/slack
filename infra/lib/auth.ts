@@ -30,11 +30,12 @@ export class Auth extends Construct {
         requireSymbols: false,
       },
       accountRecovery: AccountRecovery.EMAIL_ONLY,
-      // The email a board owner's invite sends (Cognito's built-in sender).
+      // The email an invite by email sends, to a board or (Phase 55) a private
+      // channel (Cognito's built-in sender).
       userInvitation: {
-        emailSubject: "You're invited to a MindfulTech board",
+        emailSubject: "You're invited to collaborate with MindfulTech",
         emailBody:
-          "Hi! You've been invited to collaborate on a MindfulTech Slack board.<br><br>" +
+          "Hi! You've been invited to collaborate with MindfulTech on MindfulTech Slack.<br><br>" +
           'Sign in at <a href="https://slack.mindfultech.ec">slack.mindfultech.ec</a> with:<br>' +
           "Email: {username}<br>Temporary password: {####}<br><br>" +
           "You'll choose your own password the first time you sign in. " +

@@ -1,6 +1,7 @@
 import type {
   AiNotes,
   Board,
+  Channel,
   CreateTaskInput,
   PushSubscriptionJSON,
   Role,
@@ -157,4 +158,19 @@ export const pushApi = {
   subscribe: (subscription: PushSubscriptionJSON) =>
     request<void>("POST", "/push/subscribe", { subscription }),
   unsubscribe: (endpoint: string) => request<void>("DELETE", "/push/subscribe", { endpoint }),
+};
+
+/** Channel endpoints of the same HTTP API (Phase 55). */
+export const channelsApi = {
+  /**
+   * Invites someone to a private channel by email. A new address becomes an
+   * external (a guest account; Cognito emails a temporary password) who sees
+   * only this channel; an existing account is simply added.
+   */
+  inviteByEmail: (channelId: string, email: string) =>
+    request<{ channel: Channel; invited: { userId: string; role: Role; created: boolean } }>(
+      "POST",
+      `/channels/${encodeURIComponent(channelId)}/invites`,
+      { email },
+    ),
 };

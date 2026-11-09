@@ -425,7 +425,7 @@ async function removeFiles(messages: Message[]): Promise<void> {
 async function deleteMessage(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const channelId = decode(pathParam(event, "channelId"));
   const sk = decode(pathParam(event, "sk"));
-  const channel = await getAccessibleChannel(channelId, caller.userId, { allowArchived: true });
+  const channel = await getAccessibleChannel(channelId, caller, { allowArchived: true });
   if (!channel) throw notFound("Conversation not found");
   if (channel.archived) throw new HttpError(409, "This channel is archived");
   const { Item } = await ddb.send(
@@ -482,11 +482,13 @@ async function deleteMessage(event: HttpEvent, caller: HttpCaller): Promise<Http
 
 // --- Phase 38: a conversation's files, links and pinned messages -------------------
 
-/** The conversation in the path, if the caller may read it (archived ones too). Never guests. */
+/**
+ * The conversation in the path, if the caller may read it (archived ones too).
+ * A guest: only the private channels they're in (Phase 55; `canSeeChannel`).
+ */
 async function readableChannel(event: HttpEvent, caller: HttpCaller): Promise<Channel> {
-  if (caller.role === "guest") throw forbidden("Guests only have access to their boards");
   const channelId = decode(pathParam(event, "channelId"));
-  const channel = await getAccessibleChannel(channelId, caller.userId, { allowArchived: true });
+  const channel = await getAccessibleChannel(channelId, caller, { allowArchived: true });
   if (!channel) throw notFound("Conversation not found");
   return channel;
 }

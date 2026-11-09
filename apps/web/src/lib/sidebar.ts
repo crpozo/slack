@@ -46,7 +46,7 @@ export function saveSidebarPrefs(prefs: SidebarPrefs): void {
 
 // --- Phones (Phase 37): Home's accordion sections -----------------------------------
 
-export type PhoneSection = "pinned" | "info" | "channels" | "dms" | "apps";
+export type PhoneSection = "pinned" | "info" | "externals" | "channels" | "dms" | "apps";
 /** Which of Home's sections are folded away (all open by default), on this device. */
 export type PhoneSections = Record<PhoneSection, boolean>;
 
@@ -54,6 +54,7 @@ const PHONE_SECTIONS_KEY = "slack.phone.collapsed";
 const ALL_OPEN: PhoneSections = {
   pinned: false,
   info: false,
+  externals: false,
   channels: false,
   dms: false,
   apps: false,
@@ -67,6 +68,7 @@ export function loadPhoneSections(): PhoneSections {
       return {
         pinned: r.pinned === true,
         info: r.info === true,
+        externals: r.externals === true,
         channels: r.channels === true,
         dms: r.dms === true,
         apps: r.apps === true,

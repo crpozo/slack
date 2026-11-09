@@ -10,6 +10,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import {
   canDeleteChannel,
+  canManageMembers,
   canArchiveChannel,
   canEditChannel,
   canRenameChannel,
@@ -38,7 +39,7 @@ import { batchDelete, ddb, tables } from "../lib/ddb";
 import { forgetChannel } from "../lib/media";
 import { wsHandler, type Caller } from "../lib/handler";
 import { errorFields, log } from "../lib/logger";
-import { badRequest, ok, reply, replyError } from "../lib/response";
+import { badRequest, ok, reply, replyError, type HandlerResult } from "../lib/response";
 import { guestsAmong, unknownUsers } from "../lib/users";
 
 /** Sends every connection its own filtered `channel.list`. */
@@ -46,7 +47,7 @@ async function broadcastChannelList(): Promise<void> {
   const channels = await scanChannels();
   await broadcast((connection) => ({
     type: "channel.list",
-    channels: visibleTo(channels, connection.userId),
+    channels: visibleTo(channels, connection.userId, connection.role),
   }));
 }
 
@@ -106,7 +107,7 @@ export async function unreadCount(channel: Channel, userId: string): Promise<num
 }
 
 async function listChannels(caller: Caller) {
-  const channels = visibleTo(await scanChannels(), caller.userId);
+  const channels = visibleTo(await scanChannels(), caller.userId, caller.role);
   const counts = await Promise.all(
     channels.map((c) =>
       unreadCount(c, caller.userId).catch((err: unknown) => {
@@ -256,22 +257,98 @@ async function openDm(action: ActionOf<"dm">, caller: Caller) {
   return ok();
 }
 
-async function invite(action: ActionOf<"invite">, caller: Caller) {
+/**
+ * The private channel whose members `caller` may change (its creator or an
+ * admin in it: `canManageMembers`), or the error to reply with. Non-members
+ * get CHANNEL_NOT_FOUND, so they can't tell a private channel exists.
+ */
+async function managedChannel(
+  channelId: string,
+  caller: Caller,
+  what: string,
+): Promise<{ channel: Channel } | { error: () => Promise<HandlerResult> }> {
   const { Item } = await ddb.send(
-    new GetCommand({ TableName: tables.channels, Key: { channelId: action.channelId } }),
+    new GetCommand({ TableName: tables.channels, Key: { channelId } }),
   );
   const channel = Item as Channel | undefined;
-  // Non-members can't tell a private channel exists.
   if (!channel || channel.archived || !isChannelMember(channel, caller.userId)) {
-    return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
+    return { error: () => replyError(caller.connectionId, "CHANNEL_NOT_FOUND") };
   }
   if (channel.type !== "private") {
-    return badRequest(caller.connectionId, "Only private channels take invitations");
+    return { error: () => badRequest(caller.connectionId, `Only private channels ${what}`) };
   }
-  if (channel.createdBy !== caller.userId) {
-    return replyError(caller.connectionId, "FORBIDDEN", "Only the channel creator can invite");
+  if (!canManageMembers(channel, caller.userId, caller.role)) {
+    return {
+      error: () =>
+        replyError(
+          caller.connectionId,
+          "FORBIDDEN",
+          "Only the channel creator or an admin can change who's in it",
+        ),
+    };
   }
+  return { channel };
+}
 
+/**
+ * Writes a private channel's new member list, only if it is still the list
+ * read (no lost update between two invites) and still private.
+ */
+async function saveMembers(channel: Channel, members: string[]): Promise<boolean> {
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: tables.channels,
+        Key: { channelId: channel.channelId },
+        UpdateExpression: "SET members = :members",
+        ConditionExpression: "#type = :private AND members = :before",
+        ExpressionAttributeNames: { "#type": "type" },
+        ExpressionAttributeValues: {
+          ":members": members,
+          ":before": channel.members ?? [],
+          ":private": "private",
+        },
+      }),
+    );
+    return true;
+  } catch (err) {
+    if (err instanceof ConditionalCheckFailedException) return false;
+    throw err;
+  }
+}
+
+/**
+ * Applies `next` to a private channel's member list (its creator or an admin:
+ * `managedChannel`) and saves it. Two people inviting at once: the later
+ * write sees the list changed, reads it again and retries (three tries).
+ * Nothing to change (`next` gave the same list): nothing written.
+ */
+async function changeMembers(
+  channelId: string,
+  caller: Caller,
+  what: string,
+  next: (members: string[], channel: Channel) => string[],
+): Promise<{ ok: true; channel: Channel } | { ok: false; error: () => Promise<HandlerResult> }> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const found = await managedChannel(channelId, caller, what);
+    if ("error" in found) return { ok: false, error: found.error };
+    const { channel } = found;
+    const before = channel.members ?? [];
+    const members = next(before, channel);
+    const same = members.length === before.length && members.every((m, i) => m === before[i]);
+    if (same || (await saveMembers(channel, members))) {
+      return { ok: true, channel: { ...channel, members } };
+    }
+  }
+  return { ok: false, error: () => replyError(caller.connectionId, "INTERNAL_ERROR") };
+}
+
+/**
+ * Adds people to a private channel: its creator or an admin. Since Phase 55
+ * an external (a guest account, from a board or an invite by email) may join
+ * too: they then see this channel and nothing else of the team's chat.
+ */
+async function invite(action: ActionOf<"invite">, caller: Caller) {
   const invitees = [...new Set(action.userIds)];
   const missing = await unknownUsers(invitees);
   if (missing.length > 0) {
@@ -281,30 +358,47 @@ async function invite(action: ActionOf<"invite">, caller: Caller) {
       `Unknown users: ${missing.join(", ")}`,
     );
   }
-
-  if ((await guestsAmong(invitees)).length > 0) {
-    return replyError(caller.connectionId, "FORBIDDEN", "Guests can't join channels");
-  }
-
-  const members = [...new Set([...(channel.members ?? []), ...invitees])].sort(compareIds);
-  await ddb.send(
-    new UpdateCommand({
-      TableName: tables.channels,
-      Key: { channelId: channel.channelId },
-      UpdateExpression: "SET members = :members",
-      ConditionExpression: "createdBy = :me AND #type = :private",
-      ExpressionAttributeNames: { "#type": "type" },
-      ExpressionAttributeValues: {
-        ":members": members,
-        ":me": caller.userId,
-        ":private": "private",
-      },
-    }),
+  const outcome = await changeMembers(action.channelId, caller, "take invitations", (members) =>
+    [...new Set([...members, ...invitees])].sort(compareIds),
   );
+  if (!outcome.ok) return outcome.error();
+  const { channel } = outcome;
+  const externals = await guestsAmong(invitees);
   log.info("members invited", {
     channelId: channel.channelId,
     userId: caller.userId,
     invited: invitees.length,
+    externals: externals.length,
+  });
+  await broadcastChannelList();
+  return ok();
+}
+
+/**
+ * Takes someone out of a private channel (Phase 55): its creator or an admin;
+ * never the creator. An external loses the channel at once: their list no
+ * longer has it, and nothing of it reaches them any more.
+ */
+async function removeMember(action: ActionOf<"remove">, caller: Caller) {
+  let creator = false;
+  const outcome = await changeMembers(
+    action.channelId,
+    caller,
+    "have members to remove",
+    (members, channel) => {
+      creator = action.userId === channel.createdBy;
+      return creator ? members : members.filter((id) => id !== action.userId);
+    },
+  );
+  if (!outcome.ok) return outcome.error();
+  if (creator) {
+    return replyError(caller.connectionId, "FORBIDDEN", "The channel's creator can't be removed");
+  }
+  const { channel } = outcome;
+  log.info("member removed", {
+    channelId: channel.channelId,
+    userId: caller.userId,
+    removed: action.userId,
   });
   await broadcastChannelList();
   return ok();
@@ -537,11 +631,16 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
   return ok();
 }
 
-/** `channel`: list, create (private by default), open a DM, invite to a private channel, edit (rename, topic, description), or delete. */
+/** `channel`: list, create (private by default), open a DM, invite to or remove from a private channel, edit (rename, topic, description), or delete. */
 export const handler = wsHandler(async (event, caller) => {
   const parsed = parseAction(ChannelActionSchema, event.body);
   if (!parsed.success) return badRequest(caller.connectionId, parsed.error);
   const action = parsed.data;
+  // Externals (Phase 55) only read their channel list: creating, DMs, invites
+  // and settings stay with the team.
+  if (caller.role === "guest" && action.op !== "list") {
+    return replyError(caller.connectionId, "FORBIDDEN", "Guests can't change channels");
+  }
 
   switch (action.op) {
     case "list":
@@ -552,6 +651,8 @@ export const handler = wsHandler(async (event, caller) => {
       return openDm(action, caller);
     case "invite":
       return invite(action, caller);
+    case "remove":
+      return removeMember(action, caller);
     case "delete":
       return deleteChannel(action, caller);
     case "rename":

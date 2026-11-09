@@ -3,7 +3,7 @@ import {
   describeTaskActivity,
   describeTasksFromNotes,
   findMentions,
-  isChannelMember,
+  canSeeChannel,
   mentionHandle,
   PUSH_PREVIEW_LENGTH,
   pushLevelOf,
@@ -64,8 +64,8 @@ export async function pushRecipients(channel: Channel, message: Message): Promis
     .filter(
       (u) =>
         u.userId !== message.userId &&
-        u.role !== "guest" && // a guest never sees channels, so never their previews
-        isChannelMember(channel, u.userId) &&
+        // A guest only ever gets the previews of the private channels they're in (Phase 55).
+        canSeeChannel(channel, u.userId, u.role) &&
         (handles.has(mentionHandle(u.displayName)) ||
           handles.has(defaultDisplayName(u.email).toLowerCase())),
     )

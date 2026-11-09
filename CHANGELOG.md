@@ -7,6 +7,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Externals: invite people from outside MindfulTech to a channel:** in a private channel,
+  **Invite** now takes an email ("Invite someone outside MindfulTech"). A new address gets an
+  account and an email with a temporary password, and joins as an **external**: they see only
+  the private channels (and boards) they're invited to, never public channels, other channels,
+  DMs, calls, the calendar, the Vault or search. The server enforces it on every read and
+  every delivery, not just the screen. Externals already known (from a board) can be picked
+  from the list too.
+- **You always know a channel has externals:** such channels move to a new **Externals**
+  section in the sidebar (desktop and phones) with a 🤝 icon in amber, the header shows an
+  **External** chip, the message box reminds you who's from outside ("Jane is outside
+  MindfulTech and can read this channel"), and their name carries an **External** badge in
+  messages, in the member list and when picking people.
+- **Remove people from a private channel:** its creator or an admin can take someone out from
+  the channel's Members tab (two taps). An external loses the channel at once.
 - **AI News in audio:** "Escucha el resumen" under the AI News title plays the day's summary
   read aloud in Spanish (about 2–3 minutes): the top stories with why they matter, the trends
   and what it means for MindfulTech. It's made with each analysis (the morning's, or Refresh)
@@ -284,6 +298,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   and a few near-misses). A list kept in memory loses its stories as they pass 48 hours.
 
 ### Changed
+
+- **Inviting to a private channel:** an admin in the channel can invite too, not only its
+  creator. Guests on boards are now called **externals** (badge "External").
 
 - **AI Insights are structured:** Claude Haiku 5.5 returns the dashboard as JSON held to a schema
   (structured outputs on Bedrock). It names its top stories by their number in the list, so links,

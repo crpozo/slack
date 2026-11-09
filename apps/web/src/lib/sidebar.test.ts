@@ -23,14 +23,23 @@ describe("phone sections", () => {
     expect(loadPhoneSections()).toEqual({
       pinned: false,
       info: false,
+      externals: false,
       channels: false,
       dms: false,
       apps: false,
     });
-    savePhoneSections({ pinned: true, info: true, channels: false, dms: true, apps: false });
+    savePhoneSections({
+      pinned: true,
+      info: true,
+      externals: true,
+      channels: false,
+      dms: true,
+      apps: false,
+    });
     expect(loadPhoneSections()).toEqual({
       pinned: true,
       info: true,
+      externals: true,
       channels: false,
       dms: true,
       apps: false,
@@ -42,6 +51,7 @@ describe("phone sections", () => {
     expect(loadPhoneSections()).toEqual({
       pinned: false,
       info: false,
+      externals: false,
       channels: false,
       dms: false,
       apps: true,
@@ -50,6 +60,7 @@ describe("phone sections", () => {
     expect(loadPhoneSections()).toEqual({
       pinned: false,
       info: false,
+      externals: false,
       channels: false,
       dms: false,
       apps: false,
