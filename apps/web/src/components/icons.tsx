@@ -580,14 +580,16 @@ export const FolderIcon = (p: IconProps) => (
     <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
   </Icon>
 );
-/** Phase 55: a channel with people outside MindfulTech (externals). */
-export const HandshakeIcon = (p: IconProps) => (
+/**
+ * Phase 55: a channel with people outside MindfulTech (externals): another
+ * company's building.
+ */
+export const ExternalIcon = (p: IconProps) => (
   <Icon {...p}>
-    <path d="m11 17 2 2a1 1 0 1 0 3-3" />
-    <path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4" />
-    <path d="m21 3 1 11h-2" />
-    <path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3" />
-    <path d="M3 4h8" />
+    <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+    <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+    <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
+    <path d="M10 6h4M10 10h4M10 14h4M10 18h4" />
   </Icon>
 );
 export const UserMinusIcon = (p: IconProps) => (

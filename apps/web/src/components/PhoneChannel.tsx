@@ -9,7 +9,7 @@ import { Avatar } from "./Avatar";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
-  HandshakeIcon,
+  ExternalIcon,
   HashIcon,
   HeadphonesIcon,
   KanbanIcon,
@@ -126,7 +126,7 @@ export function PhoneChannelHeader({
   const room = useGroupCall((s) => s.rooms[channelId]);
   const peerOnline = useIsOnline(access.peer);
   const self = useChat((s) => s.me?.userId === access.peer);
-  const KindIcon = access.external ? HandshakeIcon : access.isPrivate ? LockIcon : HashIcon;
+  const KindIcon = access.external ? ExternalIcon : access.isPrivate ? LockIcon : HashIcon;
   const subtitle: ReactNode[] = [];
   if (access.dm) subtitle.push(peerOnline || self ? "Active" : "Away");
   else {

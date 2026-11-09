@@ -45,7 +45,7 @@ import {
   ChevronRightIcon,
   ChevronUpIcon,
   DmsIcon,
-  HandshakeIcon,
+  ExternalIcon,
   HashIcon,
   KanbanIcon,
   LockIcon,
@@ -651,7 +651,7 @@ function AppTile({ app }: Readonly<{ app: PhoneApp }>) {
  */
 export function ExternalGlyph({ className = "" }: Readonly<{ className?: string }>) {
   return (
-    <HandshakeIcon
+    <ExternalIcon
       className={`text-warning ${className}`}
       aria-label="Channel with people outside MindfulTech"
       aria-hidden={false}
@@ -997,7 +997,7 @@ export function Sidebar({
           {shownExternals.length > 0 && (
             <PhoneSectionBlock
               title="Externals"
-              icon={<HandshakeIcon />}
+              icon={<ExternalIcon />}
               folded={folded.externals}
               onToggle={() => toggleSection("externals")}
             >

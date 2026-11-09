@@ -27,7 +27,7 @@ import {
 import { channelsApi, tasksApiConfigured } from "../lib/tasksApi";
 import { useChat } from "../store";
 import { useTasks } from "../store/tasks";
-import { ArchiveIcon, GlobeIcon, HandshakeIcon, KanbanIcon, LockIcon } from "./icons";
+import { ArchiveIcon, GlobeIcon, ExternalIcon, KanbanIcon, LockIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 import { UserPicker } from "./UserPicker";
 
@@ -396,7 +396,7 @@ export function InviteModal({
               </button>
             </div>
             <p className="flex items-start gap-1.5 text-xs text-ink-secondary">
-              <HandshakeIcon className="mt-px shrink-0 text-warning" aria-hidden="true" />
+              <ExternalIcon className="mt-px shrink-0 text-warning" aria-hidden="true" />
               <span>
                 They join as an <strong className="text-warning">external</strong>: they see only
                 this channel, never your other channels, DMs or files. The channel moves to{" "}

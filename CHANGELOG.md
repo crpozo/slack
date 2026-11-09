@@ -15,7 +15,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   every delivery, not just the screen. Externals already known (from a board) can be picked
   from the list too.
 - **You always know a channel has externals:** such channels move to a new **Externals**
-  section in the sidebar (desktop and phones) with a 🤝 icon in amber, the header shows an
+  section in the sidebar (desktop and phones) with a 🏢 building icon in amber, the header shows an
   **External** chip, the message box reminds you who's from outside ("Jane is outside
   MindfulTech and can read this channel"), and their name carries an **External** badge in
   messages, in the member list and when picking people.

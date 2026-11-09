@@ -21,7 +21,7 @@ import { EditChannelModal, InviteModal } from "./ChannelModals";
 import {
   ArchiveIcon,
   ArrowDownIcon,
-  HandshakeIcon,
+  ExternalIcon,
   HashIcon,
   LockIcon,
   MenuIcon,
@@ -104,7 +104,7 @@ function ExternalNotice({ channel }: Readonly<{ channel: Channel }>) {
       role="note"
       data-external-notice
     >
-      <HandshakeIcon className="shrink-0 text-warning" aria-hidden="true" />
+      <ExternalIcon className="shrink-0 text-warning" aria-hidden="true" />
       <span className="truncate">
         <strong className="font-semibold text-warning">External</strong>: {who}{" "}
         {names.length === 1 ? "is" : "are"} outside MindfulTech and can read this channel.
@@ -239,7 +239,7 @@ function ChannelHeader({
   panel: "pins" | DetailsTab | null;
 }>) {
   const { dm, isPrivate, peer, external, guest } = access;
-  const KindIcon = external ? HandshakeIcon : isPrivate ? LockIcon : HashIcon;
+  const KindIcon = external ? ExternalIcon : isPrivate ? LockIcon : HashIcon;
   const pinCount = channel?.pinCount ?? 0;
   const sidebarPinned = useChat((s) => s.pinned.includes(channelId));
   const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
@@ -307,7 +307,7 @@ function ChannelHeader({
           title="People from outside MindfulTech are in this channel"
           data-external-chip
         >
-          <HandshakeIcon aria-hidden="true" />
+          <ExternalIcon aria-hidden="true" />
           <span className="hidden sm:inline">External</span>
         </button>
       )}

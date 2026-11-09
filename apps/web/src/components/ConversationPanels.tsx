@@ -25,7 +25,7 @@ import { Avatar, PresenceDot } from "./Avatar";
 import {
   ExternalLinkIcon,
   FileIcon,
-  HandshakeIcon,
+  ExternalIcon,
   PencilIcon,
   PinIcon,
   PinOffIcon,
@@ -328,7 +328,7 @@ function MembersTab({
       )}
       {externals.length > 0 && (
         <p className="mb-3 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-ink">
-          <HandshakeIcon className="mt-0.5 shrink-0 text-warning" aria-hidden="true" />
+          <ExternalIcon className="mt-0.5 shrink-0 text-warning" aria-hidden="true" />
           <span>
             {externals.length === 1 ? "1 person" : `${externals.length} people`} from outside
             MindfulTech can read everything here. They see only this channel.
