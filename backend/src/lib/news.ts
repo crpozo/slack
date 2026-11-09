@@ -7,6 +7,7 @@ import {
   NEWS_MAX_PER_SOURCE,
   NEWS_REFRESH_MIN_SECONDS,
   NEWS_SNIPPET_CHARS,
+  newsSourceBadge,
   type NewsArticle,
   type NewsFeed,
   type NewsResponse,
@@ -148,6 +149,61 @@ export function firstImageIn(html: string): string | null {
   }
   return null;
 }
+
+// --- Instagram posts (Phase 57) -------------------------------------------------------
+//
+// An RSS bridge turns each post into an item whose description (or
+// `content:encoded`) is HTML: the photo as an `<img src>`, often inside a
+// link, and the caption around it, line by line, ending in a list of
+// hashtags. There is no headline: the caption's first line is the hook.
+
+/**
+ * `#hashtags` (any script, at least one letter: "#1 on the leaderboard" and
+ * "C#" stay), and the `•`/`.` lines people use to push them below the fold.
+ */
+const HASHTAG = /(^|[^\p{L}\p{N}_&])#(?=[\p{N}_]*\p{L})[\p{L}\p{N}_]+/gu;
+const FILLER_LINE = /^[\s.·•\-_|]*$/;
+/** How long a headline made from a caption may be, cut at a word. */
+export const CAPTION_TITLE_CHARS = 110;
+
+/** A caption's lines as plain text: tags out, entities decoded, hashtags and filler gone. */
+export function captionLines(html: string): string[] {
+  const text = html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<br\s*\/?>|<\/(?:p|div|li)>/gi, "\n")
+    .replace(/<[^>]*>/g, " ");
+  return decodeEntities(text)
+    .split(/\r?\n/)
+    .map((line) => line.replace(HASHTAG, "$1").replace(/\s+/g, " ").trim())
+    .filter((line) => line && !FILLER_LINE.test(line));
+}
+
+/**
+ * An Instagram post's HTML (an RSS bridge's description): its photo, the
+ * first valid https `<img src>`, for the story's image; and its caption as
+ * plain text without the hashtags, with its first line on its own as the
+ * headline (cut at a word to `CAPTION_TITLE_CHARS`).
+ */
+export function instagramPost(html: string): {
+  imageUrl: string | null;
+  caption: string;
+  title: string;
+} {
+  const lines = captionLines(html);
+  return {
+    imageUrl: firstImageIn(html),
+    caption: lines.join(" "),
+    title: lines[0] ? clip(lines[0], CAPTION_TITLE_CHARS) : "",
+  };
+}
+
+/**
+ * The title an RSS bridge gives a post when it has nothing better: the
+ * handle, "Instagram post", "Post by …", a lone date. A caption's first line
+ * says more.
+ */
+const GENERIC_POST_TITLE =
+  /^(?:@?[\w.]+|(?:new )?(?:instagram )?(?:post|photo|video|reel|carousel)(?: by @?[\w.]+)?|.*\binstagram\b.*|[\d\s:/.,-]+)$/i;
 
 const isImageType = (type: unknown) => typeof type === "string" && type.startsWith("image/");
 
@@ -329,14 +385,50 @@ interface FeedStory extends NewsArticle {
   categories: string[];
 }
 
+/**
+ * A post as a story (Phase 57): the caption's first line is the title unless
+ * the bridge gave a real one (not the handle or "Instagram post"); the
+ * caption without hashtags is the snippet; the feed's image (media tags, else
+ * the first `<img>` in the HTML) is the story's.
+ */
+function instagramStory(
+  story: FeedStory,
+  rawTitle: string,
+  html: string,
+  feedImage: string | null,
+): FeedStory | null {
+  const post = instagramPost(html);
+  const bridgeTitle = captionLines(rawTitle).join(" ");
+  const realTitle =
+    bridgeTitle &&
+    !GENERIC_POST_TITLE.test(bridgeTitle) &&
+    // The caption cut short ("🚨 OpenAI just…"): its own first line reads better.
+    !post.caption.startsWith(bridgeTitle.replace(/\s*(?:\.{3}|…)$/, ""));
+  // No real title and no caption (only hashtags, a bare photo): no news to read.
+  const title = realTitle ? clip(bridgeTitle, CAPTION_TITLE_CHARS) : post.title;
+  if (!title) return null;
+  return {
+    ...story,
+    title,
+    snippet: clip(post.caption),
+    imageUrl: feedImage ?? post.imageUrl,
+  };
+}
+
 /** An RSS `<item>` as an article, or `null` without a title or an https link. */
-function rssStory(item: XmlNode, sourceName: string): FeedStory | null {
-  const title = plainText(textOf(item["title"]));
+function rssStory(
+  item: XmlNode,
+  sourceName: string,
+  platform?: NewsFeed["platform"],
+): FeedStory | null {
+  const rawTitle = textOf(item["title"]);
+  const title = plainText(rawTitle);
   const link = httpsUrl(textOf(item["link"]) || textOf(item["guid"]));
-  if (!title || !link) return null;
+  const html = textOf(item["content:encoded"]) || textOf(item["description"]);
+  if (!link || (!title && platform !== "instagram")) return null;
   const summary =
     plainText(textOf(item["description"])) || plainText(textOf(item["content:encoded"]));
-  return {
+  const story: FeedStory = {
     title,
     link,
     snippet: clip(summary),
@@ -345,15 +437,24 @@ function rssStory(item: XmlNode, sourceName: string): FeedStory | null {
     sourceName,
     categories: categoriesOf(item),
   };
+  if (platform !== "instagram") return story;
+  // The media tags first; the `<img>` in the HTML is `instagramPost`'s to find.
+  const feedImage = imageOf({ ...item, "content:encoded": undefined, description: undefined });
+  return instagramStory(story, rawTitle, html, feedImage);
 }
 
 /** An Atom `<entry>` as an article, or `null` without a title or an https link. */
-function atomStory(entry: XmlNode, sourceName: string): FeedStory | null {
-  const title = plainText(textOf(entry["title"]));
+function atomStory(
+  entry: XmlNode,
+  sourceName: string,
+  platform?: NewsFeed["platform"],
+): FeedStory | null {
+  const rawTitle = textOf(entry["title"]);
+  const title = plainText(rawTitle);
   const link = atomLink(entry);
-  if (!title || !link) return null;
+  if (!link || (!title && platform !== "instagram")) return null;
   const summary = plainText(textOf(entry["summary"])) || plainText(textOf(entry["content"]));
-  return {
+  const story: FeedStory = {
     title,
     link,
     snippet: clip(summary),
@@ -362,6 +463,10 @@ function atomStory(entry: XmlNode, sourceName: string): FeedStory | null {
     sourceName,
     categories: categoriesOf(entry),
   };
+  if (platform !== "instagram") return story;
+  const html = textOf(entry["content"]) || textOf(entry["summary"]);
+  const feedImage = atomImage({ ...entry, content: undefined, summary: undefined });
+  return instagramStory(story, rawTitle, html, feedImage);
 }
 
 /** Words that make a story from a general tech feed an AI story. */
@@ -393,7 +498,11 @@ export interface FeedRead {
 export function readFeed(
   xml: string,
   sourceName: string,
-  { general = false, now = Date.now() }: { general?: boolean; now?: number } = {},
+  {
+    general = false,
+    now = Date.now(),
+    platform,
+  }: { general?: boolean; now?: number; platform?: NewsFeed["platform"] } = {},
 ): FeedRead {
   const doc = parser.parse(xml) as XmlNode;
   const rss = (doc["rss"] as XmlNode | undefined)?.["channel"] as XmlNode | undefined;
@@ -411,7 +520,7 @@ export function readFeed(
   for (const { node, read } of items) {
     let story: FeedStory | null;
     try {
-      story = read(node, sourceName);
+      story = read(node, sourceName, platform);
     } catch {
       continue; // one odd item doesn't cost the feed
     }
@@ -428,11 +537,22 @@ export function readFeed(
   return result;
 }
 
+/**
+ * How a story's source is named to the model (Phase 57): "Evolving AI
+ * (Instagram) · Instagram caption" for a post, so the prompt's rule for
+ * captions applies; a publisher by its name.
+ */
+export function promptSourceTag(sourceName: string): string {
+  return newsSourceBadge(sourceName).platform === "instagram"
+    ? `${sourceName} · Instagram caption`
+    : sourceName;
+}
+
 /** `readFeed`'s articles alone. */
 export function parseFeed(
   xml: string,
   sourceName: string,
-  options: { general?: boolean; now?: number } = {},
+  options: { general?: boolean; now?: number; platform?: NewsFeed["platform"] } = {},
 ): NewsArticle[] {
   return readFeed(xml, sourceName, options).articles;
 }
@@ -500,16 +620,41 @@ export async function fetchFeed(
   return text;
 }
 
+/**
+ * Where a source's feed can be read, in order: the address in its `urlEnv`
+ * environment variable (Phase 57; an https URL, else ignored), then `urls`.
+ */
+export function feedAddresses(
+  feed: NewsFeed,
+  env: Record<string, string | undefined> = process.env,
+): NewsFeed["urls"] {
+  const fromEnv = feed.urlEnv ? httpsUrl(env[feed.urlEnv]) : null;
+  return fromEnv ? [{ url: fromEnv }, ...feed.urls] : feed.urls;
+}
+
+/** The sources that have an address to read (one given by the environment may be unset). */
+export function configuredFeeds(
+  feeds: readonly NewsFeed[] = NEWS_FEEDS,
+  env: Record<string, string | undefined> = process.env,
+): NewsFeed[] {
+  return feeds.filter((feed) => feedAddresses(feed, env).length > 0);
+}
+
 /** One source's recent articles: its first address that reads as a feed, else the last error. */
 export async function readSource(
   feed: NewsFeed,
   fetchImpl: typeof fetch = fetch,
   now = Date.now(),
+  env: Record<string, string | undefined> = process.env,
 ): Promise<FeedRead> {
   let failure: unknown = new Error(`${feed.name} has no feed address`);
-  for (const { url, general } of feed.urls) {
+  for (const { url, general } of feedAddresses(feed, env)) {
     try {
-      return readFeed(await fetchFeed(fetchImpl, url), feed.name, { general, now });
+      return readFeed(await fetchFeed(fetchImpl, url), feed.name, {
+        general,
+        now,
+        platform: feed.platform,
+      });
     } catch (err) {
       failure = err;
     }
@@ -534,10 +679,16 @@ export interface NewsRead {
  */
 export async function readAllSources(
   fetchImpl: typeof fetch = fetch,
-  feeds: readonly NewsFeed[] = NEWS_FEEDS,
+  allFeeds: readonly NewsFeed[] = NEWS_FEEDS,
   now = Date.now(),
+  env: Record<string, string | undefined> = process.env,
 ): Promise<NewsRead> {
-  const results = await Promise.allSettled(feeds.map((feed) => readSource(feed, fetchImpl, now)));
+  // A source whose address isn't configured (Instagram's, until the bridge URL
+  // is set) is left out, not reported as down: that would shorten the cache.
+  const feeds = configuredFeeds(allFeeds, env);
+  const results = await Promise.allSettled(
+    feeds.map((feed) => readSource(feed, fetchImpl, now, env)),
+  );
   const read: NewsRead = { articles: [], sources: [], failed: [], discarded: [] };
   const lists: NewsArticle[][] = [];
   results.forEach((result, i) => {
@@ -570,6 +721,15 @@ export async function readAllSources(
 // story without one gets it from the page's head: read once per article and
 // remembered, with a short timeout, a few at a time, never more than the
 // first bytes of the page. A page that can't be read keeps the fallback icon.
+
+/**
+ * Pages not worth asking for a cover (Phase 57): Meta blocks AWS's addresses,
+ * so an Instagram post's page would only cost the timeout.
+ */
+function noCoverPage(link: string): boolean {
+  const host = new URL(link).hostname.toLowerCase();
+  return host === "instagram.com" || host.endsWith(".instagram.com");
+}
 
 /** How long one article page may take to answer. */
 export const COVER_TIMEOUT_MS = 2_500;
@@ -659,7 +819,11 @@ export async function withCoverImages(
   fetchImpl: typeof fetch = fetch,
 ): Promise<NewsArticle[]> {
   const missing = [
-    ...new Set(articles.filter((a) => !a.imageUrl && !covers.has(a.link)).map((a) => a.link)),
+    ...new Set(
+      articles
+        .filter((a) => !a.imageUrl && !covers.has(a.link) && !noCoverPage(a.link))
+        .map((a) => a.link),
+    ),
   ];
   for (let i = 0; i < missing.length; i += COVER_CONCURRENCY) {
     await Promise.all(

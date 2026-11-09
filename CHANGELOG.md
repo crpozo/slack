@@ -7,6 +7,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI News reads @evolving.ai on Instagram:** the account's posts join the TechCrunch,
+  VentureBeat, The Verge and InfoQ stories, read through an RSS bridge (Meta blocks AWS), whose
+  URL the deploy takes from the `IG_EVOLVING_RSS_URL` secret; without it the source is left out.
+  Each post's photo is its image, its caption without the hashtags its text, and the caption's
+  first line its headline. The morning analysis treats a caption like any other story, in the
+  same professional tone: emojis, hype and hashtags are ignored, and a publisher's story about
+  the same news comes first. Its badge reads **Evolving AI · Instagram**.
+
 - **@mentions that work:** typing `@` in the message box lists the people in the conversation
   (a private channel's members, externals marked; the team in a public channel), filtered as
   you type, accents aside. ↑/↓ and Enter or Tab pick one, Esc closes, and it writes the handle

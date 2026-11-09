@@ -320,11 +320,17 @@ export class TasksApi extends Construct {
       // A deleted board's files (Phase 32).
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
     });
+    // Phase 57: the Instagram source's RSS bridge URL (`IG_EVOLVING_RSS_URL`
+    // when the stack is deployed), for every Lambda that reads the feeds.
+    // Without it that source is simply left out.
+    const igFeedUrl = process.env.IG_EVOLVING_RSS_URL?.trim();
+    const newsFeedEnv: Record<string, string> = igFeedUrl ? { IG_EVOLVING_RSS_URL: igFeedUrl } : {};
     // AI News (Phase 35b; several sources since Phase 41): reads public RSS and
     // Atom feeds over the internet and keeps the list in memory; deliberately
-    // given no environment and no grants, so it can't touch any table or
-    // bucket. Each feed gets 4 s (8 with a second address); the Lambda 15.
-    this.newsHandler = lambda("NewsFn", "news", {}, Duration.seconds(15));
+    // given no grants (and no environment but the feeds' addresses), so it
+    // can't touch any table or bucket. Each feed gets 4 s (8 with a second
+    // address); the Lambda 15.
+    this.newsHandler = lambda("NewsFn", "news", newsFeedEnv, Duration.seconds(15));
     // AI Insights (Phase 39): the worker reads the feed and the model, and
     // writes one row; the endpoint reads that row and, for admins, starts the
     // worker. The feed gets 5 s, the model up to 50; the worker 2 minutes.
@@ -335,6 +341,7 @@ export class TasksApi extends Construct {
         NEWS_INSIGHTS_TABLE: data.newsInsights.tableName,
         // Phase 54: the summary in audio goes to the attachments bucket (news-audio/).
         ATTACHMENTS_BUCKET: props.attachments.bucketName,
+        ...newsFeedEnv,
       },
       // Phase 49: one streamed request of up to 5 minutes (high effort, 40 stories).
       Duration.minutes(6),
@@ -374,6 +381,7 @@ export class TasksApi extends Construct {
         INSIGHTS_WORKER_FUNCTION: this.newsInsightsWorker.functionName,
         // Phase 54: signs the URL of the summary's audio.
         ATTACHMENTS_BUCKET: props.attachments.bucketName,
+        ...newsFeedEnv,
       },
       // Phase 50: a question may read the feeds and then ask the model (API Gateway allows 30 s).
       Duration.seconds(29),

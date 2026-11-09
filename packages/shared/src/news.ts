@@ -18,6 +18,19 @@ export interface NewsFeed {
   name: string;
   /** Tried in order: the next one only when the one before can't be read. */
   urls: readonly NewsFeedUrl[];
+  /**
+   * Phase 57: the server environment variable holding the feed's address,
+   * tried before `urls`. For a feed we don't publish here, such as an RSS
+   * bridge's URL. A source with no address at all is left out.
+   */
+  urlEnv?: string;
+  /**
+   * Phase 57: where the posts come from when it isn't a news site. An
+   * Instagram feed's items are captions (emojis, hashtags) around a photo.
+   */
+  platform?: "instagram";
+  /** The short name on badges ("Evolving AI"); `name` when absent. */
+  label?: string;
 }
 
 export const NEWS_FEEDS: readonly NewsFeed[] = [
@@ -40,7 +53,30 @@ export const NEWS_FEEDS: readonly NewsFeed[] = [
     name: "InfoQ",
     urls: [{ url: "https://feed.infoq.com/ai-ml-data-eng/news" }],
   },
+  {
+    // Phase 57: Meta blocks AWS Lambda's addresses, so the profile is read
+    // through a third-party RSS bridge whose URL the server is given.
+    name: "Evolving AI (Instagram)",
+    label: "Evolving AI",
+    platform: "instagram",
+    urls: [],
+    urlEnv: "IG_EVOLVING_RSS_URL",
+  },
 ];
+
+/** What a story's source badge says: the feed's short `label`, and its platform if any. */
+export function newsSourceBadge(sourceName: string): {
+  label: string;
+  platform?: NewsFeed["platform"];
+} {
+  const feed = NEWS_FEEDS.find((f) => f.name === sourceName);
+  return feed ? { label: feed.label ?? feed.name, platform: feed.platform } : { label: sourceName };
+}
+
+/** What a platform is called on a badge ("Instagram"). */
+export const NEWS_PLATFORM_NAMES: Record<NonNullable<NewsFeed["platform"]>, string> = {
+  instagram: "Instagram",
+};
 
 /** How many articles the view gets, newest first. */
 export const NEWS_MAX_ARTICLES = 40;

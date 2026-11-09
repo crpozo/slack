@@ -2,6 +2,7 @@ import { MAX_NEWS_QUESTION_LENGTH } from "@mindfultech/shared";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { renderNotesMarkdown } from "../lib/markdown";
+import { sourceLabel } from "../lib/news";
 import { linkCitations } from "../lib/newsDashboard";
 import { useNewsChat, type NewsChatMessage } from "../store/newsChat";
 import { CloseIcon, RefreshIcon, SendIcon, SparklesIcon, TrashIcon } from "./icons";
@@ -224,7 +225,9 @@ function ChatMessage({ message }: Readonly<{ message: NewsChatMessage }>) {
                 className="flex items-center gap-2 rounded-lg px-1.5 py-1 text-[11px] text-ink-secondary hover:bg-white/[0.05] hover:text-ink"
               >
                 <span className="news-cite !mx-0">{s.n}</span>
-                <span className="shrink-0 font-semibold">{s.sourceName}</span>
+                <span className="shrink-0 font-semibold">
+                  {sourceLabel(s.sourceName, { short: true })}
+                </span>
                 <span className="truncate">{s.title}</span>
               </a>
             </li>

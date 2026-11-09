@@ -1,4 +1,6 @@
-// AI News (Phase 35b): how the view words dates. Pure, tested.
+// AI News (Phase 35b): how the view words dates (and, Phase 57, sources). Pure, tested.
+
+import { NEWS_PLATFORM_NAMES, newsSourceBadge } from "@mindfultech/shared";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -32,4 +34,20 @@ export function fullDate(iso: string | null): string {
   if (!iso) return "";
   const at = Date.parse(iso);
   return Number.isFinite(at) ? fullFmt.format(at) : "";
+}
+
+/**
+ * A story's source as the News view writes it (Phase 57): a publisher by its
+ * name ("TechCrunch"); a social account by its short name and platform
+ * ("Evolving AI · Instagram"), or `short` just its name, where space is tight.
+ */
+export function sourceLabel(sourceName: string, { short = false } = {}): string {
+  const { label, platform } = newsSourceBadge(sourceName);
+  return platform && !short ? `${label} · ${NEWS_PLATFORM_NAMES[platform]}` : label;
+}
+
+/** "Leer en TechCrunch", or "Ver en Instagram" for a post. */
+export function readOnLabel(sourceName: string): string {
+  const { label, platform } = newsSourceBadge(sourceName);
+  return platform ? `Ver en ${NEWS_PLATFORM_NAMES[platform]}` : `Leer en ${label}`;
 }

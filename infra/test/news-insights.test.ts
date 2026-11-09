@@ -139,3 +139,40 @@ describe("AI Insights (Phase 39)", () => {
     expect(Object.keys(env).sort()).toEqual(["LOG_LEVEL", "STAGE"]);
   });
 });
+
+describe("the Instagram source's address (Phase 57)", () => {
+  it("is given to every Lambda that reads the feeds when the deploy sets it, and to no other", () => {
+    const url = "https://bridge.example.com/?action=display&bridge=Instagram&u=evolving.ai";
+    process.env.IG_EVOLVING_RSS_URL = url;
+    let withFeed: Template;
+    try {
+      const app = new App({
+        context: { "aws:cdk:bundling-stacks": [], budgetEmail: "alerts@example.com" },
+      });
+      withFeed = Template.fromStack(
+        new SlackStack(app, "TestNewsInstagram", {
+          env: { account: "123456789012", region: "us-east-1" },
+          stage: "dev",
+        }),
+      );
+    } finally {
+      delete process.env.IG_EVOLVING_RSS_URL;
+    }
+    const envOf = (name: string) =>
+      (Object.values(
+        withFeed.findResources("AWS::Lambda::Function", { Properties: { FunctionName: name } }),
+      )[0]?.Properties.Environment?.Variables ?? {}) as Record<string, string>;
+    for (const name of [
+      "slack-dev-news",
+      "slack-dev-news-insights",
+      "slack-dev-news-insights-worker",
+    ]) {
+      expect(envOf(name).IG_EVOLVING_RSS_URL, name).toBe(url);
+    }
+    expect(envOf("slack-dev-tasks").IG_EVOLVING_RSS_URL).toBeUndefined();
+    // Without it (the stack above), the news proxy still has nothing but the basics.
+    expect(
+      fn("slack-dev-news-insights-worker")?.[1].Properties.Environment.Variables,
+    ).not.toHaveProperty("IG_EVOLVING_RSS_URL");
+  }, 60_000);
+});

@@ -11,7 +11,7 @@ import {
 import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
-import { fullDate } from "../lib/news";
+import { fullDate, readOnLabel, sourceLabel } from "../lib/news";
 import { actionsTitle, highlightParts, MIN_THUMBNAIL_PX, timeAgo } from "../lib/newsDashboard";
 import { CloseIcon, ExternalLinkIcon, HeadphonesIcon, RefreshIcon, SparklesIcon } from "./icons";
 
@@ -266,7 +266,7 @@ export function NewsDashboard({
                           className="group flex min-w-0 items-baseline gap-1.5 text-xs text-ink-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                           <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-primary">
-                            {e.sourceName}
+                            {sourceLabel(e.sourceName, { short: true })}
                           </span>
                           <span className="truncate group-hover:text-ink group-hover:underline">
                             {e.title}
@@ -307,7 +307,7 @@ export function NewsDashboard({
                   {deepDive.headline}
                 </h3>
               </a>
-              <span className={META}>{deepDive.sourceName}</span>
+              <span className={META}>{sourceLabel(deepDive.sourceName)}</span>
               <p className="max-w-[68ch] font-serif text-[18px] leading-[1.65] text-ink/85 first-letter:float-left first-letter:mr-2 first-letter:mt-1 first-letter:font-serif first-letter:text-[58px] first-letter:font-semibold first-letter:leading-[0.8] first-letter:text-ink [text-wrap:pretty]">
                 {deepDive.context}
               </p>
@@ -447,7 +447,7 @@ function ClaudeAlertBanner({
                   title={e.title}
                   className="inline-flex max-w-full items-center gap-1 text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
-                  <span className="truncate">Leer en {e.sourceName}</span>
+                  <span className="truncate">{readOnLabel(e.sourceName)}</span>
                   <ExternalLinkIcon className="shrink-0" aria-hidden="true" />
                 </a>
               </li>
@@ -600,7 +600,7 @@ function StoryMeta({ story, now }: Readonly<{ story: NewsStory; now: number }>) 
   const when = timeAgo(story.pubDate, now);
   return (
     <p className={META}>
-      <span>{story.sourceName}</span>
+      <span>{sourceLabel(story.sourceName)}</span>
       {when && (
         <>
           <span aria-hidden="true"> · </span>
@@ -759,7 +759,7 @@ function Cover({
       >
         {caption && (
           <span className="bg-surface-sidebar px-2 py-0.5 font-mono text-[11px] lowercase tracking-wider text-ink-secondary">
-            imagen · {story.sourceName}
+            imagen · {sourceLabel(story.sourceName, { short: true })}
           </span>
         )}
       </span>

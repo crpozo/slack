@@ -328,6 +328,7 @@ it for a single deploy. Dev never picks up prod's certificate.
 | `hostedZoneName`        | `HOSTED_ZONE_NAME`         | Defaults to the parent domain                  |
 | `webUsers`              | `WEB_USERS`                | DM directory in `config.json`                  |
 | `githubOidcProviderArn` | `GITHUB_OIDC_PROVIDER_ARN` | Reuse an existing GitHub OIDC provider         |
+| —                       | `IG_EVOLVING_RSS_URL`      | RSS bridge URL for the Instagram news source   |
 
 ### 3. App DNS
 
@@ -563,7 +564,12 @@ sent after the deploy.
 ### 8. AI Insights (the morning analysis of the AI news)
 
 The AI News view (`/app/news`) is a dashboard over the AI stories of **TechCrunch, VentureBeat,
-The Verge and InfoQ** (read at once and merged; a source that's down is left out). Only news: as
+The Verge and InfoQ** (read at once and merged; a source that's down is left out), plus the
+Instagram account **@evolving.ai** when `IG_EVOLVING_RSS_URL` is set at deploy (the GitHub
+secret of that name; Meta blocks AWS's addresses, so the profile is read through a third-party
+RSS bridge). Its posts' captions become stories: the first `<img>` is the image, the caption
+without its hashtags the text, its first line the headline, and the model is told how to read
+them. Without the variable the source is simply left out. Only news: as
 each feed is read, a story published more than 48 hours ago (`NEWS_MAX_AGE_HOURS`), or whose
 date can't be read, is dropped before any limit, so neither the list nor the analysis ever sees
 it. How many each source lost is logged as `old news discarded`. **Claude Haiku

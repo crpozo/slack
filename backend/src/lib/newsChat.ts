@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { NewsArticle, NewsChatTurn, NewsCitation, NewsInsights } from "@mindfultech/shared";
 import { NOTES_MODEL } from "./callNotes";
+import { promptSourceTag } from "./news";
 
 // ---------------------------------------------------------------------------
 // "Pregunta a la IA" (Phase 50): the request that answers a question about
@@ -23,7 +24,9 @@ export const NEWS_CHAT_SYSTEM =
   "say so plainly and don't guess or use outside knowledge about current events; you may add a " +
   "short opinion on what it means for MindfulTech when asked, marked as opinion. Answer in the " +
   "language of the question (usually Spanish), concisely: a short paragraph or a few bullets, " +
-  "light markdown (bold, lists), no headings, no preamble.";
+  'light markdown (bold, lists), no headings, no preamble. Stories marked "Instagram ' +
+  'caption" are informal posts: use only the news they report, never their hashtags, ' +
+  "emojis or hype, and answer in your usual professional tone.";
 
 /** The stories as the model reads them: numbered, with source, date, snippet. */
 export function chatStoriesText(articles: NewsArticle[]): string {
@@ -31,7 +34,7 @@ export function chatStoriesText(articles: NewsArticle[]): string {
     .map((a, i) => {
       const when = a.pubDate ? ` (${a.pubDate.slice(0, 10)})` : "";
       const snippet = a.snippet ? `\n   ${a.snippet}` : "";
-      return `${i + 1}. [${a.sourceName}] ${a.title}${when}${snippet}`;
+      return `${i + 1}. [${promptSourceTag(a.sourceName)}] ${a.title}${when}${snippet}`;
     })
     .join("\n");
 }

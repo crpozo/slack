@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fullDate, relativeTime } from "./news";
+import { fullDate, readOnLabel, relativeTime, sourceLabel } from "./news";
 
 describe("news dates", () => {
   const now = Date.parse("2026-10-26T15:00:00Z");
@@ -17,5 +17,16 @@ describe("news dates", () => {
   it("spells the full date for tooltips", () => {
     expect(fullDate("2026-10-26T15:00:00Z")).toMatch(/Oct 26, 2026/);
     expect(fullDate(null)).toBe("");
+  });
+});
+
+describe("news sources (Phase 57)", () => {
+  it("names the Instagram account and its platform, a publisher by its name", () => {
+    expect(sourceLabel("Evolving AI (Instagram)")).toBe("Evolving AI · Instagram");
+    expect(sourceLabel("Evolving AI (Instagram)", { short: true })).toBe("Evolving AI");
+    expect(sourceLabel("TechCrunch")).toBe("TechCrunch");
+    expect(sourceLabel("Some Old Source")).toBe("Some Old Source"); // not in the list anymore
+    expect(readOnLabel("Evolving AI (Instagram)")).toBe("Ver en Instagram");
+    expect(readOnLabel("InfoQ")).toBe("Leer en InfoQ");
   });
 });
