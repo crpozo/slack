@@ -11,6 +11,23 @@ import { PinPrompt } from "./VaultPin";
 
 const ICON_BUTTON =
   "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-ink-secondary transition hover:border-primary/50 hover:bg-primary/[0.1] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50";
+/** The chat card's buttons (Phase 56): borderless, 24 px, icon only. */
+const MINI_BUTTON =
+  "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[13px] text-ink-secondary transition hover:bg-white/10 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50";
+/** A hidden or revealed value in the chat card: one thin monospace chip. */
+const MINI_VALUE = "min-w-0 max-w-[150px] truncate rounded px-1 font-mono text-xs";
+const MASK = "••••••••";
+
+/** "Copied" for 1.5 s after `copy()`. */
+function useCopied(): [boolean, () => void] {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
+  return [copied, () => setCopied(true)];
+}
 
 /**
  * A secret's password, masked, with Reveal (eye) and Copy. Both need the
@@ -23,12 +40,17 @@ const ICON_BUTTON =
 export function PasswordControls({
   secretId,
   name,
-  compact = false,
-}: Readonly<{ secretId: string; name: string; compact?: boolean }>) {
+  inline = false,
+}: Readonly<{
+  secretId: string;
+  name: string;
+  /** The chat card's thin variant: a small chip and borderless 24 px buttons. */
+  inline?: boolean;
+}>) {
   const showToast = useChat((s) => s.showToast);
   const [password, setPassword] = useState<string | null>(null);
   const [asking, setAsking] = useState<"reveal" | "copy" | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, markCopied] = useCopied();
 
   useEffect(() => {
     if (password === null) return;
@@ -43,12 +65,6 @@ export function PasswordControls({
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [password]);
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(t);
-  }, [copied]);
-
   /** Reveals or copies with the open session; without one (or a stale one), asks for the PIN. */
   async function act(what: "reveal" | "copy") {
     const token = useVault.getState().openToken();
@@ -71,7 +87,7 @@ export function PasswordControls({
   async function copy(value: string) {
     try {
       const where = await copySecret(value);
-      setCopied(true);
+      markCopied();
       showToast(
         where === "desktop"
           ? `Copied the ${name} password · cleared from the clipboard in 30 s`
@@ -83,20 +99,26 @@ export function PasswordControls({
     }
   }
 
+  const button = inline ? MINI_BUTTON : ICON_BUTTON;
   return (
-    <div className="flex min-w-0 items-center gap-1.5" data-password-controls={secretId}>
+    <div
+      className={`flex min-w-0 items-center ${inline ? "gap-0.5" : "gap-1.5"}`}
+      data-password-controls={secretId}
+    >
       <code
-        className={`min-w-0 flex-1 truncate rounded-lg border border-white/10 bg-black/25 px-2.5 py-1.5 font-mono text-[13px] ${
-          password === null ? "tracking-[0.2em] text-ink-secondary" : "select-all text-ink"
-        } ${compact ? "max-w-[220px]" : ""}`}
+        className={`${
+          inline
+            ? MINI_VALUE
+            : "min-w-0 flex-1 truncate rounded-lg border border-white/10 bg-black/25 px-2.5 py-1.5 font-mono text-[13px]"
+        } ${password === null ? "tracking-[0.2em] text-ink-secondary" : "select-all text-ink"}`}
         aria-label={password === null ? "Hidden password" : `${name} password`}
         data-password={password === null ? "hidden" : "shown"}
       >
-        {password ?? "••••••••••"}
+        {password ?? (inline ? MASK : "••••••••••")}
       </code>
       <button
         type="button"
-        className={ICON_BUTTON}
+        className={button}
         onClick={() => (password === null ? void act("reveal") : setPassword(null))}
         aria-label={password === null ? `Reveal the ${name} password` : "Hide the password"}
         title={password === null ? "Reveal" : "Hide"}
@@ -106,7 +128,7 @@ export function PasswordControls({
       </button>
       <button
         type="button"
-        className={ICON_BUTTON}
+        className={button}
         onClick={() => void (password === null ? act("copy") : copy(password))}
         aria-label={`Copy the ${name} password`}
         title="Copy to clipboard"
@@ -131,12 +153,67 @@ export function PasswordControls({
 }
 
 /**
+ * The chat card's username (Phase 56): masked like the password, with its own
+ * Reveal and Copy. The card already carries it (it's no secret to the
+ * channel), so neither needs the PIN, and Copy uses the ordinary clipboard
+ * (no clearing after 30 s, unlike a password).
+ */
+export function UsernameControls({ username, name }: Readonly<{ username: string; name: string }>) {
+  const showToast = useChat((s) => s.showToast);
+  const [shown, setShown] = useState(false);
+  const [copied, markCopied] = useCopied();
+  async function copy() {
+    try {
+      await copySecret(username, { desktop: false });
+      markCopied();
+      showToast(`Copied the ${name} username`, "success");
+    } catch {
+      showToast("Couldn't copy the username", "error");
+    }
+  }
+  return (
+    <div className="flex min-w-0 items-center gap-0.5" data-username-controls>
+      <code
+        className={`${MINI_VALUE} ${shown ? "select-all text-ink" : "tracking-[0.2em] text-ink-secondary"}`}
+        aria-label={shown ? `${name} username` : "Hidden username"}
+        data-username={shown ? "shown" : "hidden"}
+      >
+        {shown ? username : MASK}
+      </code>
+      <button
+        type="button"
+        className={MINI_BUTTON}
+        onClick={() => setShown((v) => !v)}
+        aria-label={shown ? "Hide the username" : `Reveal the ${name} username`}
+        title={shown ? "Hide" : "Reveal"}
+      >
+        {shown ? <EyeOffIcon /> : <EyeIcon />}
+      </button>
+      <button
+        type="button"
+        className={MINI_BUTTON}
+        onClick={() => void copy()}
+        aria-label={`Copy the ${name} username`}
+        title="Copy to clipboard"
+        data-copy-username
+      >
+        {copied ? <CheckIcon className="text-success" /> : <CopyIcon />}
+      </button>
+    </div>
+  );
+}
+
+/**
  * "Launch": the secret's website (validated `http(s)` on the server), opened
  * outside the app. Web: a new tab without access back to this page. Desktop:
  * the OS's default browser through Tauri's opener plugin (Tauri 2's
  * successor to `shell.open`), never inside the app's window.
  */
-export function LaunchButton({ href, name }: Readonly<{ href: string; name: string }>) {
+export function LaunchButton({
+  href,
+  name,
+  compact = false,
+}: Readonly<{ href: string; name: string; compact?: boolean }>) {
   return (
     <a
       href={href}
@@ -147,7 +224,9 @@ export function LaunchButton({ href, name }: Readonly<{ href: string; name: stri
         e.preventDefault();
         void openExternal(href);
       }}
-      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/[0.1] px-2.5 text-xs font-semibold text-[#6fcf97] transition hover:border-primary hover:bg-primary/20 hover:text-[#8fe0b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      className={`inline-flex shrink-0 items-center rounded-lg border border-primary/40 bg-primary/[0.1] font-semibold text-[#6fcf97] transition hover:border-primary hover:bg-primary/20 hover:text-[#8fe0b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+        compact ? "h-6 gap-1 rounded-md px-2 text-[11px]" : "h-8 gap-1.5 px-2.5 text-xs"
+      }`}
       title={`Open ${href}`}
       aria-label={`Launch ${name} (${hostOf(href)})`}
       data-launch
@@ -187,44 +266,41 @@ export function WebsiteLink({ href }: Readonly<{ href: string }>) {
 }
 
 /**
- * "🔒 Shared a Secret" in the chat (`/secret`, Phase 45): the secret's name,
- * username and website; Reveal and Copy ask for the PIN, then fetch the
- * password from the Vault, which only answers people it's shared with. The
- * card never holds it.
+ * "🔒 Shared a Secret" in the chat (`/secret`, Phase 45; one thin row since
+ * Phase 56): the title, then the username and the password, both masked, each
+ * with Reveal and Copy, and Launch on the right. The password comes from the
+ * Vault (PIN first, unless it's open), which only answers people it's shared
+ * with; the card never holds it. Wraps onto a second line on a narrow screen.
  */
 export function VaultSecretCard({ card, mine }: Readonly<{ card: VaultCard; mine: boolean }>) {
   return (
     <div
-      className={`mt-0.5 flex w-full max-w-[420px] flex-col gap-2.5 rounded-2xl rounded-tl-sm border border-warning/30 px-3.5 py-3 text-sm shadow-[inset_0_1px_0_rgb(255_255_255/0.05)] backdrop-blur-md ${
-        mine ? "bg-primary/[0.12]" : "bg-white/[0.05]"
+      className={`mt-0.5 flex w-fit max-w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-2.5 py-1 text-[13px] ${
+        mine ? "border-primary/25 bg-primary/[0.06]" : "border-white/10 bg-white/[0.03]"
       }`}
       data-vault-card={card.secretId}
     >
-      <div className="flex min-w-0 items-center gap-2.5">
-        <span
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-warning/40 bg-warning/15 text-warning"
-          aria-hidden="true"
-        >
-          <LockIcon />
+      <span className="flex min-w-0 items-center gap-1.5">
+        <LockIcon className="shrink-0 text-xs text-warning" aria-hidden="true" />
+        <span className="max-w-[180px] truncate font-medium text-ink" title={card.name}>
+          {card.name}
         </span>
-        <div className="flex min-w-0 flex-col">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">
-            🔒 Shared a Secret
-          </span>
-          <span className="truncate font-semibold text-ink">{card.name}</span>
-        </div>
-      </div>
-      {(card.username || card.website) && (
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-secondary">
-          {card.username && (
-            <span className="min-w-0 truncate">
-              User: <span className="font-mono text-ink/90">{card.username}</span>
-            </span>
-          )}
-          {card.website && <LaunchButton href={card.website} name={card.name} />}
-        </div>
+      </span>
+      {card.username && (
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="text-[11px] text-ink-secondary">User</span>
+          <UsernameControls username={card.username} name={card.name} />
+        </span>
       )}
-      <PasswordControls secretId={card.secretId} name={card.name} />
+      <span className="flex min-w-0 items-center gap-1">
+        <span className="text-[11px] text-ink-secondary">Password</span>
+        <PasswordControls secretId={card.secretId} name={card.name} inline />
+      </span>
+      {card.website && (
+        <span className="ml-auto">
+          <LaunchButton href={card.website} name={card.name} compact />
+        </span>
+      )}
     </div>
   );
 }

@@ -247,7 +247,8 @@ async function create(event: HttpEvent, caller: HttpCaller): Promise<HttpResult>
 }
 
 /**
- * `PUT /vault/secrets/{secretId}` (Phase 46): its saver or an admin changes
+ * `PUT /vault/secrets/{secretId}` (Phase 46): anyone it's shared with (its
+ * saver, a co-admin listed in `allowedUserIds` since Phase 56, or an admin) changes
  * the details, who it's shared with, the channel, or the password. Moving it
  * to another channel re-encrypts it (the channel is in its KMS context).
  */
@@ -256,7 +257,7 @@ async function update(event: HttpEvent, caller: HttpCaller): Promise<HttpResult>
   const input = parseBody(UpdateVaultSecretSchema, event);
   const row = await accessibleRow(secretId, caller);
   if (!canManageVaultSecret(row, caller.userId, caller.role)) {
-    throw forbidden("Only whoever saved this secret, or an admin, can change it");
+    throw forbidden("Only people this secret is shared with can change it");
   }
   if (input.channelId !== row.channelId) await channelFor(input.channelId, caller, false);
   const website = websiteOf(input.website);
@@ -320,12 +321,12 @@ async function reveal(event: HttpEvent, caller: HttpCaller): Promise<HttpResult>
   return noStore(200, body);
 }
 
-/** `DELETE /vault/secrets/{secretId}`: whoever saved it, or an admin. */
+/** `DELETE /vault/secrets/{secretId}`: anyone it's shared with (Phase 56, co-admins), or an admin. */
 async function remove(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const secretId = secretIdOf(event);
   const row = await accessibleRow(secretId, caller);
   if (!canManageVaultSecret(row, caller.userId, caller.role)) {
-    throw forbidden("Only whoever saved this secret, or an admin, can delete it");
+    throw forbidden("Only people this secret is shared with can delete it");
   }
   await deleteVaultRow(secretId);
   log.info("vault secret deleted", { secretId, channelId: row.channelId, userId: caller.userId });

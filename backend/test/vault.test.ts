@@ -366,32 +366,45 @@ describe("RBAC: admins see every secret, staff only theirs and those shared with
     expect((await reveal(aliceOnly.secretId, ADMIN)).json.password).toBe("alice-only");
   });
 
-  it("lets only the saver or an admin edit, delete or re-share it", async () => {
+  it("makes everyone a secret is shared with a co-admin: they edit, re-share and delete it", async () => {
     const forBob = [...vault.values()].find((r) => r.name === "Shared with Bob")!;
-    const edit = (user: Caller, allowedUserIds: string[]) =>
+    const edit = (user: Caller, allowedUserIds: string[], name = "Shared with Bob") =>
       call("PUT /vault/secrets/{secretId}", {
         params: { secretId: forBob.secretId },
         user,
-        body: { channelId: "ch_project", name: "Shared with Bob", allowedUserIds },
+        body: { channelId: "ch_project", name, allowedUserIds },
       });
-    expect((await edit(BOB, [BOB.userId, CAROL.userId])).status).toBe(403);
-    expect((await edit(CAROL, [CAROL.userId])).status).toBe(404); // not hers to know of
-    expect(
-      (
-        await call("DELETE /vault/secrets/{secretId}", {
-          params: { secretId: forBob.secretId },
-          user: BOB,
-        })
-      ).status,
-    ).toBe(403);
+    const remove = (user: Caller) =>
+      call("DELETE /vault/secrets/{secretId}", { params: { secretId: forBob.secretId }, user });
 
-    expect((await edit(ALICE, [CAROL.userId])).status).toBe(200);
-    expect(names(await list(CAROL))).toEqual(["Carol's own", "Shared with Bob"]);
-    expect(names(await list(BOB))).toEqual([]); // taken away from Bob
-    expect((await reveal(forBob.secretId, BOB)).status).toBe(404);
+    // Carol can't see it, so she can't touch it either (and isn't told it exists).
+    expect((await edit(CAROL, [CAROL.userId])).status).toBe(404);
+    expect((await remove(CAROL)).status).toBe(404);
+    expect(vault.has(forBob.secretId)).toBe(true);
+
+    // Bob didn't save it, but it's shared with him: he renames it and shares it with Carol.
+    const byBob = await edit(BOB, [BOB.userId, CAROL.userId], "Renamed by Bob");
+    expect(byBob.status).toBe(200);
+    expect(byBob.json.secret).toMatchObject({
+      name: "Renamed by Bob",
+      createdBy: ALICE.userId, // still Alice's: a co-admin doesn't take it over
+      allowedUserIds: [BOB.userId, CAROL.userId],
+    });
+    expect(names(await list(CAROL))).toEqual(["Carol's own", "Renamed by Bob"]);
     expect((await reveal(forBob.secretId, CAROL)).json.password).toBe("for-bob");
     // An edit keeps the password and its ciphertext.
     expect(vault.get(forBob.secretId)!.encryptedPassword).toBe(forBob.encryptedPassword);
+
+    // Its saver takes it away from Bob: he's no longer a co-admin, and can't delete it.
+    expect((await edit(ALICE, [CAROL.userId])).status).toBe(200);
+    expect(names(await list(BOB))).toEqual([]);
+    expect((await reveal(forBob.secretId, BOB)).status).toBe(404);
+    expect((await edit(BOB, [BOB.userId])).status).toBe(404);
+    expect((await remove(BOB)).status).toBe(404);
+
+    // Carol, now a co-admin, deletes it.
+    expect((await remove(CAROL)).status).toBe(200);
+    expect(vault.has(forBob.secretId)).toBe(false);
   });
 
   it("re-encrypts when a secret moves to another channel, or gets a new password", async () => {

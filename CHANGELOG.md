@@ -86,6 +86,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **A thinner Vault card in the chat:** a secret shared with `/secret` is now one slim row: its
+  title, then the username and the password, both hidden, each with its own 👁 Reveal and Copy
+  button, and a small Launch button on the right. The username is already on the card, so it
+  needs no PIN; the password still asks for it unless the Vault is open. On a phone the row
+  wraps.
+- **Vault co-admins:** everyone a secret is shared with can now edit, re-share and delete it, not
+  only whoever saved it (and the admins). It stays filed under its saver.
+
 - **Long messages send:** a message could hold 4,000 characters; a long brief pasted from a doc
   failed with "Failed to send" (and "That request isn't valid" on retry). Messages now take up
   to 10,000 characters, and past 8,000 the box shows how many you've used; over the limit it
