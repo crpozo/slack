@@ -261,10 +261,12 @@ describe("the unlocked Vault", () => {
     );
   });
 
-  it("lets you edit and share only your own secrets (an admin, all)", async () => {
+  it("lets you edit, share and delete every secret shared with you, not only your own", async () => {
     await openVault();
     expect(within(rows()[0]!).queryByRole("button", { name: "Edit AWS root" })).toBeTruthy();
-    expect(within(rows()[1]!).queryByRole("button", { name: "Edit Figma" })).toBeNull();
+    // Bob saved Figma and shared it with Ana: that makes her a co-admin of it.
+    expect(within(rows()[1]!).queryByRole("button", { name: "Edit Figma" })).toBeTruthy();
+    expect(within(rows()[1]!).queryByRole("button", { name: /Delete Figma/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Reset a PIN/ })).toBeNull();
   });
 
@@ -354,6 +356,53 @@ describe("the unlocked Vault", () => {
 });
 
 describe("the 🔒 card in the chat", () => {
+  it("is one thin row: title, hidden username and password with Reveal and Copy, and Launch", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(
+      <VaultSecretCard
+        card={{
+          secretId: aws.secretId,
+          name: "AWS root",
+          username: "root@mindfultech.ec",
+          website: "https://console.aws.amazon.com/",
+        }}
+        mine={false}
+      />,
+    );
+    const card = document.querySelector("[data-vault-card]") as HTMLElement;
+    expect(card.textContent).toContain("AWS root");
+    expect(card.textContent).not.toMatch(/Shared a Secret/); // no bot-style header
+    // Both hidden at first.
+    expect(screen.getByLabelText("Hidden username").textContent).not.toContain("root@");
+    expect(screen.getByLabelText("Hidden password")).toBeTruthy();
+
+    // The username is on the card already: Reveal and Copy need no PIN.
+    fireEvent.click(screen.getByRole("button", { name: "Reveal the AWS root username" }));
+    expect(screen.getByLabelText("AWS root username").textContent).toBe("root@mindfultech.ec");
+    fireEvent.click(screen.getByRole("button", { name: "Hide the username" }));
+    expect(screen.getByLabelText("Hidden username")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy the AWS root username" }));
+    });
+    expect(writeText).toHaveBeenCalledWith("root@mindfultech.ec");
+    expect(document.querySelector("[data-pin-prompt]")).toBeNull();
+    expect(api.reveal).not.toHaveBeenCalled();
+
+    // The password has its own Reveal and Copy, and Launch sits at the end.
+    expect(screen.getByRole("button", { name: "Reveal the AWS root password" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy the AWS root password" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Launch AWS root/ })).toBeTruthy();
+    Reflect.deleteProperty(navigator, "clipboard");
+  });
+
+  it("leaves the username out when the secret has none", () => {
+    render(<VaultSecretCard card={{ secretId: aws.secretId, name: "Stripe" }} mine={false} />);
+    expect(document.querySelector("[data-username-controls]")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Launch/ })).toBeNull();
+    expect(screen.getByLabelText("Hidden password")).toBeTruthy();
+  });
+
   it("asks for the PIN once, unlocks the Vault with it, and says when it isn't shared with you", async () => {
     api.reveal.mockRejectedValueOnce(new TasksApiError(404, "Secret not found"));
     api.reveal.mockResolvedValue("sk_live_123");
