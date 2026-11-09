@@ -235,6 +235,172 @@ export interface NewsInsights {
    * valid for a while); absent until it's made, and on older analyses.
    */
   audio?: NewsAudio;
+  /**
+   * Phase 56: today's stories say Anthropic is about to release a new Claude
+   * model, or just did. Absent on most days, and on older analyses.
+   */
+  claudeAlert?: ClaudeModelAlert;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 56: an alert when Anthropic is about to release a new Claude model,
+// or has just released one. From the morning's analysis (the model reads the
+// stories) and, between analyses, from the live headlines.
+// ---------------------------------------------------------------------------
+
+export const CLAUDE_MODEL_STATUSES = ["upcoming", "launched"] as const;
+/** "upcoming": announced, previewed, leaked or expected soon; "launched": out now. */
+export type ClaudeModelStatus = (typeof CLAUDE_MODEL_STATUSES)[number];
+
+export interface ClaudeModelAlert {
+  status: ClaudeModelStatus;
+  /** The model's name as the stories give it ("Claude Opus 6"); "" when they don't name it. */
+  model: string;
+  /** One line (Spanish from the analysis; the publisher's own title from the live headlines). */
+  headline: string;
+  /** A sentence or two on what was announced and when; may be empty. */
+  summary: string;
+  /** The stories that say so (the feed's titles and links), at least one. */
+  evidence: NewsEvidence[];
+  /** Where it came from: the morning's analysis, or a live headline. */
+  from: "analysis" | "headline";
+}
+
+/** A story about Anthropic or Claude (only these can raise the alert). */
+export const CLAUDE_STORY = /\b(anthropic|claude)\b/i;
+/**
+ * Whole words, accents included (`\\b` stops at "ó"): `words("lanzó")`. No
+ * lookbehind: older Safari (iPhones) rejects it, and that would break the app.
+ */
+const words = (alternatives: string) =>
+  new RegExp(`(?:^|[^\\p{L}\\d])(?:${alternatives})(?![\\p{L}\\d])`, "iu");
+/** A model, not an app or a feature: a family name, a version number, "new model". */
+const CLAUDE_MODEL_WORDS = words(
+  [
+    "opus",
+    "sonnet",
+    "haiku",
+    "fable",
+    "mythos",
+    "claude\\s+\\d+(?:\\.\\d+)?",
+    "new (?:ai |frontier |flagship )?models?",
+    "next[- ]gen(?:eration)?(?: model)?",
+    "nuevos? modelos?",
+    "pr[oó]ximo modelo",
+    "siguiente modelo",
+  ].join("|"),
+);
+const LAUNCHED_WORDS = words(
+  [
+    "launch(?:es|ed)?",
+    "releas(?:es|ed)",
+    "introduc(?:es|ed|ing)",
+    "unveil(?:s|ed)?",
+    "debut(?:s|ed)?",
+    "rolls? out",
+    "rolled out",
+    "ships",
+    "now available",
+    "is here",
+    "arrives?",
+    "lanza",
+    "lanzó",
+    "presenta",
+    "presentó",
+    "ya disponible",
+    "llega",
+  ].join("|"),
+);
+const UPCOMING_WORDS = words(
+  [
+    "coming",
+    "soon",
+    "upcoming",
+    "prepar(?:es|ing)",
+    "readies",
+    "readying",
+    "plans? to",
+    "set to (?:launch|release)",
+    "teas(?:es|ed|er)",
+    "leak(?:s|ed)?",
+    "rumou?rs?",
+    "reportedly",
+    "expected",
+    "próximo",
+    "pronto",
+    "prepara",
+    "planea",
+    "filtra(?:do|ción)?",
+  ].join("|"),
+);
+
+/** "Claude Opus 6", "Claude 5", "Claude Sonnet" — the model a headline names, or "". */
+export function claudeModelName(text: string): string {
+  const named = /\bClaude\s+(Opus|Sonnet|Haiku|Fable|Mythos)(\s+\d+(\.\d+)?)?\b/i.exec(text);
+  if (named) return named[0].replace(/\s+/g, " ");
+  const numbered = /\bClaude\s+\d+(\.\d+)?\b/i.exec(text);
+  return numbered ? numbered[0].replace(/\s+/g, " ") : "";
+}
+
+/**
+ * What a headline says about a new Claude model: "launched", "upcoming", or
+ * `null` (not about Anthropic or Claude, or not about a new model). A word
+ * of the future ("set to launch", "soon") makes it upcoming, whatever verb
+ * comes with it.
+ */
+export function claudeModelSignal(
+  article: Pick<NewsArticle, "title" | "snippet">,
+): ClaudeModelStatus | null {
+  const title = article.title;
+  if (!CLAUDE_STORY.test(title)) return null;
+  const text = `${title} ${article.snippet}`;
+  if (!CLAUDE_MODEL_WORDS.test(text)) return null;
+  if (UPCOMING_WORDS.test(title)) return "upcoming";
+  if (LAUNCHED_WORDS.test(title)) return "launched";
+  return null;
+}
+
+/**
+ * The live headlines' alert (between analyses): the newest story that says a
+ * Claude model is out ("launched" wins over "upcoming"), with any other story
+ * saying the same as evidence. `null` when none does.
+ */
+export function claudeAlertFromArticles(articles: NewsArticle[]): ClaudeModelAlert | null {
+  for (const status of ["launched", "upcoming"] as const) {
+    const matching = articles.filter((a) => claudeModelSignal(a) === status);
+    const [first] = matching;
+    if (!first) continue;
+    const summary = first.snippet.replace(/\s+/g, " ").trim();
+    return {
+      status,
+      model: claudeModelName(`${first.title} ${first.snippet}`),
+      headline: first.title,
+      summary: summary.length > 240 ? `${summary.slice(0, 237).trimEnd()}…` : summary,
+      evidence: matching
+        .slice(0, 3)
+        .map(({ title, link, sourceName }) => ({ title, link, sourceName })),
+      from: "headline",
+    };
+  }
+  return null;
+}
+
+/**
+ * The alert to show: a launch beats an upcoming one (the news moved on), and
+ * between two of the same kind the analysis's (written in Spanish, read in
+ * context) beats a headline's.
+ */
+export function pickClaudeAlert(
+  ...alerts: Array<ClaudeModelAlert | null | undefined>
+): ClaudeModelAlert | null {
+  const present = alerts.filter((a): a is ClaudeModelAlert => !!a);
+  return (
+    present.find((a) => a.status === "launched" && a.from === "analysis") ??
+    present.find((a) => a.status === "launched") ??
+    present.find((a) => a.from === "analysis") ??
+    present[0] ??
+    null
+  );
 }
 
 /** The analysis read aloud (Phase 54). */

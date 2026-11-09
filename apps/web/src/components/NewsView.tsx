@@ -1,4 +1,9 @@
-import { NEWS_INSIGHTS_LOCAL_TIME } from "@mindfultech/shared";
+import {
+  claudeAlertFromArticles,
+  NEWS_INSIGHTS_LOCAL_TIME,
+  pickClaudeAlert,
+  type ClaudeModelAlert,
+} from "@mindfultech/shared";
 import { useEffect, useMemo, useState } from "react";
 import { useNow } from "../lib/hooks";
 import { analysisProgress, dashboardDateLabel, dashboardStories } from "../lib/newsDashboard";
@@ -10,6 +15,21 @@ import { NewsChat, NewsChatLauncher } from "./NewsChat";
 import { SparklesIcon } from "./icons";
 import { NewsDashboard } from "./NewsDashboard";
 import { UnreadAlertsDot } from "./NotificationBell";
+
+/** Phase 56: the Claude alert hidden on this device (`status:model`). */
+const CLAUDE_ALERT_KEY = "news.claudeAlert.dismissed";
+
+/** One key per announcement: a launch after an "upcoming" one shows again. */
+const claudeAlertKey = (a: ClaudeModelAlert) =>
+  `${a.status}:${(a.model || a.headline).toLowerCase()}`;
+
+function readDismissedAlert(): string | null {
+  try {
+    return localStorage.getItem(CLAUDE_ALERT_KEY);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The AI News app view (`/app/news`; the dashboard since Phase 41): the live
@@ -50,6 +70,24 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
   const articles = useMemo(() => data?.articles ?? [], [data]);
   const { insights } = insightsState;
   const { top, more } = useMemo(() => dashboardStories(insights, articles), [insights, articles]);
+  // Phase 56: a new Claude model, from the analysis or (between analyses) the live headlines.
+  const [dismissedAlert, setDismissedAlert] = useState(readDismissedAlert);
+  const shownAlert = useMemo(
+    () => pickClaudeAlert(insights?.claudeAlert, claudeAlertFromArticles(articles)),
+    [insights, articles],
+  );
+  const claudeAlert =
+    shownAlert && claudeAlertKey(shownAlert) !== dismissedAlert ? shownAlert : null;
+  const dismissClaudeAlert = () => {
+    if (!shownAlert) return;
+    const key = claudeAlertKey(shownAlert);
+    setDismissedAlert(key);
+    try {
+      localStorage.setItem(CLAUDE_ALERT_KEY, key);
+    } catch {
+      // Not remembered: it's hidden until the page is opened again.
+    }
+  };
   const loading = status === "loading" || status === "idle";
 
   const menu = onOpenSidebar && (
@@ -89,6 +127,8 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
               <NewsDashboard
                 leading={menu}
                 audio={insights?.audio}
+                claudeAlert={claudeAlert}
+                onDismissClaudeAlert={dismissClaudeAlert}
                 audioPending={insightsState.audioPending}
                 dateLabel={dashboardDateLabel(insights?.day ?? null, now)}
                 storyCount={insights?.storyCount ?? articles.length}

@@ -7,6 +7,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI News: an alert when Claude gets a new model:** a banner under the AI News title when
+  Anthropic has just released a new Claude model (green, "nuevo modelo disponible") or one is
+  on its way: announced, previewed or leaked (amber, "nuevo modelo en camino"). It names the
+  model, says what's new in a line and links the stories. It comes from the morning's analysis
+  (the AI reads the stories; its word alone never raises it: a story it cites must be about
+  Anthropic or Claude) and, between analyses, from the live headlines ("Anthropic launches
+  Claude Opus 6"), so it doesn't wait for the next morning. A launch replaces an "upcoming"
+  notice; apps, features and prices don't count, only models. ✕ hides it on that device until
+  the next one, and the audio summary says it first.
 - **AI News audio for the analysis on screen:** an analysis written without its audio (before
   the audio existed, or when making it failed) gets it the first time someone opens AI News:
   "Preparando el resumen en audio…" shows, and the player appears by itself about a minute

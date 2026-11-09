@@ -43,6 +43,24 @@ describe("the AI News summary in audio (Phase 54)", () => {
     expect(script.endsWith("Los detalles y los enlaces están en AI News.")).toBe(true);
   });
 
+  it("says a new Claude model first (Phase 56)", () => {
+    const script = audioScript({
+      ...insights,
+      claudeAlert: {
+        status: "launched",
+        model: "Claude Opus 6",
+        headline: "h",
+        summary: "Disponible hoy en la API.",
+        evidence: [],
+        from: "analysis",
+      },
+    });
+    const [, second] = script.split("\n\n");
+    expect(second).toBe(
+      "Atención: Anthropic lanzó un nuevo modelo de Claude: Claude Opus 6. Disponible hoy en la API.",
+    );
+  });
+
   it("cuts the script into pieces Polly accepts, between paragraphs then sentences", () => {
     const script = ["Uno. Dos.", "Tres.", "x".repeat(25) + ". " + "y".repeat(25) + "."].join(
       "\n\n",

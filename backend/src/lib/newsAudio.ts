@@ -58,13 +58,23 @@ export function spokenDay(day: string): string {
 
 /** The script read aloud: a greeting, the top stories, the trends, the actions, a sign-off. */
 export function audioScript(
-  insights: Pick<NewsInsights, "day" | "stories" | "trends" | "takeaways">,
+  insights: Pick<NewsInsights, "day" | "stories" | "trends" | "takeaways" | "claudeAlert">,
 ): string {
   const parts: string[] = [];
   const day = spokenDay(insights.day);
   parts.push(
     `Hola. Este es el resumen de AI News${day ? ` del ${day}` : ""}: lo más importante de la inteligencia artificial hoy.`,
   );
+  // Phase 56: a new Claude model goes first.
+  const alert = insights.claudeAlert;
+  if (alert) {
+    const name = alert.model ? `: ${spoken(alert.model).replace(/\.$/, "")}` : "";
+    const lead =
+      alert.status === "launched"
+        ? `Atención: Anthropic lanzó un nuevo modelo de Claude${name}.`
+        : `Atención: Anthropic prepara un nuevo modelo de Claude${name}.`;
+    parts.push(`${lead}${alert.summary ? ` ${spoken(alert.summary)}` : ""}`);
+  }
   const stories = insights.stories.slice(0, STORIES_READ);
   if (stories.length > 0) {
     parts.push("Empezamos con lo esencial.");
@@ -157,7 +167,10 @@ export async function synthesize(text: string): Promise<Uint8Array> {
 
 /** The day's summary as an MP3 in the bucket; returns its key. */
 export async function writeNewsAudio(
-  insights: Pick<NewsInsights, "day" | "generatedAt" | "stories" | "trends" | "takeaways">,
+  insights: Pick<
+    NewsInsights,
+    "day" | "generatedAt" | "stories" | "trends" | "takeaways" | "claudeAlert"
+  >,
 ): Promise<{ key: string; chars: number }> {
   const script = audioScript(insights);
   const audio = await synthesize(script);

@@ -158,7 +158,7 @@ describe("the insights request", () => {
       Object.values(o).forEach(walk);
     };
     walk(INSIGHTS_SCHEMA);
-    expect(objects).toHaveLength(6);
+    expect(objects).toHaveLength(7); // Phase 56: claudeAlert
     for (const o of objects) {
       expect(o.additionalProperties).toBe(false);
       expect(o.required).toEqual(Object.keys(o.properties as object));
@@ -174,6 +174,66 @@ describe("the insights request", () => {
     expect(text.match(/^\d+\. \[TechCrunch\] Story/gm)).toHaveLength(40);
     expect(text).toContain("40. [TechCrunch] Story 39");
     expect(insightsRequest(many, "2026-10-27").output_config).toMatchObject({ effort: "high" });
+  });
+});
+
+describe("a new Claude model in the analysis (Phase 56)", () => {
+  const withClaude = [
+    ...ARTICLES,
+    article({
+      title: "Anthropic launches Claude Opus 6",
+      link: "https://techcrunch.com/claude",
+      snippet: "Available today.",
+    }),
+  ];
+  const alert = (patch: object) =>
+    insightsFrom(
+      response(
+        {},
+        {
+          ...DASHBOARD,
+          claudeAlert: {
+            status: "launched",
+            model: "Claude Opus 6",
+            headline: "Anthropic lanza Claude Opus 6",
+            summary: "Disponible hoy en la API.",
+            stories: [3],
+            ...patch,
+          },
+        },
+      ),
+      withClaude,
+    );
+
+  it("keeps the alert with the stories that say so (the feed's links)", () => {
+    const outcome = alert({});
+    expect(outcome.ok && outcome.dashboard.claudeAlert).toEqual({
+      status: "launched",
+      model: "Claude Opus 6",
+      headline: "Anthropic lanza Claude Opus 6",
+      summary: "Disponible hoy en la API.",
+      evidence: [
+        {
+          title: "Anthropic launches Claude Opus 6",
+          link: "https://techcrunch.com/claude",
+          sourceName: "TechCrunch",
+        },
+      ],
+      from: "analysis",
+    });
+    expect(insightsRequest(withClaude, "2026-10-27").output_config?.format).toMatchObject({
+      schema: { required: expect.arrayContaining(["claudeAlert"]) },
+    });
+  });
+
+  it("drops it on most days, and when its stories aren't about Anthropic or Claude", () => {
+    const none = alert({ status: "none", headline: "", stories: [] });
+    expect(none.ok && none.dashboard.claudeAlert).toBeUndefined();
+    // Story 1 is about OpenAI: the model's word alone never raises the alert.
+    const unsupported = alert({ stories: [1] });
+    expect(unsupported.ok && unsupported.dashboard.claudeAlert).toBeUndefined();
+    const noAnswer = insightsFrom(response(), withClaude); // older answers: no field
+    expect(noAnswer.ok && noAnswer.dashboard.claudeAlert).toBeUndefined();
   });
 });
 

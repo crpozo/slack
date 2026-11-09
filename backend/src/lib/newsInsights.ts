@@ -2,6 +2,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import {
+  CLAUDE_MODEL_STATUSES,
+  CLAUDE_STORY,
   NEWS_HORIZONS,
   NEWS_INSIGHTS_DEEP_DIVE_POINTS,
   NEWS_INSIGHTS_FEED,
@@ -12,6 +14,8 @@ import {
   NEWS_INSIGHTS_TOP_STORIES,
   NEWS_MAX_ARTICLES,
   NEWS_REFRESH_COOLDOWN_SECONDS,
+  type ClaudeModelAlert,
+  type ClaudeModelStatus,
   type NewsArticle,
   type NewsDeepDive,
   type NewsEvidence,
@@ -83,7 +87,16 @@ export const INSIGHTS_INSTRUCTION =
   'why; `horizon`, "ahora" (this week), "trimestre" (plan for it) or "vigilar" (watch).\n' +
   `- watchlist: ${NEWS_INSIGHTS_MAX_WATCHLIST} things to follow in the coming days. For each: ` +
   '`topic`, two to four words in Spanish ("Precios de inferencia"); `text`, one or two ' +
-  "sentences (at most 35 words) on what to look for and what it would mean.";
+  "sentences (at most 35 words) on what to look for and what it would mean.\n" +
+  "- claudeAlert: whether a story says Anthropic has just released a new Claude model, or " +
+  'is about to. `status`: "launched" when a story reports a new Claude model released or ' +
+  'available now; "upcoming" when a story reports one announced, previewed, leaked or ' +
+  'expected soon; "none" otherwise, which is most days, and then leave the other fields ' +
+  "empty. Only a new model counts: a new Claude app, feature, integration or price is " +
+  '"none". `model`: its name as the stories give it ("Claude Opus 6"), or "" when they ' +
+  "don't name it; `headline`, at most 12 words in Spanish; `summary`, one or two sentences " +
+  "in Spanish (at most 40 words) on what was announced and when it is available; " +
+  "`stories`, the numbers of the stories that say so.";
 
 /** The JSON the model answers with (structured outputs: the API holds it to this schema). */
 export const INSIGHTS_SCHEMA = {
@@ -149,8 +162,20 @@ export const INSIGHTS_SCHEMA = {
         additionalProperties: false,
       },
     },
+    claudeAlert: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["none", ...CLAUDE_MODEL_STATUSES] },
+        model: { type: "string" },
+        headline: { type: "string" },
+        summary: { type: "string" },
+        stories: { type: "array", items: { type: "integer" } },
+      },
+      required: ["status", "model", "headline", "summary", "stories"],
+      additionalProperties: false,
+    },
   },
-  required: ["stories", "deepDive", "trends", "takeaways", "watchlist"],
+  required: ["stories", "deepDive", "trends", "takeaways", "watchlist", "claudeAlert"],
   additionalProperties: false,
 } as const;
 
@@ -180,6 +205,16 @@ const modelOutput = z.object({
     z.object({ lead: z.string(), body: z.string(), horizon: z.string().optional() }),
   ),
   watchlist: z.array(z.object({ topic: z.string(), text: z.string() })).optional(),
+  // Phase 56 (absent on older answers).
+  claudeAlert: z
+    .object({
+      status: z.string(),
+      model: z.string(),
+      headline: z.string(),
+      summary: z.string(),
+      stories: z.array(z.number()),
+    })
+    .optional(),
 });
 
 /** The stories as the model reads them: numbered, with source, title, when, the snippet, the link. */
@@ -220,7 +255,7 @@ export function insightsRequest(
 /** What the model wrote, joined to the stories it picked. */
 export type InsightsDashboard = Pick<
   NewsInsights,
-  "stories" | "trends" | "takeaways" | "deepDive" | "watchlist"
+  "stories" | "trends" | "takeaways" | "deepDive" | "watchlist" | "claudeAlert"
 >;
 
 export type InsightsOutcome =
@@ -339,6 +374,26 @@ export function insightsFrom(
     .map((w) => ({ topic: fit(w.topic, 48), text: fit(w.text, 300) }))
     .filter((w) => w.topic && w.text)
     .slice(0, NEWS_INSIGHTS_MAX_WATCHLIST);
+  // Phase 56: a new Claude model, only if a story it names is about Anthropic or Claude
+  // (the model's word alone never raises the alert).
+  let claudeAlert: ClaudeModelAlert | undefined;
+  const alert = parsed.claudeAlert;
+  if (alert && isClaudeStatus(alert.status) && alert.headline.trim()) {
+    const evidence = evidenceOf(alert.stories).filter((e) => {
+      const article = read.find((a) => a.link === e.link);
+      return CLAUDE_STORY.test(`${e.title} ${article?.snippet ?? ""}`);
+    });
+    if (evidence.length > 0) {
+      claudeAlert = {
+        status: alert.status,
+        model: fit(alert.model, 40),
+        headline: fit(alert.headline, 120),
+        summary: fit(alert.summary, 320),
+        evidence: evidence.slice(0, 3),
+        from: "analysis",
+      };
+    }
+  }
   if (stories.length === 0)
     return { ok: false, error: "the analysis picked no story from the list" };
   if (trends.length === 0 || takeaways.length === 0) {
@@ -352,9 +407,13 @@ export function insightsFrom(
       takeaways,
       ...(deepDive && { deepDive }),
       ...(watchlist.length > 0 && { watchlist }),
+      ...(claudeAlert && { claudeAlert }),
     },
   };
 }
+
+const isClaudeStatus = (s: unknown): s is ClaudeModelStatus =>
+  CLAUDE_MODEL_STATUSES.includes(s as ClaudeModelStatus);
 
 /** Row of `news-insights`: the feed and the day are the key; the rest is `NewsInsights`. */
 export interface NewsInsightsItem extends Omit<NewsInsights, "audio"> {
@@ -422,6 +481,7 @@ export async function latestInsights(): Promise<StoredInsights | null> {
     source,
     audioKey,
     audioChars,
+    claudeAlert,
   } = item as NewsInsightsItem;
   return {
     day,
@@ -433,6 +493,8 @@ export async function latestInsights(): Promise<StoredInsights | null> {
     // Phase 44's sections (absent on older rows).
     ...(deepDive && { deepDive }),
     ...(watchlist?.length && { watchlist }),
+    // Phase 56: a new Claude model in the day's stories (absent most days).
+    ...(claudeAlert && { claudeAlert }),
     articles: articles ?? [],
     source: source ?? "",
     // Phase 54: the summary in audio (absent until it's made, and on older rows).

@@ -1,4 +1,5 @@
 import {
+  type ClaudeModelAlert,
   type NewsAudio,
   type NewsDeepDive,
   type NewsHorizon,
@@ -12,7 +13,7 @@ import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
 import { fullDate } from "../lib/news";
 import { actionsTitle, highlightParts, MIN_THUMBNAIL_PX, timeAgo } from "../lib/newsDashboard";
-import { HeadphonesIcon, RefreshIcon } from "./icons";
+import { CloseIcon, ExternalLinkIcon, HeadphonesIcon, RefreshIcon, SparklesIcon } from "./icons";
 
 export interface NewsDashboardProps {
   /** "Mié 28 oct 2026" */
@@ -42,6 +43,10 @@ export interface NewsDashboardProps {
   insightsAction?: ReactNode;
   /** Under the tabs (the feeds couldn't be read, a refresh failed, the progress bar). */
   banner?: ReactNode;
+  /** Phase 56: Anthropic released a new Claude model, or is about to. */
+  claudeAlert?: ClaudeModelAlert | null;
+  /** Hides this alert (on this device) until another one comes. */
+  onDismissClaudeAlert?: () => void;
   /** Before the title (the phone's menu button). */
   leading?: ReactNode;
   /** Phase 54: the summary read aloud in Spanish, when it's made. */
@@ -77,6 +82,8 @@ export function NewsDashboard({
   leading,
   audio,
   audioPending = false,
+  claudeAlert,
+  onDismissClaudeAlert,
 }: Readonly<NewsDashboardProps>) {
   const [lead, ...rest] = stories;
   return (
@@ -134,6 +141,8 @@ export function NewsDashboard({
             </button>
           </div>
         </header>
+
+        {claudeAlert && <ClaudeAlertBanner alert={claudeAlert} onDismiss={onDismissClaudeAlert} />}
 
         <SectionTabs
           sections={[
@@ -392,6 +401,72 @@ export function NewsDashboard({
         artículo. Historias e imágenes de sus medios; cada una abre en su sitio.
       </p>
     </div>
+  );
+}
+
+/**
+ * Phase 56: a new Claude model, out now (green) or on its way (amber), above
+ * everything else: what it is, a line on it, and the stories that say so.
+ */
+function ClaudeAlertBanner({
+  alert,
+  onDismiss,
+}: Readonly<{ alert: ClaudeModelAlert; onDismiss?: () => void }>) {
+  const launched = alert.status === "launched";
+  const tone = launched
+    ? "border-primary/40 bg-primary/10 text-primary"
+    : "border-warning/40 bg-warning/10 text-warning";
+  return (
+    <aside
+      className={`mb-6 flex items-start gap-3 rounded-2xl border px-4 py-4 sm:gap-4 sm:px-5 ${tone}`}
+      role="status"
+      aria-label={launched ? "Nuevo modelo de Claude" : "Nuevo modelo de Claude en camino"}
+      data-claude-alert={alert.status}
+    >
+      <SparklesIcon className="mt-0.5 shrink-0 text-xl" aria-hidden="true" />
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <p className="font-mono text-[11px] font-medium uppercase tracking-[0.14em]">
+          {launched ? "Claude · nuevo modelo disponible" : "Claude · nuevo modelo en camino"}
+          {alert.model && <span className="text-ink"> · {alert.model}</span>}
+        </p>
+        <p className="font-serif text-[20px] font-medium leading-snug text-ink [text-wrap:balance] sm:text-[22px]">
+          {alert.headline}
+        </p>
+        {alert.summary && (
+          <p className="text-sm leading-relaxed text-ink/75 [text-wrap:pretty]">{alert.summary}</p>
+        )}
+        {alert.evidence.length > 0 && (
+          <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1" aria-label="Fuentes">
+            {alert.evidence.map((e) => (
+              <li key={e.link} className="min-w-0">
+                <a
+                  href={e.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(ev) => openInBrowser(ev, e.link)}
+                  title={e.title}
+                  className="inline-flex max-w-full items-center gap-1 text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <span className="truncate">Leer en {e.sourceName}</span>
+                  <ExternalLinkIcon className="shrink-0" aria-hidden="true" />
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="-mr-1 -mt-1 shrink-0 rounded-md p-1.5 text-ink-secondary hover:bg-white/10 hover:text-ink"
+          aria-label="Ocultar el aviso"
+          title="Ocultar (vuelve con el próximo aviso)"
+        >
+          <CloseIcon />
+        </button>
+      )}
+    </aside>
   );
 }
 
