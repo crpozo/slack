@@ -46,6 +46,12 @@ export class Storage extends Construct {
           ],
         },
         {
+          // AI News in audio (Phase 54): one summary a day; a month is plenty.
+          id: "NewsAudio30Days",
+          prefix: "news-audio/",
+          expiration: Duration.days(30),
+        },
+        {
           // Uploads are single presigned PUTs today; should a client ever start
           // a multipart upload and abandon it, its parts are billed until removed.
           id: "AbortStaleMultipartUploads",

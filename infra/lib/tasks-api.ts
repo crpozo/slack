@@ -329,7 +329,11 @@ export class TasksApi extends Construct {
     this.newsInsightsWorker = lambda(
       "NewsInsightsWorkerFn",
       "news-insights-worker",
-      { NEWS_INSIGHTS_TABLE: data.newsInsights.tableName },
+      {
+        NEWS_INSIGHTS_TABLE: data.newsInsights.tableName,
+        // Phase 54: the summary in audio goes to the attachments bucket (news-audio/).
+        ATTACHMENTS_BUCKET: props.attachments.bucketName,
+      },
       // Phase 49: one streamed request of up to 5 minutes (high effort, 40 stories).
       Duration.minutes(6),
     );
@@ -366,6 +370,8 @@ export class TasksApi extends Construct {
       {
         NEWS_INSIGHTS_TABLE: data.newsInsights.tableName,
         INSIGHTS_WORKER_FUNCTION: this.newsInsightsWorker.functionName,
+        // Phase 54: signs the URL of the summary's audio.
+        ATTACHMENTS_BUCKET: props.attachments.bucketName,
       },
       // Phase 50: a question may read the feeds and then ask the model (API Gateway allows 30 s).
       Duration.seconds(29),
@@ -771,6 +777,24 @@ export class TasksApi extends Construct {
       "dynamodb:GetItem",
     );
     this.newsInsightsWorker.grantInvoke(this.newsInsightsHandler);
+    // Phase 54: the summary read aloud. The worker asks Amazon Polly for the
+    // speech and writes the MP3 under news-audio/; the endpoint only reads
+    // there (to sign the page's URL). Nothing else in the bucket is reachable.
+    this.newsInsightsWorker.addToRolePolicy(
+      new PolicyStatement({ actions: ["polly:SynthesizeSpeech"], resources: ["*"] }),
+    );
+    this.newsInsightsWorker.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["s3:PutObject"],
+        resources: [props.attachments.arnForObjects("news-audio/*")],
+      }),
+    );
+    this.newsInsightsHandler.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["s3:GetObject"],
+        resources: [props.attachments.arnForObjects("news-audio/*")],
+      }),
+    );
 
     // skills: the catalog (Scan the metadata rows, Query one skill, Get the
     // seed marker, Put and BatchWrite to save and delete), the author's name

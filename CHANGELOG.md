@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI News in audio:** "Escucha el resumen" under the AI News title plays the day's summary
+  read aloud in Spanish (about 2–3 minutes): the top stories with why they matter, the trends
+  and what it means for MindfulTech. It's made with each analysis (the morning's, or Refresh)
+  by Amazon Polly's neural voice "Lupe" (Latin American Spanish), kept for 30 days, and costs
+  a few cents a month.
 - **Paste keeps its formatting:** text copied from a doc, an email, a web page or an AI answer
   pastes into the message box with its **bold**, _italics_, `code`, code blocks, numbered and
   bulleted lists and headings (as bold lines), written as the markdown messages show, with

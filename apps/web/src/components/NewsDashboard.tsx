@@ -1,4 +1,5 @@
 import {
+  type NewsAudio,
   type NewsDeepDive,
   type NewsHorizon,
   type NewsStory,
@@ -11,7 +12,7 @@ import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
 import { fullDate } from "../lib/news";
 import { actionsTitle, highlightParts, MIN_THUMBNAIL_PX, timeAgo } from "../lib/newsDashboard";
-import { RefreshIcon } from "./icons";
+import { HeadphonesIcon, RefreshIcon } from "./icons";
 
 export interface NewsDashboardProps {
   /** "Mié 28 oct 2026" */
@@ -43,6 +44,8 @@ export interface NewsDashboardProps {
   banner?: ReactNode;
   /** Before the title (the phone's menu button). */
   leading?: ReactNode;
+  /** Phase 54: the summary read aloud in Spanish, when it's made. */
+  audio?: NewsAudio;
 }
 
 /**
@@ -70,6 +73,7 @@ export function NewsDashboard({
   insightsAction,
   banner,
   leading,
+  audio,
 }: Readonly<NewsDashboardProps>) {
   const [lead, ...rest] = stories;
   return (
@@ -96,6 +100,7 @@ export function NewsDashboard({
                 </span>
               </span>
             </p>
+            {audio && <AudioSummary audio={audio} />}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {headerActions}
@@ -373,6 +378,33 @@ export function NewsDashboard({
         Los titulares y resúmenes de “Lo esencial” los escribe la IA: confirma los datos en cada
         artículo. Historias e imágenes de sus medios; cada una abre en su sitio.
       </p>
+    </div>
+  );
+}
+
+/**
+ * "Escucha el resumen" (Phase 54): the day's top stories, trends and actions
+ * read aloud in Spanish. The browser's own player (it works with the lock
+ * screen and headphones on phones), loaded only when you press play.
+ */
+function AudioSummary({ audio }: Readonly<{ audio: NewsAudio }>) {
+  const minutes = Math.max(1, Math.round(audio.seconds / 60));
+  return (
+    <div
+      className="mt-1 flex w-full max-w-xl flex-wrap items-center gap-x-3 gap-y-2"
+      data-news-audio
+    >
+      <span className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-primary">
+        <HeadphonesIcon aria-hidden="true" />
+        Escucha el resumen · {minutes} min
+      </span>
+      <audio
+        controls
+        preload="none"
+        src={audio.url}
+        className="h-9 w-full min-w-0 [color-scheme:dark] sm:w-80"
+        aria-label="Resumen de las noticias en audio"
+      />
     </div>
   );
 }

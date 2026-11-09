@@ -3,6 +3,7 @@ import { calendarDay } from "@mindfultech/shared";
 import { bedrockModel, type StreamingClaudeModel } from "../lib/claude";
 import { errorFields, log } from "../lib/logger";
 import { readAllSources } from "../lib/news";
+import { writeNewsAudio } from "../lib/newsAudio";
 import {
   insightsFrom,
   insightsItem,
@@ -105,7 +106,18 @@ async function run(): Promise<InsightsRun> {
     log.error("news insights not written", { ...run, stopReason: response.stop_reason });
     throw new Error(`News insights for ${day}: ${outcome.error}`);
   }
-  await saveInsights(insightsItem(day, outcome.dashboard, articles, Date.now()));
+  const item = insightsItem(day, outcome.dashboard, articles, Date.now());
+  await saveInsights(item);
   log.info("news insights written", { ...run, ms: Date.now() - started });
+  // Phase 54: then the summary read aloud. The page already has the analysis;
+  // the row gains its audio a few seconds later. Never fails the run.
+  try {
+    const audioStarted = Date.now();
+    const { key, chars } = await writeNewsAudio(item);
+    await saveInsights({ ...item, audioKey: key, audioChars: chars });
+    log.info("news audio written", { day, chars, ms: Date.now() - audioStarted });
+  } catch (err) {
+    log.warn("news audio failed", { day, ...errorFields(err) });
+  }
   return run;
 }

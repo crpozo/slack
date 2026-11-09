@@ -68,7 +68,13 @@ describe("AI Insights (Phase 39)", () => {
       "bedrock:InvokeModelWithResponseStream",
     );
     expect(JSON.stringify(worker)).toMatch(/inference-profile\/us\.anthropic\.claude-haiku-5-5/);
-    expect(JSON.stringify(worker)).not.toMatch(/Messages|Channels|Users|s3:/);
+    expect(JSON.stringify(worker)).not.toMatch(/Messages|Channels|Users/);
+    // Phase 54: the summary in audio: Polly, and writing under news-audio/ only.
+    expect(worker.flatMap((st) => [st.Action].flat())).toContain("polly:SynthesizeSpeech");
+    const s3 = worker.filter((st) => JSON.stringify(st.Action).includes("s3:"));
+    expect(s3.flatMap((st) => [st.Action].flat())).toEqual(["s3:PutObject"]);
+    expect(JSON.stringify(s3)).toMatch(/\/news-audio\/\*/);
+    expect(JSON.stringify(s3)).not.toMatch(/attachments\/\*/);
 
     const endpoint = statementsOf("TasksApiNewsInsightsFnServiceRoleDefaultPolicy");
     // GetItem: the last failed run (Phase 49b).
@@ -83,6 +89,20 @@ describe("AI Insights (Phase 39)", () => {
     const endpointActions = endpoint.flatMap((st) => [st.Action].flat());
     expect(endpointActions).toContain("bedrock:InvokeModel");
     expect(endpointActions).not.toContain("bedrock:InvokeModelWithResponseStream");
+    // Phase 54: it signs the audio's URL: reading news-audio/ only.
+    const endpointS3 = endpoint.filter((st) => JSON.stringify(st.Action).includes("s3:"));
+    expect(endpointS3.flatMap((st) => [st.Action].flat())).toEqual(["s3:GetObject"]);
+    expect(JSON.stringify(endpointS3)).toMatch(/\/news-audio\/\*/);
+  });
+
+  it("keeps the audio summaries a month (Phase 54)", () => {
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([
+          Match.objectLike({ Id: "NewsAudio30Days", Prefix: "news-audio/", ExpirationInDays: 30 }),
+        ]),
+      },
+    });
   });
 
   it("serves /news/insights and POST /news/refresh behind the JWT authorizer from the endpoint Lambda", () => {
@@ -98,6 +118,7 @@ describe("AI Insights (Phase 39)", () => {
       unknown
     >;
     expect(Object.keys(env).sort()).toEqual([
+      "ATTACHMENTS_BUCKET",
       "INSIGHTS_WORKER_FUNCTION",
       "LOG_LEVEL",
       "NEWS_INSIGHTS_TABLE",

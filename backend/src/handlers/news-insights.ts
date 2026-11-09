@@ -3,6 +3,7 @@ import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import {
   AskNewsSchema,
   type AskNewsResponse,
+  type NewsInsights,
   type NewsInsightsResponse,
   type NewsRefreshResponse,
 } from "@mindfultech/shared";
@@ -20,7 +21,14 @@ import {
 import { errorFields, log } from "../lib/logger";
 import { getNews } from "../lib/news";
 import { newsAnswerFrom, newsChatRequest } from "../lib/newsChat";
-import { claimRefresh, lastFailure, latestInsights } from "../lib/newsInsights";
+import { NEWS_AUDIO_PREFIX, spokenSeconds } from "../lib/newsAudio";
+import {
+  claimRefresh,
+  lastFailure,
+  latestInsights,
+  type StoredInsights,
+} from "../lib/newsInsights";
+import { presignGet } from "../lib/s3";
 
 let chatModel: ClaudeModel | null = null;
 
@@ -55,7 +63,8 @@ export const handler = httpHandler(async (event, caller): Promise<HttpResult> =>
   if (caller.role === "guest") throw forbidden("Guests only have access to their boards");
   switch (event.routeKey) {
     case "GET /news/insights": {
-      const [insights, failure] = await Promise.all([latestInsights(), lastFailure()]);
+      const [stored, failure] = await Promise.all([latestInsights(), lastFailure()]);
+      const insights = stored && (await withAudioUrl(stored));
       const body: NewsInsightsResponse = {
         insights,
         // Only a failure after the analysis on screen is news to the page.
@@ -90,6 +99,22 @@ export const handler = httpHandler(async (event, caller): Promise<HttpResult> =>
       throw notFound(`No route for ${event.routeKey}`);
   }
 });
+
+/**
+ * The analysis as the page gets it: its audio (Phase 54) as a presigned URL
+ * instead of the bucket key. Only keys under `news-audio/` are ever signed.
+ */
+async function withAudioUrl(stored: StoredInsights): Promise<NewsInsights> {
+  const { audioKey, audioChars, ...insights } = stored;
+  if (!audioKey?.startsWith(NEWS_AUDIO_PREFIX)) return insights;
+  try {
+    const url = await presignGet(audioKey);
+    return { ...insights, audio: { url, seconds: spokenSeconds(audioChars ?? 0) } };
+  } catch (err) {
+    log.warn("news audio url failed", errorFields(err));
+    return insights;
+  }
+}
 
 /** Starts the worker without waiting for it (it writes the row in about half a minute). */
 async function startWorker(requestedBy: string): Promise<void> {

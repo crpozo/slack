@@ -230,6 +230,18 @@ export interface NewsInsights {
   articles: NewsInsightsArticle[];
   /** The publishers they came from, comma-separated. */
   source: string;
+  /**
+   * Phase 54: the summary read aloud in Spanish (an MP3 behind a presigned URL,
+   * valid for a while); absent until it's made, and on older analyses.
+   */
+  audio?: NewsAudio;
+}
+
+/** The analysis read aloud (Phase 54). */
+export interface NewsAudio {
+  url: string;
+  /** About how long it plays. */
+  seconds: number;
 }
 
 /**

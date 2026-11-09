@@ -570,7 +570,9 @@ describe("channel delete", () => {
     expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
     expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
 
-    expect((await remove("ch_general", { ...BOB, role: "admin" })).statusCode).toBe(200);
+    expect((await remove("ch_general", { ...BOB, role: "admin" } as typeof BOB)).statusCode).toBe(
+      200,
+    );
     expect(ddbMock.commandCalls(DeleteCommand).at(-1)?.args[0].input.Key).toEqual({
       channelId: "ch_general",
     });

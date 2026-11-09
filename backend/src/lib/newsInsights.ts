@@ -357,9 +357,16 @@ export function insightsFrom(
 }
 
 /** Row of `news-insights`: the feed and the day are the key; the rest is `NewsInsights`. */
-export interface NewsInsightsItem extends NewsInsights {
+export interface NewsInsightsItem extends Omit<NewsInsights, "audio"> {
   feed: string;
+  /** Phase 54: the MP3 of the summary in the attachments bucket, and its script's length. */
+  audioKey?: string;
+  audioChars?: number;
 }
+
+/** The newest analysis as stored: what the page gets, plus where its audio is. */
+export type StoredInsights = Omit<NewsInsights, "audio"> &
+  Pick<NewsInsightsItem, "audioKey" | "audioChars">;
 
 /** The row for `day`, built from the stories the model read and what it wrote. */
 export function insightsItem(
@@ -390,7 +397,7 @@ export async function saveInsights(item: NewsInsightsItem): Promise<void> {
  * Phase 41 (one Markdown page, no dashboard fields) counts as none: the view
  * shows the live stories until the next morning's run, or an admin's.
  */
-export async function latestInsights(): Promise<NewsInsights | null> {
+export async function latestInsights(): Promise<StoredInsights | null> {
   const { Items } = await ddb.send(
     new QueryCommand({
       TableName: tables.newsInsights,
@@ -413,6 +420,8 @@ export async function latestInsights(): Promise<NewsInsights | null> {
     watchlist,
     articles,
     source,
+    audioKey,
+    audioChars,
   } = item as NewsInsightsItem;
   return {
     day,
@@ -426,6 +435,8 @@ export async function latestInsights(): Promise<NewsInsights | null> {
     ...(watchlist?.length && { watchlist }),
     articles: articles ?? [],
     source: source ?? "",
+    // Phase 54: the summary in audio (absent until it's made, and on older rows).
+    ...(audioKey && { audioKey, audioChars: audioChars ?? 0 }),
   };
 }
 

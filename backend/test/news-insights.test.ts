@@ -1,4 +1,6 @@
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
+import type { PollyClient } from "@aws-sdk/client-polly";
+import type { S3Client } from "@aws-sdk/client-s3";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import Anthropic from "@anthropic-ai/sdk";
@@ -7,6 +9,7 @@ import { mockClient } from "aws-sdk-client-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handler as api } from "../src/handlers/news-insights";
 import { handler as worker, useInsightsModel } from "../src/handlers/news-insights-worker";
+import { useNewsAudioClients } from "../src/lib/newsAudio";
 import type { StreamingClaudeModel } from "../src/lib/claude";
 import type { HttpEvent } from "../src/lib/http";
 import {
@@ -335,11 +338,22 @@ const analysesWritten = () =>
 
 describe("the morning worker", () => {
   let create: ReturnType<typeof vi.fn>;
+  let speak: ReturnType<typeof vi.fn>;
+  let store: ReturnType<typeof vi.fn>;
   beforeEach(() => {
     resetMocks();
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     create = vi.fn(async () => response());
     useInsightsModel({ stream: create } as unknown as StreamingClaudeModel);
+    // Phase 54: the audio's clients (Polly, S3) are fakes here.
+    speak = vi.fn(async () => ({
+      AudioStream: { transformToByteArray: async () => new Uint8Array([1, 2, 3]) },
+    }));
+    store = vi.fn(async () => ({}));
+    useNewsAudioClients({
+      polly: { send: speak } as unknown as PollyClient,
+      s3: { send: store } as unknown as S3Client,
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(rss, { headers: { "content-type": "text/xml" } })),
@@ -350,6 +364,33 @@ describe("the morning worker", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     useInsightsModel(null);
+    useNewsAudioClients(null);
+  });
+
+  it("then reads the summary aloud (Phase 54): the MP3 under news-audio/, the row gains its key", async () => {
+    await worker();
+    const voice = speak.mock.calls[0]![0].input;
+    expect(voice).toMatchObject({ Engine: "neural", VoiceId: "Lupe", LanguageCode: "es-US" });
+    expect(voice.Text).toContain("Hola. Este es el resumen de AI News del martes, 27 de octubre");
+    expect(voice.Text).toContain("Primero: OpenAI lanza agentes para todos.");
+    const put = store.mock.calls[0]![0].input;
+    expect(put).toMatchObject({
+      Bucket: "slack-test-attachments",
+      Key: `news-audio/2026-10-27-${NOW}.mp3`,
+      ContentType: "audio/mpeg",
+    });
+    // The analysis first (the page has it at once), then the same row with its audio.
+    const rows = analysesWritten();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.audioKey).toBeUndefined();
+    expect(rows[1]).toMatchObject({ audioKey: `news-audio/2026-10-27-${NOW}.mp3` });
+    expect(rows[1]!.audioChars).toBeGreaterThan(100);
+  });
+
+  it("keeps the analysis when the audio fails", async () => {
+    speak.mockRejectedValueOnce(new Error("Polly is down"));
+    await expect(worker()).resolves.toMatchObject({ day: "2026-10-27" });
+    expect(analysesWritten()).toHaveLength(1);
   });
 
   it("reads the feeds, asks the model and keeps the day's dashboard (Ecuador's day)", async () => {
@@ -515,6 +556,21 @@ describe("GET and POST /news/insights", () => {
       .on(GetCommand, { TableName: TABLE, Key: { feed: "news-refresh", day: "failure" } })
       .resolves({ Item: { error: "old", at: NOW - 1 } });
     expect((await call(event("GET /news/insights"))).body.failure).toBeUndefined();
+  });
+
+  it("gives the page its audio as a signed URL (Phase 54), never the bucket key", async () => {
+    const key = `news-audio/2026-10-27-${NOW}.mp3`;
+    ddbMock.on(QueryCommand).resolves({ Items: [{ ...row, audioKey: key, audioChars: 1500 }] });
+    const { body } = await call(event("GET /news/insights"));
+    expect(body.insights.audio).toEqual({ url: expect.stringContaining(key), seconds: 100 });
+    expect(body.insights.audio.url).toMatch(/^https:\/\/.*X-Amz-Signature=/);
+    expect(body.insights.audioKey).toBeUndefined();
+    expect(body.insights.audioChars).toBeUndefined();
+    // Only news-audio/ is ever signed.
+    ddbMock
+      .on(QueryCommand)
+      .resolves({ Items: [{ ...row, audioKey: "attachments/x/secret.pdf" }] });
+    expect((await call(event("GET /news/insights"))).body.insights.audio).toBeUndefined();
   });
 
   it("answers the newest row without its key, and null before the first one", async () => {
