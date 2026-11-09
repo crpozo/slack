@@ -94,11 +94,14 @@ describe("user: pins and guests", () => {
 
   it("list also sends the caller their pinned chats", async () => {
     ddbMock.on(ScanCommand, { TableName: "slack-test-users" }).resolves({ Items: [] });
-    ddbMock.on(GetCommand).resolves({ Item: { pinned: ["dm_a_b"] } });
+    ddbMock
+      .on(GetCommand)
+      .resolves({ Item: { pinned: ["dm_a_b"], channelOrder: ["ch_b", "ch_a"] } });
     await handler(wsEvent("user", { action: "user", op: "list" }));
     expect(sentEvents().map(([, e]) => e)).toContainEqual({
       type: "user.prefs",
       pinned: ["dm_a_b"],
+      channelOrder: ["ch_b", "ch_a"],
     });
   });
 
@@ -115,9 +118,48 @@ describe("user: pins and guests", () => {
     expect(update?.Key).toEqual({ userId: ALICE.userId });
     expect(update?.ExpressionAttributeValues).toEqual({ ":pinned": [dm, "dm_other"] });
     expect(sentEvents()).toEqual([
-      ["conn-alice", { type: "user.prefs", pinned: [dm, "dm_other"] }],
-      ["conn-alice-2", { type: "user.prefs", pinned: [dm, "dm_other"] }],
+      ["conn-alice", { type: "user.prefs", pinned: [dm, "dm_other"], channelOrder: [] }],
+      ["conn-alice-2", { type: "user.prefs", pinned: [dm, "dm_other"], channelOrder: [] }],
     ]);
+  });
+
+  it("order saves the caller's own channel order (no duplicates) and syncs their tabs", async () => {
+    ddbMock.on(GetCommand, { TableName: "slack-test-users" }).resolves({
+      Item: { pinned: ["dm_x"] },
+    });
+    await handler(
+      wsEvent("user", {
+        action: "user",
+        op: "order",
+        channelOrder: ["ch_news", "ch_general", "ch_news", "ch_web"],
+      }),
+    );
+    const update = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(update?.Key).toEqual({ userId: ALICE.userId });
+    expect(update?.ExpressionAttributeValues).toEqual({
+      ":order": ["ch_news", "ch_general", "ch_web"],
+    });
+    const prefs = {
+      type: "user.prefs",
+      pinned: ["dm_x"],
+      channelOrder: ["ch_news", "ch_general", "ch_web"],
+    };
+    expect(sentEvents()).toEqual([
+      ["conn-alice", prefs],
+      ["conn-alice-2", prefs],
+    ]);
+  });
+
+  it("order is refused for guests", async () => {
+    await handler(
+      wsEvent(
+        "user",
+        { action: "user", op: "order", channelOrder: ["ch_a"] },
+        { user: { ...ALICE, role: "guest" } as typeof ALICE },
+      ),
+    );
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
   });
 
   it("refuses pinning a conversation you can't see", async () => {

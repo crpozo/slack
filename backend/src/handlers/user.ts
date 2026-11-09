@@ -1,5 +1,6 @@
 import { GetCommand, paginateScan, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import {
+  MAX_ORDERED_CHANNELS,
   MAX_PINNED_CHATS,
   parseAction,
   UserActionSchema,
@@ -24,13 +25,23 @@ async function scanUsers(): Promise<UserProfile[]> {
   return users.sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
-/** The caller's pinned conversations, most recent pin first. */
-async function pinnedOf(userId: string): Promise<string[]> {
+/** The caller's own sidebar preferences: pinned conversations (most recent first) and channel order. */
+async function prefsOf(userId: string): Promise<{ pinned: string[]; channelOrder: string[] }> {
   const { Item } = await ddb.send(
-    new GetCommand({ TableName: tables.users, Key: { userId }, ProjectionExpression: "pinned" }),
+    new GetCommand({
+      TableName: tables.users,
+      Key: { userId },
+      ProjectionExpression: "pinned, channelOrder",
+    }),
   );
-  const pinned: unknown = Item?.pinned;
-  return Array.isArray(pinned) ? pinned.map(String) : [];
+  const list = (value: unknown) => (Array.isArray(value) ? value.map(String) : []);
+  return { pinned: list(Item?.pinned), channelOrder: list(Item?.channelOrder) };
+}
+
+/** Sends the caller's preferences to all their open tabs and devices. */
+async function deliverPrefs(userId: string, prefs: { pinned: string[]; channelOrder: string[] }) {
+  const mine = (await listConnections()).filter((c) => c.userId === userId);
+  await deliver(mine, () => ({ type: "user.prefs", ...prefs }));
 }
 
 /**
@@ -46,13 +57,13 @@ async function listUsers(caller: Caller) {
     await reply(caller.connectionId, { type: "user.list", users: list });
     return ok();
   }
-  const [users, online, pinned] = await Promise.all([
+  const [users, online, prefs] = await Promise.all([
     scanUsers(),
     onlineUserIds(),
-    pinnedOf(caller.userId),
+    prefsOf(caller.userId),
   ]);
   await reply(caller.connectionId, { type: "user.list", users, online });
-  await reply(caller.connectionId, { type: "user.prefs", pinned });
+  await reply(caller.connectionId, { type: "user.prefs", ...prefs });
   return ok();
 }
 
@@ -89,8 +100,8 @@ async function pin(action: Extract<UserAction, { op: "pin" }>, caller: Caller) {
   if (action.pinned && !(await getAccessibleChannel(action.channelId, caller.userId))) {
     return replyError(caller.connectionId, "CHANNEL_NOT_FOUND");
   }
-  const current = await pinnedOf(caller.userId);
-  const rest = current.filter((id) => id !== action.channelId);
+  const prefs = await prefsOf(caller.userId);
+  const rest = prefs.pinned.filter((id) => id !== action.channelId);
   const pinned = action.pinned ? [action.channelId, ...rest].slice(0, MAX_PINNED_CHATS) : rest;
   await ddb.send(
     new UpdateCommand({
@@ -102,12 +113,34 @@ async function pin(action: Extract<UserAction, { op: "pin" }>, caller: Caller) {
     }),
   );
   log.info(action.pinned ? "chat pinned" : "chat unpinned", { userId: caller.userId });
-  const mine = (await listConnections()).filter((c) => c.userId === caller.userId);
-  await deliver(mine, () => ({ type: "user.prefs", pinned }));
+  await deliverPrefs(caller.userId, { ...prefs, pinned });
   return ok();
 }
 
-/** `user`: list the directory, update your own display name, or pin a conversation. */
+/**
+ * Saves the caller's own channel order (Phase 53), top to bottom, on their
+ * `users` row: it follows them across devices. Ids only (duplicates dropped);
+ * the sidebar shows just the channels they can see, so nothing leaks.
+ */
+async function order(action: Extract<UserAction, { op: "order" }>, caller: Caller) {
+  if (caller.role === "guest") return replyError(caller.connectionId, "FORBIDDEN");
+  const channelOrder = [...new Set(action.channelOrder)].slice(0, MAX_ORDERED_CHANNELS);
+  await ddb.send(
+    new UpdateCommand({
+      TableName: tables.users,
+      Key: { userId: caller.userId },
+      UpdateExpression: "SET channelOrder = :order",
+      ConditionExpression: "attribute_exists(userId)",
+      ExpressionAttributeValues: { ":order": channelOrder },
+    }),
+  );
+  log.info("channel order saved", { userId: caller.userId, count: channelOrder.length });
+  const { pinned } = await prefsOf(caller.userId);
+  await deliverPrefs(caller.userId, { pinned, channelOrder });
+  return ok();
+}
+
+/** `user`: list the directory, update your own display name, pin a conversation, or order your channels. */
 export const handler = wsHandler(async (event, caller) => {
   const parsed = parseAction(UserActionSchema, event.body);
   if (!parsed.success) return badRequest(caller.connectionId, parsed.error);
@@ -119,5 +152,7 @@ export const handler = wsHandler(async (event, caller) => {
       return updateName(action, caller);
     case "pin":
       return pin(action, caller);
+    case "order":
+      return order(action, caller);
   }
 });

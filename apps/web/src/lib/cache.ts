@@ -20,6 +20,8 @@ export interface Snapshot {
   savedAt: number;
   channels: Channel[];
   pinned: string[];
+  /** Your own channel order (Phase 53); absent in snapshots saved before it. */
+  channelOrder?: string[];
   users: Record<string, UserProfile>;
   directory: Record<string, string>;
   /** Per channel, oldest first, at most `CACHED_MESSAGES_PER_CHANNEL`. */
@@ -97,6 +99,7 @@ export function cacheableMessages(messages: Message[]): Message[] {
 export function snapshotOf(state: {
   channels: Channel[];
   pinned: string[];
+  channelOrder?: string[];
   users: Record<string, UserProfile>;
   directory: Record<string, string>;
   messagesByChannel: Record<string, Message[]>;
@@ -119,6 +122,7 @@ export function snapshotOf(state: {
     savedAt: Date.now(),
     channels: state.channels,
     pinned: state.pinned,
+    channelOrder: state.channelOrder ?? [],
     users: state.users,
     directory: state.directory,
     messagesByChannel,

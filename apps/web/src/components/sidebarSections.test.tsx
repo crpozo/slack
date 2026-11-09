@@ -73,10 +73,10 @@ const names = (list: HTMLElement) =>
     .getAllByRole("listitem")
     .map((li) => li.textContent?.trim());
 
-describe("the sidebar's Informational section (Phase 53)", () => {
+describe("the sidebar's Updates section (Phase 53)", () => {
   it("lists News/Tools apart from the project channels", () => {
     renderSidebar();
-    const info = screen.getByRole("list", { name: "Informational channels" });
+    const info = screen.getByRole("list", { name: "Updates" });
     expect(names(info)).toEqual([expect.stringContaining("News/Tools")]);
     expect(screen.getByRole("heading", { name: "Channels" })).toBeTruthy();
     expect(within(info).queryByText("ClinicAI")).toBeNull();
@@ -90,7 +90,7 @@ describe("the sidebar's Informational section (Phase 53)", () => {
     expect(update).toHaveBeenCalledWith("ch_news", { informational: false });
 
     fireEvent.click(screen.getByRole("button", { name: "More options for ClinicAI" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /Move to Informational/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Move to Updates/ }));
     expect(update).toHaveBeenCalledWith("ch_clinic", { informational: true });
   });
 
@@ -101,6 +101,52 @@ describe("the sidebar's Informational section (Phase 53)", () => {
       ),
     }));
     renderSidebar();
-    expect(screen.queryByRole("list", { name: "Informational channels" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Updates" })).toBeNull();
+  });
+});
+
+describe("your own channel order (Phase 53)", () => {
+  const channelRows = () =>
+    within(screen.getByRole("heading", { name: "Channels" }).closest("section")!)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent?.trim());
+
+  it("lists the channels in your order", () => {
+    useChat.setState({ channelOrder: ["ch_clinic", "ch_web", "ch_general"] });
+    renderSidebar();
+    expect(channelRows()).toEqual([
+      expect.stringContaining("ClinicAI"),
+      expect.stringContaining("Paymerch Website"),
+      expect.stringContaining("general"),
+    ]);
+  });
+
+  it("moves a channel up or down from its ⋯ menu (phones too), within its section", () => {
+    useChat.setState({ channelOrder: ["ch_general", "ch_web", "ch_clinic"] });
+    const save = vi.spyOn(chat, "setChannelOrder").mockImplementation(() => {});
+    renderSidebar();
+    // ClinicAI is last in Channels (News/Tools is in Updates): only Move up.
+    fireEvent.click(screen.getByRole("button", { name: "More options for ClinicAI" }));
+    expect(screen.queryByRole("menuitem", { name: /Move down/ })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Move up/ }));
+    expect(save).toHaveBeenLastCalledWith(["ch_general", "ch_clinic", "ch_web", "ch_news"]);
+  });
+
+  it("drags a channel onto another to take its place", () => {
+    useChat.setState({ channelOrder: ["ch_general", "ch_web", "ch_clinic"] });
+    const save = vi.spyOn(chat, "setChannelOrder").mockImplementation(() => {});
+    renderSidebar();
+    const row = (name: string) => screen.getByRole("button", { name }).closest("li")!;
+    const dataTransfer = { setData: () => {}, effectAllowed: "", dropEffect: "" };
+    fireEvent.dragStart(row("ClinicAI"), { dataTransfer });
+    fireEvent.dragOver(row("general"), { dataTransfer });
+    fireEvent.drop(row("general"), { dataTransfer });
+    expect(save).toHaveBeenLastCalledWith(["ch_clinic", "ch_general", "ch_web", "ch_news"]);
+    // Not across sections: Updates and Channels keep their own lists.
+    save.mockClear();
+    fireEvent.dragStart(row("News/Tools"), { dataTransfer });
+    fireEvent.dragOver(row("general"), { dataTransfer });
+    fireEvent.drop(row("general"), { dataTransfer });
+    expect(save).not.toHaveBeenCalled();
   });
 });

@@ -8,6 +8,8 @@ import {
   type DmEntry,
   formatDay,
   isInformational,
+  moveTo,
+  orderByPreference,
   orderChannels,
   orderDms,
 } from "./channels";
@@ -302,5 +304,37 @@ describe("isInformational", () => {
   it("never #general or a DM", () => {
     expect(isInformational({ channelId: "ch_general", name: "news", type: "public" })).toBe(false);
     expect(isInformational(ch("news", { type: "dm" }))).toBe(false);
+  });
+});
+
+describe("your own channel order (Phase 53)", () => {
+  const ch = (channelId: string, lastMessageAt = 0) =>
+    ({ channelId, name: channelId, type: "private", lastMessageAt }) as Channel;
+  const ids = (list: Channel[]) => list.map((c) => c.channelId);
+  const all = [ch("ch_general"), ch("ch_a", 3), ch("ch_b", 2), ch("ch_c", 1)];
+
+  it("puts the channels you placed first, in your order, then the rest by activity", () => {
+    expect(ids(orderByPreference(all, []))).toEqual(["ch_general", "ch_a", "ch_b", "ch_c"]);
+    expect(ids(orderByPreference(all, ["ch_c", "ch_general"]))).toEqual([
+      "ch_c",
+      "ch_general",
+      "ch_a",
+      "ch_b",
+    ]);
+    // Ids of channels you can't see (or that are gone) are ignored.
+    expect(ids(orderByPreference(all, ["ch_gone", "ch_b"]))).toEqual([
+      "ch_b",
+      "ch_general",
+      "ch_a",
+      "ch_c",
+    ]);
+  });
+
+  it("moves a channel into another's place, up or down", () => {
+    const list = ["a", "b", "c", "d"];
+    expect(moveTo(list, "d", "b")).toEqual(["a", "d", "b", "c"]);
+    expect(moveTo(list, "a", "c")).toEqual(["b", "c", "a", "d"]);
+    expect(moveTo(list, "b", "a")).toEqual(["b", "a", "c", "d"]);
+    expect(moveTo(list, "x", "a")).toBe(list);
   });
 });

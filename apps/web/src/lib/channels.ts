@@ -213,7 +213,7 @@ const INFORMATIONAL_NAME =
   /\b(news|noticias|newsletter|tools|herramientas|resources|recursos|announcements?|anuncios|avisos|info|links|enlaces)\b/i;
 
 /**
- * Whether `channel` belongs in the sidebar's Informativos section (Phase 53):
+ * Whether `channel` belongs in the sidebar's Updates section (Phase 53):
  * as it was marked, or, never marked, by its name ("News/Tools", "Anuncios"),
  * unless it's a project. #general and DMs never are.
  */
@@ -224,4 +224,33 @@ export function isInformational(
   if (channel.type === "dm" || channel.channelId === GENERAL_CHANNEL_ID) return false;
   if (channel.informational !== undefined) return channel.informational;
   return !channel.isProject && INFORMATIONAL_NAME.test(channel.name.replace(/[-_.]+/g, " "));
+}
+
+/**
+ * The sidebar's channels in your own order (Phase 53): the ones you placed,
+ * top to bottom, then the rest as before (#general first, then by activity).
+ * No order yet: just by activity.
+ */
+export function orderByPreference(channels: Channel[], order: string[]): Channel[] {
+  const byActivity = orderChannels(channels);
+  if (order.length === 0) return byActivity;
+  const rank = new Map(order.map((id, i) => [id, i]));
+  const placed = byActivity
+    .filter((c) => rank.has(c.channelId))
+    .sort((a, b) => rank.get(a.channelId)! - rank.get(b.channelId)!);
+  return [...placed, ...byActivity.filter((c) => !rank.has(c.channelId))];
+}
+
+/**
+ * `ids` with `id` moved to where `target` is: just before it when moving up
+ * the list, just after it when moving down (so dropping on a row puts the
+ * channel in that row's place). Unchanged when either isn't there.
+ */
+export function moveTo(ids: string[], id: string, target: string): string[] {
+  const from = ids.indexOf(id);
+  const to = ids.indexOf(target);
+  if (from < 0 || to < 0 || from === to) return ids;
+  const next = ids.filter((x) => x !== id);
+  next.splice(next.indexOf(target) + (from < to ? 1 : 0), 0, id);
+  return next;
 }

@@ -41,6 +41,8 @@ export interface ChatState {
    * section), most recent pin first; synced across your devices.
    */
   pinned: string[];
+  /** Your own channel order, top to bottom (Phase 53); empty: by activity. */
+  channelOrder: string[];
   /**
    * Phase 38, "Jump to message": the message the list should scroll to (older
    * pages load until it's there); `openThread` opens its thread once found.
@@ -104,6 +106,7 @@ export interface ChatState {
   /** `channel.updated` (renamed): replaces the row, keeping everything else. */
   updateChannel: (channel: Channel) => void;
   setPinned: (pinned: string[]) => void;
+  setChannelOrder: (channelOrder: string[]) => void;
   /** `message.pinned` (Phase 38): the message's pin, and the channel's count. */
   applyPin: (event: MessagePinnedEvent) => void;
   setJumpTarget: (target: ChatState["jumpTarget"]) => void;
@@ -196,6 +199,7 @@ const initialState = {
   status: "idle" as WsStatus,
   channels: [],
   pinned: [] as string[],
+  channelOrder: [] as string[],
   jumpTarget: null as ChatState["jumpTarget"],
   highlightSk: null as string | null,
   channelsLoaded: false,
@@ -318,6 +322,7 @@ export const useChat = create<ChatState>()((set, get) => ({
     })),
 
   setPinned: (pinned) => set({ pinned }),
+  setChannelOrder: (channelOrder) => set({ channelOrder }),
 
   setActiveChannel: (activeChannelId) => set({ activeChannelId }),
 
@@ -579,6 +584,7 @@ export const useChat = create<ChatState>()((set, get) => ({
         hydrated: true,
         channels: s.channelsLoaded ? s.channels : snapshot.channels,
         pinned: s.pinned.length ? s.pinned : snapshot.pinned,
+        channelOrder: s.channelOrder.length ? s.channelOrder : (snapshot.channelOrder ?? []),
         users: Object.keys(s.users).length > 1 ? s.users : { ...snapshot.users, ...s.users },
         directory: { ...snapshot.directory, ...s.directory },
         reads: { ...snapshot.reads, ...s.reads },

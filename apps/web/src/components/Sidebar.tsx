@@ -12,7 +12,15 @@ import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
 import { LONG_PRESS_MS, SLOP_PX, swallowNextClick } from "../lib/gestures";
-import { dmEntries, isInformational, orderChannels, orderDms, type DmEntry } from "../lib/channels";
+import {
+  dmEntries,
+  isInformational,
+  moveTo,
+  orderByPreference,
+  orderChannels,
+  orderDms,
+  type DmEntry,
+} from "../lib/channels";
 import {
   loadPhoneSections,
   savePhoneSections,
@@ -115,6 +123,14 @@ interface NavItemProps {
   menu?: RowMenuItem[];
   /** Pinned to the top of its list (a pin next to the name). */
   pinned?: boolean;
+  /** Drag to reorder (Phase 53, channels on desktop); `over`: a row is being dropped here. */
+  drag?: {
+    onDragStart: () => void;
+    onDragEnter: () => boolean;
+    onDrop: () => void;
+    onDragEnd: () => void;
+    over: boolean;
+  };
 }
 
 interface RowMenuItem {
@@ -195,13 +211,39 @@ function NavItem({
   onClick,
   menu,
   pinned = false,
+  drag,
 }: Readonly<NavItemProps>) {
   let tone = "text-ink-secondary hover:bg-surface-hover hover:text-ink";
   if (active) tone = "bg-primary/20 font-semibold text-ink";
   else if (unread > 0) tone = "font-semibold text-ink hover:bg-surface-hover";
   return (
     <li
-      className="group relative"
+      className={`group relative rounded-md ${drag?.over ? "ring-2 ring-primary/70" : ""}`}
+      draggable={!!drag && !compact}
+      onDragStart={
+        drag &&
+        ((e) => {
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", label); // Firefox starts a drag only with data
+          drag.onDragStart();
+        })
+      }
+      onDragOver={
+        drag &&
+        ((e) => {
+          if (!drag.onDragEnter()) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        })
+      }
+      onDrop={
+        drag &&
+        ((e) => {
+          e.preventDefault();
+          drag.onDrop();
+        })
+      }
+      onDragEnd={drag?.onDragEnd}
       // Right-click opens the row's ⋯ menu (Phase 38), like a native sidebar.
       onContextMenu={(e) => {
         const trigger = e.currentTarget.querySelector<HTMLButtonElement>("[data-row-menu]");
@@ -642,12 +684,13 @@ export function Sidebar({
   const [deleting, setDeleting] = useState<{ channel: Channel; label: string } | null>(null);
   const [editing, setEditing] = useState<Channel | null>(null);
   const [archiving, setArchiving] = useState<Channel | null>(null);
-  const { me, status, channels, pinned, team, directory, users, online } = useChat(
+  const { me, status, channels, pinned, channelOrder, team, directory, users, online } = useChat(
     useShallow((s) => ({
       me: s.me,
       status: s.status,
       channels: s.channels,
       pinned: s.pinned,
+      channelOrder: s.channelOrder,
       team: s.team,
       directory: s.directory,
       users: s.users,
@@ -663,10 +706,17 @@ export function Sidebar({
 
   // `#general` on top, then whoever wrote last: a new message moves its
   // conversation up at once (the store bumps `lastMessageAt` on `message.new`).
+  // Phase 53: in your own order once you've placed some (drag, or Move up/down).
   const namedChannels = useMemo(
-    () => orderChannels(channels.filter((c) => c.type !== "dm" && !c.archived)),
-    [channels],
+    () =>
+      orderByPreference(
+        channels.filter((c) => c.type !== "dm" && !c.archived),
+        channelOrder,
+      ),
+    [channels, channelOrder],
   );
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const archivedChannels = useMemo(
     () => orderChannels(channels.filter((c) => c.type !== "dm" && c.archived)),
     [channels],
@@ -740,6 +790,16 @@ export function Sidebar({
     return items;
   }
 
+  /** Saves your order with `id` moved to `target`'s place (both in the same section). */
+  function reorder(id: string, target: string) {
+    const ids = namedChannels.map((c) => c.channelId);
+    const next = moveTo(ids, id, target);
+    if (next !== ids) chat.setChannelOrder(next);
+  }
+  /** The section list a channel is ordered in (pinned ones keep their pin order). */
+  const orderedList = (c: Channel) =>
+    pinnedSet.has(c.channelId) ? [] : isInformational(c) ? shownInfo : shownChannels;
+
   function channelMenu(c: Channel): RowMenuItem[] {
     const items: RowMenuItem[] = [];
     const isPinned = pinned.includes(c.channelId);
@@ -748,13 +808,30 @@ export function Sidebar({
       icon: isPinned ? <PinOffIcon /> : <PinIcon />,
       onSelect: () => chat.setPinned(c.channelId, !isPinned),
     });
+    // Phase 53: your own order, a step at a time (phones have no drag).
+    const list = c.archived ? [] : orderedList(c);
+    const at = list.findIndex((x) => x.channelId === c.channelId);
+    if (at > 0) {
+      items.push({
+        label: "Move up",
+        icon: <ChevronUpIcon />,
+        onSelect: () => reorder(c.channelId, list[at - 1]!.channelId),
+      });
+    }
+    if (at >= 0 && at < list.length - 1) {
+      items.push({
+        label: "Move down",
+        icon: <ChevronDownIcon />,
+        onSelect: () => reorder(c.channelId, list[at + 1]!.channelId),
+      });
+    }
     if (me && canEditChannel(c, me.userId, me.role)) {
       items.push({ label: "Edit channel", icon: <PencilIcon />, onSelect: () => setEditing(c) });
-      // Phase 53: in or out of the Informational section (stored, so it sticks).
+      // Phase 53: in or out of the Updates section (stored, so it sticks).
       if (!c.archived && c.channelId !== GENERAL_CHANNEL_ID) {
         const info = isInformational(c);
         items.push({
-          label: info ? "Move to Channels" : "Move to Informational",
+          label: info ? "Move to Channels" : "Move to Updates",
           icon: info ? <HashIcon /> : <NewspaperIcon />,
           onSelect: () => chat.updateChannel(c.channelId, { informational: !info }),
         });
@@ -873,7 +950,7 @@ export function Sidebar({
           )}
           {shownInfo.length > 0 && (
             <PhoneSectionBlock
-              title="Informational"
+              title="Updates"
               icon={<NewspaperIcon />}
               folded={folded.info}
               onToggle={() => toggleSection("info")}
@@ -952,9 +1029,39 @@ export function Sidebar({
     );
   }
 
+  /** Drag to reorder within its section (desktop); none in Pinned or the icon rail. */
+  const dragFor = (c: Channel): NavItemProps["drag"] => {
+    if (compact || pinnedSet.has(c.channelId)) return undefined;
+    const sameSection = (id: string | null) => {
+      const from = id && namedChannels.find((x) => x.channelId === id);
+      return (
+        !!from && !pinnedSet.has(from.channelId) && isInformational(from) === isInformational(c)
+      );
+    };
+    return {
+      over: dropTarget === c.channelId && dragging !== c.channelId,
+      onDragStart: () => setDragging(c.channelId),
+      onDragEnter: () => {
+        if (!sameSection(dragging)) return false;
+        if (dropTarget !== c.channelId) setDropTarget(c.channelId);
+        return true;
+      },
+      onDrop: () => {
+        if (dragging && sameSection(dragging)) reorder(dragging, c.channelId);
+        setDragging(null);
+        setDropTarget(null);
+      },
+      onDragEnd: () => {
+        setDragging(null);
+        setDropTarget(null);
+      },
+    };
+  };
+
   const channelNavItem = (c: Channel) => (
     <NavItem
       key={c.channelId}
+      drag={dragFor(c)}
       compact={compact}
       label={c.name}
       icon={<ChannelIcon channel={c} />}
@@ -1077,8 +1184,8 @@ export function Sidebar({
         )}
 
         {only !== "dms" && shownInfo.length > 0 && (
-          <Section title="Informational" compact={compact}>
-            <ul className="space-y-0.5 px-2" aria-label="Informational channels">
+          <Section title="Updates" compact={compact}>
+            <ul className="space-y-0.5 px-2" aria-label="Updates">
               {shownInfo.map(channelNavItem)}
             </ul>
           </Section>

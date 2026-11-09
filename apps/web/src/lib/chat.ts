@@ -263,7 +263,11 @@ class ChatController {
       }),
 
       client.on("channel.updated", ({ channel }) => store().updateChannel(channel)),
-      client.on("user.prefs", ({ pinned }) => store().setPinned(pinned)),
+      client.on("user.prefs", ({ pinned, channelOrder }) => {
+        store().setPinned(pinned);
+        // Older servers don't send it: keep what we have.
+        if (channelOrder) store().setChannelOrder(channelOrder);
+      }),
       client.on("message.pinned", (event) => store().applyPin(event)),
 
       client.on("channel.list", ({ channels, unread }) => {
@@ -783,6 +787,15 @@ class ChatController {
     }
     s.setPinned(pinned ? [channelId, ...rest] : rest);
     this.client?.send("user", { op: "pin", channelId, pinned });
+  }
+
+  /**
+   * Your own order for the sidebar's channels, top to bottom (Phase 53).
+   * Applied at once; the server keeps it and syncs your other devices.
+   */
+  setChannelOrder(channelOrder: string[]): void {
+    useChat.getState().setChannelOrder(channelOrder);
+    this.client?.send("user", { op: "order", channelOrder });
   }
 
   /**

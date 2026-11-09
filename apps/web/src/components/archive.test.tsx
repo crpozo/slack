@@ -235,8 +235,9 @@ describe("archiving from the sidebar's ⋯ menu", () => {
     const items = screen.getAllByRole("menuitem").map((i) => i.textContent?.trim());
     expect(items).toEqual([
       "Pin to the top",
+      "Move up",
       "Edit channel",
-      "Move to Informational",
+      "Move to Updates",
       "Archive channel",
       "Delete channel",
     ]);

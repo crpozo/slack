@@ -221,7 +221,7 @@ export interface Channel {
   linkedBoardId?: string;
   /**
    * Informational, not a project (Phase 53): news, tools, announcements. The
-   * sidebar lists it in its own section, away from the project channels.
+   * sidebar lists it in its own section (Updates), away from the project channels.
    * Absent: the app guesses from the name (see the web's `isInformational`).
    */
   informational?: boolean;
@@ -736,10 +736,24 @@ export const UserPinActionSchema = z.object({
   pinned: z.boolean(),
 });
 
+/** Most channels one person's own order can list (Phase 53); plenty for a team. */
+export const MAX_ORDERED_CHANNELS = 300;
+
+/**
+ * The caller's own order for the sidebar's channels (Phase 53), top to bottom,
+ * synced to their other devices. Channels not in it follow, by activity.
+ */
+export const UserOrderActionSchema = z.object({
+  action: z.literal("user"),
+  op: z.literal("order"),
+  channelOrder: z.array(channelId).max(MAX_ORDERED_CHANNELS),
+});
+
 export const UserActionSchema = z.discriminatedUnion("op", [
   UserListActionSchema,
   UserUpdateActionSchema,
   UserPinActionSchema,
+  UserOrderActionSchema,
 ]);
 
 /** A single emoji (possibly a multi-code-point sequence): no whitespace or control chars. */
@@ -1178,6 +1192,8 @@ export interface UserPrefsEvent {
   type: "user.prefs";
   /** Conversations pinned to the top of the DM list, most recent pin first. */
   pinned: string[];
+  /** Their own channel order, top to bottom (Phase 53); absent or empty: by activity. */
+  channelOrder?: string[];
 }
 
 /** A channel changed (renamed): its new row, for everyone who can see it. */
