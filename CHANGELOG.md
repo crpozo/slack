@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Install as an app, with instructions:** a step-by-step guide (in Spanish, as the phones'
+  menus read) for iPhone/iPad (Safari → Compartir → Agregar a inicio), Android (Chrome →
+  Instalar app) and computers (Chrome/Edge install, Safari → Agregar al Dock), opening on the
+  device you're using. It's in Settings → App and in the phone's More menu; on an iPhone in
+  Safari, Home shows a card "Instala MindfulTech como app" (✕ hides it for good). Not offered
+  once it's installed. The installed app now opens at `/app` (your first screen; an external's
+  first channel), not #general, which may no longer exist.
 - **@mentions that work:** typing `@` in the message box lists the people in the conversation
   (a private channel's members, externals marked; the team in a public channel), filtered as
   you type, accents aside. ↑/↓ and Enter or Tab pick one, Esc closes, and it writes the handle

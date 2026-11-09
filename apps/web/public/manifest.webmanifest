@@ -2,7 +2,7 @@
   "name": "MindfulTech Slack",
   "short_name": "Slack",
   "description": "MindfulTech's internal chat, calls and task boards.",
-  "start_url": "/app/ch_general",
+  "start_url": "/app",
   "scope": "/",
   "display": "standalone",
   "background_color": "#1A1D21",

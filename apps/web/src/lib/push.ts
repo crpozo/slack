@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { isIos, isStandalone } from "./install";
 import { isDesktopApp } from "./desktop";
 import { pushApi, tasksApiConfigured, TasksApiError } from "./tasksApi";
 
@@ -35,13 +36,6 @@ export function pushErrorMessage(err: unknown): string {
   if (err instanceof TasksApiError) return `The server rejected the subscription (${err.status}).`;
   return err instanceof Error ? err.message : String(err);
 }
-
-const isIos = () =>
-  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-const isStandalone = () =>
-  window.matchMedia("(display-mode: standalone)").matches ||
-  (navigator as Navigator & { standalone?: boolean }).standalone === true;
 
 /** What this browser can do, before asking the server anything. */
 export function detectPushSupport(): PushStatus {

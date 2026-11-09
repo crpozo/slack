@@ -52,6 +52,8 @@ import { PushPrompt } from "./PushPrompt";
 import { ChannelView } from "./ChannelView";
 import { ViewBoundary } from "./ViewBoundary";
 import { PlusIcon } from "./icons";
+import { InstallBanner, InstallGuideModal } from "./InstallGuide";
+import { isStandalone } from "../lib/install";
 
 // Not needed to show a conversation: loaded on first use, off the initial bundle.
 const TaskManager = lazy(() => import("./TaskManager").then((m) => ({ default: m.TaskManager })));
@@ -124,6 +126,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [newDmOpen, setNewDmOpen] = useState(false);
+  const [installOpen, setInstallOpen] = useState(false);
 
   // Phones: which sheet is up (the FAB's, More, recent conversations…), and the keyboard.
   const [sheet, setSheet] = useState<MobileSheet>(null);
@@ -470,6 +473,8 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
             onOpenProfile={() => setSettingsOpen(true)}
           />
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-24 [-webkit-overflow-scrolling:touch]">
+            {/* Phase 56: on an iPhone in Safari, a nudge to keep it as an app. */}
+            <InstallBanner className="mx-4 mt-3" />
             <ShortcutCards onOpenHuddles={() => setSheet("huddles")} />
             <Sidebar phone {...sidebarProps} />
           </div>
@@ -508,9 +513,18 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
               setSheet(null);
               setSettingsOpen(true);
             }}
+            onOpenInstall={
+              isStandalone()
+                ? undefined
+                : () => {
+                    setSheet(null);
+                    setInstallOpen(true);
+                  }
+            }
             onSignOut={() => void handleSignOut()}
           />
         )}
+        {installOpen && <InstallGuideModal onClose={() => setInstallOpen(false)} />}
         {sheet === "create" && (
           <CreateSheet
             onClose={closeSheet}

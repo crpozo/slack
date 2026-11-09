@@ -32,6 +32,7 @@ import {
   PlusIcon,
   SearchIcon,
   SettingsIcon,
+  SmartphoneIcon,
   SparklesIcon,
 } from "./icons";
 import { Logo } from "./LoginPage";
@@ -571,6 +572,7 @@ export function MoreSheet({
   onOpenSkills,
   onOpenVault,
   onOpenSettings,
+  onOpenInstall,
   onSignOut,
 }: Readonly<{
   onClose: () => void;
@@ -579,6 +581,8 @@ export function MoreSheet({
   onOpenSkills?: () => void;
   onOpenVault?: () => void;
   onOpenSettings: () => void;
+  /** Phase 56: how to keep it as an app (absent once it is one). */
+  onOpenInstall?: () => void;
   onSignOut: () => void;
 }>) {
   const me = useChat((s) => s.me);
@@ -640,6 +644,14 @@ export function MoreSheet({
           hint="Notifications, audio & video"
           onClick={onOpenSettings}
         />
+        {onOpenInstall && (
+          <SheetRow
+            icon={<SmartphoneIcon />}
+            label="Instalar como app"
+            hint="Agrégala a tu pantalla de inicio"
+            onClick={onOpenInstall}
+          />
+        )}
         <SheetRow icon={<LogOutIcon />} label="Sign out" onClick={onSignOut} tone="text-error" />
       </div>
     </Modal>

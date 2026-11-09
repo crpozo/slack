@@ -599,3 +599,18 @@ export const UserMinusIcon = (p: IconProps) => (
     <path d="M22 11h-6" />
   </Icon>
 );
+/** Phase 56: iOS's Share button (a box with an arrow up). */
+export const ShareIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+    <path d="M16 6l-4-4-4 4" />
+    <path d="M12 2v13" />
+  </Icon>
+);
+/** Phase 56: "Add to Home Screen" (a square with a plus). */
+export const SquarePlusIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect width="18" height="18" x="3" y="3" rx="2" />
+    <path d="M8 12h8M12 8v8" />
+  </Icon>
+);

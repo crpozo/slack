@@ -14,6 +14,7 @@ import { CloseIcon, KanbanIcon, LockIcon, LogOutIcon, MenuIcon } from "./icons";
 import { Logo } from "./LoginPage";
 import { NotificationBell } from "./NotificationBell";
 import { PushPrompt } from "./PushPrompt";
+import { InstallBanner } from "./InstallGuide";
 import { Toast } from "./Toast";
 
 const TaskManager = lazy(() => import("./TaskManager").then((m) => ({ default: m.TaskManager })));
@@ -303,6 +304,7 @@ export function GuestLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         )}
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <PushPrompt />
+          <InstallBanner className="m-3 mb-0" />
           {!channelId && !tasksMatch ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
               <p className="font-semibold text-ink">Nothing is shared with you yet</p>

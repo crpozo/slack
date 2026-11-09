@@ -1,4 +1,6 @@
 import { MAX_DISPLAY_NAME_LENGTH } from "@mindfultech/shared";
+import { isStandalone } from "../lib/install";
+import { InstallGuideModal } from "./InstallGuide";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { chat } from "../lib/chat";
 import {
@@ -26,6 +28,7 @@ import { Avatar } from "./Avatar";
 import { CameraPreview } from "./CameraPreview";
 import { ChangePasswordForm } from "./ChangePasswordForm";
 import { Modal, SecondaryButton } from "./Modal";
+import { SmartphoneIcon } from "./icons";
 
 function DeviceSelect({
   id,
@@ -150,7 +153,7 @@ const PUSH_HINT: Record<PushStatus, string> = {
   denied:
     "Notifications are blocked for this site. Allow them in your browser's site settings, then try again.",
   "needs-install":
-    "On iPhone and iPad: tap Share → Add to Home Screen, open the app from there, then turn this on.",
+    "On iPhone and iPad: install it as an app first (see App above: Share → Add to Home Screen), open it from there, then turn this on.",
   unconfigured: "Push notifications aren't set up on this deployment yet.",
   unsupported: isDesktopApp()
     ? "The desktop app shows its own notifications for direct messages, private channels and @mentions."
@@ -330,6 +333,9 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
   const [name, setName] = useState(current);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Phase 56: how to keep it as an app (not offered once it is one).
+  const [installOpen, setInstallOpen] = useState(false);
+  const installed = isStandalone() || isDesktopApp();
 
   const trimmed = name.trim();
   const valid = trimmed.length > 0 && trimmed.length <= MAX_DISPLAY_NAME_LENGTH;
@@ -402,6 +408,26 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
           )}
         </section>
 
+        {!installed && (
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold text-ink">App</h3>
+            <button
+              type="button"
+              onClick={() => setInstallOpen(true)}
+              className="flex w-full items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5 text-left hover:bg-surface-hover"
+              data-install-open
+            >
+              <span>
+                <span className="block text-sm font-medium text-ink">Instalar como app</span>
+                <span className="block text-xs text-ink-secondary">
+                  En tu iPhone, Android o computadora: con su ícono y notificaciones.
+                </span>
+              </span>
+              <SmartphoneIcon className="shrink-0 text-lg text-ink-secondary" aria-hidden="true" />
+            </button>
+          </section>
+        )}
+
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-ink">Notifications</h3>
           <PushSettings />
@@ -415,6 +441,7 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
         </section>
       </form>
       <PasswordSettings />
+      {installOpen && <InstallGuideModal onClose={() => setInstallOpen(false)} />}
     </Modal>
   );
 }
