@@ -9,7 +9,8 @@ import type { Role } from "./roles";
 // `/secret <title> <password>` in a channel saves one and posts a card.
 //
 // Phase 46, access: admins see every secret; anyone else only the ones they
-// saved or are listed in (`allowedUserIds`). Everyone has a 4-digit Vault PIN
+// saved or are listed in (`allowedUserIds`), who may also edit and delete it
+// (Phase 56, co-admins). Everyone has a 4-digit Vault PIN
 // (bcrypt on the server, 5 tries before a lockout): it opens the Vault for a
 // few minutes, and every reveal or copy asks for it again.
 // ---------------------------------------------------------------------------
@@ -33,7 +34,11 @@ export interface VaultSecret {
   website?: string;
   createdBy: string;
   createdByName?: string;
-  /** Who else may see and reveal it (Phase 46); its saver and admins always may. */
+  /**
+   * Who else may see and reveal it (Phase 46); its saver and admins always may.
+   * Phase 56: each of them is also a co-admin of it, free to edit, re-share or
+   * delete it like its saver.
+   */
   allowedUserIds: string[];
   /** Epoch ms. */
   createdAt: number;
@@ -80,12 +85,16 @@ export function canAccessVaultSecret(
   return (secret.allowedUserIds ?? []).includes(userId);
 }
 
-/** Who may edit, share or delete a secret: whoever saved it, or an admin. */
+/**
+ * Who may edit, re-share or delete a secret (Phase 56: co-admins): anyone who
+ * may see it, so whoever saved it, everyone in its `allowedUserIds`, and the
+ * admins. Guests never.
+ */
 export const canManageVaultSecret = (
-  secret: Pick<VaultSecret, "createdBy">,
+  secret: Pick<VaultSecret, "createdBy" | "allowedUserIds">,
   userId: string,
   role: Role,
-): boolean => role === "admin" || (role !== "guest" && secret.createdBy === userId);
+): boolean => canAccessVaultSecret(secret, userId, role);
 
 export interface VaultPage {
   secrets: VaultSecret[];

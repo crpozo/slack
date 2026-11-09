@@ -165,10 +165,12 @@ describe("who may see a secret (Phase 46)", () => {
     expect(canAccessVaultSecret(secret, "u-owner", "guest")).toBe(false);
   });
 
-  it("lets only the saver or an admin manage it", () => {
+  it("makes everyone it's shared with a co-admin of it, and nobody else", () => {
     expect(canManageVaultSecret(secret, "u-owner", "member")).toBe(true);
     expect(canManageVaultSecret(secret, "u-x", "admin")).toBe(true);
-    expect(canManageVaultSecret(secret, "u-ana", "member")).toBe(false);
+    expect(canManageVaultSecret(secret, "u-ana", "member")).toBe(true); // listed: co-admin
+    expect(canManageVaultSecret(secret, "u-bob", "member")).toBe(false);
+    expect(canManageVaultSecret(secret, "u-ana", "guest")).toBe(false);
   });
 
   it("dedupes the access list and caps it", () => {
