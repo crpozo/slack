@@ -90,6 +90,7 @@ export class GitHubDeployRole extends Construct {
         resources: [`arn:${partition}:iam::${account}:role/cdk-*`],
       }),
     );
-    props.channelsTable.grant(this.role, "dynamodb:PutItem");
+    // The seed creates #general on a fresh install only (Scan: is there any channel yet?).
+    props.channelsTable.grant(this.role, "dynamodb:PutItem", "dynamodb:Scan");
   }
 }
