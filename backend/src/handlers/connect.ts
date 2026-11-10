@@ -48,9 +48,50 @@ async function announce(connectionId: string, userId: string): Promise<void> {
   }
 }
 
+/**
+ * Phase 59: an external (a call link). Their connection row is tied to the
+ * call; they aren't in the directory and nobody is told they're online.
+ */
+async function connectExternal(
+  connectionId: string,
+  authorizer: NonNullable<WsEvent["requestContext"]["authorizer"]>,
+): Promise<HandlerResult> {
+  if (!authorizer.userId || !authorizer.callScope || !authorizer.callRoomId) {
+    log.warn("external connect without its call", { connectionId });
+    return { statusCode: 401 };
+  }
+  const now = Date.now();
+  const item: ConnectionItem = {
+    connectionId,
+    userId: authorizer.userId,
+    userEmail: "",
+    connectedAt: now,
+    ttl: Math.floor(now / 1000) + CONNECTION_TTL_SECONDS,
+    role: "guest",
+    external: true,
+    callScope: authorizer.callScope,
+    callRoomId: authorizer.callRoomId,
+    name: authorizer.name ?? "",
+  };
+  try {
+    await ddb.send(new PutCommand({ TableName: tables.connections, Item: item }));
+  } catch (err) {
+    log.error("external connect failed", { connectionId, ...errorFields(err) });
+    return { statusCode: 500 };
+  }
+  log.info("external connected", {
+    connectionId,
+    userId: item.userId,
+    channelId: item.callScope,
+    roomId: item.callRoomId,
+  });
+  return ok();
+}
+
 /** `$connect`: the authorizer already validated the token; store the connection. */
 export const handler = async (event: WsEvent): Promise<HandlerResult> => {
   const { connectionId, authorizer } = event.requestContext;
+  if (authorizer?.external === "1") return connectExternal(connectionId, authorizer);
   if (!authorizer?.userId || !authorizer.email) {
     log.warn("connect without authorizer context", { connectionId });
     return { statusCode: 401 };

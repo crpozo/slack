@@ -7,7 +7,7 @@ import {
 } from "@aws-sdk/client-cognito-identity-provider";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { QueryCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import type { ChannelListEvent } from "@mindfultech/shared";
+import { dmChannelId, type ChannelListEvent } from "@mindfultech/shared";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handler as call } from "../src/handlers/call";
@@ -114,8 +114,29 @@ describe("what an external may do", () => {
     expect(ddbMock.commandCalls(QueryCommand)).toHaveLength(0);
   });
 
-  it("never call or pin: those routes stay closed before any handler runs", async () => {
-    await call(wsEvent("call", { action: "call", signal: "rooms" }, asGuest));
+  it("never ring a DM, share a call link or pin (Phase 59: channel calls only)", async () => {
+    await call(
+      wsEvent(
+        "call",
+        {
+          action: "call",
+          signal: "offer",
+          channelId: dmChannelId(GUEST.userId, ALICE.userId),
+          callId: "c1",
+          to: ALICE.userId,
+          media: "video",
+          sdp: "v=0",
+        },
+        asGuest,
+      ),
+    );
+    await call(
+      wsEvent(
+        "call",
+        { action: "call", signal: "link", channelId: "ch_client", callId: "room-1" },
+        asGuest,
+      ),
+    );
     await pin(
       wsEvent(
         "pin",
@@ -124,6 +145,7 @@ describe("what an external may do", () => {
       ),
     );
     expect(sentEvents()).toEqual([
+      ["conn-guest", expect.objectContaining({ type: "error", code: "FORBIDDEN" })],
       ["conn-guest", expect.objectContaining({ type: "error", code: "FORBIDDEN" })],
       ["conn-guest", expect.objectContaining({ type: "error", code: "FORBIDDEN" })],
     ]);

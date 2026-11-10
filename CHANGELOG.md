@@ -7,6 +7,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Guests in calls, and call links:** a guest (a client's account) can now see **Join** and
+  join the calls of the private channels they're in, like anyone else. In a channel call, the
+  team has a **Copy call link** button (in the call and in its small floating window): whoever
+  opens the link types their name and waits until someone in the call lets them in (**Let in** /
+  **Deny**). They only ever see the call (video and screen share), never the chat, channels or
+  anything else, and the link stops working when the call ends. Everyone's tile shows a
+  **Guest** or **External** badge.
+
 - **AI News audio keeps playing when you leave AI News:** the summary is now one player for the
   whole app: go to a channel, a board or the calendar and it goes on. A small pill (bottom
   right) shows the time, pauses it, takes you back to AI News, or stops it (✕). A Refresh
