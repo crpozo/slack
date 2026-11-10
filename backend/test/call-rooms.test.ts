@@ -107,8 +107,9 @@ describe("joining a channel call", () => {
     ]);
     const [, event] = roomEvents()[0]!;
     expect(event).toMatchObject({ change: "started", userId: ALICE.userId, channelId: CH });
+    // Phase 59: each seat carries the name everyone sees (the email's when the directory has none).
     expect(event.room?.participants).toEqual([
-      { userId: ALICE.userId, joinedAt: NOW, media: "video" },
+      { userId: ALICE.userId, joinedAt: NOW, media: "video", name: "alice" },
     ]);
     expect(JSON.stringify(event)).not.toContain("conn-"); // connections stay on the server
   });
@@ -182,7 +183,7 @@ describe("joining a channel call", () => {
     expect(roomEvents()[0]![1].change).toBe("joined");
   });
 
-  it("isn't for DMs, channels you can't see, or guests", async () => {
+  it("isn't for DMs or channels you can't see", async () => {
     await send({
       signal: "join",
       channelId: dmChannelId(ALICE.userId, BOB.userId),
@@ -193,10 +194,30 @@ describe("joining a channel call", () => {
       "CHANNEL_NOT_FOUND",
       "CHANNEL_NOT_FOUND",
     ]);
+    // A guest who isn't in the channel can't either (Phase 59).
+    await send(
+      { signal: "join", channelId: CH, media: "video" },
+      { ...DAN, role: "guest" } as typeof ALICE,
+      "conn-dan",
+    );
+    expect(sentEvents().at(-1)![1]).toMatchObject({ code: "CHANNEL_NOT_FOUND" });
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+  });
+
+  it("lets a guest in the private channel join its call natively, with a Guest badge (Phase 59)", async () => {
     const guest = { ...CAROL, role: "guest" };
     await send({ signal: "join", channelId: CH, media: "video" }, guest, "conn-carol");
-    expect(sentEvents().at(-1)![1]).toMatchObject({ code: "FORBIDDEN" });
-    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    const put = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
+    expect(put.Item?.participants).toEqual({
+      [CAROL.userId]: {
+        connectionId: "conn-carol",
+        joinedAt: NOW,
+        media: "video",
+        name: "carol",
+        kind: "guest",
+      },
+    });
+    expect(roomEvents()[0]![1].room?.participants[0]).toMatchObject({ kind: "guest" });
   });
 });
 

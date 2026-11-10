@@ -80,7 +80,8 @@ function channelAccess(
     notFound: !allowed || (channelsLoaded && !channel && !dm),
     canCall: !guest && !!peer && peer !== myUserId && allowed && supportsCalls(),
     /** Phase 36: channel calls (rooms) in any channel you can post in. */
-    canRoomCall: !guest && !dm && allowed && !!channel && !channel.archived && supportsCalls(),
+    // Phase 59: guests too, in the private channels they're in (the only ones they see).
+    canRoomCall: !dm && allowed && !!channel && !channel.archived && supportsCalls(),
     /** Phase 55: its creator or an admin (it was the creator only). */
     canInvite: !!channel && !channel.archived && canManageMembers(channel, myUserId, me.role),
   };

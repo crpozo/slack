@@ -95,6 +95,15 @@ export interface ConnectionItem {
   role?: Role;
   /** Phase 36: the channel whose call this connection sits in (freed on `$disconnect`). */
   callRoom?: string;
+  /**
+   * Phase 59: an external (a call link, no account). Their connection is tied
+   * to one call: `callScope` (its channel) and `callRoomId`; `name` is what
+   * they typed. Their `role` is `guest`, so every guest restriction applies too.
+   */
+  external?: true;
+  callScope?: string;
+  callRoomId?: string;
+  name?: string;
 }
 
 /** DynamoDB caps BatchWriteItem at 25 requests. */

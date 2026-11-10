@@ -35,6 +35,17 @@ export async function getAccessibleChannel(
   return channel;
 }
 
+/**
+ * Phase 59: a channel's row with no access check, for a call's own
+ * bookkeeping where the person isn't a member (an external): never to show it.
+ */
+export async function getChannelRow(channelId: string): Promise<Channel | null> {
+  const { Item } = await ddb.send(
+    new GetCommand({ TableName: tables.channels, Key: { channelId } }),
+  );
+  return (Item as Channel | undefined) ?? null;
+}
+
 /** The other member of a DM (the sender themself for a self-DM), or `null`. */
 export function dmPeerOf(
   channel: Pick<Channel, "type" | "members">,

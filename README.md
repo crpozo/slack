@@ -163,6 +163,14 @@ The UI:
   windows: the desktop app opens a small always-on-top window by itself whenever you switch away
   (and closes it when you're back), Chrome and Edge use Document Picture-in-Picture with the full
   controls, Safari the video's picture-in-picture, and elsewhere the in-app floating card remains.
+- **Guests and call links (Phase 59):** a guest (a client's account) joins the calls of the
+  private channels they're in like anyone else (never DM calls). Someone from the team in a
+  channel call can **Copy call link** (the 🔗 button, in the call panel and the floating window):
+  whoever opens it gives a name and waits in a lobby until someone in the call clicks **Let
+  in** (or **Deny**). They see the call's video and screen share and nothing else: the page
+  never starts the chat, and the server ties their socket to that one call (no messages,
+  channels, names or presence). The link works only while that call goes on; when the team
+  leaves, the call ends for them too. Tiles show a **Guest** or **External** badge.
 - **Sounds:** a soft ring while you call someone, a chime while a call comes in, and a short
   pop for a new message in a conversation you aren't looking at (never for your own messages).
   They are synthesized in the browser with Web Audio, so there is nothing to download. Browsers

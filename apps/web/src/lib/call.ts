@@ -175,7 +175,7 @@ export const useCall = create<{ call: CallView | null }>(() => ({ call: null }))
 /** DM call signals (the channel-call room ops are `GroupCallManager`'s). */
 type CallInput = Exclude<
   Extract<ClientActionInput, { action: "call" }>,
-  { signal: "join" | "leave" | "rooms" }
+  { signal: "join" | "leave" | "rooms" | "link" | "knock" | "admit" }
 >;
 type SignalPayload = DistributiveOmit<CallInput, "action" | "callId" | "channelId" | "to">;
 /**

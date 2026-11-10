@@ -1,6 +1,7 @@
 import { DeleteCommand, paginateScan } from "@aws-sdk/lib-dynamodb";
 import {
   ACTIVE_WINDOW_MS,
+  externalMayReceive,
   guestMayReceive,
   withoutVaultCard,
   type ServerEvent,
@@ -9,7 +10,10 @@ import { ddb, tables, type ConnectionItem } from "./ddb";
 import { log } from "./logger";
 import { reply } from "./response";
 
-export type LiveConnection = Pick<ConnectionItem, "connectionId" | "userId" | "activeAt" | "role">;
+export type LiveConnection = Pick<
+  ConnectionItem,
+  "connectionId" | "userId" | "activeAt" | "role" | "external" | "callScope"
+>;
 
 /**
  * All rows of `connections` (≤ a handful at this scale, so a Scan is fine).
@@ -21,7 +25,7 @@ export async function listConnections(consistent = false): Promise<LiveConnectio
     { client: ddb },
     {
       TableName: tables.connections,
-      ProjectionExpression: "connectionId, userId, activeAt, #role",
+      ProjectionExpression: "connectionId, userId, activeAt, #role, external, callScope",
       ExpressionAttributeNames: { "#role": "role" },
       ...(consistent && { ConsistentRead: true }),
     },
@@ -50,6 +54,8 @@ export async function deliver(
       // guest's connection only ever gets their boards' and channels' events,
       // and never a Vault card's details (Phase 55).
       if (connection.role === "guest" && !guestMayReceive(built.type)) return false;
+      // Phase 59: an external's connection gets their call's events and nothing else.
+      if (connection.external && !externalMayReceive(built.type)) return false;
       const event =
         connection.role === "guest" && built.type === "message.new"
           ? { ...built, message: withoutVaultCard(built.message) }

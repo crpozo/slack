@@ -1,10 +1,14 @@
 import {
+  callLinkPath,
   MAX_ROOM_PARTICIPANTS,
   type CallEvent,
+  type CallLinkEvent,
   type CallMedia,
   type CallRoom,
   type CallRoomEvent,
   type ClientActionInput,
+  type ParticipantKind,
+  type WaitingGuest,
 } from "@mindfultech/shared";
 import { create } from "zustand";
 import { formatCallDuration } from "./call";
@@ -31,6 +35,10 @@ export const JOIN_TIMEOUT_MS = 15_000;
 /** One other person in the call, as the UI shows them. */
 export interface GroupPeerView {
   userId: string;
+  /** Phase 59: the name the server gave their seat (guests and externals aren't in the directory). */
+  name?: string;
+  /** Phase 59: their badge (absent: the team). */
+  kind?: ParticipantKind;
   /** `waiting`: in the room, their connection to us not offered yet (they just joined). */
   state: LinkState | "waiting";
   stream: MediaStream | null;
@@ -56,7 +64,12 @@ export interface GroupCallView {
   peers: GroupPeerView[];
   /** When the call started (epoch ms), for the timer. */
   startedAt: number | null;
+  /** Phase 59: people with the call's link waiting to be let in, oldest first. */
+  waiting: WaitingGuest[];
 }
+
+/** How long asking for the call's link may take. */
+export const LINK_TIMEOUT_MS = 8_000;
 
 /** A call someone else just started in one of your channels (the in-app notice). */
 export interface CallStartedNotice {
@@ -86,6 +99,11 @@ export interface GroupCallDeps {
   dmCallActive: () => boolean;
   /** Someone else started a call in one of your channels. */
   onStarted?: (notice: CallStartedNotice) => void;
+  /**
+   * Phase 59: whether this connection may ask for the list of calls (`rooms`);
+   * an external's (a call link) may not.
+   */
+  listsRooms?: boolean;
 }
 
 /** "📞 Call ended • 12:34" in the channel. */
@@ -116,6 +134,8 @@ export class GroupCallManager {
   private session: RoomSession | null = null;
   /** The room we just left: if we were the last, the `ended` event says so and we post the summary. */
   private justLeft: { channelId: string; roomId: string; at: number } | null = null;
+  /** Phase 59: someone asked for the call's link and waits for `call.link`. */
+  private linkWaiters: Array<(event: CallLinkEvent | null) => void> = [];
   private readonly onPageHide = () => this.leave();
   private readonly onOnline = () => this.session?.links.forEach((l) => l.networkBack());
 
@@ -194,6 +214,43 @@ export class GroupCallManager {
       }
     }, JOIN_TIMEOUT_MS);
     this.publish();
+  }
+
+  /**
+   * Phase 59: the call's shareable link (an absolute URL), the same one for
+   * everyone in the call until it ends; `null` when the server didn't answer.
+   */
+  async shareLink(origin: string = location.origin): Promise<string | null> {
+    const session = this.session;
+    if (!session?.roomId || !this.deps) return null;
+    const answer = new Promise<CallLinkEvent | null>((resolve) => {
+      this.linkWaiters.push(resolve);
+      setTimeout(() => resolve(null), LINK_TIMEOUT_MS);
+    });
+    this.deps.send({ signal: "link", channelId: session.channelId, callId: session.roomId });
+    const event = await answer;
+    if (!event || event.roomId !== session.roomId) return null;
+    return new URL(callLinkPath(event.roomId, event.token), origin).href;
+  }
+
+  /** `call.link`: the answer to `shareLink`. */
+  onLink(event: CallLinkEvent): void {
+    const waiters = this.linkWaiters;
+    this.linkWaiters = [];
+    waiters.forEach((resolve) => resolve(event));
+  }
+
+  /** Phase 59: lets someone waiting with the call's link in, or turns them away. */
+  admit(userId: string, admit: boolean): void {
+    const session = this.session;
+    if (!session?.roomId) return;
+    this.deps?.send({
+      signal: "admit",
+      channelId: session.channelId,
+      callId: session.roomId,
+      userId,
+      admit,
+    });
   }
 
   /** Leaves the call (the last one out ends it). */
@@ -396,7 +453,7 @@ export class GroupCallManager {
 
   /** The socket reconnected: keep our seat (its connection changed) and restore the pairs. */
   signalingReconnected(): void {
-    this.deps?.send({ signal: "rooms" });
+    if (this.deps?.listsRooms !== false) this.deps?.send({ signal: "rooms" });
     this.rejoin();
     this.session?.links.forEach((l) => l.networkBack());
   }
@@ -435,7 +492,10 @@ export class GroupCallManager {
       },
       onLost: () => {
         if (this.session !== session) return;
-        this.deps?.notify(`Lost the connection to ${this.deps.nameOf(peerId)}.`);
+        const seat = useGroupCall
+          .getState()
+          .rooms[session.channelId]?.participants.find((p) => p.userId === peerId);
+        this.deps?.notify(`Lost the connection to ${seat?.name ?? this.deps.nameOf(peerId)}.`);
         this.dropLink(session, peerId, false);
         this.publish();
       },
@@ -511,10 +571,16 @@ export class GroupCallManager {
     ];
     const peers: GroupPeerView[] = ids.map((userId) => {
       const link = s.links.get(userId);
-      const media = inRoom.find((p) => p.userId === userId)?.media ?? "audio";
+      const seat = inRoom.find((p) => p.userId === userId);
+      const media = seat?.media ?? "audio";
+      const who = {
+        ...(seat?.name && { name: seat.name }),
+        ...(seat?.kind && { kind: seat.kind }),
+      };
       if (!link) {
         return {
           userId,
+          ...who,
           state: "waiting",
           stream: null,
           screen: null,
@@ -526,6 +592,7 @@ export class GroupCallManager {
       }
       return {
         userId,
+        ...who,
         state: link.state,
         stream: link.remote.getTracks().length > 0 ? link.remote : null,
         screen: link.remoteScreen.getTracks().length > 0 ? link.remoteScreen : null,
@@ -548,6 +615,7 @@ export class GroupCallManager {
         localScreen: s.screenPreview?.stream ?? null,
         peers,
         startedAt: room?.roomId === s.roomId ? room.startedAt : null,
+        waiting: room?.roomId === s.roomId ? (room.waiting ?? []) : [],
       },
     });
   }
