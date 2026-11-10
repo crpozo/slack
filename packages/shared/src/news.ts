@@ -103,7 +103,7 @@ export const NEWS_INSIGHTS_LANGUAGE = "Spanish";
 /** The team's time zone: decides which calendar day an analysis belongs to. */
 export const NEWS_INSIGHTS_TIME_ZONE = "America/Guayaquil";
 /** When the morning analysis runs, in that time zone (the infra's schedule says the same). */
-export const NEWS_INSIGHTS_LOCAL_TIME = "08:00";
+export const NEWS_INSIGHTS_LOCAL_TIME = "06:00";
 /**
  * The partition key of every row. It named the one feed there was; it stays
  * as it is now that the analysis reads every source, so the rows already

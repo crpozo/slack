@@ -15,6 +15,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   anything else, and the link stops working when the call ends. Everyone's tile shows a
   **Guest** or **External** badge.
 
+- **AI News audio keeps playing when you leave AI News:** the summary is now one player for the
+  whole app: go to a channel, a board or the calendar and it goes on. A small pill (bottom
+  right) shows the time, pauses it, takes you back to AI News, or stops it (✕). A Refresh
+  doesn't restart it.
+- **AI News at 06:00:** the morning analysis (and its audio and the Claude alert) now runs every
+  day at 06:00 Ecuador time (it was 08:00).
 - **Transcribe voice messages:** a voice message has a **Transcribir** button under its player.
   The first person to press it gets the text (a spinner while it works), shown under the audio
   in a quiet block; it's kept on the message, so everyone after sees it at once, now and in the

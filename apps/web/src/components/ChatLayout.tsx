@@ -53,6 +53,8 @@ import { ChannelView } from "./ChannelView";
 import { ViewBoundary } from "./ViewBoundary";
 import { PlusIcon } from "./icons";
 import { InstallBanner, InstallGuideModal } from "./InstallGuide";
+import { NewsAudioPill } from "./NewsAudioPill";
+import { useNewsPlayer } from "../lib/newsPlayer";
 import { isStandalone } from "../lib/install";
 
 // Not needed to show a conversation: loaded on first use, off the initial bundle.
@@ -199,6 +201,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     await signOutPush();
     chat.stop();
     useTasks.getState().reset();
+    useNewsPlayer.getState().stop();
     useCalendar.getState().reset();
     useNotesHub.getState().reset();
     useNews.getState().reset();
@@ -374,6 +377,8 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         />
       )}
       <Toast />
+      {/* Phase 56: the AI News audio goes on outside AI News; its controls follow. */}
+      <NewsAudioPill hidden={!!newsMatch} />
     </>
   );
 
