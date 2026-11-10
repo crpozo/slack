@@ -388,3 +388,66 @@ describe("staying in it", () => {
     ).toMatchObject({ callId: "room-1" });
   });
 });
+
+describe("guests and externals in the call (Phase 59)", () => {
+  it("shows each seat's name and badge, and who waits in the lobby", async () => {
+    const h = setup();
+    await h.manager.join(CH, "audio");
+    const withGuests: CallRoom = {
+      ...room(["u-ana", ME]),
+      participants: [
+        { userId: "u-ana", joinedAt: 0, media: "audio", name: "Ana", kind: "guest" },
+        { userId: "ext_x", joinedAt: 1, media: "audio", name: "Luis (ACME)", kind: "external" },
+        { userId: ME, joinedAt: 2, media: "audio", name: "Me" },
+      ],
+      waiting: [{ userId: "ext_y", name: "Pat", at: 5 }],
+    };
+    h.manager.onRoom({
+      type: "call.room",
+      channelId: CH,
+      room: withGuests,
+      change: "joined",
+      userId: ME,
+    });
+    const call = useGroupCall.getState().call!;
+    expect(call.peers.map((p) => [p.userId, p.name, p.kind])).toEqual([
+      ["u-ana", "Ana", "guest"],
+      ["ext_x", "Luis (ACME)", "external"],
+    ]);
+    expect(call.waiting).toEqual([{ userId: "ext_y", name: "Pat", at: 5 }]);
+  });
+
+  it("asks the server for the call's link and makes it an absolute URL", async () => {
+    const { manager, sent } = await seated(["u-ana"]);
+    const link = manager.shareLink("https://slack.mindfultech.ec");
+    expect(sent().at(-1)).toEqual({ signal: "link", channelId: CH, callId: "room-1" });
+    manager.onLink({ type: "call.link", channelId: CH, roomId: "room-1", token: "Y2g.secret" });
+    expect(await link).toBe("https://slack.mindfultech.ec/call/room-1?token=Y2g.secret");
+  });
+
+  it("gives up on the link when the server doesn't answer", async () => {
+    const { manager } = await seated(["u-ana"]);
+    const link = manager.shareLink("https://x.example");
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(await link).toBeNull();
+  });
+
+  it("lets someone in from the lobby, or turns them away", async () => {
+    const { manager, sent } = await seated(["u-ana"]);
+    manager.admit("ext_y", true);
+    manager.admit("ext_z", false);
+    expect(sent().slice(-2)).toEqual([
+      { signal: "admit", channelId: CH, callId: "room-1", userId: "ext_y", admit: true },
+      { signal: "admit", channelId: CH, callId: "room-1", userId: "ext_z", admit: false },
+    ]);
+  });
+
+  it("doesn't ask an external's connection for the list of calls after a reconnect", async () => {
+    const h = setup({ listsRooms: false });
+    await h.manager.join(CH, "audio");
+    h.manager.onRoom(roomEvent("joined", ME, [ME]));
+    h.manager.signalingReconnected();
+    expect(h.sent().some((p) => p.signal === "rooms")).toBe(false);
+    expect(h.sent().at(-1)).toMatchObject({ signal: "join", callId: "room-1" });
+  });
+});

@@ -15,6 +15,7 @@ import { Logo } from "./LoginPage";
 import { NotificationBell } from "./NotificationBell";
 import { PushPrompt } from "./PushPrompt";
 import { InstallBanner } from "./InstallGuide";
+import { GroupCallLayer } from "./GroupCall";
 import { Toast } from "./Toast";
 
 const TaskManager = lazy(() => import("./TaskManager").then((m) => ({ default: m.TaskManager })));
@@ -335,6 +336,8 @@ export function GuestLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
         </Suspense>
       )}
       <Toast />
+      {/* Phase 59: their channels' calls: everyone's audio and the floating window. */}
+      <GroupCallLayer />
     </div>
   );
 }

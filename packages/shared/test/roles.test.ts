@@ -5,8 +5,13 @@ import {
   canRenameChannel,
   canSeeChannel,
   ChannelUpdateActionSchema,
+  callLinkPath,
+  cleanExternalName,
+  EXTERNAL_ROUTES,
+  externalMayReceive,
   guestMayReceive,
   GUEST_ROUTES,
+  isRoomOp,
   roleFromGroups,
 } from "../src";
 
@@ -21,22 +26,38 @@ describe("roles", () => {
     expect(roleFromGroups("[admins]")).toBe("admin");
   });
 
-  it("lets guests receive their boards' and channels' events, never presence, calls or the calendar", () => {
-    for (const type of ["board.task_created", "message.new", "channel.list", "user.typing"]) {
+  it("lets guests receive their boards', channels' and channel calls' events, never presence or the calendar", () => {
+    for (const type of [
+      "board.task_created",
+      "message.new",
+      "channel.list",
+      "user.typing",
+      // Phase 59: their private channels' calls.
+      "call.room",
+      "call.rooms",
+      "call.offer",
+      "call.answer",
+      "call.ice_candidate",
+      "call.renegotiate",
+    ]) {
       expect(guestMayReceive(type)).toBe(true);
     }
     for (const type of [
       "user.connected",
       "user.disconnected",
       "user.updated",
-      "call.offer",
-      "call.room",
       "user.prefs",
       "calendar.event_created",
+      // DM ringing and hanging up, and a call's shareable link: never.
+      "call.end",
+      "call.decline",
+      "call.link",
+      "call.lobby",
     ]) {
       expect(guestMayReceive(type)).toBe(false);
     }
     expect([...GUEST_ROUTES].sort()).toEqual([
+      "call",
       "channel",
       "edit",
       "history",
@@ -48,8 +69,51 @@ describe("roles", () => {
       "typing",
       "user",
     ]);
-    expect(GUEST_ROUTES.has("call")).toBe(false);
     expect(GUEST_ROUTES.has("pin")).toBe(false);
+  });
+
+  it("ties an external (a call link, no account) to their call: its signals and nothing else", () => {
+    expect([...EXTERNAL_ROUTES].sort()).toEqual(["call", "ping"]);
+    for (const type of [
+      "call.room",
+      "call.lobby",
+      "call.offer",
+      "call.answer",
+      "call.ice_candidate",
+      "call.renegotiate",
+    ]) {
+      expect(externalMayReceive(type)).toBe(true);
+    }
+    for (const type of [
+      "message.new",
+      "channel.list",
+      "history.page",
+      "user.list",
+      "user.connected",
+      "user.typing",
+      "call.rooms",
+      "call.link",
+      "call.end",
+      "board.updated",
+      "calendar.event_created",
+    ]) {
+      expect(externalMayReceive(type), type).toBe(false);
+    }
+  });
+
+  it("makes an external's name safe to show, and builds the link's path", () => {
+    expect(cleanExternalName("  Ana   <b>Pérez</b>\u0000 ")).toBe("Ana bPérez/b");
+    expect(cleanExternalName("x".repeat(80))).toHaveLength(40);
+    expect(cleanExternalName("   ")).toBeNull();
+    expect(cleanExternalName(42)).toBeNull();
+    expect(callLinkPath("01JROOM", "a b/c")).toBe("/call/01JROOM?token=a%20b%2Fc");
+  });
+
+  it("treats link, knock and admit as room operations, not signals between two people", () => {
+    const op = (signal: string) => isRoomOp({ action: "call", signal } as never);
+    for (const s of ["join", "leave", "rooms", "link", "knock", "admit"]) expect(op(s)).toBe(true);
+    for (const s of ["offer", "answer", "ice_candidates", "renegotiate", "end"])
+      expect(op(s)).toBe(false);
   });
 
   it("shows an external only the private channels they were invited to (Phase 55)", () => {

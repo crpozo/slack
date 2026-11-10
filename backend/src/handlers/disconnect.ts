@@ -1,8 +1,8 @@
 import { DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { isRole } from "@mindfultech/shared";
 import { deliver, listConnections } from "../lib/broadcast";
-import { vacate } from "../lib/callRooms";
-import { getAccessibleChannel, type ChannelViewer } from "../lib/channels";
+import { announceRoom, toRoom, vacate, withdrawKnock } from "../lib/callRooms";
+import { getAccessibleChannel, getChannelRow, type ChannelViewer } from "../lib/channels";
 import { ddb, tables } from "../lib/ddb";
 import type { WsEvent } from "../lib/handler";
 import { errorFields, log } from "../lib/logger";
@@ -38,6 +38,39 @@ async function leaveCall(
 }
 
 /**
+ * Phase 59: an external's socket closed: their seat in the call is freed, or
+ * they leave its lobby. Nobody is told they went offline (presence is the team's).
+ */
+async function leaveAsExternal(
+  userId: string,
+  channelId: string,
+  seated: boolean,
+  connectionId: string,
+): Promise<void> {
+  try {
+    const channel = await getChannelRow(channelId);
+    if (!channel) return;
+    if (seated) await vacate(channel, userId, connectionId);
+    const room = await withdrawKnock(channelId, userId, connectionId);
+    if (room) {
+      await announceRoom(channel, {
+        type: "call.room",
+        channelId,
+        room: toRoom(room),
+        change: "waiting",
+        userId,
+      });
+    }
+  } catch (err) {
+    log.error("couldn't take an external out of a call", {
+      channelId,
+      connectionId,
+      ...errorFields(err),
+    });
+  }
+}
+
+/**
  * `$disconnect`: best effort — the TTL cleans up anything left behind.
  * API Gateway forwards the `$connect` authorizer context here too.
  */
@@ -54,6 +87,16 @@ export const handler = async (event: WsEvent): Promise<HandlerResult> => {
     log.info("disconnected", { connectionId });
     const userId = authorizer?.userId ?? (Attributes?.userId as string | undefined);
     const callRoom = Attributes?.callRoom as string | undefined;
+    const callScope =
+      authorizer?.external === "1"
+        ? authorizer.callScope
+        : Attributes?.external
+          ? (Attributes.callScope as string | undefined)
+          : undefined;
+    if (callScope) {
+      if (userId) await leaveAsExternal(userId, callScope, callRoom === callScope, connectionId);
+      return ok();
+    }
     const role = isRole(authorizer?.role)
       ? authorizer.role
       : isRole(Attributes?.role)

@@ -1,6 +1,7 @@
 import type { APIGatewayAuthorizerResult, APIGatewayRequestAuthorizerEvent } from "aws-lambda";
-import { roleFromGroups } from "@mindfultech/shared";
+import { CALL_TOKEN_PREFIX, cleanExternalName, roleFromGroups } from "@mindfultech/shared";
 import { CognitoJwtVerifier } from "aws-jwt-verify";
+import { callForToken, externalUserId } from "../lib/callLinks";
 import { requireEnv } from "../lib/env";
 import { errorFields, log } from "../lib/logger";
 
@@ -31,14 +32,54 @@ function policy(
 }
 
 /**
+ * Phase 59: someone with a call link (`?token=call:<token>&room=<roomId>&name=…&cid=…`):
+ * allowed only while that call goes on and the link's secret matches. Their
+ * connection is an external's, tied to that call (see `getCaller`).
+ */
+async function authorizeCallLink(
+  event: APIGatewayRequestAuthorizerEvent,
+  token: string,
+): Promise<APIGatewayAuthorizerResult> {
+  const query = event.queryStringParameters ?? {};
+  const roomId = query.room ?? "";
+  const name = cleanExternalName(query.name);
+  if (!/^[\w-]{1,64}$/.test(roomId) || !name) {
+    return policy("anonymous", "Deny", event.methodArn);
+  }
+  try {
+    const room = await callForToken(token.slice(CALL_TOKEN_PREFIX.length), roomId);
+    if (!room) {
+      log.info("call link denied", { roomId });
+      return policy("anonymous", "Deny", event.methodArn);
+    }
+    const userId = externalUserId(room.roomId, query.cid);
+    log.info("call link authorized", { channelId: room.channelId, roomId, userId });
+    return policy(userId, "Allow", event.methodArn, {
+      userId,
+      email: "",
+      role: "guest",
+      external: "1",
+      callScope: room.channelId,
+      callRoomId: room.roomId,
+      name,
+    });
+  } catch (err) {
+    log.warn("call link check failed", errorFields(err));
+    return policy("anonymous", "Deny", event.methodArn);
+  }
+}
+
+/**
  * `$connect` REQUEST authorizer: validates the Cognito id token passed as
- * `?token=`. Any failure denies the connection. The token is never logged.
+ * `?token=` (or, Phase 59, a call link's `call:` token). Any failure denies
+ * the connection. Tokens are never logged.
  */
 export const handler = async (
   event: APIGatewayRequestAuthorizerEvent,
 ): Promise<APIGatewayAuthorizerResult> => {
   const token = event.queryStringParameters?.token;
   if (!token) return policy("anonymous", "Deny", event.methodArn);
+  if (token.startsWith(CALL_TOKEN_PREFIX)) return authorizeCallLink(event, token);
 
   try {
     verifier ??= createVerifier();

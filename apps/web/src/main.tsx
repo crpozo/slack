@@ -5,6 +5,7 @@ import { CallPipPage } from "./components/CallPipPage";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { PIP_PATH } from "./lib/pipTauri";
 import { configureAuth } from "./lib/auth";
+import { CALL_PATH_PREFIX } from "./lib/externalCall";
 import { registerServiceWorker } from "./lib/push";
 import { loadConfig } from "./lib/config";
 import { installAudioUnlock } from "./lib/sounds";
@@ -32,17 +33,23 @@ if (location.pathname === PIP_PATH) {
 } else {
   try {
     const config = await loadConfig();
-    configureAuth(config.userPoolId, config.userPoolClientId);
-    configureTasksApi(config.tasksUrl ?? null);
-    render(
-      <>
-        {/* Over every screen: a deploy since this tab loaded offers a reload (Phase 39b). */}
-        <UpdateBanner />
-        <App config={config} />
-      </>,
-    );
-    // Notifications and their clicks go through the service worker; registering never blocks the app.
-    void registerServiceWorker();
+    if (location.pathname.startsWith(CALL_PATH_PREFIX)) {
+      // Phase 59: a call link. Only the call: no session, no chat, no app around it.
+      const { ExternalCallPage } = await import("./components/ExternalCallPage");
+      render(<ExternalCallPage wsUrl={config.wsUrl} />);
+    } else {
+      configureAuth(config.userPoolId, config.userPoolClientId);
+      configureTasksApi(config.tasksUrl ?? null);
+      render(
+        <>
+          {/* Over every screen: a deploy since this tab loaded offers a reload (Phase 39b). */}
+          <UpdateBanner />
+          <App config={config} />
+        </>,
+      );
+      // Notifications and their clicks go through the service worker; registering never blocks the app.
+      void registerServiceWorker();
+    }
   } catch (err: unknown) {
     render(
       <div className="flex h-full items-center justify-center p-6">

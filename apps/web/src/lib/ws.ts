@@ -55,6 +55,8 @@ export interface WsClientOptions {
   isSessionExpired?: (err: unknown) => boolean;
   WebSocketImpl?: typeof WebSocket;
   random?: () => number;
+  /** Phase 59: more query parameters for the connection (a call link's call, name and tab). */
+  params?: Record<string, string>;
 }
 
 /** How long a probed socket may stay silent before it is considered dead. */
@@ -217,6 +219,9 @@ export class WsClient {
 
     const Impl = this.options.WebSocketImpl ?? WebSocket;
     const url = new URL(this.url);
+    for (const [key, value] of Object.entries(this.options.params ?? {})) {
+      url.searchParams.set(key, value);
+    }
     url.searchParams.set("token", token);
     const socket = new Impl(url.href);
     this.socket = socket;

@@ -1,4 +1,9 @@
-import { MAX_ROOM_PARTICIPANTS, type CallRoom } from "@mindfultech/shared";
+import {
+  MAX_ROOM_PARTICIPANTS,
+  type CallRoom,
+  type ParticipantKind,
+  type WaitingGuest,
+} from "@mindfultech/shared";
 import { useEffect, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useCall } from "../lib/call";
@@ -7,7 +12,9 @@ import { supportsScreenShare } from "../lib/media";
 import { useChat, useNameOf } from "../store";
 import { Avatar } from "./Avatar";
 import {
+  CheckIcon,
   CloseIcon,
+  LinkIcon,
   MaximizeIcon,
   MicIcon,
   MicOffIcon,
@@ -42,9 +49,13 @@ function useElapsed(since: number | null): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
+/** Phase 59: someone's name in a call: the seat's (guests, externals), else the directory's. */
+const seatName = (p: { userId: string; name?: string }, nameOf: (id: string) => string) =>
+  p.name ?? nameOf(p.userId);
+
 /** "You", "Ana", "Ana and Luis", "Ana, Luis and 2 more". */
 function namesOf(room: CallRoom, nameOf: (id: string) => string, me: string | undefined): string {
-  const names = room.participants.map((p) => (p.userId === me ? "You" : nameOf(p.userId)));
+  const names = room.participants.map((p) => (p.userId === me ? "You" : seatName(p, nameOf)));
   if (names.length <= 2) return names.join(" and ");
   if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
   return `${names[0]}, ${names[1]} and ${names.length - 2} more`;
@@ -73,7 +84,7 @@ export function ChannelCallButtons({
         <span className="hidden -space-x-1 sm:flex" aria-hidden="true">
           {room.participants.slice(0, 4).map((p) => (
             <span key={p.userId} className="rounded-lg ring-2 ring-surface">
-              <Avatar name={nameOf(p.userId)} size="xs" mine={p.userId === me} />
+              <Avatar name={seatName(p, nameOf)} size="xs" mine={p.userId === me} />
             </span>
           ))}
         </span>
@@ -138,7 +149,7 @@ export function ChannelCallButtons({
   );
 }
 
-function ControlButton({
+export function ControlButton({
   label,
   highlight = false,
   danger = false,
@@ -171,7 +182,51 @@ function ControlButton({
   );
 }
 
-function Controls({ call, small = false }: Readonly<{ call: GroupCallView; small?: boolean }>) {
+/**
+ * Phase 59: copies the call's link (team only). Whoever opens it gives a name
+ * and waits until someone in the call lets them in.
+ */
+function CopyLinkButton({ small = false }: Readonly<{ small?: boolean }>) {
+  const [state, setState] = useState<"idle" | "busy" | "copied">("idle");
+  const showToast = useChat((s) => s.showToast);
+  useEffect(() => {
+    if (state !== "copied") return;
+    const timer = setTimeout(() => setState("idle"), 2000);
+    return () => clearTimeout(timer);
+  }, [state]);
+  async function copy() {
+    if (state === "busy") return;
+    setState("busy");
+    const url = await groupCalls.shareLink();
+    try {
+      if (!url) throw new Error("no link");
+      await navigator.clipboard.writeText(url);
+      setState("copied");
+      showToast(
+        "Call link copied. Whoever opens it waits until someone here lets them in.",
+        "success",
+      );
+    } catch {
+      setState("idle");
+      showToast("Couldn't copy the call link. Try again.", "error");
+    }
+  }
+  return (
+    <ControlButton
+      label={state === "copied" ? "Call link copied" : "Copy call link"}
+      small={small}
+      onClick={() => void copy()}
+    >
+      {state === "copied" ? <CheckIcon /> : <LinkIcon />}
+    </ControlButton>
+  );
+}
+
+export function Controls({
+  call,
+  small = false,
+  canInvite = false,
+}: Readonly<{ call: GroupCallView; small?: boolean; canInvite?: boolean }>) {
   return (
     <>
       <ControlButton
@@ -199,7 +254,68 @@ function Controls({ call, small = false }: Readonly<{ call: GroupCallView; small
           <ScreenShareIcon />
         </ControlButton>
       )}
+      {canInvite && call.roomId && <CopyLinkButton small={small} />}
     </>
+  );
+}
+
+/** Phase 59: "Guest" (a client's account) or "External" (via a link) next to a name. */
+export function KindBadge({ kind }: Readonly<{ kind?: ParticipantKind }>) {
+  if (!kind) return null;
+  return (
+    <span
+      className={`shrink-0 rounded px-1 text-[9px] font-semibold uppercase tracking-wide ${
+        kind === "external" ? "bg-warning/80 text-[#0E0D12]" : "bg-primary/80 text-white"
+      }`}
+      data-badge={kind}
+    >
+      {kind === "external" ? "External" : "Guest"}
+    </span>
+  );
+}
+
+/**
+ * Phase 59: people with the call's link, waiting in its lobby: "Ana wants to
+ * join · Let in · Deny", for the team in the call (never guests).
+ */
+function WaitingPrompts({
+  waiting,
+  small = false,
+}: Readonly<{ waiting: WaitingGuest[]; small?: boolean }>) {
+  if (waiting.length === 0) return null;
+  return (
+    <ul
+      className={`flex flex-col gap-1.5 ${small ? "px-3 pt-2" : "px-3 pb-1"}`}
+      aria-label="Waiting to join"
+    >
+      {waiting.map((w) => (
+        <li
+          key={w.userId}
+          className="flex items-center gap-2 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs"
+          data-waiting={w.userId}
+        >
+          <span className="min-w-0 flex-1 truncate">
+            <strong className="font-semibold">{w.name}</strong> wants to join
+          </span>
+          <KindBadge kind="external" />
+          <button
+            type="button"
+            onClick={() => groupCalls.admit(w.userId, true)}
+            className="rounded-full bg-success px-2.5 py-0.5 font-semibold text-on-accent hover:brightness-95"
+          >
+            Let in
+          </button>
+          <button
+            type="button"
+            onClick={() => groupCalls.admit(w.userId, false)}
+            aria-label={`Deny ${w.name}`}
+            className="rounded-full px-2 py-0.5 text-white/80 hover:bg-white/15 hover:text-white"
+          >
+            Deny
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -213,6 +329,7 @@ const PEER_STATE: Record<GroupPeerView["state"], string> = {
 /** One person: their camera, or their avatar; muted and connection state on top. */
 function Tile({
   name,
+  kind,
   stream,
   camOn,
   micOn,
@@ -221,6 +338,7 @@ function Tile({
   reconnectingUntil,
 }: Readonly<{
   name: string;
+  kind?: ParticipantKind;
   stream: MediaStream | null;
   camOn: boolean;
   micOn: boolean;
@@ -246,7 +364,8 @@ function Tile({
       )}
       <span className="absolute bottom-1.5 left-1.5 flex max-w-[calc(100%-0.75rem)] items-center gap-1 truncate rounded bg-black/55 px-1.5 py-0.5 text-[11px] text-white">
         {!micOn && <MicOffIcon aria-label="Muted" />}
-        {name}
+        <span className="truncate">{name}</span>
+        <KindBadge kind={kind} />
         {status && <span className="text-white/70">· {status}</span>}
       </span>
       {reconnectingUntil ? <ReconnectingOverlay deadline={reconnectingUntil} compact /> : null}
@@ -258,7 +377,7 @@ function Tile({
 const gridCols = (n: number) =>
   n <= 1 ? "grid-cols-1" : n <= 4 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3";
 
-function Grid({ call }: Readonly<{ call: GroupCallView }>) {
+export function Grid({ call }: Readonly<{ call: GroupCallView }>) {
   const nameOf = useNameOf();
   const sharer = call.peers.find((p) => p.sharing && p.screen);
   const tiles = [
@@ -273,7 +392,8 @@ function Grid({ call }: Readonly<{ call: GroupCallView }>) {
     ...call.peers.map((p) => (
       <Tile
         key={p.userId}
-        name={nameOf(p.userId)}
+        name={seatName(p, nameOf)}
+        kind={p.kind}
         stream={p.stream}
         camOn={p.camOn}
         micOn={p.micOn}
@@ -291,7 +411,7 @@ function Grid({ call }: Readonly<{ call: GroupCallView }>) {
             kind="video"
             stream={screen}
             muted
-            label={sharer ? `Screen from ${nameOf(sharer.userId)}` : "Your shared screen"}
+            label={sharer ? `Screen from ${seatName(sharer, nameOf)}` : "Your shared screen"}
             className="h-full w-full object-contain"
           />
         </div>
@@ -314,6 +434,7 @@ export function GroupCallPanel({
   label,
 }: Readonly<{ channelId: string; label: string }>) {
   const call = useGroupCall((s) => (s.call?.channelId === channelId ? s.call : null));
+  const team = useChat((s) => s.me?.role !== "guest");
   const elapsed = useElapsed(call?.startedAt ?? null);
   if (!call) return null;
   const count = call.peers.length + 1;
@@ -335,8 +456,9 @@ export function GroupCallPanel({
       <div className="min-h-0 flex-1">
         <Grid call={call} />
       </div>
+      {team && <WaitingPrompts waiting={call.waiting} />}
       <footer className="flex items-center justify-center gap-3 px-4 py-2.5">
-        <Controls call={call} />
+        <Controls call={call} canInvite={team} />
         <ControlButton label="Leave the call" danger onClick={() => groupCalls.leave()}>
           <PhoneOffIcon />
         </ControlButton>
@@ -349,6 +471,7 @@ export function GroupCallPanel({
 function FloatingGroupCall({ call }: Readonly<{ call: GroupCallView }>) {
   const navigate = useNavigate();
   const nameOf = useNameOf();
+  const team = useChat((s) => s.me?.role !== "guest");
   const channelName = useChat(
     (s) => s.channels.find((c) => c.channelId === call.channelId)?.name ?? "channel",
   );
@@ -366,13 +489,13 @@ function FloatingGroupCall({ call }: Readonly<{ call: GroupCallView }>) {
             kind="video"
             stream={speaker.sharing && speaker.screen ? speaker.screen : speaker.stream}
             muted
-            label={`Video from ${nameOf(speaker.userId)}`}
+            label={`Video from ${seatName(speaker, nameOf)}`}
             className="h-full w-full object-cover"
           />
         ) : (
           <div className="flex h-full items-center justify-center gap-1.5">
             {call.peers.slice(0, 4).map((p) => (
-              <Avatar key={p.userId} name={nameOf(p.userId)} size="md" />
+              <Avatar key={p.userId} name={seatName(p, nameOf)} size="md" />
             ))}
             {call.peers.length === 0 && (
               <p className="text-xs text-white/70">Waiting for others…</p>
@@ -387,8 +510,9 @@ function FloatingGroupCall({ call }: Readonly<{ call: GroupCallView }>) {
           {call.peers.length + 1} · {elapsed}
         </p>
       </div>
+      {team && <WaitingPrompts waiting={call.waiting} small />}
       <div className="flex items-center justify-center gap-2 px-3 py-2.5">
-        <Controls call={call} small />
+        <Controls call={call} small canInvite={team} />
         <ControlButton
           label="Back to the call"
           small

@@ -988,6 +988,40 @@ export const CallRoomsSchema = z.object({
   signal: z.literal("rooms"),
 });
 
+// --- Guests and externals in channel calls (Phase 59) --------------------------
+
+/**
+ * Someone seated in a channel call asks for its shareable link (`call.link`):
+ * one per call, the same for everyone who asks, valid until the call ends.
+ * Team members only (not guests).
+ */
+export const CallLinkSchema = z.object({
+  action: z.literal("call"),
+  signal: z.literal("link"),
+  channelId,
+  callId: z.string().min(1).max(64),
+});
+
+/**
+ * An external (someone who opened a call link, with no account) asks to be
+ * let in: they wait in the lobby until someone in the call admits them. The
+ * call is the one their link is for: their connection can't name another.
+ */
+export const CallKnockSchema = z.object({
+  action: z.literal("call"),
+  signal: z.literal("knock"),
+});
+
+/** Someone seated in the call lets an external in (`admit: true`) or turns them away. */
+export const CallAdmitSchema = z.object({
+  action: z.literal("call"),
+  signal: z.literal("admit"),
+  channelId,
+  callId: z.string().min(1).max(64),
+  userId: z.string().min(1).max(64),
+  admit: z.boolean(),
+});
+
 export const CallActionSchema = z.discriminatedUnion("signal", [
   CallOfferSchema,
   CallAnswerSchema,
@@ -999,14 +1033,18 @@ export const CallActionSchema = z.discriminatedUnion("signal", [
   CallJoinSchema,
   CallLeaveSchema,
   CallRoomsSchema,
+  CallLinkSchema,
+  CallKnockSchema,
+  CallAdmitSchema,
 ]);
+/** Room operations: everything that isn't a signal between two people. */
+const ROOM_OPS = ["join", "leave", "rooms", "link", "knock", "admit"] as const;
+type RoomOp = (typeof ROOM_OPS)[number];
 /** The 1:1 signals (a DM call, or a pair inside a channel call): everything but the room ops. */
-export type CallPeerSignal = Exclude<CallAction, { signal: "join" | "leave" | "rooms" }>;
+export type CallPeerSignal = Exclude<CallAction, { signal: RoomOp }>;
 export type CallAction = z.infer<typeof CallActionSchema>;
-export const isRoomOp = (
-  a: CallAction,
-): a is Extract<CallAction, { signal: "join" | "leave" | "rooms" }> =>
-  a.signal === "join" || a.signal === "leave" || a.signal === "rooms";
+export const isRoomOp = (a: CallAction): a is Extract<CallAction, { signal: RoomOp }> =>
+  (ROOM_OPS as readonly string[]).includes(a.signal);
 export type CallSignal = CallAction["signal"];
 
 /**
@@ -1329,6 +1367,24 @@ export interface RoomParticipant {
   /** Epoch ms. */
   joinedAt: number;
   media: CallMedia;
+  /**
+   * Phase 59: their name as the server knows it (a guest's or an external's
+   * isn't in everyone's directory, and externals see no directory at all).
+   */
+  name?: string;
+  /** Phase 59: absent for the team; `guest` (a client's account), `external` (via a link). */
+  kind?: ParticipantKind;
+}
+
+/** Who someone in a call is, for the badge next to their name (absent: the team). */
+export type ParticipantKind = "guest" | "external";
+
+/** An external waiting in a call's lobby (Phase 59) for someone to let them in. */
+export interface WaitingGuest {
+  userId: string;
+  name: string;
+  /** Epoch ms of their knock. */
+  at: number;
 }
 
 /** A channel's call as everyone in the channel sees it. */
@@ -1340,6 +1396,8 @@ export interface CallRoom {
   startedBy: string;
   /** In the order they joined. */
   participants: RoomParticipant[];
+  /** Phase 59: externals in the lobby, oldest first (absent when nobody waits). */
+  waiting?: WaitingGuest[];
 }
 
 /**
@@ -1351,7 +1409,8 @@ export interface CallRoomEvent {
   type: "call.room";
   channelId: string;
   room: CallRoom | null;
-  change: "started" | "joined" | "left" | "ended";
+  /** `waiting`: someone knocked, or was let in or turned away (see `room.waiting`). */
+  change: "started" | "joined" | "left" | "ended" | "waiting";
   /** Who joined, left or (for `ended`) left last. */
   userId: string;
   /** `ended`: when it started, for the summary the last one out posts. */
@@ -1362,6 +1421,28 @@ export interface CallRoomEvent {
 export interface CallRoomsEvent {
   type: "call.rooms";
   rooms: CallRoom[];
+}
+
+/** Phase 59: the call's shareable link, in answer to `link` (`callLinkPath` makes the URL). */
+export interface CallLinkEvent {
+  type: "call.link";
+  channelId: string;
+  roomId: string;
+  token: string;
+}
+
+/**
+ * Phase 59, to an external only, in answer to `knock` and when someone in
+ * the call decides: `waiting` (in the lobby), `admitted` (may `join` now),
+ * `denied`, `ended` (the call is over, or the link no longer works).
+ */
+export interface CallLobbyEvent {
+  type: "call.lobby";
+  status: "waiting" | "admitted" | "denied" | "ended";
+  channelId: string;
+  roomId: string;
+  /** Their own id in the call. */
+  userId: string;
 }
 
 export type CallEvent =
@@ -1441,6 +1522,8 @@ export type ServerEvent =
   | CallEvent
   | CallRoomEvent
   | CallRoomsEvent
+  | CallLinkEvent
+  | CallLobbyEvent
   | BoardEvent
   | CalendarPushEvent
   | PongEvent
@@ -1466,4 +1549,40 @@ export interface MessageTranscriptResult {
   transcript: string;
   /** It was already there: nothing was sent to OpenAI. */
   cached: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Call links (Phase 59): someone in a channel call shares a link; whoever
+// opens it gives a name, waits in a lobby and is let in by someone in the
+// call. They see the call and nothing else of MindfulTech.
+// ---------------------------------------------------------------------------
+
+/** What an external's WebSocket `token` starts with (a team token is a Cognito JWT). */
+export const CALL_TOKEN_PREFIX = "call:";
+/** The longest name an external may give. */
+export const MAX_EXTERNAL_NAME = 40;
+/** Ids of externals start with this (a team member's is a Cognito sub, a UUID). */
+export const EXTERNAL_ID_PREFIX = "ext_";
+
+export const isExternalId = (userId: string): boolean => userId.startsWith(EXTERNAL_ID_PREFIX);
+
+/** The app path a call link opens: `/call/<roomId>?token=<token>`. */
+export function callLinkPath(roomId: string, token: string): string {
+  return `/call/${encodeURIComponent(roomId)}?token=${encodeURIComponent(token)}`;
+}
+
+/**
+ * A name an external typed, made safe to show: control characters and
+ * angle brackets out, spaces collapsed, at most `MAX_EXTERNAL_NAME`
+ * characters; `null` when nothing is left.
+ */
+export function cleanExternalName(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const name = raw
+    .replace(/[\p{C}<>]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_EXTERNAL_NAME)
+    .trim();
+  return name || null;
 }

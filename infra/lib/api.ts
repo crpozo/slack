@@ -106,6 +106,8 @@ export class Api extends Construct {
       USER_POOL_ID: props.auth.userPool.userPoolId,
       USER_POOL_CLIENT_ID: props.auth.userPoolClient.userPoolClientId,
     });
+    // Phase 59: a call link's token is checked against its call's row (GetItem, nothing else).
+    data.callRooms.grant(authorizerFn, "dynamodb:GetItem");
     const authorizer = new WebSocketLambdaAuthorizer("Authorizer", authorizerFn, {
       authorizerName: `slack-${stage}-authorizer`,
       identitySource: ["route.request.querystring.token"],
@@ -303,6 +305,8 @@ export class Api extends Construct {
     );
     channels.grant(handlers.call, "dynamodb:GetItem");
     connections.grant(handlers.call, "dynamodb:UpdateItem");
+    // Phase 59: the name everyone in a call sees on a seat (externals have no directory).
+    users.grant(handlers.call, "dynamodb:GetItem");
     data.callRooms.grant(handlers.disconnect, "dynamodb:UpdateItem", "dynamodb:DeleteItem");
     channels.grant(handlers.disconnect, "dynamodb:GetItem");
 

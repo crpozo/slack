@@ -145,19 +145,17 @@ class ChatController {
       client.onStatus((status) => store().setStatus(status)),
 
       client.onOpen(({ reconnected }) => {
-        // Guests (externals) have their boards and, since Phase 55, their private
-        // channels: never calls (the server refuses them).
+        // Guests (externals) have their boards, since Phase 55 their private
+        // channels, and since Phase 59 those channels' calls: never DM calls.
         const guest = store().me?.role === "guest";
         client.send("channel", { op: "list" });
         client.send("user", { op: "list" });
         // The channel calls going on (Phase 36); after a reconnect, `groupCalls` asks.
-        if (!reconnected && !guest) client.send("call", { signal: "rooms" });
+        if (!reconnected) client.send("call", { signal: "rooms" });
         if (reconnected) {
           // A call being restored after a network drop can restart ICE now.
-          if (!guest) {
-            calls.signalingReconnected();
-            groupCalls.signalingReconnected();
-          }
+          if (!guest) calls.signalingReconnected();
+          groupCalls.signalingReconnected();
           // A read mark sent on the dead socket never arrived: send it again.
           this.readSent.clear();
           const viewing = store().activeChannelId;
@@ -388,6 +386,7 @@ class ChatController {
       client.on("call.renegotiate", routeCall),
       client.on("call.room", (event) => groupCalls.onRoom(event)),
       client.on("call.rooms", ({ rooms }) => groupCalls.setRooms(rooms)),
+      client.on("call.link", (event) => groupCalls.onLink(event)),
     );
 
     // Back online: a dead socket reconnects now, an "open" one must prove it's alive.
