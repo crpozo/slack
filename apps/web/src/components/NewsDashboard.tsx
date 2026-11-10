@@ -13,7 +13,16 @@ import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
 import { fullDate } from "../lib/news";
 import { actionsTitle, highlightParts, MIN_THUMBNAIL_PX, timeAgo } from "../lib/newsDashboard";
-import { CloseIcon, ExternalLinkIcon, HeadphonesIcon, RefreshIcon, SparklesIcon } from "./icons";
+import { clock, trackOf, useNewsPlayer } from "../lib/newsPlayer";
+import {
+  CloseIcon,
+  ExternalLinkIcon,
+  HeadphonesIcon,
+  PauseIcon,
+  PlayIcon,
+  RefreshIcon,
+  SparklesIcon,
+} from "./icons";
 
 export interface NewsDashboardProps {
   /** "Mié 28 oct 2026" */
@@ -477,6 +486,12 @@ function ClaudeAlertBanner({
  */
 function AudioSummary({ audio }: Readonly<{ audio: NewsAudio }>) {
   const minutes = Math.max(1, Math.round(audio.seconds / 60));
+  // One player for the whole app: it keeps playing when you leave AI News.
+  const player = useNewsPlayer();
+  const mine = player.track === trackOf(audio.url);
+  const playing = mine && player.playing;
+  const position = mine ? player.position : 0;
+  const duration = mine && player.duration > 0 ? player.duration : audio.seconds;
   return (
     <div
       className="mt-1 flex w-full max-w-xl flex-wrap items-center gap-x-3 gap-y-2"
@@ -486,13 +501,34 @@ function AudioSummary({ audio }: Readonly<{ audio: NewsAudio }>) {
         <HeadphonesIcon aria-hidden="true" />
         Escucha el resumen · {minutes} min
       </span>
-      <audio
-        controls
-        preload="none"
-        src={audio.url}
-        className="h-9 w-full min-w-0 [color-scheme:dark] sm:w-80"
-        aria-label="Resumen de las noticias en audio"
-      />
+      <div className="flex h-10 w-full min-w-0 items-center gap-2.5 rounded-full bg-white/[0.08] pl-1 pr-4 sm:w-80">
+        <button
+          type="button"
+          onClick={() => player.toggle(audio.url)}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-surface hover:bg-ink/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          aria-label={playing ? "Pausar el resumen" : "Reproducir el resumen"}
+        >
+          {playing ? <PauseIcon /> : <PlayIcon />}
+        </button>
+        <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-secondary">
+          {clock(position)} / {clock(duration)}
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={Math.max(1, Math.round(duration))}
+          value={Math.min(Math.round(position), Math.round(duration))}
+          onChange={(e) => player.seek(Number(e.target.value))}
+          disabled={!mine}
+          className="h-1 min-w-0 flex-1 cursor-pointer accent-primary disabled:cursor-default"
+          aria-label="Posición del audio"
+        />
+      </div>
+      {mine && player.error && (
+        <p className="w-full text-xs text-error" role="alert">
+          {player.error}
+        </p>
+      )}
     </div>
   );
 }
