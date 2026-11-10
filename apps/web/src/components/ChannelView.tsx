@@ -40,6 +40,9 @@ import { PaneResizer, usePaneSplit } from "./PaneResizer";
 import { useBoardPane } from "../store/boardPane";
 import { DESKTOP_QUERY, useMediaQuery } from "../lib/hooks";
 import { MessageList } from "./MessageList";
+import { HoursButton, TimeLogModal } from "./TimeLog";
+import { useTimeLog } from "../store/timeLog";
+import { tasksApiConfigured } from "../lib/tasksApi";
 import { UnreadAlertsDot } from "./NotificationBell";
 import { TypingIndicator } from "./TypingIndicator";
 import { PhoneChannelHeader, PhoneChannelSheet, PhoneIntro } from "./PhoneChannel";
@@ -354,6 +357,12 @@ function ChannelHeader({
                 </span>
               )}
             </button>
+            {!dm && tasksApiConfigured() && (
+              <>
+                <span className="mx-0.5 h-5 w-px bg-white/10" aria-hidden="true" />
+                <HoursButton channelId={channelId} className={segment(false)} />
+              </>
+            )}
           </div>
         )}
         {access.canCall && peer && <CallButtons channelId={channelId} peer={peer} label={label} />}
@@ -455,6 +464,8 @@ export function ChannelView({
   const users = useChat((s) => s.users);
   const nameOf = useNameOf();
   const [inviting, setInviting] = useState(false);
+  // Phase 60: this channel's time log (opened from its header or the phone's sheet).
+  const hoursOpen = useTimeLog((s) => s.openFor === channelId);
   const [details, setDetails] = useState(false);
   const [options, setOptions] = useState(false);
   // Phase 38: the pinned messages, or the details on a tab.
@@ -544,6 +555,9 @@ export function ChannelView({
           onPins={() => setPanel("pins")}
           onInvite={() => setInviting(true)}
         />
+      )}
+      {hoursOpen && channel && !access.dm && (
+        <TimeLogModal channel={channel} onClose={() => useTimeLog.getState().close()} />
       )}
       {panel === "pins" && (
         <PinnedMessagesModal

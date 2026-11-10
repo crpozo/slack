@@ -63,6 +63,10 @@ export const tables = {
   get messageSearch() {
     return requireEnv("MESSAGE_SEARCH_TABLE");
   },
+  /** Phase 60: per channel, its time entries and hourly rates. */
+  get timeLog() {
+    return requireEnv("TIME_LOG_TABLE");
+  },
   /** Phase 38: per conversation, one row per shared file, link and pinned message. */
   get channelMedia() {
     return requireEnv("CHANNEL_MEDIA_TABLE");

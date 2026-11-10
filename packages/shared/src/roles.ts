@@ -58,6 +58,8 @@ const GUEST_CHAT_EVENTS: ReadonlySet<string> = new Set([
   // have no DMs, so DM ringing never reaches them).
   "call.room",
   "call.rooms",
+  // Phase 60: their channel's time log changed (they then read their own entries).
+  "time.updated",
   ...CALL_MEDIA_EVENTS,
 ]);
 

@@ -629,3 +629,10 @@ export const CaptionsIcon = (p: IconProps) => (
     <path d="M7 15h4M15 15h2M7 11h2M13 11h4" />
   </Icon>
 );
+/** Phase 60: hours (a clock). */
+export const ClockIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </Icon>
+);

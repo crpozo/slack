@@ -3,10 +3,13 @@ import type {
   Board,
   Channel,
   CreateTaskInput,
+  CreateTimeEntryInput,
   PushSubscriptionJSON,
   Role,
   Task,
   TasksFromNotesInput,
+  TimeEntry,
+  TimeLogResponse,
   UpdateTaskInput,
 } from "@mindfultech/shared";
 import { getIdToken } from "./auth";
@@ -172,5 +175,29 @@ export const channelsApi = {
       "POST",
       `/channels/${encodeURIComponent(channelId)}/invites`,
       { email },
+    ),
+};
+
+/** Hours (Phase 60): a channel's time log. */
+export const timeApi = {
+  list: (channelId: string) =>
+    request<TimeLogResponse>("GET", `/channels/${encodeURIComponent(channelId)}/time`),
+  log: (channelId: string, input: CreateTimeEntryInput) =>
+    request<{ entry: TimeEntry }>(
+      "POST",
+      `/channels/${encodeURIComponent(channelId)}/time`,
+      input,
+    ).then((r) => r.entry),
+  remove: (entry: Pick<TimeEntry, "channelId" | "date" | "entryId">) =>
+    request<void>(
+      "DELETE",
+      `/channels/${encodeURIComponent(entry.channelId)}/time/${entry.date}/${encodeURIComponent(entry.entryId)}`,
+    ),
+  /** Admins: someone's hourly rate in this channel, in dollars (0 clears it). */
+  setRate: (channelId: string, userId: string, hourlyRate: number) =>
+    request<{ userId: string; hourlyRate: number }>(
+      "PUT",
+      `/channels/${encodeURIComponent(channelId)}/time/rates/${encodeURIComponent(userId)}`,
+      { hourlyRate },
     ),
 };

@@ -37,6 +37,7 @@ import { recordingExtension, type CallRecording } from "./callRecorder";
 import type { NotesClip } from "./clipRecorder";
 import { outbox, type UploadTask } from "./outbox";
 import { WsClient, type DistributiveOmit } from "./ws";
+import { useTimeLog } from "../store/timeLog";
 
 const ERROR_TEXT: Record<ErrorCode, string> = {
   BAD_REQUEST: "That request isn't valid.",
@@ -387,6 +388,8 @@ class ChatController {
       client.on("call.room", (event) => groupCalls.onRoom(event)),
       client.on("call.rooms", ({ rooms }) => groupCalls.setRooms(rooms)),
       client.on("call.link", (event) => groupCalls.onLink(event)),
+      // Phase 60: a channel's time log changed: an open one reads it again.
+      client.on("time.updated", ({ channelId }) => useTimeLog.getState().changed(channelId)),
     );
 
     // Back online: a dead socket reconnects now, an "open" one must prove it's alive.

@@ -156,6 +156,11 @@ export const MESSAGES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/channels/{channelId}/files" },
   { method: HttpMethod.GET, path: "/channels/{channelId}/links" },
   { method: HttpMethod.GET, path: "/channels/{channelId}/pins" },
+  // Phase 60: the channel's time log (hours per person, rates for admins).
+  { method: HttpMethod.GET, path: "/channels/{channelId}/time" },
+  { method: HttpMethod.POST, path: "/channels/{channelId}/time" },
+  { method: HttpMethod.DELETE, path: "/channels/{channelId}/time/{date}/{entryId}" },
+  { method: HttpMethod.PUT, path: "/channels/{channelId}/time/rates/{userId}" },
 ];
 
 /** Message search (Phase 42): its own small Lambda, reading the index and the messages. */
@@ -527,6 +532,7 @@ export class TasksApi extends Construct {
       MEETING_NOTES_TABLE: data.meetingNotes.tableName,
       NOTE_DETAILS_TABLE: data.noteDetails.tableName,
       CHANNEL_MEDIA_TABLE: data.channelMedia.tableName,
+      TIME_LOG_TABLE: data.timeLog.tableName,
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
       WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
     });
@@ -1027,6 +1033,15 @@ export class TasksApi extends Construct {
     // deleted message's rows leave the index (BatchWriteItem) and a pinned one lowers
     // the channel's pinCount (UpdateItem).
     data.channelMedia.grant(this.messagesHandler, "dynamodb:Query", "dynamodb:BatchWriteItem");
+    // Phase 60, the time log: a channel's rows (Query), one entry or rate (GetItem,
+    // PutItem, DeleteItem).
+    data.timeLog.grant(
+      this.messagesHandler,
+      "dynamodb:Query",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+    );
     data.messages.grant(this.messagesHandler, "dynamodb:BatchGetItem");
     data.channels.grant(this.messagesHandler, "dynamodb:UpdateItem");
     this.messagesHandler.addToRolePolicy(
