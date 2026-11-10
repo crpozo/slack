@@ -296,6 +296,13 @@ export interface Message {
   userEmail: string;
   text: string;
   attachments: Attachment[];
+  /**
+   * Phase 58: what a voice message says, written by the server the first time
+   * someone asks (`POST /messages/{channelId}/{sk}/transcribe`, Whisper) and
+   * kept, so nobody pays for it twice. `""`: no speech was heard. Absent until
+   * someone asks; never accepted from a client.
+   */
+  transcript?: string;
   /** Epoch milliseconds. */
   createdAt: number;
   /** emoji → user ids who reacted with it (absent or empty when none). */
@@ -1440,3 +1447,23 @@ export type ServerEvent =
   | ErrorEvent;
 
 export type ServerEventType = ServerEvent["type"];
+
+// ---------------------------------------------------------------------------
+// Voice message transcripts (Phase 58): on demand, through the same Whisper
+// integration as the AI notes of calls, kept on the message.
+// ---------------------------------------------------------------------------
+
+/** OpenAI takes files of up to 25 MB; a voice message above this isn't sent. */
+export const MAX_TRANSCRIBE_BYTES = 24 * 1024 * 1024;
+
+/** The audio a message's transcript is of: its first audio attachment, if any. */
+export function transcribableAudio(message: Pick<Message, "attachments">): Attachment | undefined {
+  return message.attachments.find((a) => a.contentType.startsWith("audio/"));
+}
+
+/** `POST /messages/{channelId}/{sk}/transcribe`. */
+export interface MessageTranscriptResult {
+  transcript: string;
+  /** It was already there: nothing was sent to OpenAI. */
+  cached: boolean;
+}

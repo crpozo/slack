@@ -135,6 +135,24 @@ export async function objectExists(key: string): Promise<boolean> {
   }
 }
 
+/**
+ * An object of the attachments bucket, whole, in memory (Phase 58: a voice
+ * message for Whisper; never written to `/tmp`). Throws when it's larger than
+ * `maxBytes`, by its stored length before reading and by what came in after.
+ */
+export async function readObject(key: string, maxBytes: number): Promise<Buffer> {
+  const { Body, ContentLength } = await s3.send(
+    new GetObjectCommand({ Bucket: requireEnv("ATTACHMENTS_BUCKET"), Key: key }),
+  );
+  if (ContentLength !== undefined && ContentLength > maxBytes) {
+    throw new Error(`object too large (${ContentLength} bytes)`);
+  }
+  if (!Body) throw new Error("object has no body");
+  const bytes = Buffer.from(await Body.transformToByteArray());
+  if (bytes.length > maxBytes) throw new Error(`object too large (${bytes.length} bytes)`);
+  return bytes;
+}
+
 /** DeleteObjects takes at most 1,000 keys. */
 const DELETE_BATCH = 1000;
 

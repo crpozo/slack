@@ -90,6 +90,11 @@ export const CALL_TRANSCRIBE_ROUTES: Array<{ method: HttpMethod; path: string }>
   { method: HttpMethod.POST, path: "/calls/{callId}/clips" },
 ];
 
+/** Phase 58: a voice message's transcript, on demand (its own Lambda: the OpenAI key, S3 reads). */
+export const MESSAGE_TRANSCRIBE_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.POST, path: "/messages/{channelId}/{sk}/transcribe" },
+];
+
 /**
  * AI News (Phase 35b): the latest AI articles from a few publishers, read live
  * from their feeds by a stateless Lambda with no data permissions at all.
@@ -251,6 +256,8 @@ export class TasksApi extends Construct {
   readonly callNotesWorker: NodejsFunction;
   /** `call-transcribe`: a call's audio clip to Whisper, keeping only the text (Phase 43). */
   readonly callTranscribeHandler: NodejsFunction;
+  /** `message-transcribe`: a voice message to Whisper, the text kept on the message (Phase 58). */
+  readonly messageTranscribeHandler: NodejsFunction;
   /** `messages`: deleting a message (Phase 32). */
   readonly messagesHandler: NodejsFunction;
   /** `news`: the AI News proxy (Phase 35b); no table, bucket or parameter. */
@@ -451,6 +458,19 @@ export class TasksApi extends Construct {
       },
       Duration.seconds(30),
     );
+    // Phase 58: a voice message (up to 24 MB) from S3 to Whisper, in memory,
+    // inside API Gateway's 30 s; the same key as the calls' clips.
+    this.messageTranscribeHandler = lambda(
+      "MessageTranscribeFn",
+      "message-transcribe",
+      {
+        CHANNELS_TABLE: data.channels.tableName,
+        MESSAGES_TABLE: data.messages.tableName,
+        ATTACHMENTS_BUCKET: props.attachments.bucketName,
+        OPENAI_API_KEY_PARAMETER: openaiKeyParameterName(stage),
+      },
+      Duration.seconds(30),
+    );
 
     this.archiveHandler = lambda(
       "ArchiveFn",
@@ -563,6 +583,17 @@ export class TasksApi extends Construct {
     );
     for (const { method, path } of CALL_TRANSCRIBE_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: callTranscribeIntegration });
+    }
+    const messageTranscribeIntegration = new HttpLambdaIntegration(
+      "MessageTranscribeIntegration",
+      this.messageTranscribeHandler,
+    );
+    for (const { method, path } of MESSAGE_TRANSCRIBE_ROUTES) {
+      this.httpApi.addRoutes({
+        path,
+        methods: [method],
+        integration: messageTranscribeIntegration,
+      });
     }
     const calendarIntegration = new HttpLambdaIntegration(
       "CalendarIntegration",
@@ -761,6 +792,18 @@ export class TasksApi extends Construct {
       "dynamodb:UpdateItem",
     );
     grantReadParameter(this.callTranscribeHandler, openaiKeyParameterName(stage));
+    // Phase 58, message-transcribe: the conversation (GetItem), the message (GetItem,
+    // and UpdateItem for its hold and transcript), its audio (s3:GetObject, files only),
+    // the OpenAI key. Nothing else: it can't send, delete or list.
+    data.channels.grant(this.messageTranscribeHandler, "dynamodb:GetItem");
+    data.messages.grant(this.messageTranscribeHandler, "dynamodb:GetItem", "dynamodb:UpdateItem");
+    this.messageTranscribeHandler.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["s3:GetObject"],
+        resources: [props.attachments.arnForObjects("attachments/*")],
+      }),
+    );
+    grantReadParameter(this.messageTranscribeHandler, openaiKeyParameterName(stage));
 
     // news-insights-worker: the day's row (PutItem) and the model on Amazon
     // Bedrock; it reads the feed over the internet. news-insights: the newest

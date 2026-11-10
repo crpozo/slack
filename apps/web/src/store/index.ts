@@ -132,6 +132,8 @@ export interface ChatState {
   updateMeetingCard: (channelId: string, sk: string, meeting: MeetingCard, text: string) => void;
   /** A ✨ AI notes card moved on (pending → ready or failed); not an edit. */
   updateAiNotes: (channelId: string, sk: string, aiNotes: AiNotes, text: string) => void;
+  /** Phase 58: a voice message's transcript, once the server made (or had) it. */
+  setTranscript: (channelId: string, sk: string, transcript: string) => void;
   /** Starts (or, with `null`, ends) editing a message in `channelId`'s composer. */
   setEditing: (channelId: string, target: EditTarget | null) => void;
   setReadMark: (channelId: string, userId: string, mark: ReadMark) => void;
@@ -503,6 +505,9 @@ export const useChat = create<ChatState>()((set, get) => ({
 
   updateAiNotes: (channelId, sk, aiNotes, text) =>
     set((s) => patchMessage(s, channelId, sk, (m) => ({ ...m, aiNotes, text }))),
+
+  setTranscript: (channelId, sk, transcript) =>
+    set((s) => patchMessage(s, channelId, sk, (m) => ({ ...m, transcript }))),
 
   setEditing: (channelId, target) =>
     set((s) => ({ editing: { ...s.editing, [channelId]: target ?? undefined } })),
