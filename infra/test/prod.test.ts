@@ -8,7 +8,18 @@ import { SlackStack } from "../lib/slack-stack";
 
 const CERT = "arn:aws:acm:us-east-1:123456789012:certificate/abc-123";
 
+/**
+ * The stack for `stage` and `context`, synthesized once per file. A synth is
+ * seconds of synchronous work, so the same one per test made this file block
+ * its Vitest worker for over a minute on CI, which timed out the worker's RPC
+ * ("Timeout calling onTaskUpdate") and failed a deploy whose tests all passed.
+ * Templates are only read, so sharing them changes nothing the tests check.
+ */
+const synthesized = new Map<string, Template>();
 function synth(stage: "dev" | "prod", context: Record<string, unknown> = {}): Template {
+  const key = JSON.stringify([stage, context]);
+  const cached = synthesized.get(key);
+  if (cached) return cached;
   const app = new App({
     context: { "aws:cdk:bundling-stacks": [], budgetEmail: "alerts@example.com", ...context },
   });
@@ -16,7 +27,9 @@ function synth(stage: "dev" | "prod", context: Record<string, unknown> = {}): Te
     env: { account: "123456789012", region: "us-east-1" },
     stage,
   });
-  return Template.fromStack(stack);
+  const template = Template.fromStack(stack);
+  synthesized.set(key, template);
+  return template;
 }
 
 /** Logical ids of the `type` resources whose properties match `props` (as `hasResourceProperties`). */
