@@ -7,6 +7,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI News at 06:00:** the morning analysis (and its audio and the Claude alert) now runs every
+  day at 06:00 Ecuador time (it was 08:00).
 - **Markdown messages show formatted:** paste (or write) Markdown, from a README, a doc or an
   AI answer, and it's sent as is and shows formatted: headings, numbered and bulleted lists
   (nested), checkboxes, quotes, tables, rules, `[links](…)` and ~~strikethrough~~, plus the

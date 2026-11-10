@@ -113,11 +113,11 @@ export const NEWS_INSIGHTS_ROUTES: Array<{ method: HttpMethod; path: string }> =
 ];
 
 /**
- * When the morning analysis runs: 08:00 in Ecuador (UTC-5, no daylight
+ * When the morning analysis runs: 06:00 in Ecuador (UTC-5, no daylight
  * saving), i.e. `NEWS_INSIGHTS_LOCAL_TIME` in `NEWS_INSIGHTS_TIME_ZONE` of
  * @mindfultech/shared, which the view shows.
  */
-export const NEWS_INSIGHTS_SCHEDULE = { hour: "13", minute: "0" };
+export const NEWS_INSIGHTS_SCHEDULE = { hour: "11", minute: "0" };
 
 /**
  * The notes model: Claude Haiku 5.5 on Amazon Bedrock, as the US cross-region
@@ -381,7 +381,7 @@ export class TasksApi extends Construct {
     new Rule(this, "NewsInsightsSchedule", {
       ruleName: `slack-${stage}-news-insights`,
       description: "Writes the morning's AI Insights on the AI news",
-      schedule: Schedule.cron(NEWS_INSIGHTS_SCHEDULE), // daily, 08:00 in Ecuador
+      schedule: Schedule.cron(NEWS_INSIGHTS_SCHEDULE), // daily, 06:00 in Ecuador
       targets: [new LambdaFunction(this.newsInsightsWorker, { retryAttempts: 2 })],
     });
     this.pushHandler = lambda("PushFn", "push", {

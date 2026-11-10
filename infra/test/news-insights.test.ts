@@ -45,10 +45,10 @@ describe("AI Insights (Phase 39)", () => {
     });
   });
 
-  it("runs the worker every morning at 08:00 in Ecuador (13:00 UTC), with retries", () => {
+  it("runs the worker every morning at 06:00 in Ecuador (11:00 UTC), with retries", () => {
     template.hasResourceProperties("AWS::Events::Rule", {
       Name: "slack-dev-news-insights",
-      ScheduleExpression: "cron(0 13 * * ? *)",
+      ScheduleExpression: "cron(0 11 * * ? *)",
       State: "ENABLED",
       Targets: [Match.objectLike({ RetryPolicy: { MaximumRetryAttempts: 2 } })],
     });

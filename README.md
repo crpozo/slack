@@ -571,7 +571,7 @@ it. How many each source lost is logged as `old news discarded`. **Claude Haiku
 outputs): **Lo esencial** (the day's four top stories, with a headline and summary of its own;
 link, thumbnail, source and date always come from the feed), **Tendencias** (three trends, key
 phrases highlighted) and **Qué significa para MindfulTech** (takeaways for the team). Every other
-story is listed below. A scheduled worker (`news-insights-worker`, EventBridge, every day at 08:00
+story is listed below. A scheduled worker (`news-insights-worker`, EventBridge, every day at 06:00
 in Ecuador) reads the feeds, asks the model and keeps the dashboard as that day's row in
 `slack-<stage>-news-insights`; the view reads the newest one through `GET /news/insights`. It
 needs the same Bedrock model access as the call notes (step 7) and nothing else to set up.
