@@ -1,15 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { calendarDay, RADAR_AI_AUTHOR, type RadarBlip } from "@mindfultech/shared";
+import { calendarDay } from "@mindfultech/shared";
 import { bedrockModel, type ClaudeModel } from "../lib/claude";
 import { errorFields, log } from "../lib/logger";
 import { readAllSources } from "../lib/news";
 import {
   listBlips,
   listProposals,
-  newBlip,
   newProposal,
   pruneProposals,
-  putBlipIfAbsent,
   putProposal,
   recordScan,
 } from "../lib/radar";
@@ -37,18 +35,19 @@ export interface ScanRun {
 /**
  * The daily radar scan (Phase 56), run by an EventBridge schedule after the
  * morning's AI Insights, and on demand by `POST /radar/scan` (an admin's
- * "Scan now"). Reads the feeds, asks Claude Haiku 5.5 for updates, adds the
- * new technologies to Assess and files the moves as proposals. Throws on
- * failure so the schedule's retries get another go; blips are written one by
- * one with a condition, so a retry never duplicates them.
+ * "Scan now"). Reads the feeds, asks Claude Haiku 5.5 for updates and files
+ * them as pending proposals: new technologies (to Assess, since Phase 60 an
+ * admin accepts them, as the Discovery Engine's) and moves. Throws on failure
+ * so the schedule's retries get another go; a retry repeats no proposal
+ * (the plan skips what is already pending).
  */
 export const handler = async (): Promise<ScanRun> => {
   const started = Date.now();
   const day = calendarDay(started);
-  const [{ articles, failed }, blips, pending] = await Promise.all([
+  const [{ articles, failed }, blips, proposals] = await Promise.all([
     readAllSources(),
     listBlips(),
-    listProposals("pending"),
+    listProposals(),
   ]);
   if (failed.length > 0) log.warn("radar scan: news sources unreachable", { day, failed });
   if (articles.length === 0) throw new Error("the feeds have no stories");
@@ -67,7 +66,7 @@ export const handler = async (): Promise<ScanRun> => {
     });
     throw err;
   }
-  const outcome = scanPlanFrom(response, articles, blips, pending);
+  const outcome = scanPlanFrom(response, articles, blips, proposals);
   if (!outcome.ok) {
     log.error("radar scan unusable", {
       day,
@@ -78,43 +77,27 @@ export const handler = async (): Promise<ScanRun> => {
   }
 
   const now = Date.now();
+  // Phase 60: a new technology waits for an admin, like the Discovery Engine's.
   const added: string[] = [];
   for (const add of outcome.plan.adds) {
-    const blip: RadarBlip = newBlip(
-      {
-        name: add.name,
-        quadrant: add.quadrant,
-        ring: "Assess",
-        description: add.description,
-        ...(add.source?.link && { link: add.source.link }),
-        ...(add.modelId && { meta: { modelId: add.modelId } }),
-      },
-      RADAR_AI_AUTHOR,
-      now,
+    await putProposal(
+      newProposal(
+        {
+          kind: "add",
+          name: add.name,
+          quadrant: add.quadrant,
+          ring: "Assess",
+          rationale: add.rationale,
+          description: add.description,
+          sourceTitle: add.source?.title,
+          sourceLink: add.source?.link,
+          ...(add.modelId && { meta: { modelId: add.modelId } }),
+          origin: "news-scan",
+        },
+        now,
+      ),
     );
-    if (await putBlipIfAbsent(blip)) {
-      added.push(blip.name);
-      // The "why" is kept as an applied proposal, so the panel can show it.
-      await putProposal({
-        ...newProposal(
-          {
-            kind: "add",
-            blipId: blip.id,
-            name: blip.name,
-            quadrant: blip.quadrant,
-            ring: "Assess",
-            rationale: add.rationale,
-            description: add.description,
-            sourceTitle: add.source?.title,
-            sourceLink: add.source?.link,
-          },
-          now,
-        ),
-        status: "applied",
-        resolvedBy: RADAR_AI_AUTHOR,
-        resolvedAt: now,
-      });
-    }
+    added.push(add.name);
   }
   const proposed: string[] = [];
   for (const move of outcome.plan.moves) {
@@ -130,6 +113,7 @@ export const handler = async (): Promise<ScanRun> => {
           rationale: move.rationale,
           sourceTitle: move.source?.title,
           sourceLink: move.source?.link,
+          origin: "news-scan",
         },
         now,
       ),

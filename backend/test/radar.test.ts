@@ -108,6 +108,7 @@ beforeEach(() => {
   resetMocks();
   process.env.TECH_RADAR_TABLE = TABLE;
   process.env.RADAR_WORKER_FUNCTION = "slack-test-radar-scan-worker";
+  process.env.RADAR_DISCOVERY_FUNCTION = "slack-test-radar-discovery-engine";
   lambdaMock.reset();
   lambdaMock.on(InvokeCommand).resolves({ StatusCode: 202 });
   fakeTable();
@@ -228,14 +229,47 @@ describe("radar endpoints", () => {
     expect((await call("GET /radar")).body.proposals).toEqual([]);
   });
 
-  it("an admin's Scan now starts the worker asynchronously", async () => {
+  it("an admin's Scan now starts both scanners asynchronously", async () => {
     expect((await call("POST /radar/scan")).status).toBe(202);
-    const invoke = lambdaMock.commandCalls(InvokeCommand)[0]?.args[0].input;
-    expect(invoke).toMatchObject({
-      FunctionName: "slack-test-radar-scan-worker",
-      InvocationType: "Event",
-    });
+    const invokes = lambdaMock.commandCalls(InvokeCommand).map((c) => c.args[0].input);
+    expect(invokes).toEqual([
+      { FunctionName: "slack-test-radar-scan-worker", InvocationType: "Event" },
+      { FunctionName: "slack-test-radar-discovery-engine", InvocationType: "Event" },
+    ]);
     expect((await call("POST /radar/scan", undefined, ALICE, {}, "")).status).toBe(403);
+  });
+
+  it("the snapshot says when each scanner last ran", async () => {
+    table.set(keyOf({ pk: SCAN_PK, id: "last" }), { pk: SCAN_PK, id: "last", at: 10 });
+    table.set(keyOf({ pk: SCAN_PK, id: "discovery" }), { pk: SCAN_PK, id: "discovery", at: 20 });
+    expect((await call("GET /radar")).body).toMatchObject({ lastScanAt: 10, lastDiscoveryAt: 20 });
+  });
+
+  it("accepting a new technology adds it to Assess with its link and facts", async () => {
+    const add: RadarProposal = {
+      id: "p3",
+      kind: "add",
+      name: "Zeta-9",
+      quadrant: "Models",
+      ring: "Assess",
+      rationale: "New.",
+      description: "A model.",
+      sourceLink: "https://a/1",
+      meta: { modelId: "acme/zeta-9" },
+      origin: "news-scan",
+      status: "pending",
+      createdAt: 3,
+    };
+    table.set(keyOf({ pk: PROPOSAL_PK, id: "p3" }), { pk: PROPOSAL_PK, ...add });
+    const accepted = await call("POST /radar/proposals/{id}/apply", undefined, ADMIN, { id: "p3" });
+    expect(accepted.body.blip).toMatchObject({
+      id: "zeta9",
+      ring: "Assess",
+      description: "A model.",
+      link: "https://a/1",
+      meta: { modelId: "acme/zeta-9" },
+      updatedBy: ADMIN.userId,
+    });
   });
 });
 
@@ -334,6 +368,46 @@ describe("radar scan plan", () => {
     expect(outcome.plan.moves.map((m) => [m.blip.id, m.ring])).toEqual([["langchain", "Hold"]]);
   });
 
+  it("doesn't propose again what is pending or was rejected, by a similar name", () => {
+    const rejected: RadarProposal = {
+      id: "r",
+      kind: "add",
+      name: "Zeta-9",
+      quadrant: "Models",
+      ring: "Assess",
+      rationale: "",
+      status: "dismissed",
+      createdAt: 1,
+    };
+    const outcome = scanPlanFrom(
+      answer({
+        adds: [
+          {
+            name: "Zeta 9",
+            quadrant: "Models",
+            description: "",
+            rationale: "",
+            story: 1,
+            modelId: "",
+          },
+          {
+            name: "LangChain v1.0",
+            quadrant: "Frameworks",
+            description: "",
+            rationale: "",
+            story: 2,
+            modelId: "",
+          },
+        ],
+        moves: [],
+      }),
+      articles,
+      blips,
+      [rejected],
+    );
+    expect(outcome).toEqual({ ok: true, plan: { adds: [], moves: [] } });
+  });
+
   it("doesn't repeat a pending proposal and reports an unusable answer", () => {
     const pending: RadarProposal = {
       id: "p",
@@ -359,7 +433,7 @@ describe("radar scan plan", () => {
     expect(scanPlanFrom(answer("nope"), articles, blips, [])).toMatchObject({ ok: false });
   });
 
-  it("the worker adds new technologies to Assess (with the why) and files moves as proposals", async () => {
+  it("the worker files new technologies (for Assess) and moves as pending proposals", async () => {
     vi.mocked(readAllSources).mockResolvedValue({
       articles,
       sources: [],
@@ -385,26 +459,24 @@ describe("radar scan plan", () => {
     useRadarModel({ create });
     const run = await scan();
     expect(run).toMatchObject({ added: ["Zeta-9"], proposed: ["LangChain → Hold"], articles: 2 });
-    const added = table.get(keyOf({ pk: BLIP_PK, id: "zeta9" }));
-    expect(added).toMatchObject({
-      ring: "Assess",
-      quadrant: "Models",
-      updatedBy: "ai",
-      link: "https://a/1",
-      meta: { modelId: "acme/zeta-9" },
-    });
+    // Nothing reaches the radar until an admin accepts it.
+    expect(table.get(keyOf({ pk: BLIP_PK, id: "zeta9" }))).toBeUndefined();
     const proposals = rows(PROPOSAL_PK);
-    expect(proposals.map((p) => [p.kind, p.status, p.ring])).toEqual(
+    expect(proposals.map((p) => [p.kind, p.status, p.ring, p.origin])).toEqual(
       expect.arrayContaining([
-        ["add", "applied", "Assess"],
-        ["move", "pending", "Hold"],
+        ["add", "pending", "Assess", "news-scan"],
+        ["move", "pending", "Hold", "news-scan"],
       ]),
     );
+    expect(proposals.find((p) => p.kind === "add")).toMatchObject({
+      sourceLink: "https://a/1",
+      meta: { modelId: "acme/zeta-9" },
+    });
     expect(table.get(keyOf({ pk: SCAN_PK, id: "last" }))).toMatchObject({ added: 1, proposed: 1 });
-    // A retry (same answer) adds nothing twice and files no duplicate proposal.
+    // A retry (same answer) files no duplicate proposal.
     await scan();
-    expect(rows(BLIP_PK)).toHaveLength(3);
-    expect(rows(PROPOSAL_PK).filter((p) => p.kind === "move")).toHaveLength(1);
+    expect(rows(BLIP_PK)).toHaveLength(2);
+    expect(rows(PROPOSAL_PK)).toHaveLength(2);
     useRadarModel(null);
   });
 });

@@ -186,6 +186,9 @@ export const RADAR_ROUTES: Array<{ method: HttpMethod; path: string }> = [
 /** The radar scan runs after the morning's AI Insights (06:30 in Ecuador). */
 export const RADAR_SCAN_SCHEDULE = { hour: "11", minute: "30" };
 
+/** Phase 60: the Discovery Engine, daily at 06:00 UTC (01:00 in Ecuador). */
+export const RADAR_DISCOVERY_SCHEDULE = { hour: "6", minute: "0" };
+
 export const SKILLS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/skills" },
   { method: HttpMethod.POST, path: "/skills" },
@@ -296,6 +299,8 @@ export class TasksApi extends Construct {
   /** Phase 56: the AI Tech Radar's endpoints, and the daily scan of the news for updates. */
   readonly radarHandler: NodejsFunction;
   readonly radarScanWorker: NodejsFunction;
+  /** Phase 60: new technologies from the stored AI news and Hacker News, as proposals. */
+  readonly radarDiscoveryEngine: NodejsFunction;
   /** Base URL clients call, without a trailing slash. */
   readonly url: string;
   private readonly origins: string[];
@@ -410,9 +415,32 @@ export class TasksApi extends Construct {
       schedule: Schedule.cron(RADAR_SCAN_SCHEDULE),
       targets: [new LambdaFunction(this.radarScanWorker, { retryAttempts: 1 })],
     });
+    // Phase 60: the Discovery Engine reads the stored AI news and Hacker News
+    // (the public API, over the internet like the news feeds) and files
+    // proposals; it never writes a blip.
+    this.radarDiscoveryEngine = lambda(
+      "RadarDiscoveryEngineFn",
+      "radar-discovery-engine",
+      {
+        TECH_RADAR_TABLE: data.techRadar.tableName,
+        NEWS_INSIGHTS_TABLE: data.newsInsights.tableName,
+      },
+      Duration.minutes(3),
+    );
+    this.radarDiscoveryEngine.configureAsyncInvoke({
+      retryAttempts: 1,
+      maxEventAge: Duration.hours(1),
+    });
+    new Rule(this, "RadarDiscoverySchedule", {
+      ruleName: `slack-${stage}-radar-discovery`,
+      description: "Discovers new technologies for the Tech Radar's proposals",
+      schedule: Schedule.cron(RADAR_DISCOVERY_SCHEDULE),
+      targets: [new LambdaFunction(this.radarDiscoveryEngine, { retryAttempts: 1 })],
+    });
     this.radarHandler = lambda("RadarFn", "radar", {
       TECH_RADAR_TABLE: data.techRadar.tableName,
       RADAR_WORKER_FUNCTION: this.radarScanWorker.functionName,
+      RADAR_DISCOVERY_FUNCTION: this.radarDiscoveryEngine.functionName,
     });
     this.newsInsightsHandler = lambda(
       "NewsInsightsFn",
@@ -894,6 +922,12 @@ export class TasksApi extends Construct {
       "dynamodb:DeleteItem",
     );
     this.radarScanWorker.addToRolePolicy(notesModelPolicy());
+    // Phase 60, discovery: reads the radar (to skip what it knows) and the
+    // stored AI news, writes proposals only, and asks the model on Bedrock.
+    this.radarDiscoveryEngine.grantInvoke(this.radarHandler);
+    data.techRadar.grant(this.radarDiscoveryEngine, "dynamodb:Query", "dynamodb:PutItem");
+    data.newsInsights.grant(this.radarDiscoveryEngine, "dynamodb:Query");
+    this.radarDiscoveryEngine.addToRolePolicy(notesModelPolicy());
     // Phase 54: the summary read aloud. The worker asks Amazon Polly for the
     // speech and writes the MP3 under news-audio/; the endpoint only reads
     // there (to sign the page's URL). Nothing else in the bucket is reachable.

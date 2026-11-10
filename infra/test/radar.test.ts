@@ -105,9 +105,48 @@ describe("AI Tech Radar (Phase 56)", () => {
     >;
     expect(Object.keys(env).sort()).toEqual([
       "LOG_LEVEL",
+      "RADAR_DISCOVERY_FUNCTION",
       "RADAR_WORKER_FUNCTION",
       "STAGE",
       "TECH_RADAR_TABLE",
     ]);
+  });
+});
+
+describe("the Discovery Engine (Phase 60)", () => {
+  it("runs daily at 06:00 UTC, with a retry, for up to 3 minutes", () => {
+    template.hasResourceProperties("AWS::Events::Rule", {
+      Name: "slack-dev-radar-discovery",
+      ScheduleExpression: "cron(0 6 * * ? *)",
+      State: "ENABLED",
+      Targets: [Match.objectLike({ RetryPolicy: { MaximumRetryAttempts: 1 } })],
+    });
+    const [, engine] = fn("slack-dev-radar-discovery-engine")!;
+    expect(engine.Properties.Timeout).toBe(180);
+    const env = engine.Properties.Environment.Variables as Record<string, unknown>;
+    expect(Object.keys(env).sort()).toEqual([
+      "LOG_LEVEL",
+      "NEWS_INSIGHTS_TABLE",
+      "STAGE",
+      "TECH_RADAR_TABLE",
+    ]);
+  });
+
+  it("reads the radar and the stored AI news, writes proposals, asks Haiku; nothing else", () => {
+    const engine = statementsOf("TasksApiRadarDiscoveryEngineFnServiceRoleDefaultPolicy");
+    expect(actionsOn(engine, "DataTechRadar")).toEqual(["dynamodb:PutItem", "dynamodb:Query"]);
+    expect(actionsOn(engine, "DataNewsInsights")).toEqual(["dynamodb:Query"]);
+    const actions = engine.flatMap((st) => [st.Action].flat());
+    expect(actions).toContain("bedrock:InvokeModel");
+    expect(actions).not.toContain("dynamodb:DeleteItem");
+    expect(actions).not.toContain("dynamodb:UpdateItem");
+    expect(JSON.stringify(engine)).toMatch(/inference-profile\/us\.anthropic\.claude-haiku-5-5/);
+    expect(JSON.stringify(engine)).not.toMatch(/Messages|Channels|Users/);
+  });
+
+  it("an admin's Scan now may start it", () => {
+    const endpoint = statementsOf("TasksApiRadarFnServiceRoleDefaultPolicy");
+    const invoke = endpoint.filter((st) => [st.Action].flat().includes("lambda:InvokeFunction"));
+    expect(JSON.stringify(invoke)).toMatch(/RadarDiscoveryEngineFn/);
   });
 });

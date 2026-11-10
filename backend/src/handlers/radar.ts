@@ -15,6 +15,7 @@ import {
 } from "../lib/http";
 import { log } from "../lib/logger";
 import {
+  DISCOVERY_SCAN_ID,
   deleteBlip,
   getBlip,
   getProposal,
@@ -43,12 +44,13 @@ function adminOnly(caller: HttpCaller, what: string): void {
 }
 
 async function snapshot(): Promise<RadarSnapshot> {
-  const [blips, proposals, scannedAt] = await Promise.all([
+  const [blips, proposals, scannedAt, discoveredAt] = await Promise.all([
     listBlips(),
     listProposals("pending"),
     lastScanAt(),
+    lastScanAt(DISCOVERY_SCAN_ID),
   ]);
-  return { blips, proposals, lastScanAt: scannedAt };
+  return { blips, proposals, lastScanAt: scannedAt, lastDiscoveryAt: discoveredAt };
 }
 
 async function createBlip(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
@@ -81,7 +83,11 @@ async function removeBlip(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
   return json(200, { deleted: id });
 }
 
-/** `apply`: a move happens, an add is created in its ring; `dismiss`: it's just closed. */
+/**
+ * `apply` (the panel's Accept): a move happens, an add is created in its ring
+ * (Assess); `dismiss` (Reject): it leaves the panel. The rejected row is kept
+ * a month (then pruned) so the scans don't propose the same technology again.
+ */
 async function decideProposal(
   event: HttpEvent,
   caller: HttpCaller,
@@ -104,6 +110,7 @@ async function decideProposal(
           ring: proposal.ring,
           description: proposal.description ?? "",
           ...(proposal.sourceLink && { link: proposal.sourceLink }),
+          ...(proposal.meta && { meta: proposal.meta }),
         },
         caller.userId,
       );
@@ -116,14 +123,17 @@ async function decideProposal(
   return json(200, { proposal: resolved, blip });
 }
 
-/** `POST /radar/scan`: an admin asks for a scan now; the worker runs in the background. */
+/**
+ * `POST /radar/scan`: an admin asks for a scan now. Both scanners run in the
+ * background: the news scan (moves) and the Discovery Engine (new technologies).
+ */
 async function scanNow(caller: HttpCaller): Promise<HttpResult> {
   adminOnly(caller, "start a scan");
-  await lambdaClient().send(
-    new InvokeCommand({
-      FunctionName: requireEnv("RADAR_WORKER_FUNCTION"),
-      InvocationType: "Event",
-    }),
+  await Promise.all(
+    [requireEnv("RADAR_WORKER_FUNCTION"), requireEnv("RADAR_DISCOVERY_FUNCTION")].map(
+      (FunctionName) =>
+        lambdaClient().send(new InvokeCommand({ FunctionName, InvocationType: "Event" })),
+    ),
   );
   log.info("radar scan requested", { userId: caller.userId });
   return json(202, { started: true });
@@ -131,13 +141,13 @@ async function scanNow(caller: HttpCaller): Promise<HttpResult> {
 
 /**
  * AI Tech Radar (Phase 56), on the HTTP API behind the Cognito JWT authorizer:
- *   GET    /radar                         → `{ blips, proposals, lastScanAt }`
+ *   GET    /radar                         → `{ blips, proposals, lastScanAt, lastDiscoveryAt }`
  *   POST   /radar/blips                   (admin) → 201 `{ blip }`
  *   PUT    /radar/blips/{id}              (admin) → `{ blip }` (a new ring records the move)
  *   DELETE /radar/blips/{id}              (admin)
  *   POST   /radar/proposals/{id}/apply    (admin) → `{ proposal, blip }`
  *   POST   /radar/proposals/{id}/dismiss  (admin) → `{ proposal }`
- *   POST   /radar/scan                    (admin) → 202 (the worker runs asynchronously)
+ *   POST   /radar/scan                    (admin) → 202 (both scanners run asynchronously)
  */
 export const handler = httpHandler(async (event, caller) => {
   switch (event.routeKey) {

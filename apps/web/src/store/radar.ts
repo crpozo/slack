@@ -15,6 +15,8 @@ interface RadarState {
   blips: RadarBlip[];
   proposals: RadarProposal[];
   lastScanAt: number | null;
+  /** Phase 60: the Discovery Engine's last run. */
+  lastDiscoveryAt: number | null;
   error: string | null;
   /** The blip whose panel is open. */
   selectedId: string | null;
@@ -47,6 +49,7 @@ export function createRadarStore(api: Api = radarApi) {
       blips: [],
       proposals: [],
       lastScanAt: null,
+      lastDiscoveryAt: null,
       error: null,
       selectedId: null,
       view: "radar",
@@ -55,7 +58,8 @@ export function createRadarStore(api: Api = radarApi) {
         set((s) => ({ status: s.status === "ready" ? "ready" : "loading", error: null }));
         try {
           const snapshot = await api.snapshot();
-          set({ ...snapshot, status: "ready" });
+          // An API from before Phase 60 has no `lastDiscoveryAt`.
+          set({ ...snapshot, lastDiscoveryAt: snapshot.lastDiscoveryAt ?? null, status: "ready" });
         } catch (err) {
           set({ status: "error", error: errorText(err, "Couldn't load the radar.") });
         }

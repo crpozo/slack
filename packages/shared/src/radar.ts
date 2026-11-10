@@ -80,7 +80,20 @@ export function movementOf(
 // --- Proposals (the scanner's suggestions, applied by a person) -------------------
 
 export type ProposalKind = "add" | "move";
+/**
+ * `pending`: waiting for an admin (the Proposals panel lists only these);
+ * `applied`: accepted; `dismissed`: rejected. Resolved rows are kept a month
+ * so the scans don't propose a rejected technology again the next morning.
+ */
 export type ProposalStatus = "pending" | "applied" | "dismissed";
+
+/**
+ * Who proposed it: the morning scan of the AI news (`news-scan`, Phase 56)
+ * or the Discovery Engine (`discovery`, Phase 60: the stored AI news plus
+ * Hacker News' top stories). Absent on proposals from before Phase 60.
+ */
+export const RADAR_PROPOSAL_ORIGINS = ["news-scan", "discovery"] as const;
+export type ProposalOrigin = (typeof RADAR_PROPOSAL_ORIGINS)[number];
 
 export interface RadarProposal {
   id: string;
@@ -98,6 +111,9 @@ export interface RadarProposal {
   sourceLink?: string;
   /** A suggested description for a new blip. */
   description?: string;
+  /** For an add: facts the new blip starts with (`modelId` for a model). */
+  meta?: Record<string, string>;
+  origin?: ProposalOrigin;
   status: ProposalStatus;
   createdAt: number;
   /** Who applied or dismissed it, and when. */
@@ -154,6 +170,8 @@ export interface RadarSnapshot {
   proposals: RadarProposal[];
   /** Epoch ms of the last scan that ran, if any. */
   lastScanAt: number | null;
+  /** Epoch ms of the Discovery Engine's last run (Phase 60), if any. */
+  lastDiscoveryAt: number | null;
 }
 
 /** Same technology spelled differently ("LangChain" / "langchain"): one key. */
@@ -162,4 +180,58 @@ export function blipKey(name: string): string {
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[^a-z0-9]+/g, "");
+}
+
+/** Words that tell versions or packagings of one technology apart, not two technologies. */
+const VERSION_WORD = /^(v?\d+([.-]\d+)*[a-z]?|\d+[bkm]|latest|preview|beta|alpha|rc\d*|new)$/;
+const PACKAGING_SUFFIX = /(js|ts|py|io|ai|sdk|api|app|dev|cli|hq)$/;
+
+/**
+ * The name without versions and packaging: "Claude Opus 5.5" and "Claude
+ * Opus" → "claudeopus"; "Next.js" and "Nextjs" → "next"; "LangChain v1.0" →
+ * "langchain". `""` when nothing is left.
+ */
+export function techCoreKey(name: string): string {
+  const words = name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .split(/[^a-z0-9.]+|(?<=[a-z])\.(?=[a-z])/)
+    .map((w) => w.replace(/^\.+|\.+$/g, ""))
+    .filter((w) => w && !VERSION_WORD.test(w));
+  const core = words.join("").replace(/\./g, "");
+  const stripped = core.replace(PACKAGING_SUFFIX, "");
+  return stripped.length >= 3 ? stripped : core;
+}
+
+/** Edit distance, stopping early once it passes `max` (names are short). */
+function withinEdits(a: string, b: string, max: number): boolean {
+  if (Math.abs(a.length - b.length) > max) return false;
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row[j] = Math.min(previous[j]! + 1, row[j - 1]! + 1, previous[j - 1]! + cost);
+      best = Math.min(best, row[j]!);
+    }
+    if (best > max) return false;
+    previous = row;
+  }
+  return previous[b.length]! <= max;
+}
+
+/**
+ * The same technology, spelled or versioned differently: equal `blipKey`s,
+ * equal `techCoreKey`s ("GPT-6" / "GPT 6 Turbo" stay apart: "gpt" + "turbo"),
+ * or one typo apart in names of six letters or more ("Langchan").
+ */
+export function similarTechNames(a: string, b: string): boolean {
+  const [ka, kb] = [blipKey(a), blipKey(b)];
+  if (!ka || !kb) return false;
+  if (ka === kb) return true;
+  const [ca, cb] = [techCoreKey(a), techCoreKey(b)];
+  if (ca && ca === cb) return true;
+  return ca.length >= 6 && cb.length >= 6 && withinEdits(ca, cb, 1);
 }

@@ -20,8 +20,12 @@ import { ddb, tables } from "./ddb";
 /** The two entities of the `tech-radar` table, told apart by the partition key. */
 export const BLIP_PK = "BLIP";
 export const PROPOSAL_PK = "PROPOSAL";
-/** One row with the time of the last scan (`id` "last"). */
+/** One row per scanner with the time of its last run (`id` "last", or "discovery"). */
 export const SCAN_PK = "SCAN";
+/** The news scan's row (Phase 56). */
+export const NEWS_SCAN_ID = "last";
+/** The Discovery Engine's row (Phase 60). */
+export const DISCOVERY_SCAN_ID = "discovery";
 
 type Row = Record<string, unknown>;
 
@@ -194,6 +198,23 @@ export async function putProposal(proposal: RadarProposal): Promise<void> {
   );
 }
 
+/** @returns `false` when a proposal with that id is already there (a retried run). */
+export async function putProposalIfAbsent(proposal: RadarProposal): Promise<boolean> {
+  try {
+    await ddb.send(
+      new PutCommand({
+        TableName: tables.techRadar,
+        Item: { pk: PROPOSAL_PK, ...proposal },
+        ConditionExpression: "attribute_not_exists(id)",
+      }),
+    );
+    return true;
+  } catch (err) {
+    if (err instanceof ConditionalCheckFailedException) return false;
+    throw err;
+  }
+}
+
 /** Marks a pending proposal applied or dismissed; `null` when it isn't pending any more. */
 export async function resolveProposal(
   id: string,
@@ -244,18 +265,22 @@ export async function pruneProposals(now = Date.now()): Promise<number> {
 
 // --- Scan bookkeeping -------------------------------------------------------------
 
-export async function lastScanAt(): Promise<number | null> {
+export async function lastScanAt(id = NEWS_SCAN_ID): Promise<number | null> {
   const { Item } = await ddb.send(
-    new GetCommand({ TableName: tables.techRadar, Key: { pk: SCAN_PK, id: "last" } }),
+    new GetCommand({ TableName: tables.techRadar, Key: { pk: SCAN_PK, id } }),
   );
   return typeof Item?.at === "number" ? Item.at : null;
 }
 
-export async function recordScan(at: number, summary: Record<string, unknown>): Promise<void> {
+export async function recordScan(
+  at: number,
+  summary: Record<string, unknown>,
+  id = NEWS_SCAN_ID,
+): Promise<void> {
   await ddb.send(
     new PutCommand({
       TableName: tables.techRadar,
-      Item: { pk: SCAN_PK, id: "last", at, ...summary },
+      Item: { pk: SCAN_PK, id, at, ...summary },
     }),
   );
 }
