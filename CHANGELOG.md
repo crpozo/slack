@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Transcribe voice messages:** a voice message has a **Transcribir** button under its player.
+  The first person to press it gets the text (a spinner while it works), shown under the audio
+  in a quiet block; it's kept on the message, so everyone after sees it at once, now and in the
+  history, and OpenAI is asked only once per message, even when two people press it together.
+  It uses the same Whisper key, model and Spanglish prompt as the AI notes of calls. A message
+  with no speech says so.
+
 - **Markdown messages show formatted:** paste (or write) Markdown, from a README, a doc or an
   AI answer, and it's sent as is and shows formatted: headings, numbered and bulleted lists
   (nested), checkboxes, quotes, tables, rules, `[links](…)` and ~~strikethrough~~, plus the

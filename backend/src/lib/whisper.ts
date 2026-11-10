@@ -36,6 +36,20 @@ export function whisperOf(client: Pick<OpenAI, "audio">): SpeechToText {
   };
 }
 
+/** Audio formats the browsers record and Whisper reads, by the extension Whisper goes by. */
+export const AUDIO_TYPES: Record<string, string> = {
+  "audio/webm": "webm",
+  "audio/ogg": "ogg",
+  "audio/mp4": "mp4",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+};
+
+/** The extension Whisper reads `contentType` by ("audio/webm;codecs=opus" → "webm"), or `null`. */
+export function audioExtension(contentType: string): string | null {
+  return AUDIO_TYPES[contentType.split(";")[0]!.trim().toLowerCase()] ?? null;
+}
+
 /** One phrase of a clip: when it was said (epoch ms) and what. */
 export interface ClipLine {
   at: number;

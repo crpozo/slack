@@ -22,7 +22,10 @@ export function toReactionLists(raw: unknown): Record<string, string[]> {
 
 /** A `messages` row as sent to clients. */
 export function toWireMessage(item: Record<string, unknown>): Message {
-  return { ...(item as unknown as Message), reactions: toReactionLists(item.reactions) };
+  // Phase 58: `transcribingAt` is the server's own hold while Whisper runs.
+  const rest = { ...item };
+  delete rest.transcribingAt;
+  return { ...(rest as unknown as Message), reactions: toReactionLists(item.reactions) };
 }
 
 /** How far back a resent message is recognized (its own retry window is seconds). */

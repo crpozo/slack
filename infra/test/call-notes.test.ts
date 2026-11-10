@@ -237,12 +237,13 @@ describe("AI call notes", () => {
     // The audio is never stored: no bucket, no other table.
     expect(JSON.stringify(st)).not.toMatch(/s3:|DataMessages|DataUsers/);
 
-    // No other function can read the key.
+    // No other function can read the key, but the voice messages' (Phase 58).
     const readers = Object.entries(template.findResources("AWS::IAM::Policy")).filter(([, p]) =>
       JSON.stringify(p).includes("openai-api-key"),
     );
-    expect(readers.map(([id]) => id)).toEqual([
+    expect(readers.map(([id]) => id).sort()).toEqual([
       expect.stringMatching(/^TasksApiCallTranscribeFnServiceRoleDefaultPolicy/),
+      expect.stringMatching(/^TasksApiMessageTranscribeFnServiceRoleDefaultPolicy/),
     ]);
 
     // Clip rows expire after a week.
@@ -250,5 +251,53 @@ describe("AI call notes", () => {
       TableName: "slack-dev-note-details",
       TimeToLiveSpecification: { AttributeName: "expiresAt", Enabled: true },
     });
+  });
+});
+
+describe("voice message transcripts (Phase 58)", () => {
+  it("run in their own Lambda: the message, its audio file and the OpenAI key, nothing else", () => {
+    const [id, fn] = Object.entries(
+      template.findResources("AWS::Lambda::Function", {
+        Properties: { FunctionName: "slack-dev-message-transcribe" },
+      }),
+    )[0]!;
+    expect(id).toMatch(/^TasksApiMessageTranscribeFn/);
+    const props = fn.Properties as {
+      Timeout: number;
+      Environment: { Variables: Record<string, unknown> };
+    };
+    expect(props.Timeout).toBe(30);
+    expect(Object.keys(props.Environment.Variables).sort()).toEqual([
+      "ATTACHMENTS_BUCKET",
+      "CHANNELS_TABLE",
+      "LOG_LEVEL",
+      "MESSAGES_TABLE",
+      "OPENAI_API_KEY_PARAMETER",
+      "STAGE",
+    ]);
+    const policy = Object.entries(template.findResources("AWS::IAM::Policy")).find(([pid]) =>
+      pid.startsWith("TasksApiMessageTranscribeFnServiceRoleDefaultPolicy"),
+    )![1];
+    const statements = (
+      policy.Properties as {
+        PolicyDocument: { Statement: Array<{ Action: string | string[]; Resource: unknown }> };
+      }
+    ).PolicyDocument.Statement;
+    const actions = statements.flatMap((st) => [st.Action].flat()).sort();
+    expect(actions).toEqual(
+      [
+        "dynamodb:GetItem", // channels
+        "dynamodb:GetItem", // messages
+        "dynamodb:UpdateItem", // messages: the hold and the transcript
+        "s3:GetObject",
+        "ssm:GetParameter",
+      ].sort(),
+    );
+    const s3 = statements.find((st) => st.Action === "s3:GetObject");
+    expect(JSON.stringify(s3?.Resource)).toContain("/attachments/*");
+    // Never sends, deletes or lists anything.
+    expect(JSON.stringify(statements)).not.toMatch(
+      /DeleteItem|PutItem|Scan|s3:Delete|s3:List|execute-api/,
+    );
   });
 });

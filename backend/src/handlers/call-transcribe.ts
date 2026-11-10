@@ -30,7 +30,13 @@ import {
   type NoteClipRow,
 } from "../lib/noteDetails";
 import { openaiClient } from "../lib/openai";
-import { clipLines, whisperOf, type SpeechToText, type WhisperResult } from "../lib/whisper";
+import {
+  AUDIO_TYPES,
+  clipLines,
+  whisperOf,
+  type SpeechToText,
+  type WhisperResult,
+} from "../lib/whisper";
 
 let speech: SpeechToText | null = null;
 
@@ -38,15 +44,6 @@ let speech: SpeechToText | null = null;
 export function useSpeechToText(next: SpeechToText | null): void {
   speech = next;
 }
-
-/** Audio formats the browsers record and Whisper reads, by the extension Whisper goes by. */
-const AUDIO_TYPES: Record<string, string> = {
-  "audio/webm": "webm",
-  "audio/ogg": "ogg",
-  "audio/mp4": "mp4",
-  "audio/mpeg": "mp3",
-  "audio/wav": "wav",
-};
 
 /**
  * `POST /calls/{callId}/clips?channelId&speaker&startedAt&durationMs`
