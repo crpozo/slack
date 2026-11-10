@@ -1197,6 +1197,21 @@ Calls (and so notes cards) live in DMs while boards belong to project channels, 
    message opens through `chat.jumpTo`, which loads older pages, highlights it, and opens the
    thread for a reply. The phones' Search tab shows the same message results.
 
+### Phase 56 — AI Tech Radar
+
+**Branch:** `feature/ai-tech-radar`
+
+A ThoughtWorks-style radar for the AI and software engineering stack, under APPS as **AI Radar** (lucide `Radar` icon).
+
+1. **Data model:** one DynamoDB table `slack-<stage>-tech-radar` (`pk` + `id`) holds two entities: blips (`pk` "BLIP": `id` = the name's key, `name`, `quadrant` Models/Frameworks/Infrastructure/DevTools, `ring` Adopt/Trial/Assess/Hold, `description` = our stance, `previousRing` + `movedAt` for movement, `link`, `meta` free key→values, `createdAt`/`updatedAt`/`updatedBy`) and the scanner's proposals (`pk` "PROPOSAL": add/move, rationale, source story, status pending/applied/dismissed). `meta.modelId` on Models blips is the hook Phase 2's LLM-Stats dashboard will key live figures off; the panel already shows the placeholder.
+2. **Endpoints** (`backend/src/handlers/radar.ts`, JWT, team only — guests see nothing): `GET /radar` (blips, pending proposals, last scan); admins: `POST /radar/blips`, `PUT /radar/blips/{id}` (a new ring records the move), `DELETE /radar/blips/{id}`, `POST /radar/proposals/{id}/apply|dismiss`, `POST /radar/scan`.
+3. **Daily scan** (`radar-scan-worker`, EventBridge 06:30 Ecuador, after AI Insights; also an admin's "Scan now"): the day's AI news (`readAllSources`) and the radar go to Claude Haiku 5.5 on Bedrock with a JSON schema; **new technologies are added to Assess at once** (owned by `ai`, with the rationale kept as an applied proposal), **moves become proposals** a person applies or dismisses (only the team knows what it shipped; the model may never propose Adopt). Duplicates by name key, no-op moves and already-pending proposals are dropped; at most 4 adds and 6 moves per run; resolved proposals are pruned after 30 days.
+4. **UI** (`RadarView`, dark glassmorphism): an SVG radar with the four quadrant wedges and four rings (pure geometry in `lib/radar.ts`: blips placed inside their sector from a hash of their id, overlaps resolved on a golden-angle spiral; unit-tested), numbered blips, **triangles for recent moves** (tip toward the centre = inward), hover tooltip, click → side panel (stance, ring meaning, move history, link, meta, LLM-Stats hook; admins: Move-to buttons, Edit, Remove). Admins **drag a blip onto another ring** to move it (the ring lights up; optimistic, reverted if refused). A **List view** toggle (quadrant → ring → numbered rows, with a ring select for admins) for accessibility. A **Proposals** panel with Apply/Dismiss; "Add" opens the blip modal (name, quadrant, ring, stance, link, Model ID on Models).
+
+**Phase 56 acceptance criteria:** AI Radar appears under APPS; the radar shows the four quadrants and rings with numbered blips and movement triangles; hovering/clicking a blip shows the stance; an admin can drag a blip to another ring and the change persists; the list view mirrors the chart; a scan adds new technologies to Assess and files moves under Proposals.
+
+---
+
 ### Phase 44 — AI Skills marketplace
 
 **Branch:** `feature/ai-skills-marketplace`

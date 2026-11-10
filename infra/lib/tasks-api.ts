@@ -172,6 +172,20 @@ export const SEARCH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
  * AI Skills (Phase 44): the catalog of Claude Code skills, its GitHub import,
  * generation (Claude Haiku 5.5) and zip downloads, from one Lambda.
  */
+/** AI Tech Radar (Phase 56): read by the team, changed by admins and the scanner. */
+export const RADAR_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/radar" },
+  { method: HttpMethod.POST, path: "/radar/blips" },
+  { method: HttpMethod.PUT, path: "/radar/blips/{id}" },
+  { method: HttpMethod.DELETE, path: "/radar/blips/{id}" },
+  { method: HttpMethod.POST, path: "/radar/proposals/{id}/apply" },
+  { method: HttpMethod.POST, path: "/radar/proposals/{id}/dismiss" },
+  { method: HttpMethod.POST, path: "/radar/scan" },
+];
+
+/** The radar scan runs after the morning's AI Insights (06:30 in Ecuador). */
+export const RADAR_SCAN_SCHEDULE = { hour: "11", minute: "30" };
+
 export const SKILLS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/skills" },
   { method: HttpMethod.POST, path: "/skills" },
@@ -279,6 +293,9 @@ export class TasksApi extends Construct {
   readonly skillsHandler: NodejsFunction;
   /** `vault`: the team's passwords (Phase 45), the only code that can use the Vault key. */
   readonly vaultHandler: NodejsFunction;
+  /** Phase 56: the AI Tech Radar's endpoints, and the daily scan of the news for updates. */
+  readonly radarHandler: NodejsFunction;
+  readonly radarScanWorker: NodejsFunction;
   /** Base URL clients call, without a trailing slash. */
   readonly url: string;
   private readonly origins: string[];
@@ -377,6 +394,25 @@ export class TasksApi extends Construct {
       MESSAGES_TABLE: data.messages.tableName,
       CONNECTIONS_TABLE: data.connections.tableName,
       WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+    });
+    // AI Tech Radar (Phase 56): the worker reads the feeds and asks the model;
+    // the endpoint reads and writes the table and, for admins, starts the worker.
+    this.radarScanWorker = lambda(
+      "RadarScanWorkerFn",
+      "radar-scan-worker",
+      { TECH_RADAR_TABLE: data.techRadar.tableName },
+      Duration.minutes(3),
+    );
+    this.radarScanWorker.configureAsyncInvoke({ retryAttempts: 1, maxEventAge: Duration.hours(1) });
+    new Rule(this, "RadarScanSchedule", {
+      ruleName: `slack-${stage}-radar-scan`,
+      description: "Scans the AI news for Tech Radar updates",
+      schedule: Schedule.cron(RADAR_SCAN_SCHEDULE),
+      targets: [new LambdaFunction(this.radarScanWorker, { retryAttempts: 1 })],
+    });
+    this.radarHandler = lambda("RadarFn", "radar", {
+      TECH_RADAR_TABLE: data.techRadar.tableName,
+      RADAR_WORKER_FUNCTION: this.radarScanWorker.functionName,
     });
     this.newsInsightsHandler = lambda(
       "NewsInsightsFn",
@@ -623,6 +659,10 @@ export class TasksApi extends Construct {
     for (const { method, path } of SKILLS_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: skillsIntegration });
     }
+    const radarIntegration = new HttpLambdaIntegration("RadarIntegration", this.radarHandler);
+    for (const { method, path } of RADAR_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: radarIntegration });
+    }
     const vaultIntegration = new HttpLambdaIntegration("VaultIntegration", this.vaultHandler);
     for (const { method, path } of VAULT_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: vaultIntegration });
@@ -835,6 +875,25 @@ export class TasksApi extends Construct {
       "dynamodb:GetItem",
     );
     this.newsInsightsWorker.grantInvoke(this.newsInsightsHandler);
+    // Phase 56, radar: the endpoint owns the table; the worker adds blips and
+    // proposals (never deletes a blip) and asks the model on Bedrock.
+    data.techRadar.grant(
+      this.radarHandler,
+      "dynamodb:Query",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+    );
+    this.radarScanWorker.grantInvoke(this.radarHandler);
+    data.techRadar.grant(
+      this.radarScanWorker,
+      "dynamodb:Query",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+    );
+    this.radarScanWorker.addToRolePolicy(notesModelPolicy());
     // Phase 54: the summary read aloud. The worker asks Amazon Polly for the
     // speech and writes the MP3 under news-audio/; the endpoint only reads
     // there (to sign the page's URL). Nothing else in the bucket is reachable.
