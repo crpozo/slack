@@ -6,6 +6,7 @@ import type { Board, Task, TaskStatus } from "./tasks";
 import type { CalendarPushEvent } from "./calendar";
 import type { Recurrence } from "./recurrence";
 import type { VaultCard } from "./vault";
+import type { TimeLogUpdatedEvent } from "./timelog";
 
 // ---------------------------------------------------------------------------
 // Limits & constants
@@ -1526,6 +1527,7 @@ export type ServerEvent =
   | CallLobbyEvent
   | BoardEvent
   | CalendarPushEvent
+  | TimeLogUpdatedEvent
   | PongEvent
   | ErrorEvent;
 

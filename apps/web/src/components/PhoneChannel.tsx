@@ -9,6 +9,7 @@ import { Avatar } from "./Avatar";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
+  ClockIcon,
   ExternalIcon,
   HashIcon,
   HeadphonesIcon,
@@ -21,6 +22,8 @@ import {
   UserPlusIcon,
   VideoIcon,
 } from "./icons";
+import { useTimeLog } from "../store/timeLog";
+import { tasksApiConfigured } from "../lib/tasksApi";
 import type { DetailsTab } from "./ConversationPanels";
 import { Modal } from "./Modal";
 
@@ -267,6 +270,18 @@ export function PhoneChannelSheet({
         onClick={then(() => onDetails(access.dm ? "members" : "about"))}
       />,
     );
+    // Phase 60: the channel's time log.
+    if (!access.dm && tasksApiConfigured()) {
+      rows.push(
+        <OptionRow
+          key="hours"
+          icon={<ClockIcon />}
+          label="Horas"
+          hint="Registra tu trabajo del día"
+          onClick={then(() => useTimeLog.getState().open(channelId))}
+        />,
+      );
+    }
     // Externals have no Home of their own to pin to (Phase 55).
     if (!access.guest) {
       rows.push(

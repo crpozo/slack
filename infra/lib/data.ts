@@ -46,6 +46,8 @@ export class Data extends Construct {
    * rows instead of scanning the history. See @mindfultech/shared media.ts.
    */
   readonly channelMedia: Table;
+  /** Phase 60: per channel, its time entries and hourly rates. */
+  readonly timeLog: Table;
   /**
    * Message search (Phase 42): an inverted index. Per conversation, one tiny
    * row per term of each message (`<term>#<message sk>`), kept in step with
@@ -208,6 +210,13 @@ export class Data extends Construct {
     this.channelMedia = new Table(this, "ChannelMedia", {
       ...common,
       tableName: `slack-${props.stage}-channel-media`,
+      partitionKey: { name: "channelId", type: AttributeType.STRING },
+      sortKey: { name: "sk", type: AttributeType.STRING },
+    });
+
+    this.timeLog = new Table(this, "TimeLog", {
+      ...common,
+      tableName: `slack-${props.stage}-time-log`,
       partitionKey: { name: "channelId", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
     });

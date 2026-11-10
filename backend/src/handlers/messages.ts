@@ -43,6 +43,7 @@ import {
   type LinkRow,
 } from "../lib/media";
 import { toWireMessage } from "../lib/messages";
+import { deleteTime, listTime, logTime, setTimeRate } from "../lib/timeLog";
 import { forgetNote } from "../lib/noteDetails";
 import { deleteObjects, signAttachments, withSignedUrls } from "../lib/s3";
 
@@ -558,6 +559,11 @@ const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<H
   "GET /channels/{channelId}/files": listFiles,
   "GET /channels/{channelId}/links": listLinks,
   "GET /channels/{channelId}/pins": listPinned,
+  // Phase 60: the channel's time log.
+  "GET /channels/{channelId}/time": listTime,
+  "POST /channels/{channelId}/time": logTime,
+  "DELETE /channels/{channelId}/time/{date}/{entryId}": deleteTime,
+  "PUT /channels/{channelId}/time/rates/{userId}": setTimeRate,
 };
 
 export const handler = httpHandler(async (event, caller) => {
