@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import {
   blipKey,
+  MAX_BLIP_NAME,
   RADAR_QUADRANTS,
   RADAR_RINGS,
   RING_MEANING,
@@ -183,6 +184,9 @@ export function scanPlanFrom(
     pending.filter((p) => p.kind === "move").map((p) => `${p.blipId}:${p.ring}`),
   );
   const storyOf = (n: number) => articles[n - 1];
+  // A blip must pass the same rules an admin's does, or it can't be edited later.
+  const httpsOnly = (story?: NewsArticle) =>
+    story && /^https:\/\/\S+$/.test(story.link) ? story : undefined;
   const plan: ScanPlan = { adds: [], moves: [] };
   const seenAdds = new Set<string>();
   for (const add of parsed.adds) {
@@ -190,12 +194,12 @@ export function scanPlanFrom(
     if (!key || known.has(key) || pendingAdds.has(key) || seenAdds.has(key)) continue;
     seenAdds.add(key);
     plan.adds.push({
-      name: add.name,
+      name: add.name.slice(0, MAX_BLIP_NAME).trim(),
       quadrant: add.quadrant,
       description: add.description,
       rationale: add.rationale,
       ...(add.modelId && add.quadrant === "Models" && { modelId: add.modelId }),
-      source: storyOf(add.story),
+      source: httpsOnly(storyOf(add.story)),
     });
     if (plan.adds.length >= RADAR_MAX_ADDS_PER_SCAN) break;
   }
@@ -208,7 +212,7 @@ export function scanPlanFrom(
       blip,
       ring: move.ring,
       rationale: move.rationale,
-      source: storyOf(move.story),
+      source: httpsOnly(storyOf(move.story)),
     });
     if (plan.moves.length >= RADAR_MAX_MOVES_PER_SCAN) break;
   }

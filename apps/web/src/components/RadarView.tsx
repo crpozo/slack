@@ -122,6 +122,7 @@ interface ChartProps {
 /** One blip: a dot, or a triangle pointing the way it moved recently. */
 function BlipMark({
   point,
+  centre,
   selected,
   dragging,
   draggable,
@@ -130,6 +131,8 @@ function BlipMark({
   onHover,
 }: Readonly<{
   point: BlipPoint;
+  /** The chart's centre (its radius): the triangles point along the line to it. */
+  centre: number;
   selected: boolean;
   dragging: boolean;
   draggable: boolean;
@@ -140,11 +143,10 @@ function BlipMark({
   const { blip, n, x, y } = point;
   const color = QUADRANT_COLORS[blip.quadrant];
   const movement = movementOf(blip);
-  // A triangle's tip points toward the centre when the blip moved inward.
-  const towardCentre = (Math.atan2(-y + point.y, -x + point.x) * 180) / Math.PI;
-  const angle = Math.atan2(y, x);
-  void towardCentre;
-  const rotate = movement === "in" ? (angle * 180) / Math.PI + 180 : (angle * 180) / Math.PI;
+  // The triangle's tip points along the radius: toward the centre when the
+  // blip moved inward, away from it when it moved outward.
+  const outward = (Math.atan2(y - centre, x - centre) * 180) / Math.PI;
+  const rotate = movement === "in" ? outward + 180 : outward;
   const r = selected ? 12 : 10;
   return (
     <g
@@ -336,6 +338,7 @@ function RadarChart({ points, size, selectedId, onSelect, onDrop }: Readonly<Cha
             <BlipMark
               key={point.blip.id}
               point={point}
+              centre={radius}
               selected={point.blip.id === selectedId}
               dragging={false}
               draggable={!!onDrop}
@@ -348,6 +351,7 @@ function RadarChart({ points, size, selectedId, onSelect, onDrop }: Readonly<Cha
         {drag?.moved && (
           <BlipMark
             point={{ ...drag.point, x: drag.x, y: drag.y }}
+            centre={radius}
             selected
             dragging
             draggable
@@ -726,7 +730,9 @@ export function RadarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
     return () => observer.disconnect();
   }, [view]);
 
-  const points = useMemo(() => layoutBlips(blips, size), [blips, size]);
+  // The frame's padding (p-3 / sm:p-5) comes off the width the chart is drawn at.
+  const chartSize = size - 40;
+  const points = useMemo(() => layoutBlips(blips, chartSize), [blips, chartSize]);
   const numbers = useMemo(() => new Map(points.map((p) => [p.blip.id, p.n])), [points]);
   const selected = blips.find((b) => b.id === selectedId) ?? null;
 
@@ -900,13 +906,14 @@ export function RadarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
                 <div className={`rounded-3xl p-3 sm:p-5 ${GLASS}`}>
                   <RadarChart
                     points={points}
-                    size={size - 40}
+                    size={chartSize}
                     selectedId={selectedId}
                     onSelect={select}
                     onDrop={admin ? moveBlip : undefined}
                   />
                   <p className="mt-3 text-center text-[11px] text-white/45">
-                    ▲ moved inward recently · ▼ moved outward · hover or tap a blip for our stance
+                    A triangle moved recently: pointing to the centre = inward, away = outward ·
+                    hover or tap a blip for our stance
                     {admin ? " · drag a blip to another ring to move it" : ""}
                   </p>
                   {blips.length === 0 && status === "ready" && (
