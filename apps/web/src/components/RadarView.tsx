@@ -640,8 +640,9 @@ function ProposalsPanel({
       </div>
       {proposals.length === 0 && (
         <p className="text-sm text-white/60">
-          Nothing pending. New technologies the scan finds enter Assess on their own; moves between
-          rings wait here for a person.
+          Nothing pending. Every day the Discovery Engine reads the AI news and Hacker News, and the
+          news scan reads the radar against the day&apos;s stories: what they find waits here for an
+          admin.
         </p>
       )}
       <ul className="space-y-3">
@@ -660,7 +661,17 @@ function ProposalsPanel({
                 </span>
               )}
             </p>
-            <p className="mt-1 text-white/80">{p.rationale}</p>
+            {p.kind === "add" && p.description && (
+              <p className="mt-1 text-white/90">{p.description}</p>
+            )}
+            <p className="mt-1 text-white/70">
+              {p.origin && (
+                <span className="mr-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/70">
+                  {p.origin === "discovery" ? "Discovery" : "News scan"}
+                </span>
+              )}
+              {p.rationale}
+            </p>
             {p.sourceLink && (
               <button
                 type="button"
@@ -676,15 +687,17 @@ function ProposalsPanel({
                   type="button"
                   onClick={() => onDecide(p.id, "apply")}
                   className="rounded-lg bg-emerald-400/20 px-2.5 py-1 text-xs font-semibold text-emerald-100 ring-1 ring-emerald-300/30 hover:bg-emerald-400/30"
+                  aria-label={`Accept ${p.name}${p.kind === "add" ? ` into ${p.ring}` : ` → ${p.ring}`}`}
                 >
-                  Apply
+                  Accept
                 </button>
                 <button
                   type="button"
                   onClick={() => onDecide(p.id, "dismiss")}
                   className="rounded-lg px-2.5 py-1 text-xs font-semibold text-white/70 ring-1 ring-white/15 hover:bg-white/10"
+                  aria-label={`Reject ${p.name}`}
                 >
-                  Dismiss
+                  Reject
                 </button>
               </div>
             )}
@@ -702,8 +715,19 @@ export function RadarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
   const showToast = useChat((s) => s.showToast);
   const admin = me?.role === "admin";
   const configured = tasksApiConfigured();
-  const { status, blips, proposals, lastScanAt, error, selectedId, view, load, select, setView } =
-    useRadar();
+  const {
+    status,
+    blips,
+    proposals,
+    lastScanAt,
+    lastDiscoveryAt,
+    error,
+    selectedId,
+    view,
+    load,
+    select,
+    setView,
+  } = useRadar();
   const move = useRadar((s) => s.move);
   const remove = useRadar((s) => s.remove);
   const decide = useRadar((s) => s.decide);
@@ -767,7 +791,10 @@ export function RadarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
     setScanning(true);
     try {
       await scan();
-      showToast("Scanning the AI news… new proposals show up in a minute or two.", "success");
+      showToast(
+        "Scanning the AI news and Hacker News… new proposals show up in a minute or two.",
+        "success",
+      );
     } catch (err) {
       showToast(errorText(err, "Couldn't start the scan."), "error");
     } finally {
@@ -813,8 +840,8 @@ export function RadarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
         <div className="min-w-0 flex-1">
           <h1 className="truncate font-semibold leading-tight">AI Radar</h1>
           <p className="truncate text-[11px] leading-tight text-white/50">
-            {lastScanAt
-              ? `Last AI scan ${when(lastScanAt)}`
+            {lastScanAt || lastDiscoveryAt
+              ? `Last AI scan ${when(Math.max(lastScanAt ?? 0, lastDiscoveryAt ?? 0))}`
               : "Our stance on the AI & engineering stack"}
           </p>
         </div>
@@ -947,8 +974,9 @@ export function RadarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
                     ))}
                   </ul>
                   <p className="mt-3 text-xs text-white/50">
-                    Every morning the AI scan reads the news: new technologies land in Assess;
-                    proposed moves wait under Proposals.
+                    Every day the Discovery Engine (the AI news and Hacker News) and the news scan
+                    propose new technologies for Assess and moves between rings; an admin accepts or
+                    rejects them under Proposals.
                   </p>
                 </div>
               )}

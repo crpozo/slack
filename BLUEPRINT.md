@@ -1210,6 +1210,22 @@ A ThoughtWorks-style radar for the AI and software engineering stack, under APPS
 
 **Phase 56 acceptance criteria:** AI Radar appears under APPS; the radar shows the four quadrants and rings with numbered blips and movement triangles; hovering/clicking a blip shows the stance; an admin can drag a blip to another ring and the change persists; the list view mirrors the chart; a scan adds new technologies to Assess and files moves under Proposals.
 
+### Phase 60 — Radar Discovery Engine
+
+**Branch:** `feature/radar-discovery-engine`
+
+New, trending technologies for the radar's **Proposals** panel, waiting for an admin.
+
+1. **Lambda** `radar-discovery-engine` (`backend/src/handlers/radar-discovery-engine.ts`, 3 min), run by the EventBridge rule `slack-<stage>-radar-discovery` daily at **06:00 UTC** (one retry), and on demand: an admin's "Scan now" (`POST /radar/scan` starts both scanners) or `aws lambda invoke`.
+2. **Sensors** (`backend/src/lib/radarDiscovery.ts`): the AI news stored in the last 24 hours (the `news-insights` rows whose `generatedAt` is within the window: every article title, with the analysis' summary where it picked the story out) and Hacker News' top 30 stories (the public Firebase API: `topstories.json`, then each `item/{id}.json` in parallel, 5 s each; jobs, dead stories and failed items are skipped; non-https links fall back to the HN thread). One source failing is logged and the run goes on with the other; none at all throws.
+3. **Haiku** (Claude Haiku 5.5 on Bedrock, structured outputs): the strict system prompt ("Analyze this daily tech data. Extract only NEW or trending AI models, software frameworks, developer tools, or infrastructure. Ignore corporate news or gossip…"), `{ technologies: [{ name, quadrant, description, signal }] }`, the numbered headlines in `<signals>` and the names the radar knows in `<known>` (both data, never instructions).
+4. **Sync:** each technology is checked against the blips and the add proposals that weren't accepted (pending, or rejected in the last 30 days) with `similarTechNames` (shared: same name key, same name without versions/packaging — "Claude Opus 5.5" ≈ "Claude Opus", "Next.js" ≈ "NextJS" — or one typo apart), and must be valid as a blip. New ones become **pending add proposals for Assess** (`origin` "discovery", the headline as the source), at most 8 per run, with the id `discovery-<day>-<name key>` written conditionally so a retry duplicates nothing. The run is recorded in `SCAN/discovery` (`lastDiscoveryAt` in `GET /radar`).
+5. **News scan:** its new technologies are now pending proposals too (`origin` "news-scan", `meta.modelId` kept for Accept), not added on their own; its add dedupe uses the same similar-name check.
+6. **UI:** the Proposals panel shows the description, where it came from (Discovery / News scan) and the reason; admins **Accept** (adds it to Assess, or makes the move) or **Reject** (it leaves the panel; the row is kept 30 days so it isn't proposed again).
+7. **IAM:** the engine may `Query`/`PutItem` the tech-radar table, `Query` news-insights and invoke Haiku; it never writes a blip. The radar endpoint may invoke it.
+
+**Phase 60 acceptance criteria:** the daily rule invokes the engine; with mocked Hacker News and news rows it files only technologies the radar doesn't know (by a similar name) as pending proposals; Accept puts one in Assess and Reject removes it from the panel; a retried run writes no duplicates.
+
 ---
 
 ### Phase 44 — AI Skills marketplace

@@ -5,6 +5,7 @@ import {
   RADAR_QUADRANTS,
   RADAR_RINGS,
   RING_MEANING,
+  similarTechNames,
   type NewsArticle,
   type RadarBlip,
   type RadarProposal,
@@ -17,9 +18,9 @@ import { articlesText } from "./newsInsights";
 
 /**
  * The radar scanner (Phase 56): once a day, the AI news of the last day and
- * the radar as it stands go to Claude Haiku 5.5, which proposes updates. New
- * technologies it finds are added to `Assess` right away (that ring exists for
- * exactly this); moves between rings become proposals a person applies, since
+ * the radar as it stands go to Claude Haiku 5.5, which proposes updates: new
+ * technologies for `Assess` and moves between rings. Both are proposals a
+ * person accepts (new ones were added on their own until Phase 60), since
  * only the team knows what it has actually shipped with.
  */
 export const RADAR_MODEL = NOTES_MODEL;
@@ -135,7 +136,7 @@ export function radarScanRequest(
   };
 }
 
-/** New blips to add (Assess) and move proposals, both ready to store. */
+/** New technologies (for Assess) and moves, both ready to store as proposals. */
 export interface ScanPlan {
   adds: Array<{
     name: string;
@@ -157,14 +158,15 @@ export type ScanOutcome = { ok: true; plan: ScanPlan } | { ok: false; error: str
 
 /**
  * What the model proposed, checked against the radar: additions already on
- * it (by name key) are dropped, as are moves to the ring a blip is already in
- * or of blips that don't exist, and pending proposals aren't repeated.
+ * it (by a similar name, Phase 60), already proposed or recently rejected are
+ * dropped, as are moves to the ring a blip is already in or of blips that
+ * don't exist, and pending moves aren't repeated.
  */
 export function scanPlanFrom(
   response: Anthropic.Message,
   articles: NewsArticle[],
   blips: RadarBlip[],
-  pending: RadarProposal[],
+  proposals: RadarProposal[],
 ): ScanOutcome {
   const text = response.content
     .filter((block): block is Anthropic.TextBlock => block.type === "text")
@@ -178,23 +180,27 @@ export function scanPlanFrom(
   } catch (err) {
     return { ok: false, error: `the scan wasn't valid JSON: ${(err as Error).message}` };
   }
-  const known = new Set(blips.map((b) => b.id));
-  const pendingAdds = new Set(pending.filter((p) => p.kind === "add").map((p) => blipKey(p.name)));
+  // Names to skip: on the radar, proposed, or rejected (resolved rows are kept a month).
+  const taken = [
+    ...blips.map((b) => b.name),
+    ...proposals.filter((p) => p.kind === "add" && p.status !== "applied").map((p) => p.name),
+  ];
   const pendingMoves = new Set(
-    pending.filter((p) => p.kind === "move").map((p) => `${p.blipId}:${p.ring}`),
+    proposals
+      .filter((p) => p.kind === "move" && p.status === "pending")
+      .map((p) => `${p.blipId}:${p.ring}`),
   );
   const storyOf = (n: number) => articles[n - 1];
   // A blip must pass the same rules an admin's does, or it can't be edited later.
   const httpsOnly = (story?: NewsArticle) =>
     story && /^https:\/\/\S+$/.test(story.link) ? story : undefined;
   const plan: ScanPlan = { adds: [], moves: [] };
-  const seenAdds = new Set<string>();
   for (const add of parsed.adds) {
-    const key = blipKey(add.name);
-    if (!key || known.has(key) || pendingAdds.has(key) || seenAdds.has(key)) continue;
-    seenAdds.add(key);
+    const name = add.name.slice(0, MAX_BLIP_NAME).trim();
+    if (!blipKey(name) || taken.some((other) => similarTechNames(name, other))) continue;
+    taken.push(name);
     plan.adds.push({
-      name: add.name.slice(0, MAX_BLIP_NAME).trim(),
+      name,
       quadrant: add.quadrant,
       description: add.description,
       rationale: add.rationale,

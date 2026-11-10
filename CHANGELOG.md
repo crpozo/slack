@@ -7,6 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Radar Discovery Engine:** every day at 06:00 UTC, an AI reads the AI news stored in the last
+  24 hours and Hacker News' top 30 stories, picks out new or trending models, frameworks,
+  infrastructure and developer tools, and files the ones the radar doesn't know yet (by a
+  similar name) under **Proposals**. An admin **Accepts** one (it enters Assess) or **Rejects**
+  it. "Scan now" runs it too. New technologies from the morning news scan now wait there as
+  well, instead of entering Assess on their own.
 - **AI Radar** (APPS): a ThoughtWorks-style technology radar for our AI and engineering stack —
   four quadrants (Models, Frameworks, Infrastructure, DevTools), four rings (Adopt, Trial, Assess,
   Hold), numbered blips with our stance on hover or click, triangles for recent moves, and a list
