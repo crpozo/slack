@@ -23,6 +23,7 @@ import { handlesOf } from "../lib/mentions";
 import { youTubeVideosIn } from "../lib/youtube";
 import { selectName, useChat, useNameOf, type ChatMessage } from "../store";
 import { Attachment } from "./Attachment";
+import { VoiceTranscript } from "./VoiceTranscript";
 import { OutgoingFiles, SendStatus } from "./OutgoingFiles";
 import { MeetingCard } from "./MeetingCard";
 import { AiNotesCard } from "./AiNotesCard";
@@ -755,6 +756,8 @@ export const MessageItem = memo(function MessageItem({
               </div>
             )
           )}
+          {/* Phase 58: a voice message's text, on demand (once it's stored on the server). */}
+          {!message.status && !tombstone && <VoiceTranscript message={message} />}
 
           {grouped && message.isEdited && <EditedMark editedAt={message.editedAt} />}
           {onOpenThread && sent && <ThreadSummary message={message} onOpen={onOpenThread} />}

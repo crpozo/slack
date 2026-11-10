@@ -621,3 +621,11 @@ export const MarkdownIcon = (p: IconProps) => (
     <path d="M6 15V9l2.5 3L11 9v6M15.5 9v6M13.5 13l2 2 2-2" />
   </Icon>
 );
+
+/** Phase 58: "Transcribir" (the outline of captions on a screen). */
+export const CaptionsIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M7 15h4M15 15h2M7 11h2M13 11h4" />
+  </Icon>
+);
