@@ -146,3 +146,18 @@ describe("mentioning someone (Phase 56)", () => {
     expect(screen.queryByRole("listbox", { name: "Mention someone" })).toBeNull();
   });
 });
+
+describe("Markdown in the message box (Phase 56)", () => {
+  it("says it will be sent formatted, with a preview; plain chat says nothing", () => {
+    render(<Composer channelId={CH} placeholder="Message" />);
+    const box = screen.getByPlaceholderText("Message") as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: "hola, ¿todo bien?" } });
+    expect(document.querySelector("[data-markdown-hint]")).toBeNull();
+    fireEvent.change(box, { target: { value: "## Plan\n1. Diseño\n2. QA" } });
+    expect(screen.getByText(/Markdown detected/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    const preview = screen.getByLabelText("Preview");
+    expect(preview.innerHTML).toContain("<h3>Plan</h3>");
+    expect(preview.innerHTML).toContain("<ol>");
+  });
+});

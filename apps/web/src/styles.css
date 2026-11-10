@@ -222,6 +222,10 @@
   .md-notes del {
     @apply text-ink-secondary;
   }
+  /* Phase 56: Markdown in a message: its headings a step up from the text. */
+  .md-rich h3 {
+    @apply text-base;
+  }
 }
 
 /* FullCalendar (company calendar), on the design tokens so it follows the theme. */

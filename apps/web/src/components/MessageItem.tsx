@@ -18,7 +18,7 @@ import { formatDay, formatTime, seenByLine } from "../lib/channels";
 import { QUICK_REACTIONS } from "../lib/emoji";
 import type { MenuContext } from "../lib/contextMenu";
 import { useMessageGestures } from "../lib/gestures";
-import { renderMarkdown, type MentionMarks } from "../lib/markdown";
+import { renderMessageMarkdown, type MentionMarks } from "../lib/markdown";
 import { handlesOf } from "../lib/mentions";
 import { youTubeVideosIn } from "../lib/youtube";
 import { selectName, useChat, useNameOf, type ChatMessage } from "../store";
@@ -554,8 +554,9 @@ export const MessageItem = memo(function MessageItem({
   onOpenThread,
 }: Readonly<MessageItemProps>) {
   const mentionMarks = useMentionMarks();
-  const html = useMemo(
-    () => renderMarkdown(message.text, mentionMarks),
+  // Phase 56: Markdown (a pasted doc, README or AI answer) renders formatted.
+  const { html, rich } = useMemo(
+    () => renderMessageMarkdown(message.text, mentionMarks),
     [message.text, mentionMarks],
   );
   // Phase 33: YouTube links get a click-to-play player under the text (never for secrets or cards).
@@ -727,9 +728,12 @@ export const MessageItem = memo(function MessageItem({
 
           {message.text && !message.isSecret && !message.kind && (
             <div
-              className={`md mt-0.5 inline-block max-w-full break-words rounded-2xl rounded-tl-sm px-3 py-1.5 text-sm leading-relaxed text-ink ${
-                mine ? "bg-primary/15" : "bg-surface-sidebar"
-              } ${message.status === "failed" ? "ring-1 ring-error" : ""}`}
+              className={`md mt-0.5 inline-block max-w-full break-words rounded-2xl rounded-tl-sm text-sm leading-relaxed text-ink ${
+                rich ? "md-notes md-rich px-4 py-3" : "px-3 py-1.5"
+              } ${mine ? "bg-primary/15" : "bg-surface-sidebar"} ${
+                message.status === "failed" ? "ring-1 ring-error" : ""
+              }`}
+              data-rich={rich || undefined}
               // Safe: renderMarkdown escapes all HTML before adding its own tags.
               dangerouslySetInnerHTML={{ __html: html }}
             />

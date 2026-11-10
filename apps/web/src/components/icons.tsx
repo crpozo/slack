@@ -614,3 +614,10 @@ export const SquarePlusIcon = (p: IconProps) => (
     <path d="M8 12h8M12 8v8" />
   </Icon>
 );
+/** Phase 56: Markdown (the "M↓" mark). */
+export const MarkdownIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect width="20" height="14" x="2" y="5" rx="2" />
+    <path d="M6 15V9l2.5 3L11 9v6M15.5 9v6M13.5 13l2 2 2-2" />
+  </Icon>
+);

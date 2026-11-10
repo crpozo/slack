@@ -16,7 +16,7 @@ import { chat } from "../lib/chat";
 import { dmPeer, externalsIn, formatDay, formatTime } from "../lib/channels";
 import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
-import { renderMarkdown } from "../lib/markdown";
+import { looksLikeMarkdown, renderMessageMarkdown } from "../lib/markdown";
 import { mediaApi } from "../lib/mediaApi";
 import { formatBytes, getDownloadUrl } from "../lib/upload";
 import { useChat, useNameOf } from "../store";
@@ -148,9 +148,11 @@ export function PinnedMessagesModal({
                 </div>
                 {m.text && (
                   <div
-                    className="md mt-1.5 line-clamp-4 break-words text-sm leading-relaxed text-ink"
-                    // Safe: renderMarkdown escapes all HTML before adding its own tags.
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(m.text) }}
+                    className={`md mt-1.5 line-clamp-4 break-words text-sm leading-relaxed text-ink ${
+                      looksLikeMarkdown(m.text) ? "md-notes" : ""
+                    }`}
+                    // Safe: both renderers escape all HTML before adding their own tags.
+                    dangerouslySetInnerHTML={{ __html: renderMessageMarkdown(m.text).html }}
                   />
                 )}
                 {m.attachments.length > 0 && (

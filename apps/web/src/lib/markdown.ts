@@ -178,9 +178,12 @@ interface OpenList {
   tag: "ul" | "ol";
 }
 
-export function renderNotesMarkdown(text: string): string {
+export function renderNotesMarkdown(text: string, mentions?: MentionMarks): string {
   const { keep, restore } = createStash();
-  const inline = (s: string) => formatInline(escapeHtml(s), keep, { modelMarkdown: true }).trim();
+  const inline = (s: string) => {
+    const html = formatInline(escapeHtml(s), keep, { modelMarkdown: true });
+    return (mentions ? markMentions(html, mentions) : html).trim();
+  };
 
   const lines = text.replaceAll("\uE000", "").replace(/\r\n?/g, "\n").split("\n");
   const out: string[] = [];
@@ -317,4 +320,53 @@ export function renderNotesMarkdown(text: string): string {
   }
   flushAll();
   return restore(out.join(""));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 56: Markdown pasted into a message (a doc, a README, an AI answer)
+// shows formatted: headings, lists, tables, quotes, rules, checkboxes, links.
+// Chat stays chat: a message only gets the full rendering when it reads as
+// Markdown (`looksLikeMarkdown`); otherwise the light rules above, as always.
+// ---------------------------------------------------------------------------
+
+const MD_LINK = /\[[^\]\n]{1,200}\]\(https?:\/\/[^\s)]+\)/;
+
+/**
+ * Whether `text` is written in Markdown beyond what chat messages already
+ * show (code, **bold**, _italic_, links): a heading, a table, a quote, a
+ * rule, a `[label](url)` link, or a list of two items or more. One "-" line
+ * or a "#channel" isn't Markdown; a numbered list, a README or an AI answer is.
+ */
+export function looksLikeMarkdown(text: string): boolean {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  let items = 0;
+  let inFence = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (FENCE.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (HEADING.test(line) || isTableStart(line, lines[i + 1])) return true;
+    if (QUOTE.test(line) && line.trim().length > 1) return true;
+    // A rule between two blocks (not a lone "---" message).
+    if (RULE.test(line) && lines.length > 2) return true;
+    if (LIST_ITEM.test(line) && ++items >= 2) return true;
+  }
+  return MD_LINK.test(text) || /~~(?=\S)[^~\n]*\S~~/.test(text);
+}
+
+/**
+ * A message's text as HTML: the full Markdown rendering when it reads as
+ * Markdown (`rich`), the light chat rules otherwise. Both escape everything
+ * before adding their own tags.
+ */
+export function renderMessageMarkdown(
+  text: string,
+  mentions?: MentionMarks,
+): { html: string; rich: boolean } {
+  return looksLikeMarkdown(text)
+    ? { html: renderNotesMarkdown(text, mentions), rich: true }
+    : { html: renderMarkdown(text, mentions), rich: false };
 }

@@ -7,6 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Markdown messages show formatted:** paste (or write) Markdown, from a README, a doc or an
+  AI answer, and it's sent as is and shows formatted: headings, numbered and bulleted lists
+  (nested), checkboxes, quotes, tables, rules, `[links](…)` and ~~strikethrough~~, plus the
+  usual **bold**, _italics_ and code. The message box says "Markdown detected" with a Preview
+  before you send. Chat stays chat: only a message that reads as Markdown (a heading, a table,
+  a quote, a list of two items or more…) gets it; anything else shows as before.
 - **Install as an app, with instructions:** a step-by-step guide (in Spanish, as the phones'
   menus read) for iPhone/iPad (Safari → Compartir → Agregar a inicio), Android (Chrome →
   Instalar app) and computers (Chrome/Edge install, Safari → Agregar al Dock), opening on the

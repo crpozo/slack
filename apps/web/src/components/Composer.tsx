@@ -38,6 +38,7 @@ import {
 } from "../lib/voice";
 import { detectCredentials } from "../lib/credentials";
 import { hasRichFormatting, htmlToMarkdown } from "../lib/pasteMarkdown";
+import { looksLikeMarkdown, renderNotesMarkdown } from "../lib/markdown";
 import { tasksApiConfigured } from "../lib/tasksApi";
 import { vaultApi } from "../lib/vaultApi";
 import { useUploadState, type UploadTask } from "../lib/outbox";
@@ -54,6 +55,7 @@ import {
   ArchiveIcon,
   CalendarIcon,
   LockIcon,
+  MarkdownIcon,
   MicIcon,
   PaperclipIcon,
   PencilIcon,
@@ -511,6 +513,13 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
       detectCredentials(text),
     [secret, editing, thread, disabled, uploads.length, text],
   );
+  // Phase 56: Markdown being written or pasted shows formatted once sent; say so, with a preview.
+  const markdown = useMemo(
+    () => !secret && !autoSecret && looksLikeMarkdown(text),
+    [secret, autoSecret, text],
+  );
+  const [markdownPreview, setMarkdownPreview] = useState(false);
+
   // `/secret <title> <password>` being typed: what Enter will do.
   const vaultCommand = useMemo(() => {
     const parsed = secret || editing ? null : parseSecretCommand(text);
@@ -837,6 +846,34 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
             >
               <CloseIcon />
             </button>
+          </div>
+        )}
+        {markdown && (
+          <div className="border-b border-line" data-markdown-hint>
+            <div className="flex items-center gap-2 bg-primary/10 px-3 py-1.5 text-xs">
+              <MarkdownIcon className="shrink-0 text-primary" aria-hidden="true" />
+              <p className="min-w-0 flex-1 text-ink-secondary">
+                <strong className="text-ink">Markdown detected:</strong> it will be sent formatted
+                (headings, lists, tables…).
+              </p>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setMarkdownPreview((on) => !on)}
+                aria-expanded={markdownPreview}
+                className="shrink-0 rounded-md px-2 py-0.5 font-semibold text-primary hover:bg-primary/15"
+              >
+                {markdownPreview ? "Hide preview" : "Preview"}
+              </button>
+            </div>
+            {markdownPreview && (
+              <div
+                className="md md-notes max-h-64 overflow-y-auto px-4 py-3 text-sm leading-relaxed text-ink"
+                aria-label="Preview"
+                // Safe: renderNotesMarkdown escapes all text before adding its own tags.
+                dangerouslySetInnerHTML={{ __html: renderNotesMarkdown(text) }}
+              />
+            )}
           </div>
         )}
         {vaultCommand && (
