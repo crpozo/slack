@@ -70,8 +70,9 @@ export async function getCaller(event: WsEvent): Promise<Caller | null> {
     new GetCommand({
       TableName: tables.connections,
       Key: { connectionId },
-      ProjectionExpression: "userId, userEmail, #role, external, callScope, callRoomId, #name",
-      ExpressionAttributeNames: { "#role": "role", "#name": "name" },
+      // `role`, `external` and `name` are DynamoDB reserved words: always through names.
+      ProjectionExpression: "userId, userEmail, #role, #external, callScope, callRoomId, #name",
+      ExpressionAttributeNames: { "#role": "role", "#external": "external", "#name": "name" },
     }),
   );
   const row = Item as

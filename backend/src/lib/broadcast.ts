@@ -25,8 +25,9 @@ export async function listConnections(consistent = false): Promise<LiveConnectio
     { client: ddb },
     {
       TableName: tables.connections,
-      ProjectionExpression: "connectionId, userId, activeAt, #role, external, callScope",
-      ExpressionAttributeNames: { "#role": "role" },
+      // `role` and `external` are DynamoDB reserved words: always through names.
+      ProjectionExpression: "connectionId, userId, activeAt, #role, #external, callScope",
+      ExpressionAttributeNames: { "#role": "role", "#external": "external" },
       ...(consistent && { ConsistentRead: true }),
     },
   );
