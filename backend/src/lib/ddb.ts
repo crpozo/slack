@@ -30,6 +30,10 @@ export const tables = {
   get pushSubscriptions() {
     return requireEnv("PUSH_SUBSCRIPTIONS_TABLE");
   },
+  /** Phase 56: the AI Tech Radar's blips (`pk` "BLIP") and the scanner's proposals (`pk` "PROPOSAL"), by `id`. */
+  get techRadar() {
+    return requireEnv("TECH_RADAR_TABLE");
+  },
   get events() {
     return requireEnv("EVENTS_TABLE");
   },

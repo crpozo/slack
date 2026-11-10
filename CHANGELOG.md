@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI Radar** (APPS): a ThoughtWorks-style technology radar for our AI and engineering stack —
+  four quadrants (Models, Frameworks, Infrastructure, DevTools), four rings (Adopt, Trial, Assess,
+  Hold), numbered blips with our stance on hover or click, triangles for recent moves, and a list
+  view. Admins add, edit, remove and drag blips between rings. Every morning an AI scan of the
+  news adds new technologies to Assess and proposes moves for an admin to apply or dismiss
+  ("Scan now" runs it on demand).
+
 - **AI News audio keeps playing when you leave AI News:** the summary is now one player for the
   whole app: go to a channel, a board or the calendar and it goes on. A small pill (bottom
   right) shows the time, pauses it, takes you back to AI News, or stops it (✕). A Refresh

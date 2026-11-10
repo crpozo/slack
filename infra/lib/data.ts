@@ -63,6 +63,8 @@ export class Data extends Construct {
    * (`meta`, one `file#<path>` per companion file). See backend/src/lib/skills.ts.
    */
   readonly skills: Table;
+  /** Phase 56: AI Tech Radar blips and proposals. */
+  readonly techRadar: Table;
   /**
    * Vault (Phase 45): the team's passwords, by `secretId`. Passwords are
    * encrypted with `vaultKey` before they're written (`encryptedPassword`).
@@ -224,6 +226,16 @@ export class Data extends Construct {
       tableName: `slack-${props.stage}-news-insights`,
       partitionKey: { name: "feed", type: AttributeType.STRING },
       sortKey: { name: "day", type: AttributeType.STRING },
+    });
+
+    // Phase 56: AI Tech Radar. One small table for both entities: blips
+    // (`pk` = "BLIP") and the scanner's proposals (`pk` = "PROPOSAL"), `id` as
+    // the sort key, so each list is one Query.
+    this.techRadar = new Table(this, "TechRadar", {
+      ...common,
+      tableName: `slack-${props.stage}-tech-radar`,
+      partitionKey: { name: "pk", type: AttributeType.STRING },
+      sortKey: { name: "id", type: AttributeType.STRING },
     });
 
     this.skills = new Table(this, "Skills", {
