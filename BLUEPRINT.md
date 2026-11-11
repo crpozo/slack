@@ -1210,6 +1210,20 @@ A ThoughtWorks-style radar for the AI and software engineering stack, under APPS
 
 **Phase 56 acceptance criteria:** AI Radar appears under APPS; the radar shows the four quadrants and rings with numbered blips and movement triangles; hovering/clicking a blip shows the stance; an admin can drag a blip to another ring and the change persists; the list view mirrors the chart; a scan adds new technologies to Assess and files moves under Proposals.
 
+### Phase 61 — Image gallery (sparse index + MediaViewer)
+
+**Branch:** `feature/image-lightbox-gallery`
+
+1. **Sparse GSI** `byImage` on `slack-<stage>-messages`: partition `channelId`, sort `imageAt` = `<epochMs, 13 digits>#<messageId>` (`imageAtOf` in @mindfultech/shared `gallery.ts`). Only messages with an image attachment carry `imageAt` (never secrets, cards or deleted messages), so text messages are never in the index. Projection INCLUDE `messageId, userId, createdAt, attachments`. The table's own `sk` can't order the gallery (replies are `thread#…` and sort after every top-level message); `imageAt` orders them by time.
+2. **Writes:** `storedMessage()` adds `imageAt` to every new message with an image (top-level and replies, in the same Put/transaction); `toWireMessage` strips it; a tombstone `REMOVE`s it; a hard delete drops the row (and its index entry) with it.
+3. **Backfill:** `pnpm --filter infra backfill-images <stage> [--apply]` gives `imageAt` to older image messages (scan filtered to attachments without `imageAt`; conditional UpdateItem that skips rows deleted since). Idempotent.
+4. **Endpoint** `GET /channels/{channelId}/media?around=<imageAt>&key=<attachment key>` (messages Lambda, JWT, `readableChannel` access rules): two Queries of the index only, `imageAt < around` (newest first, Limit 15) and `imageAt >= around` (Limit 16), flattened to images and trimmed to 15 before + the image + 15 after, with `hasOlder`/`hasNewer`; at most 31 index items read. URLs signed on the way out.
+5. **Viewer** (`MediaViewer.tsx` on the existing zoomable `Lightbox`): the clicked image renders at once, the window arrives in the background, glass `ChevronLeft`/`ChevronRight` arrows, `X` close and an `n / total` counter; `ArrowLeft`/`ArrowRight`/`Escape` on `window` (capture), removed on unmount; a tap beside the picture closes. Reaching an end while the server says there are more fetches the next window past it.
+
+**Phase 61 acceptance criteria:** clicking an image opens it immediately; the arrows and keys step through up to 15 images on each side; the endpoint queries only the `byImage` index; text messages never enter it; a deleted placeholder leaves it.
+
+---
+
 ### Phase 60 — Radar Discovery Engine
 
 **Branch:** `feature/radar-discovery-engine`

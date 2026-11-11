@@ -1,6 +1,7 @@
 import {
   canDeleteMessage,
   canPinMessage,
+  imageAtOf,
   isDmChannel,
   readBy,
   replyPreview,
@@ -577,6 +578,12 @@ export const MessageItem = memo(function MessageItem({
   const role = useChat((s) => s.me?.role);
   const sent = !message.status;
   const tombstone = !!message.deletedAt;
+  // Phase 61: a sent message's images open in its conversation's gallery.
+  const around = sent ? imageAtOf(message) : undefined;
+  const gallery = useMemo(
+    () => (around ? { channelId: message.channelId, around } : undefined),
+    [around, message.channelId],
+  );
   // The trash icon: only for the author and workspace admins (Phase 32).
   const canDelete = sent && !!myUserId && canDeleteMessage(message, myUserId, role);
   // Phase 38: any member pins (not in an archived channel, never a secret).
@@ -751,7 +758,7 @@ export const MessageItem = memo(function MessageItem({
             message.attachments.length > 0 && (
               <div className="mt-1.5 flex flex-wrap gap-2">
                 {message.attachments.map((a) => (
-                  <Attachment key={a.key} attachment={a} />
+                  <Attachment key={a.key} attachment={a} gallery={gallery} />
                 ))}
               </div>
             )

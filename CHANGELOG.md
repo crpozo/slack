@@ -13,6 +13,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   with `/slack/prod/elevenlabs-voice-id` (a String with the voice's id; a stock voice
   otherwise). Without the key, or if ElevenLabs fails (no credits, an outage), Amazon Polly
   reads it as before, so there's always an audio.
+- **Image gallery in conversations:** clicking an image in a channel or DM opens it full screen
+  at once, with **‹ ›** arrows (or **←/→**) to move through the conversation's other images and a
+  counter; **Esc**, ✕ or a click beside the picture closes it. The images around it load in the
+  background, 15 before and 15 after, and more as you reach either end. Zoom and download work
+  as before.
 - **AI Skills: Anthropic's claude-api skill, for building agents:** first in **Recomendadas**.
   It's Anthropic's own reference for building AI agents: tool use, agents that follow a
   defined workflow, Managed Agents and computer use (an agent operating systems the way a

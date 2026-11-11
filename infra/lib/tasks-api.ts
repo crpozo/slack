@@ -156,6 +156,8 @@ export function notesModelResources(stack: Stack): string[] {
 export const MESSAGES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.DELETE, path: "/messages/{channelId}/{sk}" },
   { method: HttpMethod.GET, path: "/channels/{channelId}/files" },
+  // Phase 61: the image gallery around an image (the messages table's sparse index).
+  { method: HttpMethod.GET, path: "/channels/{channelId}/media" },
   { method: HttpMethod.GET, path: "/channels/{channelId}/links" },
   { method: HttpMethod.GET, path: "/channels/{channelId}/pins" },
   // Phase 60: the channel's time log (hours per person, rates for admins).

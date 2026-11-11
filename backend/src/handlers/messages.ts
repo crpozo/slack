@@ -17,6 +17,8 @@ import {
   type Message,
   type ReplySnapshot,
   type ServerEvent,
+  IMAGE_AT_PATTERN,
+  type ChannelMediaWindow,
 } from "@mindfultech/shared";
 import { deliver, listConnections } from "../lib/broadcast";
 import { channelAudience, getAccessibleChannel } from "../lib/channels";
@@ -32,6 +34,7 @@ import {
   type HttpEvent,
   type HttpResult,
 } from "../lib/http";
+import { mediaWindow } from "../lib/gallery";
 import { errorFields, log } from "../lib/logger";
 import {
   forgetMessages,
@@ -164,7 +167,7 @@ async function writeTombstone(message: Message, now: number): Promise<void> {
             TableName: tables.messages,
             Key: { channelId: message.channelId, sk: message.sk },
             UpdateExpression:
-              "SET deletedAt = :now, #text = :empty, attachments = :none REMOVE reactions, replyTo, isEdited, editedAt, isSecret, expiresAt, kind, meeting, aiNotes, vault, pinnedAt, pinnedBy",
+              "SET deletedAt = :now, #text = :empty, attachments = :none REMOVE reactions, replyTo, isEdited, editedAt, isSecret, expiresAt, kind, meeting, aiNotes, vault, pinnedAt, pinnedBy, imageAt",
             ConditionExpression: "messageId = :id AND attribute_not_exists(deletedAt)",
             ExpressionAttributeNames: { "#text": "text" },
             ExpressionAttributeValues: {
@@ -509,6 +512,29 @@ async function listFiles(event: HttpEvent, caller: HttpCaller): Promise<HttpResu
   return json(200, { files, nextCursor } satisfies ChannelFilesPage);
 }
 
+/**
+ * `GET /channels/{channelId}/media?around=<imageAt>&key=<attachment key>`
+ * (Phase 61): the gallery around the image that was opened, read from the
+ * messages table's sparse image index only (see `mediaWindow`).
+ */
+async function listMediaWindow(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const around = event.queryStringParameters?.around ?? "";
+  const key = event.queryStringParameters?.key || undefined;
+  if (!IMAGE_AT_PATTERN.test(around))
+    throw new HttpError(400, "`around` must be an image position");
+  if (key !== undefined && key.length > 1024) throw new HttpError(400, "`key` is too long");
+  const channel = await readableChannel(event, caller);
+  const window = await mediaWindow(channel.channelId, around, key);
+  const now = Date.now();
+  const images = await Promise.all(
+    window.images.map(async (img) => ({
+      ...img,
+      attachment: await withSignedUrls(img.attachment, now),
+    })),
+  );
+  return json(200, { ...window, images } satisfies ChannelMediaWindow);
+}
+
 /** `GET /channels/{channelId}/links`: the links shared in it, newest first. */
 async function listLinks(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const channel = await readableChannel(event, caller);
@@ -557,6 +583,8 @@ async function listPinned(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
 const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<HttpResult>> = {
   "DELETE /messages/{channelId}/{sk}": deleteMessage,
   "GET /channels/{channelId}/files": listFiles,
+  // Phase 61: the image gallery's sliding window.
+  "GET /channels/{channelId}/media": listMediaWindow,
   "GET /channels/{channelId}/links": listLinks,
   "GET /channels/{channelId}/pins": listPinned,
   // Phase 60: the channel's time log.

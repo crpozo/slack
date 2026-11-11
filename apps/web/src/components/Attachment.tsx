@@ -16,6 +16,7 @@ import {
 import { useChat } from "../store";
 import { DownloadIcon, FileIcon, MicIcon, PauseIcon, PlayIcon } from "./icons";
 import { Lightbox } from "./Lightbox";
+import { MediaViewer } from "./MediaViewer";
 import { PdfViewer } from "./PdfViewer";
 
 /**
@@ -38,7 +39,21 @@ function previewSize(a: AttachmentData): { width: number; height: number } | nul
   return a.width && a.height ? { width: a.width, height: a.height } : null;
 }
 
-function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
+/**
+ * Phase 61: where an image sits in its conversation's gallery. With it, the
+ * image opens in the `MediaViewer` (arrows through the conversation's
+ * images); without it (a message still on its way, a card), on its own.
+ */
+export interface GalleryPlace {
+  channelId: string;
+  /** Its message's `imageAt`. */
+  around: string;
+}
+
+function ImageAttachment({
+  attachment,
+  gallery,
+}: Readonly<{ attachment: AttachmentData; gallery?: GalleryPlace }>) {
   const previewKey = attachment.thumbKey ?? attachment.key;
   // Just sent from here (Phase 39): the local copy shows until the S3 image has
   // loaded, so the confirmed message doesn't blink.
@@ -131,7 +146,17 @@ function ImageAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
           onError={() => setFailed(true)}
         />
       </button>
-      {viewing && (
+      {viewing && gallery && (
+        <MediaViewer
+          channelId={gallery.channelId}
+          around={gallery.around}
+          attachment={attachment}
+          src={viewing}
+          placeholder={attachment.thumbKey ? url : undefined}
+          onClose={() => setViewing(null)}
+        />
+      )}
+      {viewing && !gallery && (
         <Lightbox
           src={viewing}
           placeholder={attachment.thumbKey ? url : undefined}
@@ -565,10 +590,13 @@ export function attachmentKind(
   return "file";
 }
 
-export function Attachment({ attachment }: Readonly<{ attachment: AttachmentData }>) {
+export function Attachment({
+  attachment,
+  gallery,
+}: Readonly<{ attachment: AttachmentData; gallery?: GalleryPlace }>) {
   switch (attachmentKind(attachment)) {
     case "image":
-      return <ImageAttachment attachment={attachment} />;
+      return <ImageAttachment attachment={attachment} gallery={gallery} />;
     case "audio":
       return <AudioAttachment attachment={attachment} />;
     case "video":
