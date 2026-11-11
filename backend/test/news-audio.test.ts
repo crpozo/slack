@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { audioScript, scriptChunks, spokenDay, spokenSeconds } from "../src/lib/newsAudio";
+import {
+  AUDIO_BUDGET_CHARS,
+  audioScript,
+  scriptChunks,
+  spokenDay,
+  spokenSeconds,
+} from "../src/lib/newsAudio";
 
 describe("the AI News summary in audio (Phase 54)", () => {
   const insights = {
@@ -29,18 +35,32 @@ describe("the AI News summary in audio (Phase 54)", () => {
     ],
   };
 
-  it("reads the day, the top stories, the trends and the actions, without markdown or links", () => {
+  it("reads the day and the top stories in a sentence each: no trends, actions, markdown or links", () => {
     const script = audioScript(insights);
-    expect(script).toContain("Hola. Este es el resumen de AI News del lunes, 9 de noviembre");
-    expect(script).toContain(
-      "Primero: OpenAI lanza agentes. Por qué importa: Cambia la automatización de procesos. Fuente: TechCrunch.",
-    );
-    // No "why it matters": its summary instead, links dropped.
-    expect(script).toContain("Segundo: Nvidia invierte. Una ronda grande. Ver. Fuente: The Verge.");
-    expect(script).toContain("Agentes. Todos lanzan agentes para empresas.");
-    expect(script).toContain("Probar agentes, esta semana: en un cliente actual.");
-    expect(script).not.toMatch(/\*\*|https?:/);
-    expect(script.endsWith("Los detalles y los enlaces están en AI News.")).toBe(true);
+    expect(script.split("\n\n")).toEqual([
+      "AI News, lunes, 9 de noviembre. Lo más importante en un minuto.",
+      "Primero: OpenAI lanza agentes. Resumen.",
+      // Only the first sentence of what happened; links dropped.
+      "Segundo: Nvidia invierte. Una ronda grande.",
+      "Los detalles, en AI News.",
+    ]);
+    expect(script).not.toMatch(/\*\*|https?:|Por qué importa|Fuente/);
+  });
+
+  it("fits a minute: as many stories as the budget takes, always the first", () => {
+    const long = {
+      ...insights.stories[0]!,
+      headline: "Un titular largo sobre inteligencia artificial que ocupa bastante",
+      summary: `${"palabra ".repeat(40).trim()}. Segunda frase que no se lee.`,
+    };
+    const script = audioScript({ ...insights, stories: [long, long, long, long, long] });
+    expect(script.length).toBeLessThanOrEqual(AUDIO_BUDGET_CHARS + 20);
+    expect(script).toContain("Primero:");
+    expect(script).not.toContain("Quinto");
+    expect(script).not.toContain("Segunda frase");
+    // One enormous story is still read.
+    const huge = { ...long, summary: `${"x".repeat(1200)}.` };
+    expect(audioScript({ ...insights, stories: [huge, long] })).toContain("Primero:");
   });
 
   it("says a new Claude model first (Phase 56)", () => {

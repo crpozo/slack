@@ -1,13 +1,13 @@
 import { PollyClient, SynthesizeSpeechCommand } from "@aws-sdk/client-polly";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import type { NewsInsights, NewsHorizon } from "@mindfultech/shared";
+import type { NewsInsights } from "@mindfultech/shared";
 import { requireEnv } from "./env";
 
 // ---------------------------------------------------------------------------
 // AI News in audio (Phase 54): the morning's analysis read aloud in Spanish,
-// a couple of minutes to listen to on the way in. The script is built from
-// the analysis itself (no second model call): the top stories with why they
-// matter, the trends, and what it means for MindfulTech. Amazon Polly reads
+// about a minute (Phase 60: it was four). The script is built from the
+// analysis itself (no second model call): the top stories, each as its
+// headline and the one sentence of what happened. Amazon Polly reads
 // it with a neural Spanish voice; the MP3 is kept in the attachments bucket
 // under `news-audio/` and the page plays it through a presigned URL.
 // ---------------------------------------------------------------------------
@@ -21,17 +21,12 @@ export const NEWS_AUDIO_VOICE = "Lupe";
 /** Polly takes at most 3,000 billed characters a request: the script is read in pieces. */
 const MAX_CHARS_PER_REQUEST = 2_800;
 
-/** How many stories, trends and actions the summary reads (the rest stay on the page). */
-const STORIES_READ = 5;
-const TRENDS_READ = 3;
-const ACTIONS_READ = 4;
+/** At most this many stories are read (as many as fit the minute). */
+const STORIES_READ = 4;
+/** About a minute of speech (Polly's neural voices read some 15 characters a second). */
+export const AUDIO_BUDGET_CHARS = 900;
 
-const ORDINALS = ["Primero", "Segundo", "Tercero", "Cuarto", "Quinto", "Sexto"];
-const HORIZON_SPOKEN: Record<NewsHorizon, string> = {
-  ahora: "esta semana",
-  trimestre: "este trimestre",
-  vigilar: "para vigilar",
-};
+const ORDINALS = ["Primero", "Segundo", "Tercero", "Cuarto"];
 
 /** Text as it should be read: no markdown marks, no links, tidy spaces and endings. */
 function spoken(text: string): string {
@@ -56,15 +51,27 @@ export function spokenDay(day: string): string {
   }).format(Date.UTC(y, m - 1, d));
 }
 
-/** The script read aloud: a greeting, the top stories, the trends, the actions, a sign-off. */
+/** Up to the first full stop: one sentence, the fact. */
+function firstSentence(text: string): string {
+  const clean = spoken(text);
+  const end = clean.search(/[.!?…](\s|$)/);
+  return end === -1 ? clean : clean.slice(0, end + 1);
+}
+
+/**
+ * The script read aloud, in about a minute (`AUDIO_BUDGET_CHARS`): the day,
+ * a new Claude model if there is one, then the top stories, most important
+ * first, each as its headline and the one sentence of what happened. As many
+ * stories as fit (always the first, at most `STORIES_READ`); trends, actions
+ * and sources stay on the page.
+ */
 export function audioScript(
-  insights: Pick<NewsInsights, "day" | "stories" | "trends" | "takeaways" | "claudeAlert">,
+  insights: Pick<NewsInsights, "day" | "stories" | "claudeAlert">,
 ): string {
+  const SIGN_OFF = "Los detalles, en AI News.";
   const parts: string[] = [];
   const day = spokenDay(insights.day);
-  parts.push(
-    `Hola. Este es el resumen de AI News${day ? ` del ${day}` : ""}: lo más importante de la inteligencia artificial hoy.`,
-  );
+  parts.push(`AI News${day ? `, ${day}` : ""}. Lo más importante en un minuto.`);
   // Phase 56: a new Claude model goes first.
   const alert = insights.claudeAlert;
   if (alert) {
@@ -73,32 +80,17 @@ export function audioScript(
       alert.status === "launched"
         ? `Atención: Anthropic lanzó un nuevo modelo de Claude${name}.`
         : `Atención: Anthropic prepara un nuevo modelo de Claude${name}.`;
-    parts.push(`${lead}${alert.summary ? ` ${spoken(alert.summary)}` : ""}`);
+    parts.push(`${lead}${alert.summary ? ` ${firstSentence(alert.summary)}` : ""}`);
   }
-  const stories = insights.stories.slice(0, STORIES_READ);
-  if (stories.length > 0) {
-    parts.push("Empezamos con lo esencial.");
-    stories.forEach((story, i) => {
-      const lead = `${ORDINALS[i] ?? "Además"}: ${spoken(story.headline)}`;
-      const why = story.whyItMatters ? ` Por qué importa: ${spoken(story.whyItMatters)}` : "";
-      const summary = !story.whyItMatters && story.summary ? ` ${spoken(story.summary)}` : "";
-      parts.push(`${lead}${why}${summary} Fuente: ${story.sourceName}.`);
-    });
-  }
-  const trends = insights.trends.slice(0, TRENDS_READ);
-  if (trends.length > 0) {
-    parts.push("Ahora, las tendencias.");
-    for (const trend of trends) parts.push(`${spoken(trend.topic)} ${spoken(trend.text)}`);
-  }
-  const actions = insights.takeaways.slice(0, ACTIONS_READ);
-  if (actions.length > 0) {
-    parts.push("Y qué significa para MindfulTech.");
-    for (const action of actions) {
-      const when = action.horizon ? `, ${HORIZON_SPOKEN[action.horizon]}` : "";
-      parts.push(`${spoken(action.lead).replace(/[.:]$/, "")}${when}: ${spoken(action.body)}`);
-    }
-  }
-  parts.push("Eso es todo por hoy. Los detalles y los enlaces están en AI News.");
+  let used = parts.join("\n\n").length + SIGN_OFF.length;
+  insights.stories.slice(0, STORIES_READ).forEach((story, i) => {
+    const fact = story.summary ? ` ${firstSentence(story.summary)}` : "";
+    const line = `${ORDINALS[i] ?? "Además"}: ${spoken(story.headline)}${fact}`;
+    if (i > 0 && used + line.length > AUDIO_BUDGET_CHARS) return;
+    parts.push(line);
+    used += line.length + 2;
+  });
+  parts.push(SIGN_OFF);
   return parts.join("\n\n");
 }
 
@@ -167,10 +159,7 @@ export async function synthesize(text: string): Promise<Uint8Array> {
 
 /** The day's summary as an MP3 in the bucket; returns its key. */
 export async function writeNewsAudio(
-  insights: Pick<
-    NewsInsights,
-    "day" | "generatedAt" | "stories" | "trends" | "takeaways" | "claudeAlert"
-  >,
+  insights: Pick<NewsInsights, "day" | "generatedAt" | "stories" | "claudeAlert">,
 ): Promise<{ key: string; chars: number }> {
   const script = audioScript(insights);
   const audio = await synthesize(script);

@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI News audio in a minute:** the summary is now about one minute (it was four): the day's
+  top stories, most important first, each as its headline and the one sentence of what
+  happened; a new Claude model still goes first. Trends, actions and sources stay on the page.
+  It applies from the next analysis (06:00, or Refresh).
 - **Radar Discovery Engine:** every day at 06:00 UTC, an AI reads the AI news stored in the last
   24 hours and Hacker News' top 30 stories, picks out new or trending models, frameworks,
   infrastructure and developer tools, and files the ones the radar doesn't know yet (by a
