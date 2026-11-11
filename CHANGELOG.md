@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI Skills: recommended skills, one click away:** a **Recomendadas** section under the
+  catalog lists 19 well-known public skills not in it yet: Anthropic's official ones
+  (skill-creator, frontend-design, webapp-testing, mcp-builder, pdf, doc-coauthoring) and
+  obra/superpowers' engineering workflow (TDD, systematic debugging, planning, code review,
+  verification, worktrees, subagents…). **Importar** reads the skill from GitHub at that
+  moment, so it's the latest version; **Importar las N** brings them all. Imported ones leave
+  the list.
 - **Vault table no longer cut off:** the password, link and edit columns were clipped on the
   right when names or usernames were long. Columns now have fixed widths (a long name wraps
   to two lines, a long username is shortened, the full text on hover), and on a narrow window

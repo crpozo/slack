@@ -13,6 +13,7 @@ import {
   type SkillFilter,
 } from "../lib/skills";
 import { skillsApi } from "../lib/skillsApi";
+import { missingRecommended, type RecommendedSkill } from "../lib/recommendedSkills";
 import { tasksApiConfigured, TasksApiError } from "../lib/tasksApi";
 import { useChat } from "../store";
 import { useSkills } from "../store/skills";
@@ -109,6 +110,44 @@ export function SkillsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => v
   }, [configured, load]);
 
   const shown = useMemo(() => filterSkills(skills, query, filter), [skills, query, filter]);
+
+  // Phase 61: well-known public skills not in the catalog yet, one click away.
+  const recommended = useMemo(() => missingRecommended(skills), [skills]);
+
+  async function importRecommended(r: RecommendedSkill) {
+    setBusy(`rec:${r.slug}`);
+    try {
+      const { skill } = await skillsApi.importGithub({ repoUrl: r.url, category: r.category });
+      put(skill);
+      showToast(`${skill.name} importada de GitHub`, "success");
+    } catch (err) {
+      showToast(`No se pudo importar ${r.slug}: ${errorText(err, "inténtalo de nuevo")}`, "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** One after another (GitHub limits anonymous requests); stops at the first failure. */
+  async function importAll() {
+    const list = recommended;
+    let done = 0;
+    try {
+      for (const r of list) {
+        setBusy(`rec:all:${done + 1}/${list.length}`);
+        const { skill } = await skillsApi.importGithub({ repoUrl: r.url, category: r.category });
+        put(skill);
+        done++;
+      }
+      showToast(`${done} skills importadas`, "success");
+    } catch (err) {
+      showToast(
+        `Se importaron ${done} de ${list.length}: ${errorText(err, "inténtalo de nuevo")}`,
+        "error",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function download(skill: SkillSummary) {
     setBusy(`zip:${skill.id}`);
@@ -267,6 +306,58 @@ export function SkillsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => v
                     </li>
                   ))}
                 </ul>
+              )}
+              {recommended.length > 0 && (
+                <section className="flex flex-col gap-3" aria-labelledby="skills-recommended">
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div>
+                      <h2 id="skills-recommended" className="text-lg font-bold text-ink">
+                        Recomendadas
+                      </h2>
+                      <p className="text-sm text-ink-secondary">
+                        Skills oficiales de Anthropic y las más usadas de la comunidad. Se importa
+                        la versión más reciente de GitHub.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void importAll()}
+                      disabled={busy !== null}
+                      className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-primary/50 px-4 py-2 text-sm font-semibold text-primary hover:bg-primary/10 disabled:opacity-60"
+                    >
+                      <GithubIcon aria-hidden="true" />
+                      {busy?.startsWith("rec:all")
+                        ? `Importando ${busy.split(":")[2] ?? ""}…`
+                        : `Importar las ${recommended.length}`}
+                    </button>
+                  </div>
+                  <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" data-skills-recommended>
+                    {recommended.map((r) => (
+                      <li
+                        key={r.slug}
+                        className={`${GLASS_CARD} flex items-start gap-3 p-4`}
+                        data-recommended={r.slug}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-semibold text-ink">{r.slug}</p>
+                          <p className="text-xs text-ink-secondary">
+                            {r.source === "Anthropic" ? "Anthropic · oficial" : "obra/superpowers"}
+                          </p>
+                          <p className="mt-1.5 text-sm leading-snug text-ink/85">{r.about}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void importRecommended(r)}
+                          disabled={busy !== null}
+                          className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-on-primary disabled:opacity-60"
+                          aria-label={`Importar ${r.slug}`}
+                        >
+                          {busy === `rec:${r.slug}` ? "Importando…" : "Importar"}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               )}
             </>
           )}
