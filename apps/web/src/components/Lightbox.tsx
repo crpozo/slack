@@ -1,9 +1,10 @@
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { clampPan, FIT, toggleZoom, wheelFactor, zoomTo, type ZoomView } from "../lib/zoom";
 import { useChat } from "../store";
 import { downloadAttachment } from "../lib/download";
-import { CloseIcon, DownloadIcon } from "./icons";
+import { DownloadIcon } from "./icons";
 import { useModalDialog } from "./Modal";
 
 /** Two taps this close (ms, px) are a double tap. */
@@ -12,6 +13,9 @@ const DOUBLE_TAP_PX = 30;
 /** A press that moves less than this is a tap, not a drag. */
 const TAP_SLOP_PX = 6;
 const STEP = 1.5;
+/** The gallery's arrows: round glass buttons over the picture's edges. */
+const GLASS_ARROW =
+  "absolute top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-md hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white";
 
 interface LightboxProps {
   /** The original, full-size image. */
@@ -22,6 +26,11 @@ interface LightboxProps {
   /** The file's key: Download saves the original under `name` (Phase 47). */
   fileKey?: string;
   onClose: () => void;
+  /**
+   * Phase 61, the gallery (`MediaViewer`): arrows on each side and a counter.
+   * An arrow is left out when there is nothing that way.
+   */
+  nav?: { counter: string; onPrev?: () => void; onNext?: () => void };
 }
 
 /**
@@ -33,13 +42,27 @@ interface LightboxProps {
  * events from bubbling out: the page's own gestures (swipe to reply, the
  * drawer's edge swipe, listening on `document`) never see them.
  */
-export function Lightbox({ src, placeholder, name, fileKey, onClose }: Readonly<LightboxProps>) {
+export function Lightbox({
+  src,
+  placeholder,
+  name,
+  fileKey,
+  onClose,
+  nav,
+}: Readonly<LightboxProps>) {
   const dialog = useModalDialog(onClose);
   const notify = useChat((s) => s.showToast);
   const [loaded, setLoaded] = useState(!placeholder);
   const viewportRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const [view, setView] = useState<ZoomView>(FIT);
+  // Another image of the gallery: shown fitted, its thumbnail until it loads.
+  const [shown, setShown] = useState(src);
+  if (shown !== src) {
+    setShown(src);
+    setLoaded(!placeholder);
+    setView(FIT);
+  }
   const viewRef = useRef(view);
   viewRef.current = view;
   const closeRef = useRef(onClose);
@@ -201,13 +224,25 @@ export function Lightbox({ src, placeholder, name, fileKey, onClose }: Readonly<
     <dialog
       ref={dialog}
       aria-label={name}
-      className="m-0 h-full max-h-none w-full max-w-none overflow-hidden bg-black/90 p-0 text-white backdrop:bg-black/80"
+      aria-roledescription={nav ? "image gallery" : undefined}
+      className={`m-0 h-full max-h-none w-full max-w-none overflow-hidden p-0 text-white backdrop:bg-black/80 ${
+        nav ? "bg-black/80 backdrop-blur-xl" : "bg-black/90"
+      }`}
     >
-      <div className="flex h-full flex-col">
+      <div className="relative flex h-full flex-col">
         <header className="flex items-center gap-1 px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
           <p className="mr-auto min-w-0 truncate text-sm font-medium" title={name}>
             {name}
           </p>
+          {nav && (
+            <p
+              className="shrink-0 rounded-full bg-white/10 px-2.5 py-1 text-xs tabular-nums text-white/85 ring-1 ring-white/15 backdrop-blur-md"
+              aria-live="polite"
+              data-testid="media-counter"
+            >
+              {nav.counter}
+            </p>
+          )}
           <button
             type="button"
             className={button}
@@ -265,7 +300,7 @@ export function Lightbox({ src, placeholder, name, fileKey, onClose }: Readonly<
             aria-label="Close"
             title="Close (Esc)"
           >
-            <CloseIcon />
+            <X size={20} aria-hidden="true" />
           </button>
         </header>
         <div
@@ -296,6 +331,29 @@ export function Lightbox({ src, placeholder, name, fileKey, onClose }: Readonly<
             />
           )}
         </div>
+        {/* Outside the viewport: its gestures (tap beside the picture closes) never see them. */}
+        {nav?.onPrev && (
+          <button
+            type="button"
+            onClick={nav.onPrev}
+            className={`${GLASS_ARROW} left-2 sm:left-4`}
+            aria-label="Previous image"
+            title="Previous (←)"
+          >
+            <ChevronLeft size={24} aria-hidden="true" />
+          </button>
+        )}
+        {nav?.onNext && (
+          <button
+            type="button"
+            onClick={nav.onNext}
+            className={`${GLASS_ARROW} right-2 sm:right-4`}
+            aria-label="Next image"
+            title="Next (→)"
+          >
+            <ChevronRight size={24} aria-hidden="true" />
+          </button>
+        )}
       </div>
     </dialog>,
     document.body,

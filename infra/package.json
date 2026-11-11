@@ -15,6 +15,7 @@
     "backfill-notes": "tsx scripts/backfill-notes.ts",
     "backfill-media": "tsx scripts/backfill-media.ts",
     "backfill-search": "tsx scripts/backfill-search.ts",
+    "backfill-images": "tsx scripts/backfill-images.ts",
     "shorten-secret-ttl": "tsx scripts/shorten-secret-ttl.ts"
   },
   "dependencies": {

@@ -104,6 +104,7 @@ describe("task manager API", () => {
       "GET /calendar/events",
       "GET /channels/{channelId}/files",
       "GET /channels/{channelId}/links",
+      "GET /channels/{channelId}/media",
       "GET /channels/{channelId}/pins",
       "GET /channels/{channelId}/time",
       "GET /news",

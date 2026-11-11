@@ -23,7 +23,7 @@ import { ddb, tables } from "../lib/ddb";
 import { wsHandler } from "../lib/handler";
 import { errorFields, log } from "../lib/logger";
 import { mediaPuts } from "../lib/media";
-import { findSentMessage } from "../lib/messages";
+import { findSentMessage, storedMessage } from "../lib/messages";
 import { notifyOffline } from "../lib/notify";
 import { badRequest, ok, reply, replyError } from "../lib/response";
 import { signAttachments } from "../lib/s3";
@@ -91,7 +91,7 @@ async function storeReply(
           {
             Put: {
               TableName: tables.messages,
-              Item: message,
+              Item: storedMessage(message),
               ConditionExpression: "attribute_not_exists(sk)",
             },
           },
@@ -146,12 +146,15 @@ async function storeReply(
 async function storeMessage(message: Message): Promise<void> {
   const puts = mediaPuts(message);
   if (puts.length === 0) {
-    await ddb.send(new PutCommand({ TableName: tables.messages, Item: message }));
+    await ddb.send(new PutCommand({ TableName: tables.messages, Item: storedMessage(message) }));
     return;
   }
   await ddb.send(
     new TransactWriteCommand({
-      TransactItems: [{ Put: { TableName: tables.messages, Item: message } }, ...puts],
+      TransactItems: [
+        { Put: { TableName: tables.messages, Item: storedMessage(message) } },
+        ...puts,
+      ],
     }),
   );
 }
@@ -183,7 +186,7 @@ async function storeReplyOnce(
   await ddb.send(
     new TransactWriteCommand({
       TransactItems: [
-        { Put: { TableName: tables.messages, Item: message } },
+        { Put: { TableName: tables.messages, Item: storedMessage(message) } },
         ...mediaPuts(message),
         {
           Update: {
