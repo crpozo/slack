@@ -500,6 +500,11 @@ function AudioSummary({ audio }: Readonly<{ audio: NewsAudio }>) {
       <span className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-primary">
         <HeadphonesIcon aria-hidden="true" />
         Escucha el resumen · {minutes} min
+        {audio.voice && (
+          <span className="text-ink-secondary" data-news-audio-voice={audio.voice}>
+            · {audio.voice === "elevenlabs" ? "ElevenLabs" : "Polly"}
+          </span>
+        )}
       </span>
       <div className="flex h-10 w-full min-w-0 items-center gap-2.5 rounded-full bg-white/[0.08] pl-1 pr-4 sm:w-80">
         <button

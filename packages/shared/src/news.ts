@@ -408,6 +408,8 @@ export interface NewsAudio {
   url: string;
   /** About how long it plays. */
   seconds: number;
+  /** Phase 61: which service read it (absent on audios from before). */
+  voice?: "elevenlabs" | "polly";
 }
 
 /**

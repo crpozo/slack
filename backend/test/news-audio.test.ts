@@ -144,6 +144,12 @@ describe("the voice: ElevenLabs when its key is set, Polly otherwise (Phase 61)"
       text: "Hola.",
       model_id: "eleven_multilingual_v2",
       language_code: "es",
+      voice_settings: {
+        stability: 0.4,
+        similarity_boost: 0.8,
+        style: 0.35,
+        use_speaker_boost: true,
+      },
     });
     expect(pollySend).not.toHaveBeenCalled();
   });

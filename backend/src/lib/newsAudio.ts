@@ -144,6 +144,16 @@ export const ELEVENLABS_DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb";
 /** The multilingual model: it reads Spanish as Spanish. */
 export const ELEVENLABS_MODEL = "eleven_multilingual_v2";
 const ELEVENLABS_TIMEOUT_MS = 60_000;
+/**
+ * A newsreader's delivery rather than a flat read: less stability lets the
+ * voice move, some style adds emphasis, and the speaker boost makes it fuller.
+ */
+export const ELEVENLABS_VOICE_SETTINGS = {
+  stability: 0.4,
+  similarity_boost: 0.8,
+  style: 0.35,
+  use_speaker_boost: true,
+} as const;
 
 let fetchImpl: typeof fetch = (...args) => fetch(...args);
 /** Tests swap the network. */
@@ -159,7 +169,12 @@ export async function synthesizeWithElevenLabs(text: string, apiKey: string): Pr
     {
       method: "POST",
       headers: { "xi-api-key": apiKey, "content-type": "application/json", accept: "audio/mpeg" },
-      body: JSON.stringify({ text, model_id: ELEVENLABS_MODEL, language_code: "es" }),
+      body: JSON.stringify({
+        text,
+        model_id: ELEVENLABS_MODEL,
+        language_code: "es",
+        voice_settings: ELEVENLABS_VOICE_SETTINGS,
+      }),
       signal: AbortSignal.timeout(ELEVENLABS_TIMEOUT_MS),
     },
   );

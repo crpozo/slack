@@ -13,6 +13,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   with `/slack/prod/elevenlabs-voice-id` (a String with the voice's id; a stock voice
   otherwise). Without the key, or if ElevenLabs fails (no credits, an outage), Amazon Polly
   reads it as before, so there's always an audio.
+- **AI News audio, a livelier read:** ElevenLabs now reads with a newsreader's delivery (more
+  expression and emphasis, fuller sound) instead of a flat one, and the player says who read
+  the summary — **ElevenLabs** or **Polly** — so it's clear when the fallback voice was used.
 - **Image gallery in conversations:** clicking an image in a channel or DM opens it full screen
   at once, with **‹ ›** arrows (or **←/→**) to move through the conversation's other images and a
   counter; **Esc**, ✕ or a click beside the picture closes it. The images around it load in the
