@@ -24,6 +24,8 @@ import type { Auth } from "./auth";
 import type { Data } from "./data";
 import { LAMBDA_ARCHITECTURE, LAMBDA_BUNDLING, LAMBDA_MEMORY_MB, LAMBDA_RUNTIME } from "./lambda";
 import {
+  elevenLabsKeyParameterName,
+  elevenLabsVoiceParameterName,
   githubTokenParameterName,
   openaiKeyParameterName,
   removalPolicyFor,
@@ -369,6 +371,9 @@ export class TasksApi extends Construct {
         NEWS_INSIGHTS_TABLE: data.newsInsights.tableName,
         // Phase 54: the summary in audio goes to the attachments bucket (news-audio/).
         ATTACHMENTS_BUCKET: props.attachments.bucketName,
+        // Phase 61: ElevenLabs reads the summary when its key exists (else Polly).
+        ELEVENLABS_API_KEY_PARAMETER: elevenLabsKeyParameterName(stage),
+        ELEVENLABS_VOICE_ID_PARAMETER: elevenLabsVoiceParameterName(stage),
       },
       // Phase 49: one streamed request of up to 5 minutes (high effort, 40 stories).
       Duration.minutes(6),
@@ -934,6 +939,9 @@ export class TasksApi extends Construct {
     this.newsInsightsWorker.addToRolePolicy(
       new PolicyStatement({ actions: ["polly:SynthesizeSpeech"], resources: ["*"] }),
     );
+    // Phase 61: the optional ElevenLabs key and voice (SSM), read only by the worker.
+    grantReadParameter(this.newsInsightsWorker, elevenLabsKeyParameterName(stage));
+    grantReadParameter(this.newsInsightsWorker, elevenLabsVoiceParameterName(stage));
     this.newsInsightsWorker.addToRolePolicy(
       new PolicyStatement({
         actions: ["s3:PutObject"],

@@ -139,6 +139,7 @@ async function makeAudio(
     log.info("news audio written", {
       day: analysis.day,
       chars: audio.chars,
+      voice: audio.voice,
       ms: Date.now() - started,
     });
   } catch (err) {

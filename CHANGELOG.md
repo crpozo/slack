@@ -7,6 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI News audio with ElevenLabs:** the summary is read by ElevenLabs (the multilingual model,
+  in Spanish) once its API key is stored: `aws ssm put-parameter --name
+/slack/prod/elevenlabs-api-key --type SecureString --value "…"`. Optionally pick the voice
+  with `/slack/prod/elevenlabs-voice-id` (a String with the voice's id; a stock voice
+  otherwise). Without the key, or if ElevenLabs fails (no credits, an outage), Amazon Polly
+  reads it as before, so there's always an audio.
 - **AI Skills: Anthropic's claude-api skill, for building agents:** first in **Recomendadas**.
   It's Anthropic's own reference for building AI agents: tool use, agents that follow a
   defined workflow, Managed Agents and computer use (an agent operating systems the way a

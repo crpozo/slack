@@ -2,6 +2,8 @@ import { PollyClient, SynthesizeSpeechCommand } from "@aws-sdk/client-polly";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { NewsInsights } from "@mindfultech/shared";
 import { requireEnv } from "./env";
+import { errorFields, log } from "./logger";
+import { optionalSecret } from "./secret";
 
 // ---------------------------------------------------------------------------
 // AI News in audio (Phase 54): the morning's analysis read aloud in Spanish,
@@ -129,7 +131,69 @@ export function useNewsAudioClients(next: { polly?: PollyClient; s3?: S3Client }
   s3 = next?.s3 ?? null;
 }
 
-/** Reads `text` aloud: one MP3 (the pieces' frames, back to back, play as one file). */
+// --- ElevenLabs (Phase 61): a more natural voice, when its key is set -----------------
+
+export const elevenLabsKey = optionalSecret("ELEVENLABS_API_KEY", "ELEVENLABS_API_KEY_PARAMETER");
+/** Optional: another voice from the account's library (its id). */
+export const elevenLabsVoice = optionalSecret(
+  "ELEVENLABS_VOICE_ID",
+  "ELEVENLABS_VOICE_ID_PARAMETER",
+);
+/** "George", one of ElevenLabs' stock voices: used until a voice id is configured. */
+export const ELEVENLABS_DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb";
+/** The multilingual model: it reads Spanish as Spanish. */
+export const ELEVENLABS_MODEL = "eleven_multilingual_v2";
+const ELEVENLABS_TIMEOUT_MS = 60_000;
+
+let fetchImpl: typeof fetch = (...args) => fetch(...args);
+/** Tests swap the network. */
+export function useNewsAudioFetch(next: typeof fetch | null): void {
+  fetchImpl = next ?? ((...args) => fetch(...args));
+}
+
+/** Reads `text` aloud with ElevenLabs: one MP3. Throws when the service refuses or fails. */
+export async function synthesizeWithElevenLabs(text: string, apiKey: string): Promise<Uint8Array> {
+  const voice = (await elevenLabsVoice.get()) ?? ELEVENLABS_DEFAULT_VOICE;
+  const response = await fetchImpl(
+    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128`,
+    {
+      method: "POST",
+      headers: { "xi-api-key": apiKey, "content-type": "application/json", accept: "audio/mpeg" },
+      body: JSON.stringify({ text, model_id: ELEVENLABS_MODEL, language_code: "es" }),
+      signal: AbortSignal.timeout(ELEVENLABS_TIMEOUT_MS),
+    },
+  );
+  if (!response.ok) {
+    // The body says why (a bad key, no credits, an unknown voice): never the key itself.
+    const detail = (await response.text().catch(() => "")).slice(0, 200);
+    throw new Error(`ElevenLabs answered ${response.status}: ${detail}`);
+  }
+  const audio = new Uint8Array(await response.arrayBuffer());
+  if (audio.length === 0) throw new Error("ElevenLabs returned no audio");
+  return audio;
+}
+
+/** Which service read the summary. */
+export type NewsAudioVoice = "elevenlabs" | "polly";
+
+/**
+ * Reads `text` aloud: with ElevenLabs when its key is configured, else (or if
+ * ElevenLabs fails: no credits, an outage) with Amazon Polly, so there is
+ * always an audio.
+ */
+export async function speak(text: string): Promise<{ audio: Uint8Array; voice: NewsAudioVoice }> {
+  const key = await elevenLabsKey.get();
+  if (key) {
+    try {
+      return { audio: await synthesizeWithElevenLabs(text, key), voice: "elevenlabs" };
+    } catch (err) {
+      log.warn("elevenlabs failed, reading with polly", errorFields(err));
+    }
+  }
+  return { audio: await synthesize(text), voice: "polly" };
+}
+
+/** Reads `text` aloud with Amazon Polly: one MP3 (the pieces' frames, back to back, play as one file). */
 export async function synthesize(text: string): Promise<Uint8Array> {
   const client = (polly ??= new PollyClient({}));
   const parts: Uint8Array[] = [];
@@ -160,9 +224,9 @@ export async function synthesize(text: string): Promise<Uint8Array> {
 /** The day's summary as an MP3 in the bucket; returns its key. */
 export async function writeNewsAudio(
   insights: Pick<NewsInsights, "day" | "generatedAt" | "stories" | "claudeAlert">,
-): Promise<{ key: string; chars: number }> {
+): Promise<{ key: string; chars: number; voice: NewsAudioVoice }> {
   const script = audioScript(insights);
-  const audio = await synthesize(script);
+  const { audio, voice } = await speak(script);
   const key = `${NEWS_AUDIO_PREFIX}${insights.day}-${insights.generatedAt}.mp3`;
   await (s3 ??= new S3Client({})).send(
     new PutObjectCommand({
@@ -173,7 +237,7 @@ export async function writeNewsAudio(
       CacheControl: "private, max-age=86400, immutable",
     }),
   );
-  return { key, chars: script.length };
+  return { key, chars: script.length, voice };
 }
 
 /** About how long a script takes to read (Polly's neural voices: ~15 characters a second). */
