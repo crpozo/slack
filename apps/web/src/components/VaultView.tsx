@@ -232,15 +232,20 @@ export function VaultView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
                   )}
                 </Notice>
               ) : (
-                <div className={`${GLASS_CARD} overflow-hidden`}>
-                  <table className="w-full border-collapse text-left text-sm" data-vault-table>
+                <div className={`${GLASS_CARD} overflow-x-auto`}>
+                  {/* Fixed columns (long names and usernames truncate), and the card
+                      scrolls sideways when it's narrower than the table: nothing is cut off. */}
+                  <table
+                    className="w-full border-collapse text-left text-sm md:min-w-[1040px] md:table-fixed"
+                    data-vault-table
+                  >
                     <thead className="hidden bg-white/[0.04] text-[11px] uppercase tracking-wide text-ink-secondary md:table-header-group">
                       <tr>
                         <th className="px-4 py-3 font-semibold">Name</th>
-                        <th className="px-4 py-3 font-semibold">Project</th>
-                        <th className="px-4 py-3 font-semibold">Username</th>
-                        <th className="w-[300px] px-4 py-3 font-semibold">Password</th>
-                        <th className="px-2 py-3 font-semibold">Link</th>
+                        <th className="w-[15%] px-4 py-3 font-semibold">Project</th>
+                        <th className="w-[20%] px-4 py-3 font-semibold">Username</th>
+                        <th className="w-[250px] px-4 py-3 font-semibold">Password</th>
+                        <th className="w-24 px-2 py-3 font-semibold">Link</th>
                         <th className="w-20 px-2 py-3">
                           <span className="sr-only">Actions</span>
                         </th>
@@ -338,8 +343,10 @@ function SecretRow({
             <LockIcon />
           </span>
           <div className="flex min-w-0 flex-col">
-            <span className="truncate font-semibold text-ink">{secret.name}</span>
-            <span className="text-xs text-ink-secondary">
+            <span className="line-clamp-2 break-words font-semibold text-ink" title={secret.name}>
+              {secret.name}
+            </span>
+            <span className="truncate text-xs text-ink-secondary">
               {secret.createdByName ?? ""}
               {` · ${sharedWith === 0 ? "only them" : `+${sharedWith} ${sharedWith === 1 ? "person" : "people"}`}`}
             </span>
@@ -354,7 +361,9 @@ function SecretRow({
       <td className="min-w-0 md:px-4 md:py-3">
         {secret.username ? (
           <span className="flex min-w-0 items-center gap-1">
-            <span className="truncate font-mono text-[13px] text-ink/90">{secret.username}</span>
+            <span className="truncate font-mono text-[13px] text-ink/90" title={secret.username}>
+              {secret.username}
+            </span>
             <button
               type="button"
               className={SMALL_BUTTON}

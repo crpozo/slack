@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Vault table no longer cut off:** the password, link and edit columns were clipped on the
+  right when names or usernames were long. Columns now have fixed widths (a long name wraps
+  to two lines, a long username is shortened, the full text on hover), and on a narrow window
+  the table scrolls sideways.
 - **AI Radar starts filled in:** an empty radar now opens with a first draft of our stance: about
   forty technologies across Models, Frameworks, Infrastructure and DevTools, from the stack this
   app is built on (Adopt) to what we use with care (Trial), what to explore (Assess) and what
