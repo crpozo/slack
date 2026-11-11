@@ -176,6 +176,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **A key stored after the first use wasn't picked up:** a Lambda that had already looked for an
+  optional key (ElevenLabs, and the others read the same way) remembered "there's none" until
+  it was recycled. Keys are now re-read every few minutes, so storing or replacing one takes
+  effect without a redeploy.
 - **AI News audio wasn't read by ElevenLabs:** the request carried a language setting the
   multilingual model rejects, so every read fell back to Polly. It's gone, and if ElevenLabs
   rejects a voice setting the summary is still read by it, plainly.
