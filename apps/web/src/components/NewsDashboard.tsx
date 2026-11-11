@@ -534,6 +534,11 @@ function AudioSummary({ audio }: Readonly<{ audio: NewsAudio }>) {
           {player.error}
         </p>
       )}
+      {audio.voice === "polly" && audio.note && (
+        <p className="w-full break-words text-xs text-ink-secondary" data-news-audio-note>
+          Lo leyó Polly porque ElevenLabs no respondió: {audio.note}
+        </p>
+      )}
     </div>
   );
 }

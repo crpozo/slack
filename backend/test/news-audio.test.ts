@@ -124,7 +124,11 @@ describe("the voice: ElevenLabs when its key is set, Polly otherwise (Phase 61)"
   it("reads with Polly while there's no key", async () => {
     const network = vi.fn();
     useNewsAudioFetch(network as never);
-    expect(await speak("Hola.")).toEqual({ audio: new Uint8Array([9, 9]), voice: "polly" });
+    expect(await speak("Hola.")).toEqual({
+      audio: new Uint8Array([9, 9]),
+      voice: "polly",
+      note: expect.stringContaining("No se encontró la clave"),
+    });
     expect(network).not.toHaveBeenCalled();
   });
 
@@ -169,7 +173,10 @@ describe("the voice: ElevenLabs when its key is set, Polly otherwise (Phase 61)"
   it("falls back to Polly when ElevenLabs refuses (no credits, an outage)", async () => {
     process.env.ELEVENLABS_API_KEY = "test-key";
     useNewsAudioFetch((async () => new Response("quota_exceeded", { status: 401 })) as never);
-    expect((await speak("Hola.")).voice).toBe("polly");
+    const read = await speak("Hola.");
+    expect(read.voice).toBe("polly");
+    // Why, for the page.
+    expect(read.note).toBe("ElevenLabs answered 401: quota_exceeded");
     expect(pollySend).toHaveBeenCalledTimes(1);
   });
 });

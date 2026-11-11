@@ -423,11 +423,13 @@ export interface NewsInsightsItem extends Omit<NewsInsights, "audio"> {
   audioChars?: number;
   /** Phase 61: which service read it. */
   audioVoice?: "elevenlabs" | "polly";
+  /** Why ElevenLabs didn't read it, when Polly did. */
+  audioNote?: string;
 }
 
 /** The newest analysis as stored: what the page gets, plus where its audio is. */
 export type StoredInsights = Omit<NewsInsights, "audio"> &
-  Pick<NewsInsightsItem, "audioKey" | "audioChars" | "audioVoice">;
+  Pick<NewsInsightsItem, "audioKey" | "audioChars" | "audioVoice" | "audioNote">;
 
 /** The row for `day`, built from the stories the model read and what it wrote. */
 export function insightsItem(
@@ -484,6 +486,7 @@ export async function latestInsights(): Promise<StoredInsights | null> {
     audioKey,
     audioChars,
     audioVoice,
+    audioNote,
     claudeAlert,
   } = item as NewsInsightsItem;
   return {
@@ -501,7 +504,12 @@ export async function latestInsights(): Promise<StoredInsights | null> {
     articles: articles ?? [],
     source: source ?? "",
     // Phase 54: the summary in audio (absent until it's made, and on older rows).
-    ...(audioKey && { audioKey, audioChars: audioChars ?? 0, ...(audioVoice && { audioVoice }) }),
+    ...(audioKey && {
+      audioKey,
+      audioChars: audioChars ?? 0,
+      ...(audioVoice && { audioVoice }),
+      ...(audioNote && { audioNote }),
+    }),
   };
 }
 
@@ -636,18 +644,21 @@ export async function claimAudio(
 /** Adds its audio to the analysis of `day`, if it's still the one written at `generatedAt`. */
 export async function saveAudio(
   analysis: Pick<NewsInsightsItem, "day" | "generatedAt">,
-  audio: { key: string; chars: number; voice?: "elevenlabs" | "polly" },
+  audio: { key: string; chars: number; voice?: "elevenlabs" | "polly"; note?: string },
 ): Promise<void> {
   await ddb.send(
     new UpdateCommand({
       TableName: tables.newsInsights,
       Key: { feed: NEWS_INSIGHTS_FEED, day: analysis.day },
-      UpdateExpression: "SET audioKey = :key, audioChars = :chars, audioVoice = :voice",
+      UpdateExpression: `SET audioKey = :key, audioChars = :chars, audioVoice = :voice${
+        audio.note ? ", audioNote = :note" : " REMOVE audioNote"
+      }`,
       ConditionExpression: "generatedAt = :g",
       ExpressionAttributeValues: {
         ":key": audio.key,
         ":chars": audio.chars,
         ":voice": audio.voice ?? "polly",
+        ...(audio.note && { ":note": audio.note }),
         ":g": analysis.generatedAt,
       },
     }),

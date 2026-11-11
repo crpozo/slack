@@ -199,16 +199,21 @@ export type NewsAudioVoice = "elevenlabs" | "polly";
  * ElevenLabs fails: no credits, an outage) with Amazon Polly, so there is
  * always an audio.
  */
-export async function speak(text: string): Promise<{ audio: Uint8Array; voice: NewsAudioVoice }> {
+export async function speak(
+  text: string,
+): Promise<{ audio: Uint8Array; voice: NewsAudioVoice; note?: string }> {
   const key = await elevenLabsKey.get();
+  // Why Polly read it, when it did: shown on the page (never the key itself).
+  let note = "No se encontró la clave de ElevenLabs (elevenlabs-api-key) en esta cuenta y región.";
   if (key) {
     try {
       return { audio: await synthesizeWithElevenLabs(text, key), voice: "elevenlabs" };
     } catch (err) {
       log.warn("elevenlabs failed, reading with polly", errorFields(err));
+      note = (err instanceof Error ? err.message : String(err)).slice(0, 300);
     }
   }
-  return { audio: await synthesize(text), voice: "polly" };
+  return { audio: await synthesize(text), voice: "polly", note };
 }
 
 /** Reads `text` aloud with Amazon Polly: one MP3 (the pieces' frames, back to back, play as one file). */
@@ -242,9 +247,9 @@ export async function synthesize(text: string): Promise<Uint8Array> {
 /** The day's summary as an MP3 in the bucket; returns its key. */
 export async function writeNewsAudio(
   insights: Pick<NewsInsights, "day" | "generatedAt" | "stories" | "claudeAlert">,
-): Promise<{ key: string; chars: number; voice: NewsAudioVoice }> {
+): Promise<{ key: string; chars: number; voice: NewsAudioVoice; note?: string }> {
   const script = audioScript(insights);
-  const { audio, voice } = await speak(script);
+  const { audio, voice, note } = await speak(script);
   const key = `${NEWS_AUDIO_PREFIX}${insights.day}-${insights.generatedAt}.mp3`;
   await (s3 ??= new S3Client({})).send(
     new PutObjectCommand({
@@ -255,7 +260,7 @@ export async function writeNewsAudio(
       CacheControl: "private, max-age=86400, immutable",
     }),
   );
-  return { key, chars: script.length, voice };
+  return { key, chars: script.length, voice, ...(note && { note }) };
 }
 
 /** About how long a script takes to read (Polly's neural voices: ~15 characters a second). */

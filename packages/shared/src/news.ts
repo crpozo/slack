@@ -410,6 +410,8 @@ export interface NewsAudio {
   seconds: number;
   /** Phase 61: which service read it (absent on audios from before). */
   voice?: "elevenlabs" | "polly";
+  /** Why ElevenLabs didn't read it, when Polly did. */
+  note?: string;
 }
 
 /**

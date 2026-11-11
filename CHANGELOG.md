@@ -16,6 +16,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **AI News audio, a livelier read:** ElevenLabs now reads with a newsreader's delivery (more
   expression and emphasis, fuller sound) instead of a flat one, and the player says who read
   the summary — **ElevenLabs** or **Polly** — so it's clear when the fallback voice was used.
+  When Polly had to read it, the player also says why ElevenLabs didn't (no key found, or
+  ElevenLabs' own answer: a bad key, no credits, an unknown voice).
 - **AI News audio, straight to the point:** it opens with “Update de noticias.” and reads every
   story one after another — headline and the one sentence of what happened — at a brisk pace,
   in about a minute and a half. No date, numbering or sign-off.
