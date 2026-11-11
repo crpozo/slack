@@ -8,6 +8,7 @@ import {
   TableEncryption,
 } from "aws-cdk-lib/aws-dynamodb";
 import { Key } from "aws-cdk-lib/aws-kms";
+import { IMAGE_AT_ATTRIBUTE, IMAGE_INDEX } from "@mindfultech/shared";
 import { Construct } from "constructs";
 import { removalPolicyFor, type Stage } from "./stage";
 
@@ -94,6 +95,17 @@ export class Data extends Construct {
       timeToLiveAttribute: "expiresAt",
       // Phase 42: every change, before and after, for the search index.
       stream: StreamViewType.NEW_AND_OLD_IMAGES,
+    });
+    // Phase 61: the image gallery's sparse index. Only messages with an image
+    // carry `imageAt` (`<epochMs>#<messageId>`; see @mindfultech/shared
+    // gallery.ts), so only they are in it: the viewer's window reads images,
+    // never text. It projects what the viewer shows, not the whole message.
+    this.messages.addGlobalSecondaryIndex({
+      indexName: IMAGE_INDEX,
+      partitionKey: { name: "channelId", type: AttributeType.STRING },
+      sortKey: { name: IMAGE_AT_ATTRIBUTE, type: AttributeType.STRING },
+      projectionType: ProjectionType.INCLUDE,
+      nonKeyAttributes: ["messageId", "userId", "createdAt", "attachments"],
     });
 
     this.connections = new Table(this, "Connections", {

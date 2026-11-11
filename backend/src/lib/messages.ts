@@ -1,5 +1,12 @@
 import { QueryCommand } from "@aws-sdk/lib-dynamodb";
-import { compareIds, THREAD_SK_PREFIX, threadSkPrefix, type Message } from "@mindfultech/shared";
+import {
+  compareIds,
+  IMAGE_AT_ATTRIBUTE,
+  imageAtOf,
+  THREAD_SK_PREFIX,
+  threadSkPrefix,
+  type Message,
+} from "@mindfultech/shared";
 import { ddb, tables } from "./ddb";
 
 function userList(users: unknown): unknown[] {
@@ -22,10 +29,22 @@ export function toReactionLists(raw: unknown): Record<string, string[]> {
 
 /** A `messages` row as sent to clients. */
 export function toWireMessage(item: Record<string, unknown>): Message {
-  // Phase 58: `transcribingAt` is the server's own hold while Whisper runs.
+  // Phase 58: `transcribingAt` is the server's own hold while Whisper runs;
+  // Phase 61: `imageAt` is the gallery index's key. Neither is the client's.
   const rest = { ...item };
   delete rest.transcribingAt;
+  delete rest[IMAGE_AT_ATTRIBUTE];
   return { ...(rest as unknown as Message), reactions: toReactionLists(item.reactions) };
+}
+
+/**
+ * A new message as stored (Phase 61): one with an image also carries
+ * `imageAt`, which puts it in the gallery's sparse index (`IMAGE_INDEX`).
+ * Every other message is stored without it, so the index never holds it.
+ */
+export function storedMessage(message: Message): Record<string, unknown> {
+  const imageAt = imageAtOf(message);
+  return imageAt ? { ...message, [IMAGE_AT_ATTRIBUTE]: imageAt } : { ...message };
 }
 
 /** How far back a resent message is recognized (its own retry window is seconds). */

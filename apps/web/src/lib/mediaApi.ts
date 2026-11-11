@@ -1,4 +1,9 @@
-import type { ChannelFilesPage, ChannelLinksPage, ChannelPins } from "@mindfultech/shared";
+import type {
+  ChannelFilesPage,
+  ChannelLinksPage,
+  ChannelMediaWindow,
+  ChannelPins,
+} from "@mindfultech/shared";
 import { request } from "./tasksApi";
 
 // Phase 38: a conversation's files, links and pinned messages (the messages Lambda).
@@ -13,4 +18,12 @@ export const mediaApi = {
   links: (channelId: string, cursor?: string | null) =>
     request<ChannelLinksPage>("GET", at(channelId, "links", cursor)),
   pins: (channelId: string) => request<ChannelPins>("GET", at(channelId, "pins")),
+  /** Phase 61: the gallery around an image (its message's `imageAt`, and its key). */
+  media: (channelId: string, around: string, key: string) =>
+    request<ChannelMediaWindow>(
+      "GET",
+      `/channels/${encodeURIComponent(channelId)}/media?around=${encodeURIComponent(
+        around,
+      )}&key=${encodeURIComponent(key)}`,
+    ),
 };
