@@ -43,11 +43,10 @@ describe("the AI News summary in audio (Phase 54)", () => {
   it("reads the day and the top stories in a sentence each: no trends, actions, markdown or links", () => {
     const script = audioScript(insights);
     expect(script.split("\n\n")).toEqual([
-      "AI News, lunes, 9 de noviembre. Lo más importante en un minuto.",
-      "Primero: OpenAI lanza agentes. Resumen.",
+      "Update de noticias.",
+      "OpenAI lanza agentes. Resumen.",
       // Only the first sentence of what happened; links dropped.
-      "Segundo: Nvidia invierte. Una ronda grande.",
-      "Los detalles, en AI News.",
+      "Nvidia invierte. Una ronda grande.",
     ]);
     expect(script).not.toMatch(/\*\*|https?:|Por qué importa|Fuente/);
   });
@@ -59,13 +58,13 @@ describe("the AI News summary in audio (Phase 54)", () => {
       summary: `${"palabra ".repeat(40).trim()}. Segunda frase que no se lee.`,
     };
     const script = audioScript({ ...insights, stories: [long, long, long, long, long] });
-    expect(script.length).toBeLessThanOrEqual(AUDIO_BUDGET_CHARS + 20);
-    expect(script).toContain("Primero:");
-    expect(script).not.toContain("Quinto");
+    expect(script.length).toBeLessThanOrEqual(AUDIO_BUDGET_CHARS);
     expect(script).not.toContain("Segunda frase");
-    // One enormous story is still read.
-    const huge = { ...long, summary: `${"x".repeat(1200)}.` };
-    expect(audioScript({ ...insights, stories: [huge, long] })).toContain("Primero:");
+    // Out of time: the last ones as the headline alone.
+    expect(script.split("\n\n").at(-1)).toBe(long.headline + ".");
+    // One enormous story is still read, as its headline.
+    const huge = { ...long, summary: `${"x".repeat(2000)}.` };
+    expect(audioScript({ ...insights, stories: [huge, long] })).toContain(long.headline);
   });
 
   it("says a new Claude model first (Phase 56)", () => {
@@ -82,7 +81,7 @@ describe("the AI News summary in audio (Phase 54)", () => {
     });
     const [, second] = script.split("\n\n");
     expect(second).toBe(
-      "Atención: Anthropic lanzó un nuevo modelo de Claude: Claude Opus 6. Disponible hoy en la API.",
+      "Anthropic lanzó un nuevo modelo de Claude: Claude Opus 6. Disponible hoy en la API.",
     );
   });
 
@@ -143,15 +142,28 @@ describe("the voice: ElevenLabs when its key is set, Polly otherwise (Phase 61)"
     expect(JSON.parse(String(init.body))).toEqual({
       text: "Hola.",
       model_id: "eleven_multilingual_v2",
-      language_code: "es",
       voice_settings: {
         stability: 0.4,
         similarity_boost: 0.8,
         style: 0.35,
         use_speaker_boost: true,
+        speed: 1.12,
       },
     });
     expect(pollySend).not.toHaveBeenCalled();
+  });
+
+  it("reads plainly when ElevenLabs rejects a setting, rather than falling to Polly", async () => {
+    process.env.ELEVENLABS_API_KEY = "test-key";
+    const bodies: Array<Record<string, unknown>> = [];
+    useNewsAudioFetch((async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return bodies.length === 1
+        ? new Response("unsupported", { status: 400 })
+        : new Response(new Uint8Array([1, 2, 3]));
+    }) as never);
+    expect((await speak("Hola.")).voice).toBe("elevenlabs");
+    expect(bodies[1]).toEqual({ text: "Hola.", model_id: "eleven_multilingual_v2" });
   });
 
   it("falls back to Polly when ElevenLabs refuses (no credits, an outage)", async () => {

@@ -16,6 +16,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **AI News audio, a livelier read:** ElevenLabs now reads with a newsreader's delivery (more
   expression and emphasis, fuller sound) instead of a flat one, and the player says who read
   the summary — **ElevenLabs** or **Polly** — so it's clear when the fallback voice was used.
+- **AI News audio, straight to the point:** it opens with “Update de noticias.” and reads every
+  story one after another — headline and the one sentence of what happened — at a brisk pace,
+  in about a minute and a half. No date, numbering or sign-off.
 - **Image gallery in conversations:** clicking an image in a channel or DM opens it full screen
   at once, with **‹ ›** arrows (or **←/→**) to move through the conversation's other images and a
   counter; **Esc**, ✕ or a click beside the picture closes it. The images around it load in the
@@ -171,6 +174,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **AI News audio wasn't read by ElevenLabs:** the request carried a language setting the
+  multilingual model rejects, so every read fell back to Polly. It's gone, and if ElevenLabs
+  rejects a voice setting the summary is still read by it, plainly.
 - **A thinner Vault card in the chat:** a secret shared with `/secret` is now one slim row: its
   title, then the username and the password, both hidden, each with its own 👁 Reveal and Copy
   button, and a small Launch button on the right. The username is already on the card, so it

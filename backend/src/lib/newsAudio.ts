@@ -23,12 +23,10 @@ export const NEWS_AUDIO_VOICE = "Lupe";
 /** Polly takes at most 3,000 billed characters a request: the script is read in pieces. */
 const MAX_CHARS_PER_REQUEST = 2_800;
 
-/** At most this many stories are read (as many as fit the minute). */
-const STORIES_READ = 4;
-/** About a minute of speech (Polly's neural voices read some 15 characters a second). */
-export const AUDIO_BUDGET_CHARS = 900;
-
-const ORDINALS = ["Primero", "Segundo", "Tercero", "Cuarto"];
+/** About a minute and a half, read briskly (some 16 characters a second). */
+export const AUDIO_BUDGET_CHARS = 1_450;
+/** How the update opens: straight to the news. */
+const AUDIO_OPENING = "Update de noticias.";
 
 /** Text as it should be read: no markdown marks, no links, tidy spaces and endings. */
 function spoken(text: string): string {
@@ -61,38 +59,34 @@ function firstSentence(text: string): string {
 }
 
 /**
- * The script read aloud, in about a minute (`AUDIO_BUDGET_CHARS`): the day,
- * a new Claude model if there is one, then the top stories, most important
- * first, each as its headline and the one sentence of what happened. As many
- * stories as fit (always the first, at most `STORIES_READ`); trends, actions
- * and sources stay on the page.
+ * The script read aloud, in about a minute and a half (`AUDIO_BUDGET_CHARS`),
+ * straight to the point: "Update de noticias.", a new Claude model if there
+ * is one, then every story, most important first, as its headline and the
+ * one sentence of what happened — no numbering, no sign-off. When the time
+ * runs short a story is read as its headline alone, and then left out
+ * (the first is always read); trends, actions and sources stay on the page.
  */
-export function audioScript(
-  insights: Pick<NewsInsights, "day" | "stories" | "claudeAlert">,
-): string {
-  const SIGN_OFF = "Los detalles, en AI News.";
-  const parts: string[] = [];
-  const day = spokenDay(insights.day);
-  parts.push(`AI News${day ? `, ${day}` : ""}. Lo más importante en un minuto.`);
+export function audioScript(insights: Pick<NewsInsights, "stories" | "claudeAlert">): string {
+  const parts: string[] = [AUDIO_OPENING];
   // Phase 56: a new Claude model goes first.
   const alert = insights.claudeAlert;
   if (alert) {
     const name = alert.model ? `: ${spoken(alert.model).replace(/\.$/, "")}` : "";
     const lead =
       alert.status === "launched"
-        ? `Atención: Anthropic lanzó un nuevo modelo de Claude${name}.`
-        : `Atención: Anthropic prepara un nuevo modelo de Claude${name}.`;
+        ? `Anthropic lanzó un nuevo modelo de Claude${name}.`
+        : `Anthropic prepara un nuevo modelo de Claude${name}.`;
     parts.push(`${lead}${alert.summary ? ` ${firstSentence(alert.summary)}` : ""}`);
   }
-  let used = parts.join("\n\n").length + SIGN_OFF.length;
-  insights.stories.slice(0, STORIES_READ).forEach((story, i) => {
-    const fact = story.summary ? ` ${firstSentence(story.summary)}` : "";
-    const line = `${ORDINALS[i] ?? "Además"}: ${spoken(story.headline)}${fact}`;
-    if (i > 0 && used + line.length > AUDIO_BUDGET_CHARS) return;
-    parts.push(line);
-    used += line.length + 2;
+  let used = parts.join("\n\n").length;
+  insights.stories.forEach((story, i) => {
+    const headline = spoken(story.headline);
+    const full = story.summary ? `${headline} ${firstSentence(story.summary)}` : headline;
+    const line = [full, headline].find((l) => used + l.length + 2 <= AUDIO_BUDGET_CHARS);
+    if (!line && i > 0) return;
+    parts.push(line ?? full);
+    used += (line ?? full).length + 2;
   });
-  parts.push(SIGN_OFF);
   return parts.join("\n\n");
 }
 
@@ -153,6 +147,8 @@ export const ELEVENLABS_VOICE_SETTINGS = {
   similarity_boost: 0.8,
   style: 0.35,
   use_speaker_boost: true,
+  // Brisk, as a news update is read (1 is the voice's own pace; 1.2 the most).
+  speed: 1.12,
 } as const;
 
 let fetchImpl: typeof fetch = (...args) => fetch(...args);
@@ -164,20 +160,27 @@ export function useNewsAudioFetch(next: typeof fetch | null): void {
 /** Reads `text` aloud with ElevenLabs: one MP3. Throws when the service refuses or fails. */
 export async function synthesizeWithElevenLabs(text: string, apiKey: string): Promise<Uint8Array> {
   const voice = (await elevenLabsVoice.get()) ?? ELEVENLABS_DEFAULT_VOICE;
-  const response = await fetchImpl(
-    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128`,
-    {
-      method: "POST",
-      headers: { "xi-api-key": apiKey, "content-type": "application/json", accept: "audio/mpeg" },
-      body: JSON.stringify({
-        text,
-        model_id: ELEVENLABS_MODEL,
-        language_code: "es",
-        voice_settings: ELEVENLABS_VOICE_SETTINGS,
-      }),
-      signal: AbortSignal.timeout(ELEVENLABS_TIMEOUT_MS),
-    },
-  );
+  // No `language_code`: the multilingual model rejects it (it reads the
+  // language off the text), which is what kept sending the read to Polly.
+  const ask = (body: Record<string, unknown>) =>
+    fetchImpl(
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128`,
+      {
+        method: "POST",
+        headers: { "xi-api-key": apiKey, "content-type": "application/json", accept: "audio/mpeg" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(ELEVENLABS_TIMEOUT_MS),
+      },
+    );
+  let response = await ask({
+    text,
+    model_id: ELEVENLABS_MODEL,
+    voice_settings: ELEVENLABS_VOICE_SETTINGS,
+  });
+  // A setting this voice or plan doesn't take: read it plainly rather than not at all.
+  if (response.status === 400 || response.status === 422) {
+    response = await ask({ text, model_id: ELEVENLABS_MODEL });
+  }
   if (!response.ok) {
     // The body says why (a bad key, no credits, an unknown voice): never the key itself.
     const detail = (await response.text().catch(() => "")).slice(0, 200);

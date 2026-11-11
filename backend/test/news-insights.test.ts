@@ -431,8 +431,8 @@ describe("the morning worker", () => {
     await worker();
     const voice = speak.mock.calls[0]![0].input;
     expect(voice).toMatchObject({ Engine: "neural", VoiceId: "Lupe", LanguageCode: "es-US" });
-    expect(voice.Text).toContain("AI News, martes, 27 de octubre. Lo más importante en un minuto.");
-    expect(voice.Text).toContain("Primero: OpenAI lanza agentes para todos.");
+    expect(voice.Text).toContain("Update de noticias.");
+    expect(voice.Text).toContain("OpenAI lanza agentes para todos.");
     const put = store.mock.calls[0]![0].input;
     expect(put).toMatchObject({
       Bucket: "slack-test-attachments",
