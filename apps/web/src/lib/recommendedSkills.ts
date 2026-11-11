@@ -5,8 +5,8 @@ import type { SkillCategory } from "@mindfultech/shared";
 // one click away in AI Skills. Two sources, their folders checked on
 // 2026-11-11: Anthropic's own repository (`anthropics/skills`) and
 // `obra/superpowers`, a widely used set of engineering-workflow skills.
-// Only skills that fit the importer whole are listed (Anthropic's docx, pptx,
-// xlsx and claude-api are larger than its limits). Nothing is bundled: Import reads the folder from GitHub at that moment, so
+// Only skills checked to fit the importer whole are listed (the limits were
+// raised for claude-api, the largest: 96 files, 2.1 MB). Nothing is bundled: Import reads the folder from GitHub at that moment, so
 // what lands in the catalog is the latest version (and "Sync" refreshes it).
 // ---------------------------------------------------------------------------
 
@@ -37,6 +37,11 @@ const superpowers = (slug: string, about: string): RecommendedSkill => ({
 });
 
 export const RECOMMENDED_SKILLS: RecommendedSkill[] = [
+  anthropic(
+    "claude-api",
+    "Backend",
+    "Para construir agentes de IA: uso de herramientas, flujos definidos, Managed Agents y computer use (operar sistemas como una persona).",
+  ),
   anthropic("skill-creator", "Workflow", "Crea, mejora y evalúa skills nuevas paso a paso."),
   anthropic(
     "frontend-design",

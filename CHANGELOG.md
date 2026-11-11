@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI Skills: Anthropic's claude-api skill, for building agents:** first in **Recomendadas**.
+  It's Anthropic's own reference for building AI agents: tool use, agents that follow a
+  defined workflow, Managed Agents and computer use (an agent operating systems the way a
+  person does). It's large (96 files, 2.1 MB), so the importer's limits went up to take it
+  whole (SKILL.md 150 KB, 120 files, 380 KB a file, 2.5 MB in all).
 - **AI Skills: recommended skills, one click away:** a **Recomendadas** section under the
   catalog lists 19 well-known public skills not in it yet: Anthropic's official ones
   (skill-creator, frontend-design, webapp-testing, mcp-builder, pdf, doc-coauthoring) and

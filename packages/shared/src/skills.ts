@@ -26,12 +26,19 @@ export type SkillSourceType = "team" | "github";
 /** Claude Code's own limits for a skill's `name` and `description`. */
 export const MAX_SKILL_SLUG = 64;
 export const MAX_SKILL_DESCRIPTION = 1024;
-/** `SKILL.md` itself (Cloudflare's security-audit is 22 KB). */
-export const MAX_SKILL_MD_BYTES = 100_000;
-/** Companion files: how many, each, and all together. */
-export const MAX_SKILL_FILES = 50;
-export const MAX_SKILL_FILE_BYTES = 300_000;
-export const MAX_SKILL_TOTAL_BYTES = 1_500_000;
+/**
+ * `SKILL.md` itself (Cloudflare's security-audit is 22 KB; Anthropic's
+ * claude-api, the largest we import, 105 KB).
+ */
+export const MAX_SKILL_MD_BYTES = 150_000;
+/**
+ * Companion files: how many, each, and all together. Sized for Anthropic's
+ * claude-api skill (96 files, 2.1 MB, its largest 346 KB); a file is one
+ * DynamoDB item, so it must stay under 400 KB.
+ */
+export const MAX_SKILL_FILES = 120;
+export const MAX_SKILL_FILE_BYTES = 380_000;
+export const MAX_SKILL_TOTAL_BYTES = 2_500_000;
 export const MAX_SKILL_PROMPT = 2000;
 
 /** Lowercase letters, numbers and single hyphens: the folder name and the `/command`. */
