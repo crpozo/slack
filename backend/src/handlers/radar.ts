@@ -14,6 +14,7 @@ import {
   type HttpResult,
 } from "../lib/http";
 import { log } from "../lib/logger";
+import { seedRadarOnce } from "../lib/radarSeed";
 import {
   DISCOVERY_SCAN_ID,
   deleteBlip,
@@ -44,12 +45,14 @@ function adminOnly(caller: HttpCaller, what: string): void {
 }
 
 async function snapshot(): Promise<RadarSnapshot> {
-  const [blips, proposals, scannedAt, discoveredAt] = await Promise.all([
+  const [listed, proposals, scannedAt, discoveredAt] = await Promise.all([
     listBlips(),
     listProposals("pending"),
     lastScanAt(),
     lastScanAt(DISCOVERY_SCAN_ID),
   ]);
+  // Phase 61: an empty radar starts with the stack we already build on (once ever).
+  const blips = listed.length === 0 && (await seedRadarOnce()) ? await listBlips() : listed;
   return { blips, proposals, lastScanAt: scannedAt, lastDiscoveryAt: discoveredAt };
 }
 

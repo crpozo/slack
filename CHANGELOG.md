@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI Radar starts filled in:** an empty radar now opens with a first draft of our stance: about
+  forty technologies across Models, Frameworks, Infrastructure and DevTools, from the stack this
+  app is built on (Adopt) to what we use with care (Trial), what to explore (Assess) and what
+  to pause (Hold), each with a line on why. It's written once, the first time the radar is
+  opened; admins move, edit and remove from there, and it never comes back if emptied.
 - **AI News audio in a minute:** the summary is now about one minute (it was four): the day's
   top stories, most important first, each as its headline and the one sentence of what
   happened; a new Claude model still goes first. Trends, actions and sources stay on the page.
