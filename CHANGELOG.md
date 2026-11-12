@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI Radar, a use case for each technology:** a blip's details now say how MindfulTech could
+  put it to work, for itself or a client ("a phone line that books appointments for a clinic",
+  "an MCP server for a client's ERP"). Admins edit it like any other fact of the blip (the
+  `useCase` field). The starters are signed "MindfulTech" instead of "unknown".
 - **AI News, how MindfulTech could do it:** each action in **Para MindfulTech** now comes with
   a concrete example — a first step small enough for this week, for which kind of client or
   product, with which tool and what to measure. From the next analysis on.

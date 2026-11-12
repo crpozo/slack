@@ -14,6 +14,8 @@ describe("the radar's starter blips", () => {
   it("are valid, cover every quadrant and every ring, and don't repeat a technology", () => {
     const blips = starterBlips();
     for (const b of blips) expect(CreateBlipSchema.safeParse(b).success, b.name).toBe(true);
+    // Each says how MindfulTech could use it.
+    for (const b of blips) expect(b.meta?.useCase, b.name).toBeTruthy();
     for (const q of RADAR_QUADRANTS) {
       expect(blips.filter((b) => b.quadrant === q).length).toBeGreaterThanOrEqual(8);
     }
