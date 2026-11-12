@@ -133,8 +133,8 @@ export const elevenLabsVoice = optionalSecret(
   "ELEVENLABS_VOICE_ID",
   "ELEVENLABS_VOICE_ID_PARAMETER",
 );
-/** "George", one of ElevenLabs' stock voices: used until a voice id is configured. */
-export const ELEVENLABS_DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb";
+/** The voice the team chose: used unless another voice id is configured in SSM. */
+export const ELEVENLABS_DEFAULT_VOICE = "g10k86KeEUyBqW9lcKYg";
 /** The multilingual model: it reads Spanish as Spanish. */
 export const ELEVENLABS_MODEL = "eleven_multilingual_v2";
 const ELEVENLABS_TIMEOUT_MS = 60_000;
