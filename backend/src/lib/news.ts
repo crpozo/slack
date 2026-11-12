@@ -726,7 +726,16 @@ export async function getNews(
       failed,
       discarded,
     } = await readAllSources(fetchImpl, sources, now);
-    const response: NewsResponse = { articles, source: answered.join(", "), fetchedAt: now };
+    const response: NewsResponse = {
+      articles,
+      sources: sources.map(({ name }) => ({
+        name,
+        connected: answered.includes(name),
+        stories: articles.filter((a) => a.sourceName === name).length,
+      })),
+      source: answered.join(", "),
+      fetchedAt: now,
+    };
     const until = now + (failed.length > 0 ? RETRY_PARTIAL_MS : NEWS_CACHE_SECONDS * 1000);
     cached = { response, until, readAt: now };
     return { response, fromCache: false, expiresAt: until, failed, discarded };

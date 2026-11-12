@@ -40,6 +40,9 @@ describe("public holidays", () => {
       "Día de los Difuntos": "2026-11-02",
       "Independencia de Cuenca": "2026-11-03",
       Navidad: "2026-12-25",
+      // Loja's: Wednesday 18 November → Friday 20; Tuesday 8 December → Monday 7.
+      "Independencia de Loja": "2026-11-20",
+      "Fundación de Loja": "2026-12-07",
     });
   });
 
@@ -75,6 +78,7 @@ describe("public holidays", () => {
       "EC 2026-11-02",
       "EC 2026-11-03",
       "US 2026-11-11",
+      "EC 2026-11-20",
       "US 2026-11-26",
     ]);
     const event = publicHolidayEvent(november[0]!);

@@ -78,7 +78,7 @@ function difuntosAndCuenca(year: number): [string, string] {
   }
 }
 
-/** Ecuador's national holidays of `year`, on the day off. */
+/** Ecuador's national holidays of `year`, and Loja's local ones, on the day off. */
 export function ecuadorHolidays(year: number): PublicHoliday[] {
   const easter = easterSunday(year);
   const [difuntos, cuenca] = difuntosAndCuenca(year);
@@ -93,6 +93,9 @@ export function ecuadorHolidays(year: number): PublicHoliday[] {
     [observedInEcuador(ymd(year, 10, 9)), "Independencia de Guayaquil"],
     [difuntos, "Día de los Difuntos"],
     [cuenca, "Independencia de Cuenca"],
+    // Loja's own (where the company is): moved like the national ones.
+    [observedInEcuador(ymd(year, 11, 18)), "Independencia de Loja"],
+    [observedInEcuador(ymd(year, 12, 8)), "Fundación de Loja"],
     [observedInEcuador(ymd(year, 12, 25), true), "Navidad"],
   ];
   return list.map(([date, name]) => ({ date, name, country: "EC" as const }));

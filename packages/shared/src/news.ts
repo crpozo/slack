@@ -125,8 +125,19 @@ export interface NewsArticle {
   sourceName: string;
 }
 
+/** One publisher of `NEWS_FEEDS`, as the last read found it. */
+export interface NewsSourceStatus {
+  name: string;
+  /** Its feed answered. */
+  connected: boolean;
+  /** How many of its stories are in the list now. */
+  stories: number;
+}
+
 export interface NewsResponse {
   articles: NewsArticle[];
+  /** Phase 62: every source and whether it answered (absent on older cached answers). */
+  sources?: NewsSourceStatus[];
   /** The publishers whose feeds were read, comma-separated ("TechCrunch, InfoQ"). */
   source: string;
   /** When the feed was read (epoch ms). */

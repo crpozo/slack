@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI News, a Fuentes tab:** every source AI News reads, which ones answered on the last read
+  ("12 de 14 conectadas") and how many of today's stories came from each.
+- **Calendar: Loja's holidays:** Independencia de Loja (18 November) and Fundación de Loja
+  (8 December), moved to the long weekend like the national ones and not charged to a vacation.
 - **Calendar: Ecuador's and the United States' holidays, built in:** every year's holidays are
   on the calendar without anyone adding them. **Ecuador's** (red, 🇪🇨) are on the day off, moved
   to make the long weekend as the law says (a Tuesday holiday to Monday, Wednesday or Thursday to
@@ -199,6 +203,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **AI News, a story without a picture:** some publishers (Bloomberg) don't let their image be
+  read. Instead of a hatched box saying "imagen · bloomberg", the cover shows the publisher's
+  name as a masthead.
 - **AI Radar tooltip you could see through:** the blips behind showed through the card and its
   text; it's solid now.
 - **AI News: "El análisis salió demasiado largo y se cortó":** writing the audio script too

@@ -3,6 +3,7 @@ import {
   type NewsAudio,
   type NewsDeepDive,
   type NewsHorizon,
+  type NewsSourceStatus,
   type NewsStory,
   type NewsTakeaway,
   type NewsTrend,
@@ -40,6 +41,8 @@ export interface NewsDashboardProps {
   /** "Para seguir de cerca" (Phase 44); left out while empty. */
   watchlist?: NewsWatchItem[];
   /** Every other live story, at the end. */
+  /** Phase 62: every source and whether it answered. */
+  sources?: NewsSourceStatus[];
   moreStories?: NewsStory[];
   now: number;
   refreshing: boolean;
@@ -81,6 +84,7 @@ export function NewsDashboard({
   takeaways,
   watchlist = [],
   moreStories = [],
+  sources = [],
   now,
   refreshing,
   onRefresh,
@@ -103,6 +107,7 @@ export function NewsDashboard({
     { id: "news-deep", label: "A fondo", show: !!deepDive },
     { id: "news-watch", label: "Seguir de cerca", show: watchlist.length > 0 },
     { id: "news-more", label: "Más historias", show: moreStories.length > 0 },
+    { id: "news-sources", label: "Fuentes", show: sources.length > 0 },
   ].filter((section) => section.show);
   const [picked, setPicked] = useState("");
   const active = sections.some((section) => section.id === picked)
@@ -416,6 +421,8 @@ export function NewsDashboard({
         </section>
       )}
 
+      {sources.length > 0 && active === "news-sources" && <SourcesPanel sources={sources} />}
+
       <p className="border-t border-line pt-5 text-center font-mono text-[11px] leading-relaxed tracking-wide text-ink-secondary">
         Los titulares y resúmenes de “Lo esencial” los escribe la IA: confirma los datos en cada
         artículo. Historias e imágenes de sus medios; cada una abre en su sitio.
@@ -642,6 +649,65 @@ function SectionTabs({
   );
 }
 
+/**
+ * Phase 62: every publisher AI News reads, whether its feed answered on the
+ * last read, and how many of its stories are in today's list.
+ */
+function SourcesPanel({ sources }: Readonly<{ sources: NewsSourceStatus[] }>) {
+  const connected = sources.filter((s) => s.connected).length;
+  const ordered = [...sources].sort(
+    (a, b) => Number(b.connected) - Number(a.connected) || b.stories - a.stories,
+  );
+  return (
+    <section
+      id="news-sources"
+      role="tabpanel"
+      aria-labelledby="news-sources-title"
+      className="flex flex-col gap-7"
+      data-news-sources
+    >
+      <SectionHeader
+        id="news-sources-title"
+        kicker={`${connected} de ${sources.length} conectadas`}
+        title="Fuentes"
+      />
+      <ul className="grid grid-cols-[minmax(0,1fr)] gap-3 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
+        {ordered.map((source) => (
+          <li
+            key={source.name}
+            className={`flex items-center gap-3 ${CARD}`}
+            data-source={source.name}
+            data-connected={source.connected}
+          >
+            <span
+              className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                source.connected ? "bg-success" : "bg-error"
+              }`}
+              aria-hidden="true"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[15px] font-semibold text-ink">
+                {source.name}
+              </span>
+              <span className="block text-xs text-ink-secondary">
+                {source.connected
+                  ? source.stories === 0
+                    ? "Conectada · sin historias de IA en las últimas 48 h"
+                    : `Conectada · ${source.stories} ${source.stories === 1 ? "historia" : "historias"}`
+                  : "Sin conexión: su feed no respondió"}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs leading-relaxed text-ink-secondary">
+        Se leen todas cada 30 minutos. De los medios generales solo entran sus historias de IA, y
+        cada fuente aporta como máximo 8 de las 40 del día.
+      </p>
+    </section>
+  );
+}
+
 /** Desktop app: the system browser (an `<a target="_blank">` would stay inside the app). */
 function openInBrowser(e: MouseEvent<HTMLAnchorElement>, link: string) {
   if (!isDesktopApp()) return; // the link opens in a new tab by itself
@@ -802,7 +868,7 @@ function Cover({
 
   return (
     <div
-      className={`relative w-full overflow-hidden bg-surface-sidebar bg-[repeating-linear-gradient(135deg,rgb(var(--c-line))_0_1px,transparent_1px_11px)] ${className}`}
+      className={`relative w-full overflow-hidden bg-surface-sidebar bg-[radial-gradient(120%_120%_at_0%_0%,rgb(var(--c-primary)/0.16),transparent_60%)] ${className}`}
       data-news-thumb={state === "image" ? "image" : "fallback"}
     >
       <span
@@ -811,9 +877,10 @@ function Cover({
         }`}
         aria-hidden="true"
       >
+        {/* No picture (the publisher doesn't let it be read): its name, as a masthead. */}
         {caption && (
-          <span className="bg-surface-sidebar px-2 py-0.5 font-mono text-[11px] lowercase tracking-wider text-ink-secondary">
-            imagen · {story.sourceName}
+          <span className="px-4 text-center font-serif text-[clamp(1.25rem,4vw,3.25rem)] font-semibold leading-none tracking-[-0.02em] text-ink/25">
+            {story.sourceName}
           </span>
         )}
       </span>
