@@ -51,6 +51,12 @@ export const INSIGHTS_MAX_TOKENS = 16_384;
 /** How many of the merged stories the model reads (all of them: the view shows the same). */
 export const INSIGHTS_MAX_ARTICLES = NEWS_MAX_ARTICLES;
 
+/** How long the model writes the audio script: about a minute and a half read briskly. */
+export const NEWS_AUDIO_SCRIPT_WORDS = "230 to 270";
+/** A script outside these lengths is the model gone wrong: the plain one is read instead. */
+export const NEWS_AUDIO_SCRIPT_MIN_CHARS = 400;
+export const NEWS_AUDIO_SCRIPT_MAX_CHARS = 2_400;
+
 export const INSIGHTS_SYSTEM =
   "You are the AI analyst of MindfulTech, a small software company in Ecuador that builds " +
   "products with AI for its clients. Every morning you read the day's AI news from several " +
@@ -96,7 +102,22 @@ export const INSIGHTS_INSTRUCTION =
   '"none". `model`: its name as the stories give it ("Claude Opus 6"), or "" when they ' +
   "don't name it; `headline`, at most 12 words in Spanish; `summary`, one or two sentences " +
   "in Spanish (at most 40 words) on what was announced and when it is available; " +
-  "`stories`, the numbers of the stories that say so.";
+  "`stories`, the numbers of the stories that say so.\n" +
+  "- audioScript: the script of today's audio update, read aloud by a voice in about a " +
+  `minute and a half: ${NEWS_AUDIO_SCRIPT_WORDS} words in ${NEWS_INSIGHTS_LANGUAGE}, written to be ` +
+  "heard, not read. You are the host of a short, sharp morning tech show that the team " +
+  "actually enjoys: conversational Latin American Spanish, quick, witty, with personality — " +
+  "a dry joke or an ironic aside where the news earns it, a rhetorical question, a vivid " +
+  "comparison — never cheesy, never forced, never at the expense of the facts. It starts " +
+  'exactly with "Update de noticias." and then a one-sentence hook on the day\'s biggest ' +
+  "story (a new Claude model first, when there is one). Then the top stories, each in one " +
+  "or two short sentences: what happened and why anyone should care, with natural spoken " +
+  "transitions between them instead of a list. Then say what it means for MindfulTech and " +
+  "what to do: the two or three most useful takeaways as plain advice a colleague would " +
+  "give. Close with one short line that lands. Short sentences, one idea each. Plain text " +
+  "only, paragraphs separated by a blank line: no markdown, no lists, no emojis, no URLs, " +
+  "no stage directions or sound effects; write numbers and symbols the way they are said " +
+  '("40 por ciento", "mil millones de dólares"). Only facts from the stories.';
 
 /** The JSON the model answers with (structured outputs: the API holds it to this schema). */
 export const INSIGHTS_SCHEMA = {
@@ -174,8 +195,17 @@ export const INSIGHTS_SCHEMA = {
       required: ["status", "model", "headline", "summary", "stories"],
       additionalProperties: false,
     },
+    audioScript: { type: "string" },
   },
-  required: ["stories", "deepDive", "trends", "takeaways", "watchlist", "claudeAlert"],
+  required: [
+    "stories",
+    "deepDive",
+    "trends",
+    "takeaways",
+    "watchlist",
+    "claudeAlert",
+    "audioScript",
+  ],
   additionalProperties: false,
 } as const;
 
@@ -215,6 +245,8 @@ const modelOutput = z.object({
       stories: z.array(z.number()),
     })
     .optional(),
+  // Phase 62 (absent on older answers).
+  audioScript: z.string().optional(),
 });
 
 /** The stories as the model reads them: numbered, with source, title, when, the snippet, the link. */
@@ -256,7 +288,10 @@ export function insightsRequest(
 export type InsightsDashboard = Pick<
   NewsInsights,
   "stories" | "trends" | "takeaways" | "deepDive" | "watchlist" | "claudeAlert"
->;
+> & {
+  /** Phase 62: the audio update as the model wrote it to be heard (kept on the row, not sent to the page). */
+  audioScript?: string;
+};
 
 export type InsightsOutcome =
   { ok: true; dashboard: InsightsDashboard } | { ok: false; error: string };
@@ -399,9 +434,14 @@ export function insightsFrom(
   if (trends.length === 0 || takeaways.length === 0) {
     return { ok: false, error: "the analysis is missing its trends or takeaways" };
   }
+  const audioScript = (parsed.audioScript ?? "").trim();
+  const scriptFits =
+    audioScript.length >= NEWS_AUDIO_SCRIPT_MIN_CHARS &&
+    audioScript.length <= NEWS_AUDIO_SCRIPT_MAX_CHARS;
   return {
     ok: true,
     dashboard: {
+      ...(scriptFits && { audioScript }),
       stories: stories.slice(0, NEWS_INSIGHTS_TOP_STORIES),
       trends,
       takeaways,
@@ -425,11 +465,13 @@ export interface NewsInsightsItem extends Omit<NewsInsights, "audio"> {
   audioVoice?: "elevenlabs" | "polly";
   /** Why ElevenLabs didn't read it, when Polly did. */
   audioNote?: string;
+  /** Phase 62: the audio update as the model wrote it (absent on older rows). */
+  audioScript?: string;
 }
 
 /** The newest analysis as stored: what the page gets, plus where its audio is. */
 export type StoredInsights = Omit<NewsInsights, "audio"> &
-  Pick<NewsInsightsItem, "audioKey" | "audioChars" | "audioVoice" | "audioNote">;
+  Pick<NewsInsightsItem, "audioKey" | "audioChars" | "audioVoice" | "audioNote" | "audioScript">;
 
 /** The row for `day`, built from the stories the model read and what it wrote. */
 export function insightsItem(
@@ -487,6 +529,7 @@ export async function latestInsights(): Promise<StoredInsights | null> {
     audioChars,
     audioVoice,
     audioNote,
+    audioScript,
     claudeAlert,
   } = item as NewsInsightsItem;
   return {
@@ -503,6 +546,7 @@ export async function latestInsights(): Promise<StoredInsights | null> {
     ...(claudeAlert && { claudeAlert }),
     articles: articles ?? [],
     source: source ?? "",
+    ...(audioScript && { audioScript }),
     // Phase 54: the summary in audio (absent until it's made, and on older rows).
     ...(audioKey && {
       audioKey,

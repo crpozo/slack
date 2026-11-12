@@ -110,7 +110,9 @@ export const handler = httpHandler(async (event, caller): Promise<HttpResult> =>
  * instead of the bucket key. Only keys under `news-audio/` are ever signed.
  */
 async function withAudioUrl(stored: StoredInsights): Promise<NewsInsights> {
-  const { audioKey, audioChars, audioVoice, audioNote, ...insights } = stored;
+  // The script stays on the server: the page gets the audio, not its text.
+  const { audioKey, audioChars, audioVoice, audioNote, audioScript, ...insights } = stored;
+  void audioScript;
   if (!audioKey?.startsWith(NEWS_AUDIO_PREFIX)) return insights;
   try {
     const url = await presignGet(audioKey);

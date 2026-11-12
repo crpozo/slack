@@ -26,6 +26,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **AI News audio, what it means for MindfulTech:** after the news it reads “Qué significa para
   MindfulTech y qué hacer.” and the analysis's top actions, each with its reason in a
   sentence (about half a minute more).
+- **AI News audio, fun to follow:** the update is now written to be heard, by the analysis
+  itself, as the host of a short morning tech show: a hook on the day's biggest story, the
+  news told with rhythm, transitions and some wit instead of headlines read in a row, what it
+  means for MindfulTech and what to do, and a closing line. Facts only from the stories. Days
+  analysed before this keep the plain read until the next **Refresh**.
 - **Image gallery in conversations:** clicking an image in a channel or DM opens it full screen
   at once, with **‹ ›** arrows (or **←/→**) to move through the conversation's other images and a
   counter; **Esc**, ✕ or a click beside the picture closes it. The images around it load in the

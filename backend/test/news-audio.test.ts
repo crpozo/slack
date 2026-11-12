@@ -74,6 +74,19 @@ describe("the AI News summary in audio (Phase 54)", () => {
     expect(audioScript({ ...insights, stories: [huge, long] })).toContain(long.headline);
   });
 
+  it("reads the script the analysis wrote to be heard, when there is one (Phase 62)", () => {
+    const script = audioScript({
+      ...insights,
+      audioScript:
+        "Update de noticias.\n\nHoy OpenAI lanza **agentes**, y no, no vienen a quitarte la silla\n\n\nPara MindfulTech: probarlos ya.",
+    });
+    expect(script.split("\n\n")).toEqual([
+      "Update de noticias.",
+      "Hoy OpenAI lanza agentes, y no, no vienen a quitarte la silla.",
+      "Para MindfulTech: probarlos ya.",
+    ]);
+  });
+
   it("says a new Claude model first (Phase 56)", () => {
     const script = audioScript({
       ...insights,

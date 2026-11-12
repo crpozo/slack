@@ -74,8 +74,15 @@ function firstSentence(text: string): string {
  */
 export function audioScript(
   insights: Pick<NewsInsights, "stories" | "claudeAlert"> &
-    Partial<Pick<NewsInsights, "takeaways">>,
+    Partial<Pick<NewsInsights, "takeaways">> & { audioScript?: string },
 ): string {
+  // Phase 62: the update as the analysis wrote it to be heard (a host's
+  // script, with rhythm and some wit); the plain one below when there's none.
+  const written = (insights.audioScript ?? "")
+    .split(/\n\s*\n/)
+    .map(spoken)
+    .filter(Boolean);
+  if (written.length > 0) return written.join("\n\n");
   const parts: string[] = [AUDIO_OPENING];
   // Phase 56: a new Claude model goes first.
   const alert = insights.claudeAlert;
@@ -272,7 +279,7 @@ export async function synthesize(text: string): Promise<Uint8Array> {
 /** The day's summary as an MP3 in the bucket; returns its key. */
 export async function writeNewsAudio(
   insights: Pick<NewsInsights, "day" | "generatedAt" | "stories" | "claudeAlert"> &
-    Partial<Pick<NewsInsights, "takeaways">>,
+    Partial<Pick<NewsInsights, "takeaways">> & { audioScript?: string },
 ): Promise<{ key: string; chars: number; voice: NewsAudioVoice; note?: string }> {
   const script = audioScript(insights);
   const { audio, voice, note } = await speak(script);
