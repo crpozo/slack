@@ -186,6 +186,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **AI News showed other stories for a moment on reload:** the raw headlines appeared first and
+  were swapped for the analysed ones a few seconds later. The page now waits for the analysis
+  (showing its placeholders) and paints once.
 - **A key stored after the first use wasn't picked up:** a Lambda that had already looked for an
   optional key (ElevenLabs, and the others read the same way) remembered "there's none" until
   it was recycled. Keys are now re-read every few minutes, so storing or replacing one takes

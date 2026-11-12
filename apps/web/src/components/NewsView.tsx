@@ -89,6 +89,10 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
     }
   };
   const loading = status === "loading" || status === "idle";
+  // The analysis is still on its way (first load): wait for it rather than show
+  // the raw stories for a moment and then swap them for the analysed ones.
+  const awaitingInsights =
+    !insights && (insightsState.status === "loading" || insightsState.status === "idle");
 
   const menu = onOpenSidebar && (
     <button
@@ -119,7 +123,7 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
               <Notice>AI News isn&apos;t set up on this deployment.</Notice>
             ) : status === "error" && !data ? (
               <ErrorState message={error} onRetry={() => void load(true)} leading={menu} />
-            ) : loading && !data ? (
+            ) : (loading && !data) || awaitingInsights ? (
               <Skeletons />
             ) : articles.length === 0 && !insights ? (
               <Notice>No stories right now. Check back in a little while.</Notice>
