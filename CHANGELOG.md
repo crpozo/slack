@@ -453,7 +453,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 ### Changed
 
 - **AI News audio player, redesigned:** one compact row, as tall as the Refresh button: a green
-  play button, "Resumen", a filled progress bar you can drag, the time and the voice.
+  play button, "Resumen", a filled progress bar you can drag and the time.
+- **AI News sections are pages:** Lo esencial, Para MindfulTech, Tendencias, A fondo, Seguir de
+  cerca and Más historias used to be one long page the tabs scrolled through. Now each tab
+  shows its own content in place, and nothing scrolls.
 - **AI News audio speeds:** a speed button in the player (and in the floating pill) steps
   through 1×, 1,25×, 1,5×, 1,75×, 2× and 0,75×; the speed is remembered on the device and kept
   for the next day's summary.

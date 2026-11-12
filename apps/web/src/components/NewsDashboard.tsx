@@ -95,6 +95,26 @@ export function NewsDashboard({
   onDismissClaudeAlert,
 }: Readonly<NewsDashboardProps>) {
   const [lead, ...rest] = stories;
+  // The sections are pages (Phase 62): a tab swaps the content, nothing scrolls.
+  const sections = [
+    { id: "news-top", label: "Lo esencial", show: stories.length > 0 },
+    { id: "news-impact", label: "Para MindfulTech", show: true },
+    { id: "news-trends", label: "Tendencias", show: trends.length > 0 },
+    { id: "news-deep", label: "A fondo", show: !!deepDive },
+    { id: "news-watch", label: "Seguir de cerca", show: watchlist.length > 0 },
+    { id: "news-more", label: "Más historias", show: moreStories.length > 0 },
+  ].filter((section) => section.show);
+  const [picked, setPicked] = useState("");
+  const active = sections.some((section) => section.id === picked)
+    ? picked
+    : (sections[0]?.id ?? "");
+  // Picked while far down another page: the new one starts at its top, just
+  // under the tabs (never on the first paint, and never scrolling down).
+  useEffect(() => {
+    if (!picked) return;
+    const panel = document.getElementById(picked);
+    if (panel && panel.getBoundingClientRect().top < 0) panel.scrollIntoView({ block: "start" });
+  }, [picked]);
   return (
     <div
       className="flex w-full min-w-0 flex-col gap-12 [container-type:inline-size] sm:gap-14 [&>section]:scroll-mt-16"
@@ -153,23 +173,15 @@ export function NewsDashboard({
 
         {claudeAlert && <ClaudeAlertBanner alert={claudeAlert} onDismiss={onDismissClaudeAlert} />}
 
-        <SectionTabs
-          sections={[
-            { id: "news-top", label: "Lo esencial", show: stories.length > 0 },
-            { id: "news-impact", label: "Para MindfulTech", show: true },
-            { id: "news-trends", label: "Tendencias", show: trends.length > 0 },
-            { id: "news-deep", label: "A fondo", show: !!deepDive },
-            { id: "news-watch", label: "Seguir de cerca", show: watchlist.length > 0 },
-            { id: "news-more", label: "Más historias", show: moreStories.length > 0 },
-          ]}
-        />
+        <SectionTabs sections={sections} active={active} onSelect={setPicked} />
 
         {banner && <div className="mt-5 flex flex-col gap-3 empty:hidden">{banner}</div>}
       </div>
 
-      {lead && (
+      {lead && active === "news-top" && (
         <section
           id="news-top"
+          role="tabpanel"
           aria-label="Lo esencial"
           className="grid grid-cols-[minmax(0,1fr)] gap-10 cq-lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] cq-lg:gap-12"
         >
@@ -189,51 +201,55 @@ export function NewsDashboard({
         </section>
       )}
 
-      <section
-        id="news-impact"
-        aria-labelledby="news-impact-title"
-        className="news-dark -mx-4 grid grid-cols-[minmax(0,1fr)] gap-10 bg-surface px-6 py-10 sm:mx-0 sm:rounded-3xl sm:px-10 sm:py-12 cq-xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] cq-xl:gap-14"
-        data-news-impact
-      >
-        <div className="flex flex-col gap-4">
-          <span className={KICKER}>Para MindfulTech</span>
-          <h2
-            id="news-impact-title"
-            className="font-serif text-[30px] font-medium leading-[1.1] tracking-[-0.01em] text-ink sm:text-[36px] [text-wrap:balance]"
-          >
-            {actionsTitle(takeaways.length)}
-          </h2>
-          <p className="text-sm leading-relaxed text-ink-secondary">
-            Impacto de negocio derivado de las historias de hoy.
-          </p>
-          {insightsAction && <div className="mt-1">{insightsAction}</div>}
-        </div>
-        {takeaways.length > 0 ? (
-          <ol className="grid grid-cols-[minmax(0,1fr)] gap-4 cq-sm:grid-cols-2 cq-lg:grid-cols-3 cq-xl:grid-cols-2">
-            {takeaways.map((t, i) => (
-              <li
-                key={`${i}-${t.lead}`}
-                className={`flex flex-col gap-2 ${CARD}`}
-                data-horizon={t.horizon}
-              >
-                <span className={KICKER}>
-                  {t.horizon ? HORIZON_LABEL[t.horizon] : `Acción ${pad(i + 1)}`}
-                </span>
-                <p className="text-[15px] font-semibold leading-snug text-ink [text-wrap:pretty]">
-                  {t.lead}
-                </p>
-                <p className="text-sm leading-[1.6] text-ink/70 [text-wrap:pretty]">{t.body}</p>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <div className="self-center">{insightsNotice}</div>
-        )}
-      </section>
+      {active === "news-impact" && (
+        <section
+          id="news-impact"
+          role="tabpanel"
+          aria-labelledby="news-impact-title"
+          className="news-dark -mx-4 grid grid-cols-[minmax(0,1fr)] gap-10 bg-surface px-6 py-10 sm:mx-0 sm:rounded-3xl sm:px-10 sm:py-12 cq-xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] cq-xl:gap-14"
+          data-news-impact
+        >
+          <div className="flex flex-col gap-4">
+            <span className={KICKER}>Para MindfulTech</span>
+            <h2
+              id="news-impact-title"
+              className="font-serif text-[30px] font-medium leading-[1.1] tracking-[-0.01em] text-ink sm:text-[36px] [text-wrap:balance]"
+            >
+              {actionsTitle(takeaways.length)}
+            </h2>
+            <p className="text-sm leading-relaxed text-ink-secondary">
+              Impacto de negocio derivado de las historias de hoy.
+            </p>
+            {insightsAction && <div className="mt-1">{insightsAction}</div>}
+          </div>
+          {takeaways.length > 0 ? (
+            <ol className="grid grid-cols-[minmax(0,1fr)] gap-4 cq-sm:grid-cols-2 cq-lg:grid-cols-3 cq-xl:grid-cols-2">
+              {takeaways.map((t, i) => (
+                <li
+                  key={`${i}-${t.lead}`}
+                  className={`flex flex-col gap-2 ${CARD}`}
+                  data-horizon={t.horizon}
+                >
+                  <span className={KICKER}>
+                    {t.horizon ? HORIZON_LABEL[t.horizon] : `Acción ${pad(i + 1)}`}
+                  </span>
+                  <p className="text-[15px] font-semibold leading-snug text-ink [text-wrap:pretty]">
+                    {t.lead}
+                  </p>
+                  <p className="text-sm leading-[1.6] text-ink/70 [text-wrap:pretty]">{t.body}</p>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <div className="self-center">{insightsNotice}</div>
+          )}
+        </section>
+      )}
 
-      {trends.length > 0 && (
+      {trends.length > 0 && active === "news-trends" && (
         <section
           id="news-trends"
+          role="tabpanel"
           aria-labelledby="news-trends-title"
           className="flex flex-col gap-7"
           data-news-trends
@@ -291,9 +307,10 @@ export function NewsDashboard({
         </section>
       )}
 
-      {deepDive && (
+      {deepDive && active === "news-deep" && (
         <section
           id="news-deep"
+          role="tabpanel"
           aria-labelledby="news-deep-title"
           className="flex flex-col gap-7"
           data-news-deep-dive
@@ -360,9 +377,10 @@ export function NewsDashboard({
         </section>
       )}
 
-      {watchlist.length > 0 && (
+      {watchlist.length > 0 && active === "news-watch" && (
         <section
           id="news-watch"
+          role="tabpanel"
           aria-labelledby="news-watch-title"
           className="flex flex-col gap-7"
           data-news-watchlist
@@ -388,8 +406,13 @@ export function NewsDashboard({
         </section>
       )}
 
-      {moreStories.length > 0 && (
-        <section id="news-more" aria-labelledby="news-more-title" className="flex flex-col gap-7">
+      {moreStories.length > 0 && active === "news-more" && (
+        <section
+          id="news-more"
+          role="tabpanel"
+          aria-labelledby="news-more-title"
+          className="flex flex-col gap-7"
+        >
           <SectionHeader
             id="news-more-title"
             kicker={`${moreStories.length} más`}
@@ -541,15 +564,6 @@ function AudioSummary({ audio }: Readonly<{ audio: NewsAudio }>) {
         >
           {rateLabel(player.rate)}
         </button>
-        {audio.voice && (
-          <span
-            className="hidden shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-secondary/70 sm:inline"
-            data-news-audio-voice={audio.voice}
-            title={`Leído por ${audio.voice === "elevenlabs" ? "ElevenLabs" : "Polly"}`}
-          >
-            {audio.voice === "elevenlabs" ? "ElevenLabs" : "Polly"}
-          </span>
-        )}
       </div>
       {mine && player.error && (
         <p className="mt-2 text-xs text-error" role="alert">
@@ -591,57 +605,41 @@ function SectionHeader({
 }
 
 /**
- * The sections as text tabs (Phase 51), sticky at the top of the view: one
- * tap to jump, and the one being read is underlined in green. Solid, no
- * backdrop blur (a blurred sticky bar over the page made Chrome flicker).
+ * The sections as text tabs, sticky at the top of the view. Each is a page
+ * (Phase 62): picking one swaps what's below, and the view goes back to the
+ * top of it instead of scrolling down the page. Solid, no backdrop blur (a
+ * blurred sticky bar over the page made Chrome flicker).
  */
 function SectionTabs({
   sections,
-}: Readonly<{ sections: Array<{ id: string; label: string; show: boolean }> }>) {
-  const shown = sections.filter((s) => s.show);
-  const ids = shown.map((s) => s.id).join(" ");
-  const [active, setActive] = useState(shown[0]?.id ?? "");
-
-  useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") return;
-    const visible = new Map<string, boolean>();
-    const order = ids.split(" ");
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) visible.set(entry.target.id, entry.isIntersecting);
-        const first = order.find((id) => visible.get(id));
-        if (first) setActive(first);
-      },
-      // The band just under the tabs: a section is "being read" while it crosses it.
-      { rootMargin: "-80px 0px -55% 0px" },
-    );
-    for (const id of order) {
-      const el = document.getElementById(id);
-      if (el) observer.observe(el);
-    }
-    return () => observer.disconnect();
-  }, [ids]);
-
-  if (shown.length < 2) return null;
+  active,
+  onSelect,
+}: Readonly<{
+  sections: Array<{ id: string; label: string }>;
+  active: string;
+  onSelect: (id: string) => void;
+}>) {
+  if (sections.length < 2) return null;
   return (
     <nav
+      role="tablist"
       aria-label="Secciones"
       className="sticky top-0 z-20 -mx-4 flex gap-6 overflow-x-auto overflow-y-hidden border-b border-line bg-surface px-4 [scrollbar-width:none] sm:-mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden"
       data-news-sections
     >
-      {shown.map((section) => {
+      {sections.map((section) => {
         const current = section.id === active;
         return (
           <button
             key={section.id}
             type="button"
+            role="tab"
+            aria-selected={current}
+            aria-controls={section.id}
             onClick={() => {
-              setActive(section.id);
-              document
-                .getElementById(section.id)
-                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              if (current) return;
+              onSelect(section.id);
             }}
-            aria-current={current ? "true" : undefined}
             className={`-mb-px shrink-0 whitespace-nowrap border-b-2 py-3 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
               current
                 ? "border-primary text-ink"
