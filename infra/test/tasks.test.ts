@@ -260,11 +260,26 @@ describe("guest access", () => {
     const withCognito = Object.entries(template.findResources("AWS::IAM::Policy")).filter(([, p]) =>
       JSON.stringify(p).includes("cognito-idp:"),
     );
-    // The calendar Lambda only lists the admins group (see calendar.test.ts).
+    // The calendar Lambda only lists the admins group (see calendar.test.ts);
+    // `channel` and `user-cleanup` only check accounts exist (ListUsers, below).
     expect(withCognito.map(([id]) => id.replace(/[0-9A-F]{8}$/, "")).sort()).toEqual([
+      "ApichannelFnServiceRoleDefaultPolicy",
       "TasksApiCalendarFnServiceRoleDefaultPolicy",
       "TasksApiFnServiceRoleDefaultPolicy",
+      "UserSyncUserCleanupFnServiceRoleDefaultPolicy",
     ]);
+    for (const [id, policy] of withCognito.filter(
+      ([id]) => id.startsWith("Apichannel") || id.startsWith("UserSync"),
+    )) {
+      const cognito = (
+        policy.Properties.PolicyDocument.Statement as Array<{ Action: string[]; Resource: unknown }>
+      ).filter((st) => [st.Action].flat().some((a) => a.startsWith("cognito-idp:")));
+      expect(
+        cognito.map((st) => st.Action),
+        id,
+      ).toEqual(["cognito-idp:ListUsers"]);
+      expect(JSON.stringify(cognito[0]?.Resource), id).toContain("AuthUserPool");
+    }
     const tasksPolicy = withCognito.find(([id]) => id.startsWith("TasksApiFn"))?.[1];
     const statement = (
       tasksPolicy?.Properties.PolicyDocument.Statement as Array<{

@@ -86,6 +86,8 @@ export function dmEntries(
   directory: Record<string, string>,
   dmIdFor: (userId: string) => string,
   profiles: Record<string, UserProfile> = {},
+  /** People whose account is gone (`markUserUnavailable`): never listed. */
+  unavailable: Record<string, true> = {},
 ): DmEntry[] {
   // Keyed by user id when known (by email otherwise) so nobody appears twice.
   const entries = new Map<string, PendingEntry>();
@@ -99,6 +101,7 @@ export function dmEntries(
   for (const profile of Object.values(profiles)) {
     if (profile.role === "guest") entries.delete(profile.userId);
   }
+  for (const userId of Object.keys(unavailable)) entries.delete(userId);
 
   const dmIds = new Set(channels.filter((c) => c.type === "dm").map((c) => c.channelId));
   return [...entries.values()]
