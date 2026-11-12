@@ -442,8 +442,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
-- **AI News audio player, redesigned:** a card with a large green play button, the title, the
-  real length and the voice, and a filled progress bar you can drag, with the time at each end.
+- **AI News audio player, redesigned:** one compact row, as tall as the Refresh button: a green
+  play button, "Resumen", a filled progress bar you can drag, the time and the voice.
 - **Inviting to a private channel:** an admin in the channel can invite too, not only its
   creator. Guests on boards are now called **externals** (badge "External").
 

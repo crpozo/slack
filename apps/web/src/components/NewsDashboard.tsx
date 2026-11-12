@@ -495,59 +495,49 @@ function AudioSummary({ audio }: Readonly<{ audio: NewsAudio }>) {
   const at = Math.min(Math.round(position), total);
   const progress = (at / total) * 100;
   return (
-    <div
-      className="mt-2 w-full max-w-xl rounded-2xl border border-white/10 bg-white/[0.05] p-3 sm:p-4"
-      data-news-audio
-    >
-      <div className="flex items-center gap-3 sm:gap-4">
+    <div className="mt-1 w-full max-w-md" data-news-audio>
+      {/* One row, as tall as the Refresh button: play, title, progress, time, voice. */}
+      <div className="flex h-11 items-center gap-3 rounded-full border border-white/10 bg-white/[0.05] py-1 pl-1 pr-4">
         <button
           type="button"
           onClick={() => player.toggle(audio.url)}
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-xl text-on-primary shadow-lg shadow-primary/20 transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface active:scale-95"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-on-primary transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface active:scale-95"
           aria-label={playing ? "Pausar el resumen" : "Reproducir el resumen"}
         >
           {playing ? <PauseIcon /> : <PlayIcon />}
         </button>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-            <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
-              <HeadphonesIcon className="text-primary" aria-hidden="true" />
-              Resumen en audio
-            </p>
-            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-secondary">
-              {clock(duration)} min
-              {audio.voice && (
-                <span data-news-audio-voice={audio.voice}>
-                  {" · "}
-                  {audio.voice === "elevenlabs" ? "ElevenLabs" : "Polly"}
-                </span>
-              )}
-            </p>
-          </div>
-          <div className="relative mt-2 h-4">
-            {/* The bar that's seen; the range over it is what's dragged. */}
-            <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/10">
-              <div
-                className="h-full rounded-full bg-primary transition-[width] duration-200 ease-linear"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={total}
-              value={at}
-              onChange={(e) => player.seek(Number(e.target.value))}
-              disabled={!mine}
-              className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-default"
-              aria-label="Posición del audio"
+        <span className="shrink-0 text-[13px] font-semibold text-ink">Resumen</span>
+        <div className="relative h-4 min-w-0 flex-1">
+          {/* The bar that's seen; the range over it is what's dragged. */}
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-white/10">
+            <div
+              className="h-full rounded-full bg-primary transition-[width] duration-200 ease-linear"
+              style={{ width: `${progress}%` }}
             />
           </div>
-          <div className="mt-0.5 flex justify-between font-mono text-[11px] tabular-nums text-ink-secondary">
-            <span>{clock(position)}</span>
-            <span>{clock(duration)}</span>
-          </div>
+          <input
+            type="range"
+            min={0}
+            max={total}
+            value={at}
+            onChange={(e) => player.seek(Number(e.target.value))}
+            disabled={!mine}
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-default"
+            aria-label="Posición del audio"
+          />
         </div>
+        <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-secondary">
+          {mine ? `${clock(position)} / ${clock(duration)}` : clock(duration)}
+        </span>
+        {audio.voice && (
+          <span
+            className="hidden shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-secondary/70 sm:inline"
+            data-news-audio-voice={audio.voice}
+            title={`Leído por ${audio.voice === "elevenlabs" ? "ElevenLabs" : "Polly"}`}
+          >
+            {audio.voice === "elevenlabs" ? "ElevenLabs" : "Polly"}
+          </span>
+        )}
       </div>
       {mine && player.error && (
         <p className="mt-2 text-xs text-error" role="alert">
