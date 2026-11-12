@@ -43,10 +43,11 @@ export const INSIGHTS_MODEL = NOTES_MODEL;
  * matter, the deep dive, four trends, five takeaways, the watchlist). The
  * ceiling is far above that because Haiku 5.5 thinks before it writes and
  * the thinking counts toward `max_tokens`: at high effort (Phase 44) a run
- * can spend several thousand tokens reasoning over 40 stories. 16384 leaves
- * room for both.
+ * can spend several thousand tokens reasoning over 40 stories. With the audio
+ * script as well (Phase 62: it is drafted in the thinking too), 16,384 was
+ * reached and the answer cut; 32,000 leaves room for all of it.
  */
-export const INSIGHTS_MAX_TOKENS = 16_384;
+export const INSIGHTS_MAX_TOKENS = 32_000;
 
 /** How many of the merged stories the model reads (all of them: the view shows the same). */
 export const INSIGHTS_MAX_ARTICLES = NEWS_MAX_ARTICLES;

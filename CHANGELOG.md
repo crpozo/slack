@@ -186,6 +186,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **AI News: "El análisis salió demasiado largo y se cortó":** writing the audio script too
+  took the analysis past its output ceiling. The ceiling is doubled.
 - **AI News showed other stories for a moment on reload:** the raw headlines appeared first and
   were swapped for the analysed ones a few seconds later. The page now waits for the analysis
   (showing its placeholders) and paints once.
