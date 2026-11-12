@@ -7,6 +7,7 @@ import {
   CognitoIdentityProviderClient,
   ListUsersCommand,
   ListUsersInGroupCommand,
+  paginateListUsers,
   UserNotFoundException,
   type AttributeType,
 } from "@aws-sdk/client-cognito-identity-provider";
@@ -125,21 +126,16 @@ export async function accountExists(sub: string): Promise<boolean> {
 /** The `sub` of every account in the pool (paginated `ListUsers`). */
 export async function allAccountSubs(): Promise<Set<string>> {
   const subs = new Set<string>();
-  let next: string | undefined;
-  do {
-    const page = await cognito().send(
-      new ListUsersCommand({
-        UserPoolId: poolId(),
-        AttributesToGet: ["sub"],
-        PaginationToken: next,
-      }),
-    );
+  const pages = paginateListUsers(
+    { client: cognito() },
+    { UserPoolId: poolId(), AttributesToGet: ["sub"] },
+  );
+  for await (const page of pages) {
     for (const user of page.Users ?? []) {
       const id = subOf(user.Attributes);
       if (id) subs.add(id);
     }
-    next = page.PaginationToken;
-  } while (next);
+  }
   return subs;
 }
 

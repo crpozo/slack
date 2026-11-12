@@ -65,7 +65,7 @@ export async function reconcileOrphans(): Promise<string[]> {
   const [ids, subs] = await Promise.all([profileIds(), allAccountSubs()]);
   if (subs.size === 0) throw new Error("Cognito listed no accounts: refusing to delete profiles");
   const orphans = ids.filter((id) => !subs.has(id));
-  for (const id of orphans) await deleteUserRow(id);
+  await Promise.all(orphans.map((id) => deleteUserRow(id)));
   return orphans;
 }
 

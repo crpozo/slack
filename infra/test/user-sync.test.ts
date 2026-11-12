@@ -21,6 +21,10 @@ beforeAll(() => {
 
 describe("Cognito → users sync", () => {
   it("routes this pool's successful AdminDeleteUser calls (via CloudTrail) to user-cleanup", () => {
+    const rules = template.findResources("AWS::Events::Rule", {
+      Properties: { Name: "slack-dev-cognito-admin-delete-user" },
+    });
+    expect(Object.keys(rules)).toHaveLength(1);
     template.hasResourceProperties("AWS::Events::Rule", {
       Name: "slack-dev-cognito-admin-delete-user",
       EventPattern: {

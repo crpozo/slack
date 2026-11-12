@@ -47,10 +47,7 @@ console.log(
 for (const o of report.orphans) {
   console.log(`  orphan: ${o.userId}  ${o.email || "(no email)"}  ${o.displayName}`);
 }
-console.log(
-  report.orphans.length === 0
-    ? "No orphaned profiles."
-    : apply
-      ? `Deleted ${report.deleted} orphaned profile(s).`
-      : `${report.orphans.length} orphaned profile(s) to delete (dry run; add --apply).`,
-);
+let summary = `${report.orphans.length} orphaned profile(s) to delete (dry run; add --apply).`;
+if (report.orphans.length === 0) summary = "No orphaned profiles.";
+else if (apply) summary = `Deleted ${report.deleted} orphaned profile(s).`;
+console.log(summary);

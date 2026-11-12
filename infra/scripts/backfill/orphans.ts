@@ -59,24 +59,7 @@ export async function cleanupOrphans(
     force?: boolean;
   },
 ): Promise<OrphanReport> {
-  const profiles: Orphan[] = [];
-  for await (const page of paginateScan(
-    { client: ddb },
-    {
-      TableName: table,
-      ProjectionExpression: "userId, email, displayName",
-    },
-  )) {
-    for (const item of page.Items ?? []) {
-      const userId = String(item.userId);
-      if (isExternalId(userId)) continue;
-      profiles.push({
-        userId,
-        email: typeof item.email === "string" ? item.email : "",
-        displayName: typeof item.displayName === "string" ? item.displayName : "",
-      });
-    }
-  }
+  const profiles = await scanProfiles(ddb, table);
   const subs = await accountSubs(cognito, userPoolId);
   const orphans = profiles.filter((p) => !subs.has(p.userId));
   const report: OrphanReport = {
@@ -87,18 +70,45 @@ export async function cleanupOrphans(
   };
   if (!apply || orphans.length === 0) return report;
 
-  if (subs.size === 0) {
+  assertSafeToDelete(report, userPoolId, force);
+  await Promise.all(
+    orphans.map((orphan) =>
+      ddb.send(new DeleteCommand({ TableName: table, Key: { userId: orphan.userId } })),
+    ),
+  );
+  report.deleted = orphans.length;
+  return report;
+}
+
+/** One `users` row as the report shows it. */
+const toOrphan = (item: Record<string, unknown>): Orphan => ({
+  userId: String(item.userId),
+  email: typeof item.email === "string" ? item.email : "",
+  displayName: typeof item.displayName === "string" ? item.displayName : "",
+});
+
+/** Every `users` row that should map to an account (externals' rows never do). */
+async function scanProfiles(ddb: DynamoDBDocumentClient, table: string): Promise<Orphan[]> {
+  const profiles: Orphan[] = [];
+  const pages = paginateScan(
+    { client: ddb },
+    { TableName: table, ProjectionExpression: "userId, email, displayName" },
+  );
+  for await (const page of pages) {
+    profiles.push(...(page.Items ?? []).map(toOrphan).filter((p) => !isExternalId(p.userId)));
+  }
+  return profiles;
+}
+
+/** Throws when deleting these orphans looks like a mistake (see `cleanupOrphans`). */
+function assertSafeToDelete(report: OrphanReport, userPoolId: string, force: boolean): void {
+  if (report.accounts === 0) {
     throw new Error(`User pool ${userPoolId} lists no accounts: refusing to delete any profile`);
   }
-  if (!force && orphans.length > profiles.length / 2) {
+  if (!force && report.orphans.length > report.profiles / 2) {
     throw new Error(
-      `${orphans.length} of ${profiles.length} profiles have no account: ` +
+      `${report.orphans.length} of ${report.profiles} profiles have no account: ` +
         "that looks like the wrong pool. Re-run with --force if it really is right.",
     );
   }
-  for (const orphan of orphans) {
-    await ddb.send(new DeleteCommand({ TableName: table, Key: { userId: orphan.userId } }));
-    report.deleted++;
-  }
-  return report;
 }

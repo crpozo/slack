@@ -104,7 +104,12 @@ export class UserSync extends Construct {
         encryption: BucketEncryption.S3_MANAGED,
         blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
         enforceSSL: true,
-        lifecycleRules: [{ expiration: Duration.days(90) }],
+        // Versioned so a log can't be silently overwritten or deleted; old
+        // versions go after a week, current logs after 90 days.
+        versioned: true,
+        lifecycleRules: [
+          { expiration: Duration.days(90), noncurrentVersionExpiration: Duration.days(7) },
+        ],
         removalPolicy: stage === "prod" ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
         autoDeleteObjects: stage !== "prod",
       });
