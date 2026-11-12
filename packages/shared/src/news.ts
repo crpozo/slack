@@ -132,6 +132,8 @@ export interface NewsSourceStatus {
   connected: boolean;
   /** How many of its stories are in the list now. */
   stories: number;
+  /** How many of those came with a picture (from its feed, or its page). */
+  withImage?: number;
 }
 
 export interface NewsResponse {

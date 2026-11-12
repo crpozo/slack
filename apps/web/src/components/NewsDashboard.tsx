@@ -704,7 +704,9 @@ function SourcesPanel({ sources }: Readonly<{ sources: NewsSourceStatus[] }>) {
                 {source.connected
                   ? source.stories === 0
                     ? "Conectada · sin historias de IA en las últimas 48 h"
-                    : `Conectada · ${source.stories} ${source.stories === 1 ? "historia" : "historias"}`
+                    : `Conectada · ${source.stories} ${source.stories === 1 ? "historia" : "historias"}${
+                        source.withImage === undefined ? "" : ` · ${source.withImage} con imagen`
+                      }`
                   : "Sin conexión: su feed no respondió"}
               </span>
             </span>

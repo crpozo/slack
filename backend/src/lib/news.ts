@@ -732,6 +732,7 @@ export async function getNews(
         name,
         connected: answered.includes(name),
         stories: articles.filter((a) => a.sourceName === name).length,
+        withImage: articles.filter((a) => a.sourceName === name && a.imageUrl).length,
       })),
       source: answered.join(", "),
       fetchedAt: now,
