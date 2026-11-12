@@ -5,7 +5,7 @@ import {
 import { DeleteCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
-import { handler } from "../src/handlers/user-cleanup";
+import { handler, RECONCILE } from "../src/handlers/user-cleanup";
 import { deletedSub } from "../src/lib/orphans";
 import { ddbMock, resetMocks } from "./helpers";
 
@@ -100,6 +100,36 @@ describe("user-cleanup", () => {
 
     expect(result).toEqual({ deleted: [GONE] });
     expect(deletedKeys()).toEqual([GONE]);
+  });
+
+  it("the 15-minute schedule reconciles the whole table, no CloudTrail event needed", async () => {
+    ddbMock.on(ScanCommand, { TableName: "slack-test-users" }).resolves({
+      Items: [{ userId: KEPT }, { userId: GONE }, { userId: "ext_guest1" }],
+    });
+    cognitoMock.on(ListUsersCommand).resolves({
+      Users: [{ Attributes: [{ Name: "sub", Value: KEPT }] }],
+    });
+    expect(RECONCILE).toEqual({ action: "reconcile" });
+    expect(await handler(RECONCILE)).toEqual({ deleted: [GONE] });
+    expect(deletedKeys()).toEqual([GONE]);
+    // Nothing to do: nothing deleted.
+    ddbMock
+      .on(ScanCommand, { TableName: "slack-test-users" })
+      .resolves({ Items: [{ userId: KEPT }] });
+    ddbMock.resetHistory();
+    expect(await handler(RECONCILE)).toEqual({ deleted: [] });
+    expect(deletedKeys()).toEqual([]);
+  });
+
+  it("refuses when not one profile has an account in the pool (a wrong pool id)", async () => {
+    ddbMock.on(ScanCommand, { TableName: "slack-test-users" }).resolves({
+      Items: [{ userId: KEPT }, { userId: GONE }],
+    });
+    cognitoMock.on(ListUsersCommand).resolves({
+      Users: [{ Attributes: [{ Name: "sub", Value: "99999999-9999-4999-8999-999999999999" }] }],
+    });
+    await expect(handler(RECONCILE)).rejects.toThrow(/refusing/);
+    expect(deletedKeys()).toEqual([]);
   });
 
   it("refuses to reconcile against a pool that lists no accounts, and fails so EventBridge retries", async () => {
