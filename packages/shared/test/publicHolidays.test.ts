@@ -40,10 +40,8 @@ describe("public holidays", () => {
       "Día de los Difuntos": "2026-11-02",
       "Independencia de Cuenca": "2026-11-03",
       Navidad: "2026-12-25",
-      // Loja's: Wednesday 18 November → Friday 20; Tuesday 8 December → Monday 7.
-      "Independencia de Loja": "2026-11-20",
-      "Fundación de Loja": "2026-12-07",
     });
+    expect(ecuadorHolidays(2026)).toHaveLength(11);
   });
 
   it("Ecuador moves a midweek holiday, and keeps 2–3 November together", () => {
@@ -78,7 +76,7 @@ describe("public holidays", () => {
       "EC 2026-11-02",
       "EC 2026-11-03",
       "US 2026-11-11",
-      "EC 2026-11-20",
+      "LOCAL 2026-11-18",
       "US 2026-11-26",
     ]);
     const event = publicHolidayEvent(november[0]!);
@@ -91,5 +89,13 @@ describe("public holidays", () => {
     expect(publicHolidayCountry(event.eventId)).toBe("EC");
     expect(publicHolidayCountry(publicHolidayEvent(november[2]!).eventId)).toBe("US");
     expect(publicHolidayCountry("ev_123")).toBeNull();
+    // A city's own holiday: on its date, named with the city, and not a national day off.
+    const december = publicHolidaysBetween("2026-12-01", "2026-12-10");
+    expect(december.map((h) => `${h.date} ${h.name}`)).toEqual([
+      "2026-12-06 Fundación de Quito · Quito",
+      "2026-12-08 Fundación de Loja · Loja",
+    ]);
+    expect(publicHolidayCountry(publicHolidayEvent(december[0]!).eventId)).toBe("LOCAL");
+    expect(ecuadorHolidayDates("2026-12-01", "2026-12-10")).toEqual(new Set());
   });
 });

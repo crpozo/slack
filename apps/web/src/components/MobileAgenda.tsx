@@ -18,9 +18,10 @@ const timeFmt = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-d
 /** Dot and pill colors per event kind, on the same tokens as the desktop grid. */
 function tone(e: CalendarEvent): { dot: string; pill: string } {
   if (e.type === "holiday") {
-    return publicHolidayCountry(e.eventId) === "US"
-      ? { dot: "bg-[#6366f1]", pill: "bg-[#6366f1]/15" }
-      : { dot: "bg-error", pill: "bg-error/15" };
+    const builtIn = publicHolidayCountry(e.eventId);
+    if (builtIn === "US") return { dot: "bg-[#6366f1]", pill: "bg-[#6366f1]/15" };
+    if (builtIn === "LOCAL") return { dot: "bg-[#d97706]", pill: "bg-[#d97706]/15" };
+    return { dot: "bg-error", pill: "bg-error/15" };
   }
   if (e.type === "vacation") {
     return e.status === "pending"

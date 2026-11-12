@@ -16,8 +16,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   product, with which tool and what to measure. From the next analysis on.
 - **AI News, a Fuentes tab:** every source AI News reads, which ones answered on the last read
   ("12 de 14 conectadas") and how many of today's stories came from each.
-- **Calendar: Loja's holidays:** Independencia de Loja (18 November) and Fundación de Loja
-  (8 December), moved to the long weekend like the national ones and not charged to a vacation.
+- **Calendar: the cities' own holidays:** Fundación de Quito (6 December), Fundación de
+  Guayaquil (25 July), Fundación de Cuenca (12 April), Independencia de Loja (18 November) and
+  Fundación de Loja (8 December) are shown in amber with the city's name, on their own date.
+  A city's holiday is a day off only there, so it is informational: it isn't charged or
+  spared in a vacation unless an admin adds that day as a holiday.
 - **Calendar: Ecuador's and the United States' holidays, built in:** every year's holidays are
   on the calendar without anyone adding them. **Ecuador's** (red, 🇪🇨) are on the day off, moved
   to make the long weekend as the law says (a Tuesday holiday to Monday, Wednesday or Thursday to
@@ -497,6 +500,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **Calendar month, only its own days:** the greyed days of the months before and after are
+  gone, and a month has as many weeks as it needs.
 - **AI Radar, less obvious and more specific:** the starter list drops what everybody already
   uses (the Claude models, Claude Code, Bedrock, serverless, Cursor, Copilot) for 56 named
   technologies worth a decision: diffusion language models, document-reading vision models,

@@ -10,7 +10,12 @@ import type { HolidayEvent } from "./calendar";
 // admin adds that day as a holiday of their own.
 // ---------------------------------------------------------------------------
 
-export type HolidayCountry = "EC" | "US";
+/**
+ * `EC`: Ecuador's national holidays (a day off for everyone). `US`: the United
+ * States' federal ones. `LOCAL`: a city's own holiday in Ecuador (a day off
+ * only there): shown with the city's name, on its own date.
+ */
+export type HolidayCountry = "EC" | "US" | "LOCAL";
 
 export interface PublicHoliday {
   /** `YYYY-MM-DD`: the day off (Ecuador's are already moved as its law says). */
@@ -78,7 +83,7 @@ function difuntosAndCuenca(year: number): [string, string] {
   }
 }
 
-/** Ecuador's national holidays of `year`, and Loja's local ones, on the day off. */
+/** Ecuador's national holidays of `year`, on the day off. */
 export function ecuadorHolidays(year: number): PublicHoliday[] {
   const easter = easterSunday(year);
   const [difuntos, cuenca] = difuntosAndCuenca(year);
@@ -93,12 +98,24 @@ export function ecuadorHolidays(year: number): PublicHoliday[] {
     [observedInEcuador(ymd(year, 10, 9)), "Independencia de Guayaquil"],
     [difuntos, "Día de los Difuntos"],
     [cuenca, "Independencia de Cuenca"],
-    // Loja's own (where the company is): moved like the national ones.
-    [observedInEcuador(ymd(year, 11, 18)), "Independencia de Loja"],
-    [observedInEcuador(ymd(year, 12, 8)), "Fundación de Loja"],
     [observedInEcuador(ymd(year, 12, 25), true), "Navidad"],
   ];
   return list.map(([date, name]) => ({ date, name, country: "EC" as const }));
+}
+
+/**
+ * The main cities' own holidays of `year`, on their date (whether the day off
+ * is moved is each city's decree). A day off only in that city.
+ */
+export function ecuadorLocalHolidays(year: number): PublicHoliday[] {
+  const list: Array<[string, string]> = [
+    [ymd(year, 4, 12), "Fundación de Cuenca · Cuenca"],
+    [ymd(year, 7, 25), "Fundación de Guayaquil · Guayaquil"],
+    [ymd(year, 11, 18), "Independencia de Loja · Loja"],
+    [ymd(year, 12, 6), "Fundación de Quito · Quito"],
+    [ymd(year, 12, 8), "Fundación de Loja · Loja"],
+  ];
+  return list.map(([date, name]) => ({ date, name, country: "LOCAL" as const }));
 }
 
 /** The `n`th `weekday` (0 Sunday … 6 Saturday) of a month; `n = -1` is the last one. */
@@ -130,12 +147,16 @@ export function usHolidays(year: number): PublicHoliday[] {
   return list.map(([date, name]) => ({ date, name, country: "US" as const }));
 }
 
-/** Both countries' holidays from `from` to `to` (inclusive `YYYY-MM-DD`), in date order. */
+/** Every built-in holiday from `from` to `to` (inclusive `YYYY-MM-DD`), in date order. */
 export function publicHolidaysBetween(from: string, to: string): PublicHoliday[] {
   const out: PublicHoliday[] = [];
   // A year's first holiday can be moved into the year before (1 January on a Saturday).
   for (let year = Number(from.slice(0, 4)); year <= Number(to.slice(0, 4)) + 1; year++) {
-    for (const h of [...ecuadorHolidays(year), ...usHolidays(year)]) {
+    for (const h of [
+      ...ecuadorHolidays(year),
+      ...ecuadorLocalHolidays(year),
+      ...usHolidays(year),
+    ]) {
       if (h.date >= from && h.date <= to) out.push(h);
     }
   }
@@ -152,12 +173,13 @@ export function ecuadorHolidayDates(from: string, to: string): Set<string> {
 }
 
 export const PUBLIC_HOLIDAY_PREFIX = "public-holiday:";
-export const HOLIDAY_FLAG: Record<HolidayCountry, string> = { EC: "🇪🇨", US: "🇺🇸" };
+export const HOLIDAY_FLAG: Record<HolidayCountry, string> = { EC: "🇪🇨", US: "🇺🇸", LOCAL: "📍" };
 
 /** Whether `eventId` is one of the built-in holidays (nobody's to edit), and whose. */
 export function publicHolidayCountry(eventId: string): HolidayCountry | null {
   if (!eventId.startsWith(PUBLIC_HOLIDAY_PREFIX)) return null;
-  return eventId.slice(PUBLIC_HOLIDAY_PREFIX.length).startsWith("US") ? "US" : "EC";
+  const rest = eventId.slice(PUBLIC_HOLIDAY_PREFIX.length);
+  return rest.startsWith("US:") ? "US" : rest.startsWith("LOCAL:") ? "LOCAL" : "EC";
 }
 
 /** A built-in holiday as a calendar event, so every view draws it like the others. */

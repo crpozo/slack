@@ -349,6 +349,9 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
                 selectMirror
                 unselectAuto
                 dayMaxEvents={3}
+                // Only the month's own days: no greyed days of the months around it.
+                showNonCurrentDates={false}
+                fixedWeekCount={false}
                 eventOrder="rank,start,title"
                 events={inputs}
                 datesSet={onDatesSet}
@@ -464,6 +467,7 @@ function Legend() {
     { className: "bg-success", label: "Vacation" },
     { className: "border border-dashed border-success bg-success/25", label: "Pending" },
     { className: "bg-error", label: "Holiday (Ecuador)" },
+    { className: "bg-[#d97706]", label: "Local holiday (city)" },
     { className: "bg-[#6366f1]", label: "US holiday" },
   ];
   return (

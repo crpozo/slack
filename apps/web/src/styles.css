@@ -295,6 +295,12 @@
   border-color: #6366f1;
   color: #fff;
 }
+/* A city's own holiday in Ecuador: a day off only there. */
+.fc .ev-holiday-local {
+  background: #d97706;
+  border-color: #d97706;
+  color: #fff;
+}
 .fc .fc-day.fc-holiday {
   background: rgb(var(--c-error) / 0.08);
 }

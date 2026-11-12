@@ -38,6 +38,9 @@ export function eventLabel(event: CalendarEvent, nameOf: (userId: string) => str
   return event.status === "pending" ? `${who} · Vacation (pending)` : `${who} · Vacation`;
 }
 
+/** How each kind of holiday is drawn (an admin's own counts as a national one). */
+const HOLIDAY_CLASS = { EC: "ev-holiday", US: "ev-holiday-us", LOCAL: "ev-holiday-local" } as const;
+
 export function toCalendarInput(
   event: CalendarEvent,
   nameOf: (userId: string) => string,
@@ -64,7 +67,7 @@ export function toCalendarInput(
   const endDate = event.endDate ?? startDate;
   const classNames =
     event.type === "holiday"
-      ? [publicHolidayCountry(event.eventId) === "US" ? "ev-holiday-us" : "ev-holiday"]
+      ? [HOLIDAY_CLASS[publicHolidayCountry(event.eventId) ?? "EC"]]
       : event.type === "vacation"
         ? ["ev-vacation", ...(event.status === "pending" ? ["ev-pending"] : [])]
         : ["ev-meeting", ...series];
@@ -85,7 +88,8 @@ export function toCalendarInput(
 export function holidayDates(events: Iterable<CalendarEvent>): Set<string> {
   const dates = new Set<string>();
   for (const e of events) {
-    if (e.type !== "holiday" || publicHolidayCountry(e.eventId) === "US") continue;
+    const builtIn = publicHolidayCountry(e.eventId);
+    if (e.type !== "holiday" || builtIn === "US" || builtIn === "LOCAL") continue;
     for (const d of eachDate(e.startDate, e.endDate)) dates.add(d);
   }
   return dates;
