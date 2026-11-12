@@ -30,6 +30,8 @@ let table: Map<string, Record<string, unknown>>;
 const keyOf = (k: { pk: unknown; id: unknown }) => `${String(k.pk)}\n${String(k.id)}`;
 function fakeTable() {
   table = new Map();
+  // The starter list was written long ago: these tests start from an empty radar.
+  table.set(keyOf({ pk: "SCAN", id: "seeded-v2" }), { pk: "SCAN", id: "seeded-v2", at: 1 });
   ddbMock.on(PutCommand).callsFake((input) => {
     const item = input.Item as { pk: string; id: string };
     if (input.ConditionExpression?.includes("attribute_not_exists") && table.has(keyOf(item))) {

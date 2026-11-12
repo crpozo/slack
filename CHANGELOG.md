@@ -186,6 +186,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **AI Radar tooltip you could see through:** the blips behind showed through the card and its
+  text; it's solid now.
 - **AI News: "El análisis salió demasiado largo y se cortó":** writing the audio script too
   took the analysis past its output ceiling. The ceiling is doubled.
 - **AI News showed other stories for a moment on reload:** the raw headlines appeared first and
@@ -452,6 +454,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **AI Radar, what's actually changing the field:** the starter blips are rewritten around the
+  technologies that deserve a decision — agents (skills, MCP, computer use, multi-agent, voice),
+  speech-to-speech, video and image generation, on-device models, managed agent runtimes and
+  sandboxes, evals, cloud coding agents, AI code review, spec-driven development — instead of
+  everyday plumbing (React, Vite, a linter). The old starters nobody had touched are replaced
+  once; anything a person or a scan added, moved or edited stays.
 - **AI News, Para MindfulTech without its heading block:** the "Cinco acciones sugeridas para
   esta semana" title and its line are gone (the tab already says what it is); the actions use
   the full width.

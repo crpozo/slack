@@ -1,5 +1,5 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { blipKey, CreateBlipSchema, RADAR_QUADRANTS, similarTechNames } from "@mindfultech/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { listBlips } from "../src/lib/radar";
@@ -47,6 +47,13 @@ describe("seeding", () => {
       table.set(key, item);
       return {};
     });
+    ddbMock.on(GetCommand).callsFake((input) => ({
+      Item: table.get(`${input.Key?.pk}|${input.Key?.id}`),
+    }));
+    ddbMock.on(DeleteCommand).callsFake((input) => {
+      table.delete(`${input.Key?.pk}|${input.Key?.id}`);
+      return {};
+    });
     ddbMock.on(QueryCommand).callsFake((input) => ({
       Items: [...table.values()].filter((r) => r.pk === input.ExpressionAttributeValues?.[":pk"]),
     }));
@@ -65,5 +72,30 @@ describe("seeding", () => {
     for (const key of [...table.keys()]) if (key.startsWith("BLIP|")) table.delete(key);
     expect(await seedRadarOnce(2)).toBe(false);
     expect(await listBlips()).toEqual([]);
+  });
+
+  it("a newer list replaces the starters nobody touched, and keeps what people added or edited", async () => {
+    const row = (id: string, name: string, updatedBy: string) =>
+      table.set(`BLIP|${id}`, {
+        pk: "BLIP",
+        id,
+        name,
+        quadrant: "Frameworks",
+        ring: "Adopt",
+        description: "",
+        previousRing: null,
+        createdAt: 1,
+        updatedAt: 1,
+        updatedBy,
+      });
+    table.set("SCAN|seeded", { pk: "SCAN", id: "seeded", at: 1 }); // the first list was written
+    row("vite", "Vite", "seed");
+    row("react", "React", "u-ana"); // someone edited this one
+    row("our-thing", "Our thing", "u-ana");
+    expect(await seedRadarOnce(5)).toBe(true);
+    const names = (await listBlips()).map((b) => b.name);
+    expect(names).not.toContain("Vite");
+    expect(names).toEqual(expect.arrayContaining(["React", "Our thing", "Claude Code"]));
+    expect(names).toHaveLength(starterBlips().length + 2);
   });
 });

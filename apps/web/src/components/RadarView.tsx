@@ -364,7 +364,7 @@ function RadarChart({ points, size, selectedId, onSelect, onDrop }: Readonly<Cha
       {hovered && !drag && (
         <div
           role="tooltip"
-          className={`pointer-events-none absolute z-10 w-56 rounded-xl p-3 text-xs text-white ${GLASS}`}
+          className="pointer-events-none absolute z-10 w-64 rounded-xl border border-white/15 bg-[#1e2126] p-3 text-xs text-white shadow-xl shadow-black/50"
           style={{
             left: `${Math.min(92, Math.max(0, (hovered.x / size) * 100))}%`,
             top: `${(hovered.y / size) * 100}%`,
