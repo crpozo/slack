@@ -289,6 +289,12 @@
   border-color: rgb(var(--c-error));
   color: rgb(var(--c-on-accent));
 }
+/* A United States holiday: shown for the clients there, not a day off here. */
+.fc .ev-holiday-us {
+  background: #6366f1;
+  border-color: #6366f1;
+  color: #fff;
+}
 .fc .fc-day.fc-holiday {
   background: rgb(var(--c-error) / 0.08);
 }

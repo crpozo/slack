@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Calendar: Ecuador's and the United States' holidays, built in:** every year's holidays are
+  on the calendar without anyone adding them. **Ecuador's** (red, 🇪🇨) are on the day off, moved
+  to make the long weekend as the law says (a Tuesday holiday to Monday, Wednesday or Thursday to
+  Friday, 2–3 November kept together), with Carnival and Good Friday from Easter; they are
+  **not charged to a vacation**. The **United States'** federal holidays (indigo, 🇺🇸) are shown
+  for the clients there and don't count as days off. A day a decree moves for one year isn't
+  known: an admin adds it as a holiday, as before.
 - **AI News, the best sources in tech and AI:** besides TechCrunch, VentureBeat, The Verge and
   InfoQ, the news now come from **Bloomberg**, **Financial Times**, **The New York Times**,
   **MIT Technology Review**, **Wired**, **Ars Technica**, **The Guardian** and **CNBC**, and

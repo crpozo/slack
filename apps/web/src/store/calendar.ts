@@ -11,6 +11,7 @@ import {
   type VacationBalance,
   type VacationDecisionInput,
 } from "@mindfultech/shared";
+import { publicHolidayEvent, publicHolidaysBetween } from "@mindfultech/shared";
 import { create } from "zustand";
 import { calendarApi, type CalendarApi } from "../lib/calendarApi";
 
@@ -208,7 +209,9 @@ export function drawableEvents(
     (e) => e.type !== "vacation" || e.status !== "rejected",
   );
   if (!range) return drawn.filter((e) => e.type !== "meeting" || !e.recurrence);
-  return expandEvents(drawn, range.from, range.to);
+  // Phase 62: Ecuador's and the United States' holidays, without anyone adding them.
+  const builtIn = publicHolidaysBetween(range.from, range.to).map(publicHolidayEvent);
+  return [...expandEvents(drawn, range.from, range.to), ...builtIn];
 }
 
 /** The span of everything loaded so far (inclusive dates), or `null` before the first load. */

@@ -15,3 +15,4 @@ export * from "./vault";
 export * from "./radar";
 export * from "./timelog";
 export * from "./gallery";
+export * from "./publicHolidays";

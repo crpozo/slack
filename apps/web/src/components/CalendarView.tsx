@@ -149,7 +149,7 @@ export function CalendarView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () =>
     () => agendaEvents.map((e) => toCalendarInput(e, nameOf)),
     [agendaEvents, nameOf],
   );
-  const holidays = useMemo(() => holidayDates(Object.values(events)), [events]);
+  const holidays = useMemo(() => holidayDates(agendaEvents), [agendaEvents]);
 
   const onDatesSet = useCallback(
     (arg: DatesSetArg) => {
@@ -463,7 +463,8 @@ function Legend() {
     { className: "bg-primary", label: "Meeting" },
     { className: "bg-success", label: "Vacation" },
     { className: "border border-dashed border-success bg-success/25", label: "Pending" },
-    { className: "bg-error", label: "Holiday" },
+    { className: "bg-error", label: "Holiday (Ecuador)" },
+    { className: "bg-[#6366f1]", label: "US holiday" },
   ];
   return (
     <ul

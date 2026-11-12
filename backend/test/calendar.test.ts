@@ -341,7 +341,7 @@ describe("holidays", () => {
 describe("vacation requests", () => {
   it("charges working days minus holidays, reserving them in the ledger atomically", async () => {
     ddbMock.on(QueryCommand, { TableName: EVENTS }).resolves({ Items: [holidayRow] });
-    // Mon Nov 2 (holiday) .. Sun Nov 8: 4 working days.
+    // Mon Nov 2 and Tue Nov 3 (Ecuador's holidays, built in) .. Sun Nov 8: 3 working days.
     const { status, body } = await call("POST /calendar/events", {
       user: BOB,
       body: { type: "vacation", startDate: "2026-11-02", endDate: "2026-11-08", note: " Beach " },
@@ -351,7 +351,7 @@ describe("vacation requests", () => {
     expect(body.event).toMatchObject({
       type: "vacation",
       status: "pending",
-      days: 4,
+      days: 3,
       note: "Beach",
       participants: [BOB.userId],
       startDate: "2026-11-02",
@@ -366,12 +366,12 @@ describe("vacation requests", () => {
     });
     // …and the event + reservation are one transaction under the allowance condition.
     const [put, update] = transactItems();
-    expect(put!.Put).toMatchObject({ TableName: EVENTS, Item: { status: "pending", days: 4 } });
+    expect(put!.Put).toMatchObject({ TableName: EVENTS, Item: { status: "pending", days: 3 } });
     expect(update!.Update).toMatchObject({
       TableName: BALANCES,
       Key: { userId: BOB.userId, year: "2026" },
       ConditionExpression: "used + pending + :days <= allowance",
-      ExpressionAttributeValues: { ":days": 4 },
+      ExpressionAttributeValues: { ":days": 3 },
     });
     // Pending: the requester and admins see it, others don't.
     expect(pushed()).toEqual(["conn-admin", "conn-bob"]);
