@@ -103,6 +103,8 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
   const [person, setPerson] = useState<string>("");
   const [filter, setFilter] = useState<NotesFilter>(NO_FILTER);
   const [classifying, setClassifying] = useState(false);
+  // The tag cloud shows its most used tags; the rest on demand.
+  const [allTags, setAllTags] = useState(false);
   /** The card open in the side panel (`channelId|sk`). */
   const [openKey, setOpenKey] = useState<string | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
@@ -219,9 +221,18 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
     </div>
   );
 
+  const TAGS_SHOWN = 8;
+  const activeTag = topics.find(({ topic }) => fold(filter.topic) === fold(topic));
+  const topTags = [...topics].sort((x, y) => y.count - x.count).slice(0, TAGS_SHOWN);
+  // The tag being filtered by is always in sight.
+  const visibleTags = allTags
+    ? topics
+    : activeTag && !topTags.includes(activeTag)
+      ? [...topTags, activeTag]
+      : topTags;
   const topicChips = topics.length > 0 && (
     <div className="flex flex-wrap gap-1.5" role="group" aria-label="Tags">
-      {topics.map(({ topic, count }) => {
+      {visibleTags.map(({ topic, count }) => {
         const active = fold(filter.topic) === fold(topic);
         return (
           <button
@@ -240,6 +251,16 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
           </button>
         );
       })}
+      {topics.length > TAGS_SHOWN && (
+        <button
+          type="button"
+          onClick={() => setAllTags((all) => !all)}
+          aria-expanded={allTags}
+          className="rounded-md px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/10"
+        >
+          {allTags ? "Show fewer" : `+${topics.length - TAGS_SHOWN} more`}
+        </button>
+      )}
     </div>
   );
 
@@ -369,7 +390,7 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
             )}
 
             {unfiled > 0 && (
-              <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-primary/[0.08] px-4 py-3 text-sm text-ink/85">
+              <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-primary/25 bg-primary/[0.06] px-3 py-2 text-[13px] text-ink/85">
                 <SparklesIcon className="shrink-0 text-primary" aria-hidden="true" />
                 <p className="min-w-0 flex-1">
                   {unfiled === 1
@@ -427,13 +448,9 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
             )}
 
             {status === "loading" && notes.length === 0 && (
-              <div
-                className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3"
-                aria-busy="true"
-                aria-label="Loading notes"
-              >
+              <div className="flex flex-col gap-2.5" aria-busy="true" aria-label="Loading notes">
                 {[0, 1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className="h-52 animate-pulse rounded-2xl bg-surface-sidebar" />
+                  <div key={i} className="h-28 animate-pulse rounded-xl bg-surface-sidebar" />
                 ))}
               </div>
             )}
@@ -465,14 +482,14 @@ export function NotesHub({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
             )}
 
             {groups.map(({ key, label, items }) => (
-              <section key={key} aria-label={label} className="mb-6" data-date-group={key}>
-                <h2 className="sticky top-0 z-10 -mx-1 flex items-baseline gap-2 bg-surface/95 px-1 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-secondary backdrop-blur">
+              <section key={key} aria-label={label} className="mb-4" data-date-group={key}>
+                <h2 className="sticky top-0 z-10 -mx-1 flex items-baseline gap-2 bg-surface/95 px-1 py-2 text-xs font-semibold uppercase tracking-wide text-ink-secondary backdrop-blur">
                   {label}
                   <span className="font-normal normal-case tracking-normal opacity-70">
                     {items.length}
                   </span>
                 </h2>
-                <ul className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+                <ul className="flex flex-col gap-2.5">
                   {items.map((message) => (
                     <li key={keyOf(message)} className="flex" data-hub-note={message.sk}>
                       <MeetingCard
@@ -681,93 +698,96 @@ function MeetingCard({
     );
   } else {
     body = (
-      <p className="line-clamp-4 text-sm leading-relaxed text-ink-secondary [text-wrap:pretty]">
+      <p className="line-clamp-2 text-[13px] leading-relaxed text-ink-secondary [text-wrap:pretty]">
         {preview}
       </p>
     );
   }
   return (
     <article
-      className="group relative flex w-full flex-col gap-3 rounded-2xl border border-line bg-surface-sidebar p-4 transition duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-lg focus-within:border-primary/60"
+      className="group relative flex w-full flex-col gap-3 rounded-xl border border-line bg-surface-sidebar px-4 py-3.5 transition duration-200 hover:border-primary/50 hover:bg-surface-hover/40 focus-within:border-primary/60 lg:flex-row lg:items-start lg:gap-6"
       data-meeting-card={notes.callId}
       data-status={notes.status}
     >
-      <div className="flex items-center gap-2 text-xs text-ink-secondary">
-        {notes.category ? (
+      {/* A row on wide screens: what was said on the left, when and with whom on the right. */}
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-ink-secondary">
+          {notes.category ? (
+            <button
+              type="button"
+              onClick={() => onCategory(notes.category!)}
+              className="relative z-10 inline-flex items-center gap-1.5 rounded-full border border-line px-2 py-0.5 font-medium hover:border-primary/50 hover:text-ink"
+              title={`Show ${NOTES_CATEGORY_LABELS[notes.category].toLowerCase()} notes`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${CATEGORY_TONE[notes.category]}`}
+                aria-hidden="true"
+              />
+              {NOTES_CATEGORY_LABELS[notes.category]}
+            </button>
+          ) : notes.status === "ready" ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-line px-2 py-0.5">
+              Unsorted
+            </span>
+          ) : null}
+          {notes.topic && (
+            <button
+              type="button"
+              onClick={() => onMeetingTopic(notes.topic!)}
+              className="relative z-10 inline-flex min-w-0 items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 font-medium text-ink hover:bg-primary/25"
+              title={`Show the meetings filed under ${notes.topic}`}
+              data-card-topic
+            >
+              <FolderIcon className="shrink-0" aria-hidden="true" />
+              <span className="truncate">{notes.topic}</span>
+            </button>
+          )}
+        </div>
+
+        <h3 className="text-[15px] font-semibold leading-snug text-ink [text-wrap:pretty]">
+          {/* The title's button stretches over the whole card: one big target to open it. */}
           <button
             type="button"
-            onClick={() => onCategory(notes.category!)}
-            className="relative z-10 inline-flex items-center gap-1.5 rounded-full border border-line px-2 py-0.5 font-medium hover:border-primary/50 hover:text-ink"
-            title={`Show ${NOTES_CATEGORY_LABELS[notes.category].toLowerCase()} notes`}
+            onClick={onOpen}
+            className="text-left after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none"
+            aria-label={`Open the notes: ${title}`}
           >
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${CATEGORY_TONE[notes.category]}`}
-              aria-hidden="true"
-            />
-            {NOTES_CATEGORY_LABELS[notes.category]}
+            {title}
           </button>
-        ) : notes.status === "ready" ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-line px-2 py-0.5">
-            Unsorted
-          </span>
-        ) : null}
-        {notes.topic && (
-          <button
-            type="button"
-            onClick={() => onMeetingTopic(notes.topic!)}
-            className="relative z-10 inline-flex min-w-0 items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 font-medium text-ink hover:bg-primary/25"
-            title={`Show the meetings filed under ${notes.topic}`}
-            data-card-topic
-          >
-            <FolderIcon className="shrink-0" aria-hidden="true" />
-            <span className="truncate">{notes.topic}</span>
-          </button>
+        </h3>
+
+        {body}
+
+        {topics.length > 0 && (
+          <ul className="relative z-10 flex flex-wrap gap-1" aria-label="AI tags">
+            {topics.slice(0, 3).map((topic) => (
+              <li key={topic}>
+                <button
+                  type="button"
+                  onClick={() => onTopic(topic)}
+                  className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] text-ink-secondary hover:text-ink"
+                >
+                  #{topic}
+                </button>
+              </li>
+            ))}
+            {extra > 0 && <li className="px-1 py-0.5 text-[11px] text-ink-secondary">+{extra}</li>}
+          </ul>
         )}
-        <span className="ml-auto shrink-0 tabular-nums">
+      </div>
+
+      <div className="flex shrink-0 items-center gap-3 border-t border-line/70 pt-2.5 text-xs text-ink-secondary lg:w-52 lg:flex-col lg:items-end lg:gap-2 lg:border-t-0 lg:pt-0.5">
+        <span className="order-last ml-auto shrink-0 tabular-nums lg:order-none lg:ml-0">
           <time dateTime={new Date(message.createdAt).toISOString()}>
             {noteWhen(message.createdAt, formatTime)}
           </time>{" "}
           · {formatCallDuration(notes.endedAt - notes.startedAt)}
         </span>
-      </div>
-
-      <h3 className="text-base font-bold leading-snug text-ink [text-wrap:pretty]">
-        {/* The title's button stretches over the whole card: one big target to open it. */}
-        <button
-          type="button"
-          onClick={onOpen}
-          className="text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none"
-          aria-label={`Open the notes: ${title}`}
-        >
-          {title}
-        </button>
-      </h3>
-
-      {body}
-
-      {topics.length > 0 && (
-        <ul className="relative z-10 flex flex-wrap gap-1" aria-label="AI tags">
-          {topics.slice(0, 3).map((topic) => (
-            <li key={topic}>
-              <button
-                type="button"
-                onClick={() => onTopic(topic)}
-                className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] text-ink-secondary hover:text-ink"
-              >
-                #{topic}
-              </button>
-            </li>
-          ))}
-          {extra > 0 && <li className="px-1 py-0.5 text-[11px] text-ink-secondary">+{extra}</li>}
-        </ul>
-      )}
-
-      <div className="mt-auto flex items-center gap-3 border-t border-line/70 pt-3 text-xs text-ink-secondary">
         <span className="flex min-w-0 items-center gap-2">
           <Avatar name={peerName || "?"} size="xs" />
           <span className="truncate">with {peerName || "someone"}</span>
         </span>
-        <span className="ml-auto flex shrink-0 items-center gap-3">
+        <span className="flex shrink-0 items-center gap-3">
           {actions > 0 && (
             <span className="inline-flex items-center gap-1" title={`${actions} action items`}>
               <CheckCircleIcon aria-hidden="true" /> {actions}

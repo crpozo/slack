@@ -467,6 +467,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **AI Notes, a list that uses the screen:** the notes are full-width rows instead of half-width
+  cards with an empty side: category, title and two lines of the summary on the left; when,
+  with whom, action items and recording on the right. Date groups sit closer together. The tag
+  cloud shows the 8 most used tags with "+N more", and the "notes missing a title" notice is
+  slimmer.
 - **AI Radar, what's actually changing the field:** the starter blips are rewritten around the
   technologies that deserve a decision — agents (skills, MCP, computer use, multi-agent, voice),
   speech-to-speech, video and image generation, on-device models, managed agent runtimes and
