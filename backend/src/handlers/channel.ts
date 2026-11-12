@@ -38,6 +38,7 @@ import { channelAudience, scanChannels, visibleTo } from "../lib/channels";
 import { batchDelete, ddb, tables } from "../lib/ddb";
 import { forgetChannel } from "../lib/media";
 import { wsHandler, type Caller } from "../lib/handler";
+import { accountExists } from "../lib/cognito";
 import { errorFields, log } from "../lib/logger";
 import { badRequest, ok, reply, replyError, type HandlerResult } from "../lib/response";
 import { guestsAmong, unknownUsers } from "../lib/users";
@@ -238,13 +239,43 @@ async function createChannel(action: ActionOf<"create">, caller: Caller) {
   return ok();
 }
 
+/**
+ * Whether the person at the other end of a DM still has an account. A
+ * `users` row outlives its Cognito account when an admin deletes the account
+ * (until the cleanup Lambda removes the row), and a DM with them must not be
+ * opened. If Cognito itself can't answer, the DM opens as before: a Cognito
+ * hiccup must not break every DM.
+ */
+async function peerAvailable(peer: string, caller: Caller): Promise<boolean> {
+  if (peer === caller.userId) return true;
+  try {
+    return await accountExists(peer);
+  } catch (err) {
+    log.warn("dm peer check failed, allowing", { peer, ...errorFields(err) });
+    return true;
+  }
+}
+
 async function openDm(action: ActionOf<"dm">, caller: Caller) {
+  const { requestId } = action;
   // DM ids are `dm_<a>_<b>`, so user ids must not contain `_`.
   if (action.withUserId.includes("_")) {
-    return badRequest(caller.connectionId, "Invalid user id");
+    return badRequest(caller.connectionId, "Invalid user id", requestId);
   }
   if ((await guestsAmong([action.withUserId])).length > 0) {
-    return replyError(caller.connectionId, "FORBIDDEN", "Guests only have access to their boards");
+    return replyError(
+      caller.connectionId,
+      "FORBIDDEN",
+      "Guests only have access to their boards",
+      requestId,
+    );
+  }
+  if (!(await peerAvailable(action.withUserId, caller))) {
+    log.info("dm with a deleted account refused", {
+      peer: action.withUserId,
+      userId: caller.userId,
+    });
+    return replyError(caller.connectionId, "USER_NOT_FOUND", undefined, requestId);
   }
   const channelId = dmChannelId(caller.userId, action.withUserId);
   const created = await putIfAbsent({
@@ -258,6 +289,8 @@ async function openDm(action: ActionOf<"dm">, caller: Caller) {
   });
   if (created) log.info("dm created", { channelId, userId: caller.userId });
   await broadcastChannelList();
+  // After the list (same connection, sent in order): the DM is in it by now.
+  await reply(caller.connectionId, { type: "channel.dm_opened", channelId, requestId });
   return ok();
 }
 

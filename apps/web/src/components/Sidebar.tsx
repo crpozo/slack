@@ -708,7 +708,18 @@ export function Sidebar({
   const [deleting, setDeleting] = useState<{ channel: Channel; label: string } | null>(null);
   const [editing, setEditing] = useState<Channel | null>(null);
   const [archiving, setArchiving] = useState<Channel | null>(null);
-  const { me, status, channels, pinned, channelOrder, team, directory, users, online } = useChat(
+  const {
+    me,
+    status,
+    channels,
+    pinned,
+    channelOrder,
+    team,
+    directory,
+    users,
+    online,
+    unavailable,
+  } = useChat(
     useShallow((s) => ({
       me: s.me,
       status: s.status,
@@ -719,6 +730,7 @@ export function Sidebar({
       directory: s.directory,
       users: s.users,
       online: s.online,
+      unavailable: s.unavailableUsers,
     })),
   );
   const unread = useChat(
@@ -758,12 +770,20 @@ export function Sidebar({
     () =>
       me
         ? orderDms(
-            dmEntries(team, channels, me, directory, (id) => dmChannelId(me.userId, id), users),
+            dmEntries(
+              team,
+              channels,
+              me,
+              directory,
+              (id) => dmChannelId(me.userId, id),
+              users,
+              unavailable,
+            ),
             channels,
             pinned,
           )
         : [],
-    [team, channels, me, directory, users, pinned],
+    [team, channels, me, directory, users, unavailable, pinned],
   );
 
   if (!me) return null;

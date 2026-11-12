@@ -12,6 +12,7 @@ import { customDomainsEnabled, LOCAL_DEV_ORIGINS, resolveDomainConfig } from "./
 import type { Stage } from "./stage";
 import { Storage } from "./storage";
 import { TasksApi } from "./tasks-api";
+import { UserSync } from "./user-sync";
 import { Web } from "./web";
 
 export interface SlackStackProps extends StackProps {
@@ -35,6 +36,16 @@ export class SlackStack extends Stack {
           certificate: Certificate.fromCertificateArn(this, "Certificate", domains.certificateArn),
         }
       : undefined;
+
+    // Deleting an account in Cognito deletes its profile too (no orphaned DM rows).
+    // `-c cognitoTrail=true` also creates the CloudTrail trail EventBridge needs,
+    // for an account that doesn't log management events yet.
+    new UserSync(this, "UserSync", {
+      stage,
+      auth,
+      data,
+      createTrail: [true, "true"].includes(this.node.tryGetContext("cognitoTrail")),
+    });
 
     const api = new Api(this, "Api", {
       stage,

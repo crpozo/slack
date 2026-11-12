@@ -1,5 +1,9 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import {
+  CognitoIdentityProviderClient,
+  ListUsersCommand,
+} from "@aws-sdk/client-cognito-identity-provider";
+import {
   BatchGetCommand,
   BatchWriteCommand,
   DeleteCommand,
@@ -11,6 +15,7 @@ import {
   TransactWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { dmChannelId, type ChannelListEvent, compareIds } from "@mindfultech/shared";
+import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handler } from "../src/handlers/channel";
 import {
@@ -51,6 +56,8 @@ const foreignDm = {
   archived: false,
   members: ["user-x", "user-y"],
 };
+const cognitoMock = mockClient(CognitoIdentityProviderClient);
+
 const connections = [
   { connectionId: "conn-alice", userId: ALICE.userId },
   { connectionId: "conn-bob", userId: BOB.userId },
@@ -75,6 +82,9 @@ describe("channel", () => {
     // `users` lookups: nobody is a guest unless a test says so.
     ddbMock.on(BatchGetCommand).resolves({ Responses: {} });
     ddbMock.on(QueryCommand).resolves({ Items: [] }); // no unread messages
+    // Everyone's Cognito account exists unless a test says otherwise.
+    cognitoMock.reset();
+    cognitoMock.on(ListUsersCommand).resolves({ Users: [{ Username: "x" }] });
   });
 
   it("list returns visible channels only to the sender, archived ones included", async () => {
@@ -277,9 +287,74 @@ describe("channel", () => {
     );
 
     expect(result.statusCode).toBe(200);
-    const lists = sentEvents() as Array<[string, ChannelListEvent]>;
+    const lists = sentEvents().filter(
+      (e): e is [string, ChannelListEvent] => e[1].type === "channel.list",
+    );
+    expect(lists.length).toBeGreaterThan(0);
     for (const [, event] of lists)
       expect(event.channels.map((c) => c.channelId)).toEqual(["ch_general", dm.channelId]);
+  });
+
+  it("dm acknowledges the open to the caller, after the list, with its requestId", async () => {
+    mockScans([general]);
+    ddbMock.on(PutCommand).resolves({});
+
+    await handler(
+      wsEvent("channel", { action: "channel", op: "dm", withUserId: BOB.userId, requestId: "r1" }),
+    );
+
+    const events = sentEvents();
+    expect(events.at(-1)).toEqual([
+      "conn-alice",
+      {
+        type: "channel.dm_opened",
+        channelId: dmChannelId(ALICE.userId, BOB.userId),
+        requestId: "r1",
+      },
+    ]);
+    expect(events.slice(0, -1).some(([, e]) => e.type === "channel.list")).toBe(true);
+    expect(cognitoMock.commandCalls(ListUsersCommand)[0]!.args[0].input).toMatchObject({
+      UserPoolId: "us-east-1_TEST",
+      Filter: `sub = "${BOB.userId}"`,
+    });
+  });
+
+  it("dm with someone whose Cognito account was deleted: USER_NOT_FOUND, nothing created", async () => {
+    mockScans([general]);
+    cognitoMock.on(ListUsersCommand).resolves({ Users: [] });
+
+    const result = await handler(
+      wsEvent("channel", { action: "channel", op: "dm", withUserId: BOB.userId, requestId: "r2" }),
+    );
+
+    expect(result.statusCode).toBe(400);
+    expect(sentEvents()).toEqual([
+      ["conn-alice", { type: "error", code: "USER_NOT_FOUND", requestId: "r2" }],
+    ]);
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+  });
+
+  it("dm still opens when Cognito can't answer (a hiccup must not break DMs)", async () => {
+    mockScans([general]);
+    ddbMock.on(PutCommand).resolves({});
+    cognitoMock.on(ListUsersCommand).rejects(new Error("throttled"));
+
+    const result = await handler(
+      wsEvent("channel", { action: "channel", op: "dm", withUserId: BOB.userId }),
+    );
+
+    expect(result.statusCode).toBe(200);
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(1);
+  });
+
+  it("a DM with yourself never asks Cognito", async () => {
+    mockScans([general]);
+    ddbMock.on(PutCommand).resolves({});
+
+    await handler(wsEvent("channel", { action: "channel", op: "dm", withUserId: ALICE.userId }));
+
+    expect(cognitoMock.commandCalls(ListUsersCommand)).toHaveLength(0);
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(1);
   });
 
   it("dm rejects user ids containing '_'", async () => {

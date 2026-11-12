@@ -123,7 +123,8 @@ export class Api extends Construct {
         VAPID_PARAMETER: vapidParameterName(stage),
       }),
       history: fn("history"),
-      channel: fn("channel"),
+      // Opening a DM checks the other person's Cognito account still exists.
+      channel: fn("channel", { USER_POOL_ID: props.auth.userPool.userPoolId }),
       presign: fn("presign"),
       typing: fn("typing"),
       user: fn("user"),
@@ -264,6 +265,14 @@ export class Api extends Construct {
     channels.grant(handlers.pin, "dynamodb:UpdateItem");
     // react: ADD/DELETE on the reaction set; GetItem for no-op removals.
     messages.grant(handlers.react, "dynamodb:UpdateItem", "dynamodb:GetItem");
+
+    // A DM with someone whose account was deleted is refused (ListUsers by `sub`).
+    handlers.channel.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["cognito-idp:ListUsers"],
+        resources: [props.auth.userPool.userPoolArn],
+      }),
+    );
 
     handlers.presign.addToRolePolicy(
       new PolicyStatement({

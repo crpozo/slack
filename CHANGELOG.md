@@ -162,6 +162,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **DMs with a deleted user no longer hang the app:** someone deleted straight from Cognito
+  kept showing in the Direct Messages list, and opening a DM with them left the conversation
+  loading forever. The server now checks the person's Cognito account before opening a DM;
+  if it's gone, a toast says "This user is no longer available.", they leave the DM list and
+  the app goes back to a channel. A DM that isn't created yet no longer asks for its history
+  too early (that was what hung), and a DM the server doesn't answer gives up after 15 s.
+- **Deleting an account in Cognito removes the profile too:** an EventBridge rule on Cognito's
+  `AdminDeleteUser` (through CloudTrail) runs a new `user-cleanup` Lambda that deletes the
+  person's row from `users`. EventBridge only sees these calls while a CloudTrail trail is
+  logging in the account; deploy with `-c cognitoTrail=true` to create one if there is none.
+  Profiles orphaned before this: `pnpm --filter infra cleanup-orphans <stage>` lists them,
+  and `--apply` deletes them.
 - **A thinner Vault card in the chat:** a secret shared with `/secret` is now one slim row: its
   title, then the username and the password, both hidden, each with its own 👁 Reveal and Copy
   button, and a small Launch button on the right. The username is already on the card, so it

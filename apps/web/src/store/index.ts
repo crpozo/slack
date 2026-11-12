@@ -74,6 +74,12 @@ export interface ChatState {
   users: Record<string, UserProfile>;
   /** Presence: users with at least one live connection (`user.connected` / `user.disconnected`). */
   online: Record<string, true>;
+  /**
+   * People a DM couldn't be opened with because their account is gone (the
+   * server said USER_NOT_FOUND): kept out of the DM list for this session.
+   * Their profile stays in `users`, so their old messages keep their name.
+   */
+  unavailableUsers: Record<string, true>;
   /** Per-channel pending reply (the composer's "Replying to…" banner). */
   replyTo: Record<string, ReplySnapshot>;
   /** Per-channel message being edited in the composer. */
@@ -113,6 +119,8 @@ export interface ChatState {
   setHighlight: (sk: string | null) => void;
   setActiveChannel: (channelId: string | null) => void;
   historyRequested: (channelId: string, kind: HistoryRequest) => void;
+  /** No page is coming for `channelId` (its open failed): stop waiting on it. */
+  historyFailed: (channelId: string) => void;
   receiveHistory: (channelId: string, items: Message[], nextCursor: string | null) => void;
   receiveMessage: (message: Message, clientId?: string) => void;
   addPending: (message: ChatMessage) => void;
@@ -120,6 +128,8 @@ export interface ChatState {
   /** `online` replaces the presence snapshot when given. */
   setUsers: (users: UserProfile[], online?: string[]) => void;
   setPresence: (userId: string, online: boolean) => void;
+  /** Leaves `userId` out of the DM list (their account no longer exists). */
+  markUserUnavailable: (userId: string) => void;
   /** Starts (or, with `null`, cancels) a reply in `channelId`. */
   setReplyTo: (channelId: string, reply: ReplySnapshot | null) => void;
   /** A channel or DM was deleted: forget it and everything cached for it. */
@@ -215,6 +225,7 @@ const initialState = {
   team: [],
   users: {},
   online: {},
+  unavailableUsers: {},
   replyTo: {},
   editing: {},
   reads: {},
@@ -331,6 +342,13 @@ export const useChat = create<ChatState>()((set, get) => ({
   historyRequested: (channelId, kind) =>
     set((s) => ({ historyRequests: { ...s.historyRequests, [channelId]: kind } })),
 
+  historyFailed: (channelId) =>
+    set((s) =>
+      s.historyRequests[channelId]
+        ? { historyRequests: { ...s.historyRequests, [channelId]: undefined } }
+        : s,
+    ),
+
   receiveHistory: (channelId, items, nextCursor) =>
     set((s) => {
       const request = s.historyRequests[channelId];
@@ -422,6 +440,13 @@ export const useChat = create<ChatState>()((set, get) => ({
       if (!parentSk) return {};
       return { threads: { ...s.threads, [parentSk]: s.threads[parentSk]!.map(flag) } };
     }),
+
+  markUserUnavailable: (userId) =>
+    set((s) =>
+      s.unavailableUsers[userId]
+        ? s
+        : { unavailableUsers: { ...s.unavailableUsers, [userId]: true } },
+    ),
 
   setUsers: (list, onlineIds) =>
     set((s) => {
