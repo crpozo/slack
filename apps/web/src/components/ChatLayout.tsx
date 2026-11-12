@@ -272,6 +272,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     setSheet(null);
     if (!channelId) return;
     if (s.me) recordVisit(s.me.userId, channelId);
+    // (A DM not in the list yet waits: `loadHistory` skips it until it exists.)
     if (!(channelId in s.cursors) || s.stale[channelId]) chat.loadHistory(channelId, "initial");
     s.setListAtBottom(true);
     chat.viewed(channelId);
@@ -313,6 +314,25 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     const peer = dmPeer(channelId, myUserId);
     if (peer) chat.openDm(peer);
   }, [channelId, channelsLoaded, channelExists, myUserId]);
+
+  // The DM on screen now exists (just opened): load its history.
+  useEffect(() => {
+    if (!channelId || !channelExists || !isDmChannel(channelId)) return;
+    const s = useChat.getState();
+    if (!(channelId in s.cursors) || s.stale[channelId]) chat.loadHistory(channelId, "initial");
+  }, [channelId, channelExists]);
+
+  // The DM on screen couldn't be opened (the person's account is gone, or no
+  // answer): `chat` has already said why in a toast; leave it for a channel.
+  useEffect(
+    () =>
+      chat.onDmFailed((failedId) => {
+        if (failedId !== channelIdRef.current) return;
+        const next = fallbackChannelId(useChat.getState().channels, failedId);
+        navigate(`/app/${next}`, { replace: true });
+      }),
+    [navigate],
+  );
 
   // Back to the window: what's on screen counts as read.
   useEffect(() => {

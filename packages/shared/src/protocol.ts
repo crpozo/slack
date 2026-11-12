@@ -613,6 +613,12 @@ export const ChannelDmActionSchema = z.object({
   action: z.literal("channel"),
   op: z.literal("dm"),
   withUserId: z.string().min(1).max(128),
+  /**
+   * Echoed on the reply (`channel.dm_opened`, or an `error` such as
+   * USER_NOT_FOUND when the person's account is gone), so the client can
+   * settle the open instead of waiting on a conversation that never comes.
+   */
+  requestId: z.string().min(1).max(64).optional(),
 });
 
 /** Cognito `sub`s; `_` is excluded because DM ids are `dm_<a>_<b>`. */
@@ -1294,6 +1300,16 @@ export interface UserDisconnectedEvent {
 }
 
 /** Sent to everyone who could see the channel; clients drop it and leave it if open. */
+/**
+ * The reply to `channel` `dm` (only to whoever asked): the DM exists and is
+ * in the `channel.list` sent just before this.
+ */
+export interface ChannelDmOpenedEvent {
+  type: "channel.dm_opened";
+  channelId: string;
+  requestId?: string;
+}
+
 export interface ChannelDeletedEvent {
   type: "channel.deleted";
   channelId: string;
@@ -1513,6 +1529,7 @@ export type ServerEvent =
   | HistoryPageEvent
   | ChannelListEvent
   | ChannelDeletedEvent
+  | ChannelDmOpenedEvent
   | PresignResultEvent
   | UserListEvent
   | UserUpdatedEvent

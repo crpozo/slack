@@ -54,6 +54,23 @@ const ERROR_TEXT: Record<ErrorCode, string> = {
   INTERNAL_ERROR: "Something went wrong on the server. Please try again.",
 };
 
+/** What the user sees when a DM's other person no longer has an account. */
+export const DM_UNAVAILABLE_TEXT = "This user is no longer available.";
+
+/** The server refused a DM because the other person's account is gone. */
+export class DmUnavailableError extends Error {
+  constructor() {
+    super(DM_UNAVAILABLE_TEXT);
+    this.name = "DmUnavailableError";
+  }
+}
+
+/** A DM open in flight, by its channel id (one at a time per DM). */
+interface PendingDm extends Deferred<void> {
+  requestId: string;
+  promise: Promise<void>;
+}
+
 const SEND_TIMEOUT_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 /** Phase 43: a clip that failed to reach Whisper is tried this many more times… */
@@ -106,6 +123,8 @@ class ChatController {
     { timer: ReturnType<typeof setTimeout>; settle: (confirmed: boolean) => void }
   >();
   private readonly deletedListeners = new Set<(channelId: string, by: string) => void>();
+  private readonly pendingDms = new Map<string, PendingDm>();
+  private readonly dmFailedListeners = new Set<(channelId: string, userId: string) => void>();
   /** Phase 40: each ended call's notes request (whether its card was posted), by `callId`. */
   private readonly notesRequests = new Map<string, Promise<boolean>>();
   /** Phase 43: each call's clips on their way to Whisper, one after another, by `callId`. */
@@ -127,6 +146,15 @@ class ChatController {
   onChannelDeleted(listener: (channelId: string, by: string) => void): () => void {
     this.deletedListeners.add(listener);
     return () => this.deletedListeners.delete(listener);
+  }
+
+  /**
+   * Called when a DM couldn't be opened (the person's account is gone, or the
+   * server didn't answer), so the UI can leave the conversation it was waiting on.
+   */
+  onDmFailed(listener: (channelId: string, userId: string) => void): () => void {
+    this.dmFailedListeners.add(listener);
+    return () => this.dmFailedListeners.delete(listener);
   }
 
   start(wsUrl: string, onSessionExpired: () => void): void {
@@ -283,6 +311,14 @@ class ChatController {
         }
       }),
 
+      client.on("channel.dm_opened", ({ channelId, requestId }) => {
+        const pending = this.pendingDms.get(channelId);
+        if (!pending || (requestId && pending.requestId !== requestId)) return;
+        clearTimeout(pending.timer);
+        this.pendingDms.delete(channelId);
+        pending.resolve();
+      }),
+
       client.on("presign.result", (event) => {
         const deferred = this.presigns.get(event.requestId);
         if (!deferred) return;
@@ -294,7 +330,12 @@ class ChatController {
       client.on("error", ({ code, message, requestId }) => {
         const text = ERROR_TEXT[code] ?? message ?? "Unknown error.";
         const presign = requestId ? this.presigns.get(requestId) : undefined;
-        if (requestId && presign) {
+        const dm = requestId ? this.pendingDmByRequest(requestId) : undefined;
+        if (dm) {
+          clearTimeout(dm.pending.timer);
+          this.pendingDms.delete(dm.channelId);
+          dm.pending.reject(code === "USER_NOT_FOUND" ? new DmUnavailableError() : new Error(text));
+        } else if (requestId && presign) {
           clearTimeout(presign.timer);
           this.presigns.delete(requestId);
           presign.reject(new Error(text));
@@ -472,12 +513,20 @@ class ChatController {
     }
     this.pendingCreate = null;
     this.pendingName = null;
+    // Dropped quietly (no toast on sign-out): nobody is waiting on them any more.
+    for (const pending of this.pendingDms.values()) clearTimeout(pending.timer);
+    this.pendingDms.clear();
   }
 
   /** Requests the newest page (`initial`) or the next older one (`older`). */
   loadHistory(channelId: string, kind: "initial" | "older"): void {
     const s = useChat.getState();
     if (!this.client || s.historyRequests[channelId]) return;
+    // A DM that isn't in the list yet has no history to ask for: the server
+    // would answer CHANNEL_NOT_FOUND (with nothing to tie it to this request)
+    // and the list would wait forever. The layout loads it once the DM exists,
+    // or leaves it when the open fails.
+    if (isDmChannel(channelId) && !s.channels.some((c) => c.channelId === channelId)) return;
     const cursor = kind === "older" ? s.cursors[channelId] : undefined;
     // "stale" is the offline cache saying "there's more"; the next page's cursor
     // only arrives with a fresh first page, which `initial` fetches.
@@ -1002,12 +1051,69 @@ class ChatController {
     });
   }
 
-  /** Opens (or creates) the DM with `userId` and returns its channel id right away. */
+  /**
+   * Opens (or creates) the DM with `userId` and returns its channel id right
+   * away; the open itself settles in the background (`initDm`). If it fails,
+   * nothing is left hanging: a toast says why, and `onDmFailed` listeners
+   * (the layout) take the user out of the conversation.
+   */
   openDm(userId: string): string | null {
     const me = useChat.getState().me;
     if (!me || !this.client) return null;
-    this.client.send("channel", { op: "dm", withUserId: userId });
-    return dmChannelId(me.userId, userId);
+    const channelId = dmChannelId(me.userId, userId);
+    void this.initDm(channelId, userId);
+    return channelId;
+  }
+
+  /** Waits for the server to open the DM; any failure is handled here, never thrown. */
+  private async initDm(channelId: string, userId: string): Promise<void> {
+    try {
+      await this.requestDm(channelId, userId);
+    } catch (err) {
+      const s = useChat.getState();
+      // Nothing more will arrive for it: no spinner may keep waiting.
+      s.historyFailed(channelId);
+      if (err instanceof DmUnavailableError) {
+        s.markUserUnavailable(userId);
+        s.showToast(DM_UNAVAILABLE_TEXT, "info");
+      } else {
+        s.showToast(
+          err instanceof Error ? err.message : "Couldn't open the conversation.",
+          "error",
+        );
+      }
+      for (const listener of this.dmFailedListeners) listener(channelId, userId);
+    }
+  }
+
+  /**
+   * Asks the server to open the DM; resolves on its `channel.dm_opened`,
+   * rejects on its error (`DmUnavailableError` for USER_NOT_FOUND) or after
+   * REQUEST_TIMEOUT_MS. Two opens of the same DM share one request.
+   */
+  private requestDm(channelId: string, userId: string): Promise<void> {
+    const client = this.client;
+    if (!client) return Promise.reject(new Error("Not connected"));
+    const inFlight = this.pendingDms.get(channelId);
+    if (inFlight) return inFlight.promise;
+    const requestId = ulid();
+    let settle!: Pick<Deferred<void>, "resolve" | "reject">;
+    const promise = new Promise<void>((resolve, reject) => (settle = { resolve, reject }));
+    const timer = setTimeout(() => {
+      if (this.pendingDms.get(channelId)?.requestId !== requestId) return;
+      this.pendingDms.delete(channelId);
+      settle.reject(new Error("The server didn't respond. Please try again."));
+    }, REQUEST_TIMEOUT_MS);
+    this.pendingDms.set(channelId, { ...settle, timer, requestId, promise });
+    client.send("channel", { op: "dm", withUserId: userId, requestId });
+    return promise;
+  }
+
+  private pendingDmByRequest(requestId: string) {
+    for (const [channelId, pending] of this.pendingDms) {
+      if (pending.requestId === requestId) return { channelId, pending };
+    }
+    return undefined;
   }
 
   presign(request: PresignRequest): Promise<PresignResultEvent> {

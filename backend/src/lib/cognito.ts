@@ -5,7 +5,9 @@ import {
   AdminGetUserCommand,
   AdminListGroupsForUserCommand,
   CognitoIdentityProviderClient,
+  ListUsersCommand,
   ListUsersInGroupCommand,
+  paginateListUsers,
   UserNotFoundException,
   type AttributeType,
 } from "@aws-sdk/client-cognito-identity-provider";
@@ -99,6 +101,42 @@ export async function findOrInviteGuest(email: string): Promise<InvitedAccount> 
     throw err;
   }
   return { userId, email, role: "guest", created: true };
+}
+
+/**
+ * Whether a Cognito account with this `sub` still exists. Cognito is the
+ * source of truth: a `users` row can outlive its account (an admin deleted
+ * it from the console). `ListUsers` with a `sub` filter works whatever the
+ * pool's username scheme is.
+ */
+export async function accountExists(sub: string): Promise<boolean> {
+  // The filter is a quoted string: never let a caller-supplied quote break out of it.
+  if (!/^[\w-]+$/.test(sub)) return false;
+  const { Users } = await cognito().send(
+    new ListUsersCommand({
+      UserPoolId: poolId(),
+      Filter: `sub = "${sub}"`,
+      Limit: 1,
+      AttributesToGet: ["sub"],
+    }),
+  );
+  return (Users?.length ?? 0) > 0;
+}
+
+/** The `sub` of every account in the pool (paginated `ListUsers`). */
+export async function allAccountSubs(): Promise<Set<string>> {
+  const subs = new Set<string>();
+  const pages = paginateListUsers(
+    { client: cognito() },
+    { UserPoolId: poolId(), AttributesToGet: ["sub"] },
+  );
+  for await (const page of pages) {
+    for (const user of page.Users ?? []) {
+      const id = subOf(user.Attributes);
+      if (id) subs.add(id);
+    }
+  }
+  return subs;
 }
 
 /**
