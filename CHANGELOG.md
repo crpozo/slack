@@ -210,6 +210,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **Pasting a table ran its cells together:** a table copied from a chat answer, a doc or a web
+  page arrived as one line ("InstituciónSitioHospital Metropolitanohttps://…"). It is now
+  pasted as a markdown table, and the message shows it as a real table with its columns and
+  links.
 - **AI News, a story without a picture:** some publishers (Bloomberg) don't let their image be
   read. Instead of a hatched box saying "imagen · bloomberg", the cover shows the publisher's
   name as a masthead.

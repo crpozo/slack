@@ -78,4 +78,31 @@ describe("hasRichFormatting", () => {
       ),
     ).toBe(false);
   });
+
+  it("turns a table into a markdown table, with each cell in its column", () => {
+    const html = `<p><strong>Quito</strong></p>
+      <table><thead><tr><th>Institución</th><th>Sitio</th></tr></thead><tbody>
+      <tr><td>Hospital Metropolitano</td><td><a href="https://www.hospitalmetropolitano.org">https://www.hospitalmetropolitano.org</a></td></tr>
+      <tr><td>Clínica A | B</td><td><a href="https://example.com/">example.com</a></td></tr>
+      </tbody></table><p><strong>Guayaquil</strong></p>`;
+    expect(hasRichFormatting("<table><tr><td>a</td><td>b</td></tr></table>")).toBe(true);
+    expect(htmlToMarkdown(html)).toBe(
+      [
+        "**Quito**",
+        "",
+        "| Institución | Sitio |",
+        "| --- | --- |",
+        "| Hospital Metropolitano | https://www.hospitalmetropolitano.org |",
+        "| Clínica A \\| B | https://example.com/ |",
+        "",
+        "**Guayaquil**",
+      ].join("\n"),
+    );
+  });
+
+  it("reads through a one-column table instead of drawing it", () => {
+    expect(
+      htmlToMarkdown("<table><tr><td>Solo</td></tr><tr><td>una columna</td></tr></table>"),
+    ).toBe("Solo\nuna columna");
+  });
 });

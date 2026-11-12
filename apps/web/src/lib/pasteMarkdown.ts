@@ -16,6 +16,9 @@ const BLOCKS = new Set([
   "FOOTER",
   "BLOCKQUOTE",
   "TABLE",
+  "THEAD",
+  "TBODY",
+  "TFOOT",
   "TR",
   "UL",
   "OL",
@@ -37,7 +40,7 @@ export function hasRichFormatting(html: string): boolean {
   // Code editors (VS Code and friends) copy monospace HTML with `white-space: pre`:
   // their plain text is already right.
   if (/white-space:\s*pre/i.test(html)) return false;
-  return /<(strong|b|em|i|code|pre|li|h[1-6]|kbd|samp)[\s>]|font-weight:\s*(bold|[6-9]00)|font-style:\s*italic/i.test(
+  return /<(strong|b|em|i|code|pre|li|h[1-6]|kbd|samp|table)[\s>]|font-weight:\s*(bold|[6-9]00)|font-style:\s*italic/i.test(
     html,
   );
 }
@@ -123,10 +126,16 @@ export function htmlToMarkdown(html: string): string {
       code: isCode(node, marks.code),
     };
     let text = [...node.childNodes].map((child) => inline(child, next)).join("");
+    // Cells of a table read through as text keep a space between them.
+    if (node.tagName === "TD" || node.tagName === "TH") text = `${text} `;
     if (node.tagName === "A") {
       const href = node.getAttribute("href") ?? "";
       if (/^https?:\/\//i.test(href) && text.trim() && text.trim() !== href) {
-        text = `${text.trim()} (${href})`;
+        // The same address written without its scheme ("example.com") is the link itself.
+        const shown = text.trim();
+        const bare = (url: string) =>
+          url.replace(/^(https?:\/\/)?(www\.)?/i, "").replace(/\/$/, "");
+        text = bare(href) === bare(shown) ? href : `${shown} (${href})`;
       } else if (/^https?:\/\//i.test(href) && !text.trim()) {
         text = href;
       }
@@ -212,6 +221,34 @@ export function htmlToMarkdown(html: string): string {
       flushInline(own, item, indent + bullet);
       for (const child of nested) block(child, item);
       return;
+    }
+    if (el.tagName === "TABLE") {
+      // A table of data becomes a markdown table (a message renders it as one).
+      // One column, or cells that hold blocks, is a page's layout: read through.
+      const rows = [...el.querySelectorAll("tr")]
+        .filter((tr) => tr.closest("table") === el)
+        .map((tr) =>
+          [...tr.children]
+            .filter((cell) => cell.tagName === "TD" || cell.tagName === "TH")
+            .map((cell) => inline(cell, NONE).replace(/\s+/g, " ").trim().replace(/\|/g, "\\|")),
+        )
+        .filter((cells) => cells.some(Boolean));
+      const columns = Math.max(0, ...rows.map((cells) => cells.length));
+      const layout = !!el.querySelector("td p + p, td ul, td ol, td table, td h1, td h2, td h3");
+      if (rows.length >= 2 && columns >= 2 && columns <= 12 && !layout) {
+        const line = (cells: string[]) =>
+          `| ${Array.from({ length: columns }, (_, i) => cells[i] ?? "").join(" | ")} |`;
+        blankLine();
+        out.push(
+          [
+            line(rows[0]!),
+            line(Array<string>(columns).fill("---")),
+            ...rows.slice(1).map(line),
+          ].join("\n"),
+        );
+        blankLine();
+        return;
+      }
     }
     if (HEADINGS.has(el.tagName)) {
       blankLine();
