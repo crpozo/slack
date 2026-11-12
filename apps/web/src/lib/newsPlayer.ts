@@ -16,6 +16,10 @@ export interface NewsPlayerState {
   /** Seconds; 0 until the file says. */
   duration: number;
   error: string | null;
+  /** Playback speed (1 = normal); remembered on this device. */
+  rate: number;
+  /** The next speed in `NEWS_PLAYER_RATES` (after the last, back to the first). */
+  cycleRate: () => void;
   /** Plays `url`, or pauses it when it's the one playing. */
   toggle: (url: string) => void;
   seek: (seconds: number) => void;
@@ -28,11 +32,30 @@ export const trackOf = (url: string): string => url.split("?")[0] ?? url;
 
 let audio: HTMLAudioElement | null = null;
 
+/** The speeds the player offers, in the order the button steps through them. */
+export const NEWS_PLAYER_RATES = [1, 1.25, 1.5, 1.75, 2, 0.75] as const;
+const RATE_KEY = "news-audio-rate";
+
+function savedRate(): number {
+  try {
+    const n = Number(localStorage.getItem(RATE_KEY));
+    return (NEWS_PLAYER_RATES as readonly number[]).includes(n) ? n : 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** "1,5×", as the speed button reads. */
+export const rateLabel = (rate: number): string => `${String(rate).replace(".", ",")}×`;
+
 export const useNewsPlayer = create<NewsPlayerState>((set, get) => {
   function element(): HTMLAudioElement {
     if (audio) return audio;
     const el = new Audio();
     el.preload = "none";
+    // The speed survives loading another track (`load()` resets `playbackRate` to this).
+    el.defaultPlaybackRate = get().rate;
+    el.playbackRate = get().rate;
     el.addEventListener("play", () => set({ playing: true, error: null }));
     el.addEventListener("pause", () => set({ playing: false }));
     el.addEventListener("ended", () => set({ playing: false, position: 0 }));
@@ -52,6 +75,21 @@ export const useNewsPlayer = create<NewsPlayerState>((set, get) => {
     position: 0,
     duration: 0,
     error: null,
+    rate: savedRate(),
+    cycleRate: () => {
+      const rates = NEWS_PLAYER_RATES as readonly number[];
+      const rate = rates[(rates.indexOf(get().rate) + 1) % rates.length] ?? 1;
+      if (audio) {
+        audio.defaultPlaybackRate = rate;
+        audio.playbackRate = rate;
+      }
+      try {
+        localStorage.setItem(RATE_KEY, String(rate));
+      } catch {
+        // Private mode: it lasts the session only.
+      }
+      set({ rate });
+    },
     toggle: (url) => {
       const el = element();
       const track = trackOf(url);
@@ -59,6 +97,7 @@ export const useNewsPlayer = create<NewsPlayerState>((set, get) => {
         // Another day's summary (or the first play): load it. The same file with a
         // fresh signature keeps playing where it is.
         el.src = url;
+        el.playbackRate = get().rate;
         set({ track, position: 0, duration: 0, error: null });
       } else if (!el.paused) {
         el.pause();

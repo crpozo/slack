@@ -13,7 +13,7 @@ import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
 import { fullDate } from "../lib/news";
 import { actionsTitle, highlightParts, MIN_THUMBNAIL_PX, timeAgo } from "../lib/newsDashboard";
-import { clock, trackOf, useNewsPlayer } from "../lib/newsPlayer";
+import { clock, rateLabel, trackOf, useNewsPlayer } from "../lib/newsPlayer";
 import {
   CloseIcon,
   ExternalLinkIcon,
@@ -529,6 +529,18 @@ function AudioSummary({ audio }: Readonly<{ audio: NewsAudio }>) {
         <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-secondary">
           {mine ? `${clock(position)} / ${clock(duration)}` : clock(duration)}
         </span>
+        <button
+          type="button"
+          onClick={player.cycleRate}
+          className={`-my-1 shrink-0 rounded-full px-2 py-1 font-mono text-[11px] font-semibold tabular-nums transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+            player.rate === 1 ? "text-ink-secondary" : "text-primary"
+          }`}
+          aria-label={`Velocidad ${rateLabel(player.rate)}. Cambiar velocidad`}
+          title="Cambiar velocidad"
+          data-news-audio-rate
+        >
+          {rateLabel(player.rate)}
+        </button>
         {audio.voice && (
           <span
             className="hidden shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-secondary/70 sm:inline"

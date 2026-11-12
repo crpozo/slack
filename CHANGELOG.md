@@ -444,6 +444,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 - **AI News audio player, redesigned:** one compact row, as tall as the Refresh button: a green
   play button, "Resumen", a filled progress bar you can drag, the time and the voice.
+- **AI News audio speeds:** a speed button in the player (and in the floating pill) steps
+  through 1×, 1,25×, 1,5×, 1,75×, 2× and 0,75×; the speed is remembered on the device and kept
+  for the next day's summary.
 - **Inviting to a private channel:** an admin in the channel can invite too, not only its
   creator. Guests on boards are now called **externals** (badge "External").
 
