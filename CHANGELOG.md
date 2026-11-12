@@ -7,6 +7,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI News, how MindfulTech could do it:** each action in **Para MindfulTech** now comes with
+  a concrete example — a first step small enough for this week, for which kind of client or
+  product, with which tool and what to measure. From the next analysis on.
 - **AI News, a Fuentes tab:** every source AI News reads, which ones answered on the last read
   ("12 de 14 conectadas") and how many of today's stories came from each.
 - **Calendar: Loja's holidays:** Independencia de Loja (18 November) and Fundación de Loja

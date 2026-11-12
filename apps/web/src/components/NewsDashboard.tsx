@@ -230,6 +230,17 @@ export function NewsDashboard({
                     {t.lead}
                   </p>
                   <p className="text-sm leading-[1.6] text-ink/70 [text-wrap:pretty]">{t.body}</p>
+                  {t.example && (
+                    <p
+                      className="mt-1 border-l-2 border-primary pl-3 text-[13px] leading-[1.6] text-ink/85 [text-wrap:pretty]"
+                      data-takeaway-example
+                    >
+                      <span className="font-semibold text-primary">
+                        Cómo hacerlo en MindfulTech:{" "}
+                      </span>
+                      {t.example}
+                    </p>
+                  )}
                 </li>
               ))}
             </ol>

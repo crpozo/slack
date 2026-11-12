@@ -91,7 +91,12 @@ export const INSIGHTS_INSTRUCTION =
   "small team building AI products (tools to try, risks, client conversations, pricing). For " +
   'each: `lead`, the action in 2 to 6 words ("Evaluar modelos on-device"); `body`, the rest of ' +
   "the sentence in lower case (at most 35 words), saying for which product or client and " +
-  'why; `horizon`, "ahora" (this week), "trimestre" (plan for it) or "vigilar" (watch).\n' +
+  'why; `horizon`, "ahora" (this week), "trimestre" (plan for it) or "vigilar" (watch); ' +
+  "`example`, one or two sentences in Spanish (at most 45 words) with a concrete way " +
+  "MindfulTech could do it: a first step small enough to start this week, naming the kind of " +
+  "client or product (a clinic's booking system, an importer's back office, a dealership's " +
+  "CRM, the team's own chat app), the tool or model to use and what would be measured. " +
+  "A plausible example, said as a suggestion: never present it as something already done.\n" +
   `- watchlist: ${NEWS_INSIGHTS_MAX_WATCHLIST} things to follow in the coming days. For each: ` +
   '`topic`, two to four words in Spanish ("Precios de inferencia"); `text`, one or two ' +
   "sentences (at most 35 words) on what to look for and what it would mean.\n" +
@@ -170,8 +175,9 @@ export const INSIGHTS_SCHEMA = {
           lead: { type: "string" },
           body: { type: "string" },
           horizon: { type: "string", enum: [...NEWS_HORIZONS] },
+          example: { type: "string" },
         },
-        required: ["lead", "body", "horizon"],
+        required: ["lead", "body", "horizon", "example"],
         additionalProperties: false,
       },
     },
@@ -233,7 +239,13 @@ const modelOutput = z.object({
     z.object({ topic: z.string(), text: z.string(), stories: z.array(z.number()).optional() }),
   ),
   takeaways: z.array(
-    z.object({ lead: z.string(), body: z.string(), horizon: z.string().optional() }),
+    z.object({
+      lead: z.string(),
+      body: z.string(),
+      horizon: z.string().optional(),
+      // Phase 62 (absent on older answers).
+      example: z.string().optional(),
+    }),
   ),
   watchlist: z.array(z.object({ topic: z.string(), text: z.string() })).optional(),
   // Phase 56 (absent on older answers).
@@ -383,6 +395,7 @@ export function insightsFrom(
       lead: fit(t.lead, 80),
       body: fit(t.body, 320),
       ...(isHorizon(t.horizon) && { horizon: t.horizon }),
+      ...(t.example?.trim() && { example: fit(t.example, 360) }),
     }))
     .filter((t) => t.lead && t.body)
     .slice(0, NEWS_INSIGHTS_MAX_TAKEAWAYS);

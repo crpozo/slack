@@ -239,6 +239,8 @@ export interface NewsTakeaway {
   body: string;
   /** Phase 44. */
   horizon?: NewsHorizon;
+  /** Phase 62: a concrete way MindfulTech could do it (absent on older analyses). */
+  example?: string;
 }
 
 /**
