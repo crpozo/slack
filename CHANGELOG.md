@@ -452,6 +452,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **AI News, Para MindfulTech without its heading block:** the "Cinco acciones sugeridas para
+  esta semana" title and its line are gone (the tab already says what it is); the actions use
+  the full width.
+- **AI News Refresh, no "podrás pedir otro en N min":** the message is gone and the wait
+  between analyses for members is one minute instead of five.
 - **AI News audio player, redesigned:** one compact row, as tall as the Refresh button: a green
   play button, "Resumen", a filled progress bar you can drag and the time.
 - **AI News sections are pages:** Lo esencial, Para MindfulTech, Tendencias, A fondo, Seguir de

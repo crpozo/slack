@@ -419,7 +419,7 @@ export interface NewsAudio {
  * not more often than this for members (admins aren't held to it): every
  * click is a model run, and an analysis takes about half a minute.
  */
-export const NEWS_REFRESH_COOLDOWN_SECONDS = 5 * 60;
+export const NEWS_REFRESH_COOLDOWN_SECONDS = 60;
 
 /** `POST /news/refresh`: a new analysis was started, or one was started too recently. */
 export interface NewsRefreshResponse {

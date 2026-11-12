@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } fro
 import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
 import { fullDate } from "../lib/news";
-import { actionsTitle, highlightParts, MIN_THUMBNAIL_PX, timeAgo } from "../lib/newsDashboard";
+import { highlightParts, MIN_THUMBNAIL_PX, timeAgo } from "../lib/newsDashboard";
 import { clock, rateLabel, trackOf, useNewsPlayer } from "../lib/newsPlayer";
 import {
   CloseIcon,
@@ -205,25 +205,13 @@ export function NewsDashboard({
         <section
           id="news-impact"
           role="tabpanel"
-          aria-labelledby="news-impact-title"
-          className="news-dark -mx-4 grid grid-cols-[minmax(0,1fr)] gap-10 bg-surface px-6 py-10 sm:mx-0 sm:rounded-3xl sm:px-10 sm:py-12 cq-xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] cq-xl:gap-14"
+          aria-label="Para MindfulTech"
+          className="news-dark -mx-4 flex flex-col gap-6 bg-surface px-6 py-8 sm:mx-0 sm:rounded-3xl sm:px-10 sm:py-10"
           data-news-impact
         >
-          <div className="flex flex-col gap-4">
-            <span className={KICKER}>Para MindfulTech</span>
-            <h2
-              id="news-impact-title"
-              className="font-serif text-[30px] font-medium leading-[1.1] tracking-[-0.01em] text-ink sm:text-[36px] [text-wrap:balance]"
-            >
-              {actionsTitle(takeaways.length)}
-            </h2>
-            <p className="text-sm leading-relaxed text-ink-secondary">
-              Impacto de negocio derivado de las historias de hoy.
-            </p>
-            {insightsAction && <div className="mt-1">{insightsAction}</div>}
-          </div>
+          {insightsAction && <div>{insightsAction}</div>}
           {takeaways.length > 0 ? (
-            <ol className="grid grid-cols-[minmax(0,1fr)] gap-4 cq-sm:grid-cols-2 cq-lg:grid-cols-3 cq-xl:grid-cols-2">
+            <ol className="grid grid-cols-[minmax(0,1fr)] gap-4 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
               {takeaways.map((t, i) => (
                 <li
                   key={`${i}-${t.lead}`}

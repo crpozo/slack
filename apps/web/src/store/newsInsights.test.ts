@@ -72,7 +72,7 @@ describe("news insights store", () => {
     expect(failed.getState()).toMatchObject({ status: "error", error: "offline" });
   });
 
-  it("generate: when one was started a moment ago, says when the next may be asked for", async () => {
+  it("generate: when one was started a moment ago, shows the newest without a message", async () => {
     const api: NewsInsightsApi = {
       latest: vi.fn(async () => ({ insights: insights(1) })),
       refresh: vi.fn(async () => ({ queued: false, retryAfterSeconds: 170 })),
@@ -82,7 +82,7 @@ describe("news insights store", () => {
     expect(store.getState()).toMatchObject({
       generating: false,
       generateError: null,
-      generateNotice: "El análisis se pidió hace un momento: podrás pedir otro en 3 min.",
+      generateNotice: null,
     });
     expect(api.latest).toHaveBeenCalled(); // shows the one that's being written, once it's there
   });
