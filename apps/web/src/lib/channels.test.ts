@@ -149,6 +149,38 @@ describe("resolveConfig", () => {
   });
 });
 
+describe("deleted accounts in the DM list", () => {
+  const me = { userId: "u-me", email: "me@mt.ec" };
+  const ana = { userId: "u-ana", email: "ana@mt.ec", displayName: "Ana", updatedAt: 0 };
+  const ghostDm = {
+    channelId: "dm_u-ghost_u-me",
+    name: "dm_u-ghost_u-me",
+    type: "dm" as const,
+    createdBy: "u-me",
+    createdAt: 1,
+    archived: false,
+  };
+  const team = [{ userId: "u-ghost", email: "ghost@mt.ec" }];
+
+  it("before the server's directory arrives, VITE_USERS and old DMs stand in for it", () => {
+    const entries = dmEntries(team, [ghostDm], me, {}, (id) => `dm_${id}_u-me`, { "u-ana": ana });
+    expect(entries.map((e) => e.userId).sort()).toEqual(["u-ana", "u-ghost"]);
+  });
+
+  it("once it has, someone it doesn't list is gone, whatever VITE_USERS or an old DM say", () => {
+    const entries = dmEntries(
+      team,
+      [ghostDm],
+      me,
+      { "u-ghost": "ghost@mt.ec" },
+      (id) => `dm_${id}_u-me`,
+      { "u-ana": ana },
+      true,
+    );
+    expect(entries.map((e) => e.userId)).toEqual(["u-ana"]);
+  });
+});
+
 describe("guests in the DM list", () => {
   it("never lists a guest, even one in the directory", () => {
     const me = { userId: "u-me", email: "me@mt.ec" };

@@ -39,6 +39,7 @@ import { batchDelete, ddb, tables } from "../lib/ddb";
 import { forgetChannel } from "../lib/media";
 import { wsHandler, type Caller } from "../lib/handler";
 import { accountExists } from "../lib/cognito";
+import { deleteUserRow } from "../lib/orphans";
 import { errorFields, log } from "../lib/logger";
 import { badRequest, ok, reply, replyError, type HandlerResult } from "../lib/response";
 import { guestsAmong, unknownUsers } from "../lib/users";
@@ -275,6 +276,11 @@ async function openDm(action: ActionOf<"dm">, caller: Caller) {
       peer: action.withUserId,
       userId: caller.userId,
     });
+    // Cognito says the account is gone: its profile goes now, so the caller's
+    // fresh directory (they re-read it on this error) no longer lists them.
+    await deleteUserRow(action.withUserId).catch((err: unknown) =>
+      log.warn("deleted account's profile not removed", errorFields(err)),
+    );
     return replyError(caller.connectionId, "USER_NOT_FOUND", undefined, requestId);
   }
   const channelId = dmChannelId(caller.userId, action.withUserId);

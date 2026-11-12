@@ -76,8 +76,12 @@ function addDmPeers(
 }
 
 /**
- * DM list: everyone in the server directory (`user.list`), plus VITE_USERS and
- * anyone with an existing DM channel, never listing the same person twice.
+ * DM list: everyone in the server directory (`user.list`), never the same
+ * person twice. Until that directory has arrived (`directoryLoaded`), the
+ * build's VITE_USERS and the people of existing DM channels stand in for it;
+ * once it has, it is the source of truth: someone it doesn't list (their
+ * Cognito account was deleted, and with it their profile) is not offered,
+ * even with an old DM channel or a VITE_USERS line.
  */
 export function dmEntries(
   team: DirectoryUser[],
@@ -86,8 +90,8 @@ export function dmEntries(
   directory: Record<string, string>,
   dmIdFor: (userId: string) => string,
   profiles: Record<string, UserProfile> = {},
-  /** People whose account is gone (`markUserUnavailable`): never listed. */
-  unavailable: Record<string, true> = {},
+  /** The server's directory has arrived: only the people in it are listed. */
+  directoryLoaded = false,
 ): DmEntry[] {
   // Keyed by user id when known (by email otherwise) so nobody appears twice.
   const entries = new Map<string, PendingEntry>();
@@ -101,7 +105,11 @@ export function dmEntries(
   for (const profile of Object.values(profiles)) {
     if (profile.role === "guest") entries.delete(profile.userId);
   }
-  for (const userId of Object.keys(unavailable)) entries.delete(userId);
+  if (directoryLoaded) {
+    for (const [key, entry] of entries) {
+      if (!entry.userId || !profiles[entry.userId]) entries.delete(key);
+    }
+  }
 
   const dmIds = new Set(channels.filter((c) => c.type === "dm").map((c) => c.channelId));
   return [...entries.values()]

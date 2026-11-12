@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { Duration, RemovalPolicy } from "aws-cdk-lib";
 import { ReadWriteType, Trail } from "aws-cdk-lib/aws-cloudtrail";
-import { Rule } from "aws-cdk-lib/aws-events";
+import { Rule, RuleTargetInput, Schedule } from "aws-cdk-lib/aws-events";
 import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
 import { PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
@@ -29,6 +29,9 @@ export interface UserSyncProps {
   createTrail?: boolean;
 }
 
+/** What the schedule sends `user-cleanup` (backend `RECONCILE`). */
+export const RECONCILE_INPUT = { action: "reconcile" } as const;
+
 /**
  * Keeps `users` in step with Cognito: when an admin deletes an account
  * (AdminDeleteUser, seen through CloudTrail), `user-cleanup` deletes its
@@ -37,6 +40,8 @@ export interface UserSyncProps {
 export class UserSync extends Construct {
   readonly handler: NodejsFunction;
   readonly rule: Rule;
+  /** The safety net: reconciles `users` against the pool every 15 minutes. */
+  readonly reconcileRule: Rule;
 
   constructor(scope: Construct, id: string, props: UserSyncProps) {
     super(scope, id);
@@ -95,6 +100,23 @@ export class UserSync extends Construct {
         new LambdaFunction(this.handler, {
           retryAttempts: 4,
           maxEventAge: Duration.hours(2),
+        }),
+      ],
+    });
+
+    // The safety net, needing no CloudTrail: every 15 minutes the whole table
+    // is checked against the pool, so an account deleted any way at all (the
+    // console, the CLI, an account without a trail) leaves the directory soon.
+    // A scan of a few rows and a ListUsers page or two: about nothing.
+    this.reconcileRule = new Rule(this, "ReconcileUsersSchedule", {
+      ruleName: `slack-${stage}-users-reconcile`,
+      description: "Delete users rows whose Cognito account no longer exists",
+      schedule: Schedule.rate(Duration.minutes(15)),
+      targets: [
+        new LambdaFunction(this.handler, {
+          event: RuleTargetInput.fromObject(RECONCILE_INPUT),
+          retryAttempts: 1,
+          maxEventAge: Duration.minutes(15),
         }),
       ],
     });

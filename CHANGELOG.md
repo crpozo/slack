@@ -213,6 +213,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **No more "ghost" people in the DM list:** someone whose account is deleted in Cognito leaves
+  everyone's DM list on its own, without anyone clicking on them. The server reconciles its user
+  directory against Cognito every 15 minutes (as well as on the deletion event, where CloudTrail
+  delivers it), and the app re-reads that directory in the background whenever it comes back to
+  the front and on every connect, trusting only it once it has arrived.
 - **Pasting a table ran its cells together:** a table copied from a chat answer, a doc or a web
   page arrived as one line ("InstituciónSitioHospital Metropolitanohttps://…"). It is now
   pasted as a markdown table, and the message shows it as a real table with its columns and

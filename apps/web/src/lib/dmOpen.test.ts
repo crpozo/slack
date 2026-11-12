@@ -47,6 +47,9 @@ const ME = { userId: "u-me", email: "me@mt.ec", role: "member" as const };
 const GONE = "u-gone";
 const DM = dmChannelId(ME.userId, GONE);
 const lastDmRequest = () => fake.sent.filter((s) => s.payload.op === "dm").at(-1)!.payload;
+/** How many times the directory (`user` `list`) has been asked for. */
+const userLists = () =>
+  fake.sent.filter((m) => m.action === "user" && m.payload.op === "list").length;
 
 beforeEach(() => {
   fake.handlers.clear();
@@ -62,7 +65,7 @@ afterEach(() => {
 });
 
 describe("opening a DM with someone whose account is gone", () => {
-  it("toasts, hides them from the DM list, clears the spinner and tells the layout to leave", async () => {
+  it("toasts, clears the spinner, tells the layout to leave and re-reads the directory", async () => {
     const failed = vi.fn();
     const off = chat.onDmFailed(failed);
     useChat.setState({ historyRequests: { [DM]: "initial" } });
@@ -70,26 +73,36 @@ describe("opening a DM with someone whose account is gone", () => {
     expect(chat.openDm(GONE)).toBe(DM);
     const { requestId } = lastDmRequest();
     expect(requestId).toEqual(expect.any(String));
+    const listsBefore = userLists();
     fake.emit("error", { code: "USER_NOT_FOUND", requestId });
     await vi.waitFor(() => expect(failed).toHaveBeenCalledWith(DM, GONE));
     off();
 
     const s = useChat.getState();
     expect(s.toast).toMatchObject({ message: DM_UNAVAILABLE_TEXT, tone: "info" });
-    expect(s.unavailableUsers).toEqual({ [GONE]: true });
     expect(s.historyRequests[DM]).toBeUndefined();
-    const profiles = {
-      [GONE]: { userId: GONE, email: "gone@mt.ec", displayName: "Gone", updatedAt: 0 },
-      "u-ana": { userId: "u-ana", email: "ana@mt.ec", displayName: "Ana", updatedAt: 0 },
+    // No local "hide this one": a fresh directory from the server, which no longer lists them.
+    expect(userLists()).toBe(listsBefore + 1);
+    fake.emit("user.list", {
+      users: [{ userId: "u-ana", email: "ana@mt.ec", displayName: "Ana", updatedAt: 0 }],
+    });
+    const after = useChat.getState();
+    const dmWithGone = {
+      channelId: DM,
+      name: DM,
+      type: "dm" as const,
+      createdBy: ME.userId,
+      createdAt: 1,
+      archived: false,
     };
     const listed = dmEntries(
-      [],
-      [],
+      [{ userId: GONE, email: "gone@mt.ec" }],
+      [dmWithGone],
       ME,
-      {},
+      after.directory,
       (id) => dmChannelId(ME.userId, id),
-      profiles,
-      s.unavailableUsers,
+      after.users,
+      after.usersLoaded,
     );
     expect(listed.map((e) => e.userId)).toEqual(["u-ana"]);
   });
@@ -115,13 +128,14 @@ describe("opening a DM with someone whose account is gone", () => {
     vi.useFakeTimers();
     const failed = vi.fn();
     const off = chat.onDmFailed(failed);
+    const listsBefore = userLists();
     chat.openDm(GONE);
     await vi.advanceTimersByTimeAsync(15_000);
     off();
     expect(failed).toHaveBeenCalledWith(DM, GONE);
     expect(useChat.getState().toast).toMatchObject({ tone: "error" });
-    // A timeout isn't proof the account is gone: they stay in the list.
-    expect(useChat.getState().unavailableUsers).toEqual({});
+    // A timeout isn't proof the account is gone: no directory re-read for it.
+    expect(userLists()).toBe(listsBefore);
   });
 });
 

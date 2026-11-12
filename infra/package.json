@@ -17,7 +17,8 @@
     "backfill-search": "tsx scripts/backfill-search.ts",
     "backfill-images": "tsx scripts/backfill-images.ts",
     "shorten-secret-ttl": "tsx scripts/shorten-secret-ttl.ts",
-    "cleanup-orphans": "tsx scripts/cleanup-orphans.ts"
+    "cleanup-orphans": "tsx scripts/cleanup-orphans.ts",
+    "clean-ghost-users": "tsx scripts/clean-ghost-users.ts"
   },
   "dependencies": {
     "@mindfultech/shared": "workspace:*",

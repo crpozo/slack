@@ -25,14 +25,14 @@ export interface Item {
  */
 export function useSwitcherItems(query: string, onDone: () => void): Item[] {
   const navigate = useNavigate();
-  const { me, channels, team, directory, users, unavailable } = useChat(
+  const { me, channels, team, directory, users, usersLoaded } = useChat(
     useShallow((s) => ({
       me: s.me,
       channels: s.channels,
       team: s.team,
       directory: s.directory,
       users: s.users,
-      unavailable: s.unavailableUsers,
+      usersLoaded: s.usersLoaded,
     })),
   );
 
@@ -58,7 +58,7 @@ export function useSwitcherItems(query: string, onDone: () => void): Item[] {
       directory,
       (id) => dmChannelId(me.userId, id),
       users,
-      unavailable,
+      usersLoaded,
     )
       .filter((d) => d.userId)
       .map((d) => ({
@@ -75,5 +75,5 @@ export function useSwitcherItems(query: string, onDone: () => void): Item[] {
     return [...publicItems, ...dmItems].filter((i) =>
       `${i.label} ${i.hint ?? ""}`.toLowerCase().includes(q),
     );
-  }, [me, channels, team, directory, users, unavailable, query, navigate, onDone]);
+  }, [me, channels, team, directory, users, usersLoaded, query, navigate, onDone]);
 }

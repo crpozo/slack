@@ -352,7 +352,12 @@ describe("phase 5.1 resources", () => {
     ]);
     // A guest's directory is limited to their boards' members.
     expect(actionsOn("user", "DataBoards")).toEqual(["dynamodb:BatchGetItem", "dynamodb:Query"]);
-    expect(actionsOn("channel", "DataUsers")).toEqual(["dynamodb:BatchGetItem"]);
+    // BatchGetItem: invitees must exist; DeleteItem: a DM with an account Cognito no
+    // longer has deletes that ghost profile.
+    expect(actionsOn("channel", "DataUsers")).toEqual([
+      "dynamodb:BatchGetItem",
+      "dynamodb:DeleteItem",
+    ]);
     // Project channels link or create boards (in the channel's own transaction).
     expect(actionsOn("channel", "DataBoards")).toEqual(["dynamodb:GetItem", "dynamodb:PutItem"]);
     expect(actionsOn("react", "DataMessages")).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);
