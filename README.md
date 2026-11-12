@@ -488,6 +488,18 @@ otherwise reads that parameter (`OPENAI_API_KEY_PARAMETER`). Until the key exist
 notes still works, but every clip answers "Transcription isn't set up yet" and no notes come out.
 The Lambdas run outside any VPC, so they reach `api.openai.com` with no network setup.
 
+**ElevenLabs (optional, AI News audio).** The morning summary is read aloud by Amazon Polly
+unless an ElevenLabs key exists:
+
+```sh
+aws ssm put-parameter --name /slack/prod/elevenlabs-api-key --type SecureString --value "…"
+# optional: a voice from your ElevenLabs library (its id)
+aws ssm put-parameter --name /slack/prod/elevenlabs-voice-id --type String --value "…"
+```
+
+The news worker picks them up on its next run (no deploy needed); if ElevenLabs fails, Polly
+reads that day's summary.
+
 What leaves the browser: while notes are on, the caller's app records each voice on its own (its
 microphone, the other side's audio) in clips of up to 4 minutes. It sends each clip with speech in
 it to `POST /calls/{callId}/clips`, which hands it from memory to Whisper and keeps only the text

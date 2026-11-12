@@ -25,4 +25,13 @@ export const openaiKeyParameterName = (stage: Stage) => `/slack/${stage}/openai-
  * permissions) that lifts the AI Skills importer's API limit from 60 to 5,000
  * requests an hour. Only the `skills` Lambda reads it.
  */
+/**
+ * Phase 61, optional: an ElevenLabs API key (SecureString) for the AI News
+ * audio, and the id of the voice to use (a plain String; a stock voice when
+ * absent). Without the key the summary is read by Amazon Polly, as before.
+ * Only the news worker reads them.
+ */
+export const elevenLabsKeyParameterName = (stage: Stage) => `/slack/${stage}/elevenlabs-api-key`;
+export const elevenLabsVoiceParameterName = (stage: Stage) => `/slack/${stage}/elevenlabs-voice-id`;
+
 export const githubTokenParameterName = (stage: Stage) => `/slack/${stage}/github-token`;

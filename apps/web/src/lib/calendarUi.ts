@@ -7,6 +7,7 @@ import {
   type CalendarEvent,
   type VacationStatus,
 } from "@mindfultech/shared";
+import { publicHolidayCountry } from "@mindfultech/shared";
 
 /** What FullCalendar needs to draw one of our events. */
 export interface CalendarEventInput {
@@ -63,7 +64,7 @@ export function toCalendarInput(
   const endDate = event.endDate ?? startDate;
   const classNames =
     event.type === "holiday"
-      ? ["ev-holiday"]
+      ? [publicHolidayCountry(event.eventId) === "US" ? "ev-holiday-us" : "ev-holiday"]
       : event.type === "vacation"
         ? ["ev-vacation", ...(event.status === "pending" ? ["ev-pending"] : [])]
         : ["ev-meeting", ...series];
@@ -77,11 +78,14 @@ export function toCalendarInput(
   };
 }
 
-/** Dates (`YYYY-MM-DD`) covered by national holidays among `events`. */
+/**
+ * Dates (`YYYY-MM-DD`) covered by national holidays among `events`: the days
+ * off here (an admin's, and Ecuador's built-in ones), not the United States'.
+ */
 export function holidayDates(events: Iterable<CalendarEvent>): Set<string> {
   const dates = new Set<string>();
   for (const e of events) {
-    if (e.type !== "holiday") continue;
+    if (e.type !== "holiday" || publicHolidayCountry(e.eventId) === "US") continue;
     for (const d of eachDate(e.startDate, e.endDate)) dates.add(d);
   }
   return dates;

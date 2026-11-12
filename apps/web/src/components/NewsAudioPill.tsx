@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { clock, useNewsPlayer } from "../lib/newsPlayer";
+import { clock, rateLabel, useNewsPlayer } from "../lib/newsPlayer";
 import { CloseIcon, HeadphonesIcon, PauseIcon, PlayIcon } from "./icons";
 
 /**
@@ -9,7 +9,7 @@ import { CloseIcon, HeadphonesIcon, PauseIcon, PlayIcon } from "./icons";
  */
 export function NewsAudioPill({ hidden = false }: Readonly<{ hidden?: boolean }>) {
   const navigate = useNavigate();
-  const { track, playing, position, duration, stop } = useNewsPlayer();
+  const { track, playing, position, duration, stop, rate, cycleRate } = useNewsPlayer();
   if (!track || hidden) return null;
   return (
     <div
@@ -42,6 +42,17 @@ export function NewsAudioPill({ hidden = false }: Readonly<{ hidden?: boolean }>
           {clock(position)}
           {duration > 0 && ` / ${clock(duration)}`}
         </span>
+      </button>
+      <button
+        type="button"
+        onClick={cycleRate}
+        className={`rounded-full px-2 py-1 font-mono text-[11px] font-semibold tabular-nums hover:bg-white/10 ${
+          rate === 1 ? "text-ink-secondary" : "text-primary"
+        }`}
+        aria-label={`Velocidad ${rateLabel(rate)}. Cambiar velocidad`}
+        title="Cambiar velocidad"
+      >
+        {rateLabel(rate)}
       </button>
       <button
         type="button"

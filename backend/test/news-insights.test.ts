@@ -431,8 +431,8 @@ describe("the morning worker", () => {
     await worker();
     const voice = speak.mock.calls[0]![0].input;
     expect(voice).toMatchObject({ Engine: "neural", VoiceId: "Lupe", LanguageCode: "es-US" });
-    expect(voice.Text).toContain("AI News, martes, 27 de octubre. Lo más importante en un minuto.");
-    expect(voice.Text).toContain("Primero: OpenAI lanza agentes para todos.");
+    expect(voice.Text).toContain("Update de noticias.");
+    expect(voice.Text).toContain("OpenAI lanza agentes para todos.");
     const put = store.mock.calls[0]![0].input;
     expect(put).toMatchObject({
       Bucket: "slack-test-attachments",
@@ -709,7 +709,7 @@ describe("GET and POST /news/insights", () => {
     expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(1);
   });
 
-  it("POST /news/refresh starts the worker for a member at most every 5 minutes, atomically", async () => {
+  it("POST /news/refresh starts the worker for a member at most every minute, atomically", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     ddbMock.on(UpdateCommand).resolves({});
     expect(await call(event("POST /news/refresh"))).toEqual({
@@ -721,22 +721,22 @@ describe("GET and POST /news/insights", () => {
       TableName: TABLE,
       Key: { feed: "news-refresh", day: "lock" },
       ConditionExpression: "attribute_not_exists(requestedAt) OR requestedAt <= :cutoff",
-      ExpressionAttributeValues: { ":now": NOW, ":by": ALICE.userId, ":cutoff": NOW - 300_000 },
+      ExpressionAttributeValues: { ":now": NOW, ":by": ALICE.userId, ":cutoff": NOW - 60_000 },
     });
     const invoke = lambdaMock.commandCalls(InvokeCommand)[0]!.args[0].input;
     expect(invoke).toMatchObject({ InvocationType: "Event" });
 
-    // Two minutes after the last start: not yet, and no worker.
+    // Twenty seconds after the last start: not yet, and no worker.
     ddbMock.on(UpdateCommand).rejects(
       new ConditionalCheckFailedException({
         message: "The conditional request failed",
         $metadata: {},
-        Item: { requestedAt: { N: String(NOW - 120_000) } },
+        Item: { requestedAt: { N: String(NOW - 20_000) } },
       }),
     );
     expect(await call(event("POST /news/refresh"))).toEqual({
       status: 200,
-      body: { queued: false, retryAfterSeconds: 180 },
+      body: { queued: false, retryAfterSeconds: 40 },
     });
     expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(1);
     vi.useRealTimers();

@@ -83,7 +83,13 @@ function RateField({
 }: Readonly<{ rate: number | undefined; onSave: (rate: number) => Promise<void> }>) {
   const [value, setValue] = useState(rate ? String(rate) : "");
   const [busy, setBusy] = useState(false);
-  useEffect(() => setValue(rate ? String(rate) : ""), [rate]);
+  // Follow the saved rate when it changes (someone else set it), never on mount:
+  // a late effect would overwrite what was just typed.
+  const [shownRate, setShownRate] = useState(rate);
+  if (rate !== shownRate) {
+    setShownRate(rate);
+    setValue(rate ? String(rate) : "");
+  }
   const parsed = value.trim() === "" ? 0 : Number(value.replace(",", "."));
   const valid = Number.isFinite(parsed) && parsed >= 0;
   const changed = valid && parsed !== (rate ?? 0);

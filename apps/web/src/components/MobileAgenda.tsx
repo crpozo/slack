@@ -1,4 +1,5 @@
 import { addDays, dateInZone, occurrenceKey, type CalendarEvent } from "@mindfultech/shared";
+import { publicHolidayCountry } from "@mindfultech/shared";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   addMonths,
@@ -16,7 +17,11 @@ const timeFmt = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-d
 
 /** Dot and pill colors per event kind, on the same tokens as the desktop grid. */
 function tone(e: CalendarEvent): { dot: string; pill: string } {
-  if (e.type === "holiday") return { dot: "bg-error", pill: "bg-error/15" };
+  if (e.type === "holiday") {
+    return publicHolidayCountry(e.eventId) === "US"
+      ? { dot: "bg-[#6366f1]", pill: "bg-[#6366f1]/15" }
+      : { dot: "bg-error", pill: "bg-error/15" };
+  }
   if (e.type === "vacation") {
     return e.status === "pending"
       ? { dot: "border border-dashed border-success bg-success/30", pill: "bg-success/10" }

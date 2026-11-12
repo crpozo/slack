@@ -192,7 +192,14 @@ describe("calendar store", () => {
       { from: "2026-11-08", to: "2026-11-14" },
     ]);
     expect(span).toEqual({ from: "2026-11-01", to: "2026-11-14" });
-    const drawn = drawableEvents({ s: series }, span) as MeetingEvent[];
+    const all = drawableEvents({ s: series }, span);
+    // Ecuador's holidays of those two weeks are drawn too (2 and 3 November).
+    expect(all.filter((e) => e.type === "holiday").map((e) => e.title)).toEqual([
+      "🇪🇨 Día de los Difuntos",
+      "🇪🇨 Independencia de Cuenca",
+      "🇺🇸 Veterans Day",
+    ]);
+    const drawn = all.filter((e) => e.type === "meeting") as MeetingEvent[];
     expect(drawn.map((e) => e.occurrence)).toEqual([
       "2026-11-02",
       "2026-11-04",

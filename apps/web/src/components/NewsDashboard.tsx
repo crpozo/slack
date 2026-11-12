@@ -3,6 +3,7 @@ import {
   type NewsAudio,
   type NewsDeepDive,
   type NewsHorizon,
+  type NewsSourceStatus,
   type NewsStory,
   type NewsTakeaway,
   type NewsTrend,
@@ -12,8 +13,8 @@ import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } fro
 import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
 import { fullDate } from "../lib/news";
-import { actionsTitle, highlightParts, MIN_THUMBNAIL_PX, timeAgo } from "../lib/newsDashboard";
-import { clock, trackOf, useNewsPlayer } from "../lib/newsPlayer";
+import { highlightParts, MIN_THUMBNAIL_PX, timeAgo } from "../lib/newsDashboard";
+import { clock, rateLabel, trackOf, useNewsPlayer } from "../lib/newsPlayer";
 import {
   CloseIcon,
   ExternalLinkIcon,
@@ -40,6 +41,8 @@ export interface NewsDashboardProps {
   /** "Para seguir de cerca" (Phase 44); left out while empty. */
   watchlist?: NewsWatchItem[];
   /** Every other live story, at the end. */
+  /** Phase 62: every source and whether it answered. */
+  sources?: NewsSourceStatus[];
   moreStories?: NewsStory[];
   now: number;
   refreshing: boolean;
@@ -81,6 +84,7 @@ export function NewsDashboard({
   takeaways,
   watchlist = [],
   moreStories = [],
+  sources = [],
   now,
   refreshing,
   onRefresh,
@@ -95,6 +99,27 @@ export function NewsDashboard({
   onDismissClaudeAlert,
 }: Readonly<NewsDashboardProps>) {
   const [lead, ...rest] = stories;
+  // The sections are pages (Phase 62): a tab swaps the content, nothing scrolls.
+  const sections = [
+    { id: "news-top", label: "Lo esencial", show: stories.length > 0 },
+    { id: "news-impact", label: "Para MindfulTech", show: true },
+    { id: "news-trends", label: "Tendencias", show: trends.length > 0 },
+    { id: "news-deep", label: "A fondo", show: !!deepDive },
+    { id: "news-watch", label: "Seguir de cerca", show: watchlist.length > 0 },
+    { id: "news-more", label: "Más historias", show: moreStories.length > 0 },
+    { id: "news-sources", label: "Fuentes", show: sources.length > 0 },
+  ].filter((section) => section.show);
+  const [picked, setPicked] = useState("");
+  const active = sections.some((section) => section.id === picked)
+    ? picked
+    : (sections[0]?.id ?? "");
+  // Picked while far down another page: the new one starts at its top, just
+  // under the tabs (never on the first paint, and never scrolling down).
+  useEffect(() => {
+    if (!picked) return;
+    const panel = document.getElementById(picked);
+    if (panel && panel.getBoundingClientRect().top < 0) panel.scrollIntoView({ block: "start" });
+  }, [picked]);
   return (
     <div
       className="flex w-full min-w-0 flex-col gap-12 [container-type:inline-size] sm:gap-14 [&>section]:scroll-mt-16"
@@ -153,23 +178,15 @@ export function NewsDashboard({
 
         {claudeAlert && <ClaudeAlertBanner alert={claudeAlert} onDismiss={onDismissClaudeAlert} />}
 
-        <SectionTabs
-          sections={[
-            { id: "news-top", label: "Lo esencial", show: stories.length > 0 },
-            { id: "news-impact", label: "Para MindfulTech", show: true },
-            { id: "news-trends", label: "Tendencias", show: trends.length > 0 },
-            { id: "news-deep", label: "A fondo", show: !!deepDive },
-            { id: "news-watch", label: "Seguir de cerca", show: watchlist.length > 0 },
-            { id: "news-more", label: "Más historias", show: moreStories.length > 0 },
-          ]}
-        />
+        <SectionTabs sections={sections} active={active} onSelect={setPicked} />
 
         {banner && <div className="mt-5 flex flex-col gap-3 empty:hidden">{banner}</div>}
       </div>
 
-      {lead && (
+      {lead && active === "news-top" && (
         <section
           id="news-top"
+          role="tabpanel"
           aria-label="Lo esencial"
           className="grid grid-cols-[minmax(0,1fr)] gap-10 cq-lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] cq-lg:gap-12"
         >
@@ -189,51 +206,54 @@ export function NewsDashboard({
         </section>
       )}
 
-      <section
-        id="news-impact"
-        aria-labelledby="news-impact-title"
-        className="news-dark -mx-4 grid grid-cols-[minmax(0,1fr)] gap-10 bg-surface px-6 py-10 sm:mx-0 sm:rounded-3xl sm:px-10 sm:py-12 cq-xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] cq-xl:gap-14"
-        data-news-impact
-      >
-        <div className="flex flex-col gap-4">
-          <span className={KICKER}>Para MindfulTech</span>
-          <h2
-            id="news-impact-title"
-            className="font-serif text-[30px] font-medium leading-[1.1] tracking-[-0.01em] text-ink sm:text-[36px] [text-wrap:balance]"
-          >
-            {actionsTitle(takeaways.length)}
-          </h2>
-          <p className="text-sm leading-relaxed text-ink-secondary">
-            Impacto de negocio derivado de las historias de hoy.
-          </p>
-          {insightsAction && <div className="mt-1">{insightsAction}</div>}
-        </div>
-        {takeaways.length > 0 ? (
-          <ol className="grid grid-cols-[minmax(0,1fr)] gap-4 cq-sm:grid-cols-2 cq-lg:grid-cols-3 cq-xl:grid-cols-2">
-            {takeaways.map((t, i) => (
-              <li
-                key={`${i}-${t.lead}`}
-                className={`flex flex-col gap-2 ${CARD}`}
-                data-horizon={t.horizon}
-              >
-                <span className={KICKER}>
-                  {t.horizon ? HORIZON_LABEL[t.horizon] : `Acción ${pad(i + 1)}`}
-                </span>
-                <p className="text-[15px] font-semibold leading-snug text-ink [text-wrap:pretty]">
-                  {t.lead}
-                </p>
-                <p className="text-sm leading-[1.6] text-ink/70 [text-wrap:pretty]">{t.body}</p>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <div className="self-center">{insightsNotice}</div>
-        )}
-      </section>
+      {active === "news-impact" && (
+        <section
+          id="news-impact"
+          role="tabpanel"
+          aria-label="Para MindfulTech"
+          className="news-dark -mx-4 flex flex-col gap-6 bg-surface px-6 py-8 sm:mx-0 sm:rounded-3xl sm:px-10 sm:py-10"
+          data-news-impact
+        >
+          {insightsAction && <div>{insightsAction}</div>}
+          {takeaways.length > 0 ? (
+            <ol className="grid grid-cols-[minmax(0,1fr)] gap-4 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
+              {takeaways.map((t, i) => (
+                <li
+                  key={`${i}-${t.lead}`}
+                  className={`flex flex-col gap-2 ${CARD}`}
+                  data-horizon={t.horizon}
+                >
+                  <span className={KICKER}>
+                    {t.horizon ? HORIZON_LABEL[t.horizon] : `Acción ${pad(i + 1)}`}
+                  </span>
+                  <p className="text-[15px] font-semibold leading-snug text-ink [text-wrap:pretty]">
+                    {t.lead}
+                  </p>
+                  <p className="text-sm leading-[1.6] text-ink/70 [text-wrap:pretty]">{t.body}</p>
+                  {t.example && (
+                    <p
+                      className="mt-1 border-l-2 border-primary pl-3 text-[13px] leading-[1.6] text-ink/85 [text-wrap:pretty]"
+                      data-takeaway-example
+                    >
+                      <span className="font-semibold text-primary">
+                        Cómo hacerlo en MindfulTech:{" "}
+                      </span>
+                      {t.example}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <div className="self-center">{insightsNotice}</div>
+          )}
+        </section>
+      )}
 
-      {trends.length > 0 && (
+      {trends.length > 0 && active === "news-trends" && (
         <section
           id="news-trends"
+          role="tabpanel"
           aria-labelledby="news-trends-title"
           className="flex flex-col gap-7"
           data-news-trends
@@ -291,9 +311,10 @@ export function NewsDashboard({
         </section>
       )}
 
-      {deepDive && (
+      {deepDive && active === "news-deep" && (
         <section
           id="news-deep"
+          role="tabpanel"
           aria-labelledby="news-deep-title"
           className="flex flex-col gap-7"
           data-news-deep-dive
@@ -360,9 +381,10 @@ export function NewsDashboard({
         </section>
       )}
 
-      {watchlist.length > 0 && (
+      {watchlist.length > 0 && active === "news-watch" && (
         <section
           id="news-watch"
+          role="tabpanel"
           aria-labelledby="news-watch-title"
           className="flex flex-col gap-7"
           data-news-watchlist
@@ -388,8 +410,13 @@ export function NewsDashboard({
         </section>
       )}
 
-      {moreStories.length > 0 && (
-        <section id="news-more" aria-labelledby="news-more-title" className="flex flex-col gap-7">
+      {moreStories.length > 0 && active === "news-more" && (
+        <section
+          id="news-more"
+          role="tabpanel"
+          aria-labelledby="news-more-title"
+          className="flex flex-col gap-7"
+        >
           <SectionHeader
             id="news-more-title"
             kicker={`${moreStories.length} más`}
@@ -404,6 +431,8 @@ export function NewsDashboard({
           </ul>
         </section>
       )}
+
+      {sources.length > 0 && active === "news-sources" && <SourcesPanel sources={sources} />}
 
       <p className="border-t border-line pt-5 text-center font-mono text-[11px] leading-relaxed tracking-wide text-ink-secondary">
         Los titulares y resúmenes de “Lo esencial” los escribe la IA: confirma los datos en cada
@@ -485,48 +514,71 @@ function ClaudeAlertBanner({
  * screen and headphones on phones), loaded only when you press play.
  */
 function AudioSummary({ audio }: Readonly<{ audio: NewsAudio }>) {
-  const minutes = Math.max(1, Math.round(audio.seconds / 60));
   // One player for the whole app: it keeps playing when you leave AI News.
   const player = useNewsPlayer();
   const mine = player.track === trackOf(audio.url);
   const playing = mine && player.playing;
   const position = mine ? player.position : 0;
   const duration = mine && player.duration > 0 ? player.duration : audio.seconds;
+  const total = Math.max(1, Math.round(duration));
+  const at = Math.min(Math.round(position), total);
+  const progress = (at / total) * 100;
   return (
-    <div
-      className="mt-1 flex w-full max-w-xl flex-wrap items-center gap-x-3 gap-y-2"
-      data-news-audio
-    >
-      <span className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-primary">
-        <HeadphonesIcon aria-hidden="true" />
-        Escucha el resumen · {minutes} min
-      </span>
-      <div className="flex h-10 w-full min-w-0 items-center gap-2.5 rounded-full bg-white/[0.08] pl-1 pr-4 sm:w-80">
+    <div className="mt-1 w-full max-w-md" data-news-audio>
+      {/* One row, as tall as the Refresh button: play, title, progress, time, voice. */}
+      <div className="flex h-11 items-center gap-3 rounded-full border border-white/10 bg-white/[0.05] py-1 pl-1 pr-4">
         <button
           type="button"
           onClick={() => player.toggle(audio.url)}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-surface hover:bg-ink/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-on-primary transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface active:scale-95"
           aria-label={playing ? "Pausar el resumen" : "Reproducir el resumen"}
         >
           {playing ? <PauseIcon /> : <PlayIcon />}
         </button>
+        <span className="shrink-0 text-[13px] font-semibold text-ink">Resumen</span>
+        <div className="relative h-4 min-w-0 flex-1">
+          {/* The bar that's seen; the range over it is what's dragged. */}
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-white/10">
+            <div
+              className="h-full rounded-full bg-primary transition-[width] duration-200 ease-linear"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={total}
+            value={at}
+            onChange={(e) => player.seek(Number(e.target.value))}
+            disabled={!mine}
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-default"
+            aria-label="Posición del audio"
+          />
+        </div>
         <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-secondary">
-          {clock(position)} / {clock(duration)}
+          {mine ? `${clock(position)} / ${clock(duration)}` : clock(duration)}
         </span>
-        <input
-          type="range"
-          min={0}
-          max={Math.max(1, Math.round(duration))}
-          value={Math.min(Math.round(position), Math.round(duration))}
-          onChange={(e) => player.seek(Number(e.target.value))}
-          disabled={!mine}
-          className="h-1 min-w-0 flex-1 cursor-pointer accent-primary disabled:cursor-default"
-          aria-label="Posición del audio"
-        />
+        <button
+          type="button"
+          onClick={player.cycleRate}
+          className={`-my-1 shrink-0 rounded-full px-2 py-1 font-mono text-[11px] font-semibold tabular-nums transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+            player.rate === 1 ? "text-ink-secondary" : "text-primary"
+          }`}
+          aria-label={`Velocidad ${rateLabel(player.rate)}. Cambiar velocidad`}
+          title="Cambiar velocidad"
+          data-news-audio-rate
+        >
+          {rateLabel(player.rate)}
+        </button>
       </div>
       {mine && player.error && (
-        <p className="w-full text-xs text-error" role="alert">
+        <p className="mt-2 text-xs text-error" role="alert">
           {player.error}
+        </p>
+      )}
+      {audio.voice === "polly" && audio.note && (
+        <p className="mt-2 break-words text-xs text-ink-secondary" data-news-audio-note>
+          Lo leyó Polly porque ElevenLabs no respondió: {audio.note}
         </p>
       )}
     </div>
@@ -559,57 +611,41 @@ function SectionHeader({
 }
 
 /**
- * The sections as text tabs (Phase 51), sticky at the top of the view: one
- * tap to jump, and the one being read is underlined in green. Solid, no
- * backdrop blur (a blurred sticky bar over the page made Chrome flicker).
+ * The sections as text tabs, sticky at the top of the view. Each is a page
+ * (Phase 62): picking one swaps what's below, and the view goes back to the
+ * top of it instead of scrolling down the page. Solid, no backdrop blur (a
+ * blurred sticky bar over the page made Chrome flicker).
  */
 function SectionTabs({
   sections,
-}: Readonly<{ sections: Array<{ id: string; label: string; show: boolean }> }>) {
-  const shown = sections.filter((s) => s.show);
-  const ids = shown.map((s) => s.id).join(" ");
-  const [active, setActive] = useState(shown[0]?.id ?? "");
-
-  useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") return;
-    const visible = new Map<string, boolean>();
-    const order = ids.split(" ");
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) visible.set(entry.target.id, entry.isIntersecting);
-        const first = order.find((id) => visible.get(id));
-        if (first) setActive(first);
-      },
-      // The band just under the tabs: a section is "being read" while it crosses it.
-      { rootMargin: "-80px 0px -55% 0px" },
-    );
-    for (const id of order) {
-      const el = document.getElementById(id);
-      if (el) observer.observe(el);
-    }
-    return () => observer.disconnect();
-  }, [ids]);
-
-  if (shown.length < 2) return null;
+  active,
+  onSelect,
+}: Readonly<{
+  sections: Array<{ id: string; label: string }>;
+  active: string;
+  onSelect: (id: string) => void;
+}>) {
+  if (sections.length < 2) return null;
   return (
     <nav
+      role="tablist"
       aria-label="Secciones"
       className="sticky top-0 z-20 -mx-4 flex gap-6 overflow-x-auto overflow-y-hidden border-b border-line bg-surface px-4 [scrollbar-width:none] sm:-mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden"
       data-news-sections
     >
-      {shown.map((section) => {
+      {sections.map((section) => {
         const current = section.id === active;
         return (
           <button
             key={section.id}
             type="button"
+            role="tab"
+            aria-selected={current}
+            aria-controls={section.id}
             onClick={() => {
-              setActive(section.id);
-              document
-                .getElementById(section.id)
-                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              if (current) return;
+              onSelect(section.id);
             }}
-            aria-current={current ? "true" : undefined}
             className={`-mb-px shrink-0 whitespace-nowrap border-b-2 py-3 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
               current
                 ? "border-primary text-ink"
@@ -621,6 +657,67 @@ function SectionTabs({
         );
       })}
     </nav>
+  );
+}
+
+/**
+ * Phase 62: every publisher AI News reads, whether its feed answered on the
+ * last read, and how many of its stories are in today's list.
+ */
+function SourcesPanel({ sources }: Readonly<{ sources: NewsSourceStatus[] }>) {
+  const connected = sources.filter((s) => s.connected).length;
+  const ordered = [...sources].sort(
+    (a, b) => Number(b.connected) - Number(a.connected) || b.stories - a.stories,
+  );
+  return (
+    <section
+      id="news-sources"
+      role="tabpanel"
+      aria-labelledby="news-sources-title"
+      className="flex flex-col gap-7"
+      data-news-sources
+    >
+      <SectionHeader
+        id="news-sources-title"
+        kicker={`${connected} de ${sources.length} conectadas`}
+        title="Fuentes"
+      />
+      <ul className="grid grid-cols-[minmax(0,1fr)] gap-3 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
+        {ordered.map((source) => (
+          <li
+            key={source.name}
+            className={`flex items-center gap-3 ${CARD}`}
+            data-source={source.name}
+            data-connected={source.connected}
+          >
+            <span
+              className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                source.connected ? "bg-success" : "bg-error"
+              }`}
+              aria-hidden="true"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[15px] font-semibold text-ink">
+                {source.name}
+              </span>
+              <span className="block text-xs text-ink-secondary">
+                {source.connected
+                  ? source.stories === 0
+                    ? "Conectada · sin historias de IA en las últimas 48 h"
+                    : `Conectada · ${source.stories} ${source.stories === 1 ? "historia" : "historias"}${
+                        source.withImage === undefined ? "" : ` · ${source.withImage} con imagen`
+                      }`
+                  : "Sin conexión: su feed no respondió"}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs leading-relaxed text-ink-secondary">
+        Se leen todas cada 30 minutos. De los medios generales solo entran sus historias de IA, y
+        cada fuente aporta como máximo 8 de las 40 del día.
+      </p>
+    </section>
   );
 }
 
@@ -784,7 +881,7 @@ function Cover({
 
   return (
     <div
-      className={`relative w-full overflow-hidden bg-surface-sidebar bg-[repeating-linear-gradient(135deg,rgb(var(--c-line))_0_1px,transparent_1px_11px)] ${className}`}
+      className={`relative w-full overflow-hidden bg-surface-sidebar bg-[radial-gradient(120%_120%_at_0%_0%,rgb(var(--c-primary)/0.16),transparent_60%)] ${className}`}
       data-news-thumb={state === "image" ? "image" : "fallback"}
     >
       <span
@@ -793,9 +890,10 @@ function Cover({
         }`}
         aria-hidden="true"
       >
+        {/* No picture (the publisher doesn't let it be read): its name, as a masthead. */}
         {caption && (
-          <span className="bg-surface-sidebar px-2 py-0.5 font-mono text-[11px] lowercase tracking-wider text-ink-secondary">
-            imagen · {story.sourceName}
+          <span className="px-4 text-center font-serif text-[clamp(1.25rem,4vw,3.25rem)] font-semibold leading-none tracking-[-0.02em] text-ink/25">
+            {story.sourceName}
           </span>
         )}
       </span>

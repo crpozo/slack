@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AUDIO_BUDGET_CHARS,
   audioScript,
+  elevenLabsKey,
+  elevenLabsVoice,
   scriptChunks,
+  speak,
+  useNewsAudioClients,
+  useNewsAudioFetch,
   spokenDay,
   spokenSeconds,
 } from "../src/lib/newsAudio";
@@ -38,11 +43,13 @@ describe("the AI News summary in audio (Phase 54)", () => {
   it("reads the day and the top stories in a sentence each: no trends, actions, markdown or links", () => {
     const script = audioScript(insights);
     expect(script.split("\n\n")).toEqual([
-      "AI News, lunes, 9 de noviembre. Lo más importante en un minuto.",
-      "Primero: OpenAI lanza agentes. Resumen.",
+      "Update de noticias.",
+      "OpenAI lanza agentes. Resumen.",
       // Only the first sentence of what happened; links dropped.
-      "Segundo: Nvidia invierte. Una ronda grande.",
-      "Los detalles, en AI News.",
+      "Nvidia invierte. Una ronda grande.",
+      // Then what it means for MindfulTech, and what to do.
+      "Qué significa para MindfulTech y qué hacer.",
+      "Probar agentes: en un cliente actual.",
     ]);
     expect(script).not.toMatch(/\*\*|https?:|Por qué importa|Fuente/);
   });
@@ -53,14 +60,31 @@ describe("the AI News summary in audio (Phase 54)", () => {
       headline: "Un titular largo sobre inteligencia artificial que ocupa bastante",
       summary: `${"palabra ".repeat(40).trim()}. Segunda frase que no se lee.`,
     };
-    const script = audioScript({ ...insights, stories: [long, long, long, long, long] });
-    expect(script.length).toBeLessThanOrEqual(AUDIO_BUDGET_CHARS + 20);
-    expect(script).toContain("Primero:");
-    expect(script).not.toContain("Quinto");
+    const script = audioScript({
+      ...insights,
+      takeaways: [],
+      stories: [long, long, long, { ...long, headline: "Corto" }, long],
+    });
+    expect(script.length).toBeLessThanOrEqual(AUDIO_BUDGET_CHARS);
     expect(script).not.toContain("Segunda frase");
-    // One enormous story is still read.
-    const huge = { ...long, summary: `${"x".repeat(1200)}.` };
-    expect(audioScript({ ...insights, stories: [huge, long] })).toContain("Primero:");
+    // Out of time: the last ones as the headline alone.
+    expect(script.split("\n\n").at(-1)).toBe("Corto.");
+    // One enormous story is still read, as its headline.
+    const huge = { ...long, summary: `${"x".repeat(2000)}.` };
+    expect(audioScript({ ...insights, stories: [huge, long] })).toContain(long.headline);
+  });
+
+  it("reads the script the analysis wrote to be heard, when there is one (Phase 62)", () => {
+    const script = audioScript({
+      ...insights,
+      audioScript:
+        "Update de noticias.\n\nHoy OpenAI lanza **agentes**, y no, no vienen a quitarte la silla\n\n\nPara MindfulTech: probarlos ya.",
+    });
+    expect(script.split("\n\n")).toEqual([
+      "Update de noticias.",
+      "Hoy OpenAI lanza agentes, y no, no vienen a quitarte la silla.",
+      "Para MindfulTech: probarlos ya.",
+    ]);
   });
 
   it("says a new Claude model first (Phase 56)", () => {
@@ -77,7 +101,7 @@ describe("the AI News summary in audio (Phase 54)", () => {
     });
     const [, second] = script.split("\n\n");
     expect(second).toBe(
-      "Atención: Anthropic lanzó un nuevo modelo de Claude: Claude Opus 6. Disponible hoy en la API.",
+      "Anthropic lanzó un nuevo modelo de Claude: Claude Opus 6. Disponible hoy en la API.",
     );
   });
 
@@ -95,5 +119,84 @@ describe("the AI News summary in audio (Phase 54)", () => {
     expect(spokenDay("2026-11-09")).toBe("lunes, 9 de noviembre");
     expect(spokenDay("nope")).toBe("");
     expect(spokenSeconds(1500)).toBe(100);
+  });
+});
+
+describe("the voice: ElevenLabs when its key is set, Polly otherwise (Phase 61)", () => {
+  const pollySend = vi.fn(async () => ({
+    AudioStream: { transformToByteArray: async () => new Uint8Array([9, 9]) },
+  }));
+  beforeEach(() => {
+    pollySend.mockClear();
+    elevenLabsKey.reset();
+    elevenLabsVoice.reset();
+    useNewsAudioClients({ polly: { send: pollySend } as never });
+  });
+  afterEach(() => {
+    delete process.env.ELEVENLABS_API_KEY;
+    delete process.env.ELEVENLABS_VOICE_ID;
+    elevenLabsKey.reset();
+    elevenLabsVoice.reset();
+    useNewsAudioFetch(null);
+    useNewsAudioClients(null);
+  });
+
+  it("reads with Polly while there's no key", async () => {
+    const network = vi.fn();
+    useNewsAudioFetch(network as never);
+    expect(await speak("Hola.")).toEqual({
+      audio: new Uint8Array([9, 9]),
+      voice: "polly",
+      note: expect.stringContaining("No se encontró la clave"),
+    });
+    expect(network).not.toHaveBeenCalled();
+  });
+
+  it("reads with ElevenLabs: the multilingual model, the configured voice, the key in its header", async () => {
+    process.env.ELEVENLABS_API_KEY = "test-key";
+    process.env.ELEVENLABS_VOICE_ID = "voice123";
+    const network = vi.fn(async () => new Response(new Uint8Array([1, 2, 3])));
+    useNewsAudioFetch(network as never);
+    expect(await speak("Hola.")).toEqual({ audio: new Uint8Array([1, 2, 3]), voice: "elevenlabs" });
+    const [url, init] = network.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(
+      "https://api.elevenlabs.io/v1/text-to-speech/voice123?output_format=mp3_44100_128",
+    );
+    expect((init.headers as Record<string, string>)["xi-api-key"]).toBe("test-key");
+    expect(JSON.parse(String(init.body))).toEqual({
+      text: "Hola.",
+      model_id: "eleven_multilingual_v2",
+      voice_settings: {
+        stability: 0.4,
+        similarity_boost: 0.8,
+        style: 0.35,
+        use_speaker_boost: true,
+        speed: 1.12,
+      },
+    });
+    expect(pollySend).not.toHaveBeenCalled();
+  });
+
+  it("reads plainly when ElevenLabs rejects a setting, rather than falling to Polly", async () => {
+    process.env.ELEVENLABS_API_KEY = "test-key";
+    const bodies: Array<Record<string, unknown>> = [];
+    useNewsAudioFetch((async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return bodies.length === 1
+        ? new Response("unsupported", { status: 400 })
+        : new Response(new Uint8Array([1, 2, 3]));
+    }) as never);
+    expect((await speak("Hola.")).voice).toBe("elevenlabs");
+    expect(bodies[1]).toEqual({ text: "Hola.", model_id: "eleven_multilingual_v2" });
+  });
+
+  it("falls back to Polly when ElevenLabs refuses (no credits, an outage)", async () => {
+    process.env.ELEVENLABS_API_KEY = "test-key";
+    useNewsAudioFetch((async () => new Response("quota_exceeded", { status: 401 })) as never);
+    const read = await speak("Hola.");
+    expect(read.voice).toBe("polly");
+    // Why, for the page.
+    expect(read.note).toBe("ElevenLabs answered 401: quota_exceeded");
+    expect(pollySend).toHaveBeenCalledTimes(1);
   });
 });

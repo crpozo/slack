@@ -7,6 +7,54 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI Radar, a use case for each technology:** a blip's details now say how MindfulTech could
+  put it to work, for itself or a client ("a phone line that books appointments for a clinic",
+  "an MCP server for a client's ERP"). Admins edit it like any other fact of the blip (the
+  `useCase` field). The starters are signed "MindfulTech" instead of "unknown".
+- **AI News, how MindfulTech could do it:** each action in **Para MindfulTech** now comes with
+  a concrete example — a first step small enough for this week, for which kind of client or
+  product, with which tool and what to measure. From the next analysis on.
+- **AI News, a Fuentes tab:** every source AI News reads, which ones answered on the last read
+  ("12 de 14 conectadas") and how many of today's stories came from each.
+- **Calendar: Loja's holidays:** Independencia de Loja (18 November) and Fundación de Loja
+  (8 December), moved to the long weekend like the national ones and not charged to a vacation.
+- **Calendar: Ecuador's and the United States' holidays, built in:** every year's holidays are
+  on the calendar without anyone adding them. **Ecuador's** (red, 🇪🇨) are on the day off, moved
+  to make the long weekend as the law says (a Tuesday holiday to Monday, Wednesday or Thursday to
+  Friday, 2–3 November kept together), with Carnival and Good Friday from Easter; they are
+  **not charged to a vacation**. The **United States'** federal holidays (indigo, 🇺🇸) are shown
+  for the clients there and don't count as days off. A day a decree moves for one year isn't
+  known: an admin adds it as a holiday, as before.
+- **AI News, the best sources in tech and AI:** besides TechCrunch, VentureBeat, The Verge and
+  InfoQ, the news now come from **Bloomberg**, **Financial Times**, **The New York Times**,
+  **MIT Technology Review**, **Wired**, **Ars Technica**, **The Guardian** and **CNBC**, and
+  first-hand from **OpenAI** and **Google DeepMind**. General feeds contribute only their AI
+  stories; each source gives at most 8 of the 40 so none crowds out the rest; a source that
+  doesn't answer is skipped.
+- **AI News audio with ElevenLabs:** the summary is read by ElevenLabs (the multilingual model,
+  in Spanish) once its API key is stored: `aws ssm put-parameter --name
+/slack/prod/elevenlabs-api-key --type SecureString --value "…"`. Optionally pick the voice
+  with `/slack/prod/elevenlabs-voice-id` (a String with the voice's id; a stock voice
+  otherwise). Without the key, or if ElevenLabs fails (no credits, an outage), Amazon Polly
+  reads it as before, so there's always an audio.
+- **AI News audio, a livelier read:** ElevenLabs now reads with a newsreader's delivery (more
+  expression and emphasis, fuller sound) instead of a flat one, and the player says who read
+  the summary — **ElevenLabs** or **Polly** — so it's clear when the fallback voice was used.
+  When Polly had to read it, the player also says why ElevenLabs didn't (no key found, or
+  ElevenLabs' own answer: a bad key, no credits, an unknown voice).
+- **AI News audio, the team's voice:** ElevenLabs reads with the voice the team picked, by
+  default (`/slack/prod/elevenlabs-voice-id` still overrides it).
+- **AI News audio, straight to the point:** it opens with “Update de noticias.” and reads every
+  story one after another — headline and the one sentence of what happened — at a brisk pace,
+  in about a minute and a half. No date, numbering or sign-off.
+- **AI News audio, what it means for MindfulTech:** after the news it reads “Qué significa para
+  MindfulTech y qué hacer.” and the analysis's top actions, each with its reason in a
+  sentence (about half a minute more).
+- **AI News audio, fun to follow:** the update is now written to be heard, by the analysis
+  itself, as the host of a short morning tech show: a hook on the day's biggest story, the
+  news told with rhythm, transitions and some wit instead of headlines read in a row, what it
+  means for MindfulTech and what to do, and a closing line. Facts only from the stories. Days
+  analysed before this keep the plain read until the next **Refresh**.
 - **Image gallery in conversations:** clicking an image in a channel or DM opens it full screen
   at once, with **‹ ›** arrows (or **←/→**) to move through the conversation's other images and a
   counter; **Esc**, ✕ or a click beside the picture closes it. The images around it load in the
@@ -162,6 +210,23 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **AI News, a story without a picture:** some publishers (Bloomberg) don't let their image be
+  read. Instead of a hatched box saying "imagen · bloomberg", the cover shows the publisher's
+  name as a masthead.
+- **AI Radar tooltip you could see through:** the blips behind showed through the card and its
+  text; it's solid now.
+- **AI News: "El análisis salió demasiado largo y se cortó":** writing the audio script too
+  took the analysis past its output ceiling. The ceiling is doubled.
+- **AI News showed other stories for a moment on reload:** the raw headlines appeared first and
+  were swapped for the analysed ones a few seconds later. The page now waits for the analysis
+  (showing its placeholders) and paints once.
+- **A key stored after the first use wasn't picked up:** a Lambda that had already looked for an
+  optional key (ElevenLabs, and the others read the same way) remembered "there's none" until
+  it was recycled. Keys are now re-read every few minutes, so storing or replacing one takes
+  effect without a redeploy.
+- **AI News audio wasn't read by ElevenLabs:** the request carried a language setting the
+  multilingual model rejects, so every read fell back to Polly. It's gone, and if ElevenLabs
+  rejects a voice setting the summary is still read by it, plainly.
 - **DMs with a deleted user no longer hang the app:** someone deleted straight from Cognito
   kept showing in the Direct Messages list, and opening a DM with them left the conversation
   loading forever. The server now checks the person's Cognito account before opening a DM;
@@ -428,6 +493,30 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **AI Notes, a list that uses the screen:** the notes are full-width rows instead of half-width
+  cards with an empty side: category, title and two lines of the summary on the left; when,
+  with whom, action items and recording on the right. Date groups sit closer together. The tag
+  cloud shows the 8 most used tags with "+N more", and the "notes missing a title" notice is
+  slimmer.
+- **AI Radar, what's actually changing the field:** the starter blips are rewritten around the
+  technologies that deserve a decision — agents (skills, MCP, computer use, multi-agent, voice),
+  speech-to-speech, video and image generation, on-device models, managed agent runtimes and
+  sandboxes, evals, cloud coding agents, AI code review, spec-driven development — instead of
+  everyday plumbing (React, Vite, a linter). The old starters nobody had touched are replaced
+  once; anything a person or a scan added, moved or edited stays.
+- **AI News, Para MindfulTech without its heading block:** the "Cinco acciones sugeridas para
+  esta semana" title and its line are gone (the tab already says what it is); the actions use
+  the full width.
+- **AI News Refresh, no "podrás pedir otro en N min":** the message is gone and the wait
+  between analyses for members is one minute instead of five.
+- **AI News audio player, redesigned:** one compact row, as tall as the Refresh button: a green
+  play button, "Resumen", a filled progress bar you can drag and the time.
+- **AI News sections are pages:** Lo esencial, Para MindfulTech, Tendencias, A fondo, Seguir de
+  cerca and Más historias used to be one long page the tabs scrolled through. Now each tab
+  shows its own content in place, and nothing scrolls.
+- **AI News audio speeds:** a speed button in the player (and in the floating pill) steps
+  through 1×, 1,25×, 1,5×, 1,75×, 2× and 0,75×; the speed is remembered on the device and kept
+  for the next day's summary.
 - **Inviting to a private channel:** an admin in the channel can invite too, not only its
   creator. Guests on boards are now called **externals** (badge "External").
 

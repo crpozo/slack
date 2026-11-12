@@ -40,12 +40,58 @@ export const NEWS_FEEDS: readonly NewsFeed[] = [
     name: "InfoQ",
     urls: [{ url: "https://feed.infoq.com/ai-ml-data-eng/news" }],
   },
+  // Phase 62: the publications the industry itself reads. A source that
+  // doesn't answer (a paywall, a moved feed) is skipped; the rest still load.
+  {
+    name: "Bloomberg",
+    urls: [{ url: "https://feeds.bloomberg.com/technology/news.rss", general: true }],
+  },
+  {
+    name: "Financial Times",
+    urls: [{ url: "https://www.ft.com/artificial-intelligence?format=rss" }],
+  },
+  {
+    name: "The New York Times",
+    urls: [{ url: "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml", general: true }],
+  },
+  {
+    name: "MIT Technology Review",
+    urls: [
+      { url: "https://www.technologyreview.com/topic/artificial-intelligence/feed" },
+      { url: "https://www.technologyreview.com/feed/", general: true },
+    ],
+  },
+  {
+    name: "Wired",
+    urls: [
+      { url: "https://www.wired.com/feed/tag/ai/latest/rss" },
+      { url: "https://www.wired.com/feed/rss", general: true },
+    ],
+  },
+  {
+    name: "Ars Technica",
+    urls: [
+      { url: "https://arstechnica.com/ai/feed/" },
+      { url: "https://feeds.arstechnica.com/arstechnica/index", general: true },
+    ],
+  },
+  {
+    name: "The Guardian",
+    urls: [{ url: "https://www.theguardian.com/technology/artificialintelligenceai/rss" }],
+  },
+  {
+    name: "CNBC",
+    urls: [{ url: "https://www.cnbc.com/id/19854910/device/rss/rss.html", general: true }],
+  },
+  // First-hand: what the labs themselves announce.
+  { name: "OpenAI", urls: [{ url: "https://openai.com/news/rss.xml" }] },
+  { name: "Google DeepMind", urls: [{ url: "https://deepmind.google/blog/rss.xml" }] },
 ];
 
 /** How many articles the view gets, newest first. */
 export const NEWS_MAX_ARTICLES = 40;
 /** The most stories one source may have in the list, so a busy one can't crowd out the rest. */
-export const NEWS_MAX_PER_SOURCE = 12;
+export const NEWS_MAX_PER_SOURCE = 8;
 /**
  * Only news: a story published longer ago than this (or with no date we can
  * read) is dropped as the feed is read, before any limit and before the
@@ -79,8 +125,21 @@ export interface NewsArticle {
   sourceName: string;
 }
 
+/** One publisher of `NEWS_FEEDS`, as the last read found it. */
+export interface NewsSourceStatus {
+  name: string;
+  /** Its feed answered. */
+  connected: boolean;
+  /** How many of its stories are in the list now. */
+  stories: number;
+  /** How many of those came with a picture (from its feed, or its page). */
+  withImage?: number;
+}
+
 export interface NewsResponse {
   articles: NewsArticle[];
+  /** Phase 62: every source and whether it answered (absent on older cached answers). */
+  sources?: NewsSourceStatus[];
   /** The publishers whose feeds were read, comma-separated ("TechCrunch, InfoQ"). */
   source: string;
   /** When the feed was read (epoch ms). */
@@ -182,6 +241,8 @@ export interface NewsTakeaway {
   body: string;
   /** Phase 44. */
   horizon?: NewsHorizon;
+  /** Phase 62: a concrete way MindfulTech could do it (absent on older analyses). */
+  example?: string;
 }
 
 /**
@@ -408,6 +469,10 @@ export interface NewsAudio {
   url: string;
   /** About how long it plays. */
   seconds: number;
+  /** Phase 61: which service read it (absent on audios from before). */
+  voice?: "elevenlabs" | "polly";
+  /** Why ElevenLabs didn't read it, when Polly did. */
+  note?: string;
 }
 
 /**
@@ -415,7 +480,7 @@ export interface NewsAudio {
  * not more often than this for members (admins aren't held to it): every
  * click is a model run, and an analysis takes about half a minute.
  */
-export const NEWS_REFRESH_COOLDOWN_SECONDS = 5 * 60;
+export const NEWS_REFRESH_COOLDOWN_SECONDS = 60;
 
 /** `POST /news/refresh`: a new analysis was started, or one was started too recently. */
 export interface NewsRefreshResponse {

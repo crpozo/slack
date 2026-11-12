@@ -51,8 +51,8 @@ async function snapshot(): Promise<RadarSnapshot> {
     lastScanAt(),
     lastScanAt(DISCOVERY_SCAN_ID),
   ]);
-  // Phase 61: an empty radar starts with the stack we already build on (once ever).
-  const blips = listed.length === 0 && (await seedRadarOnce()) ? await listBlips() : listed;
+  // The starter blips, once per version of the list (a newer list replaces the untouched ones).
+  const blips = (await seedRadarOnce()) ? await listBlips() : listed;
   return { blips, proposals, lastScanAt: scannedAt, lastDiscoveryAt: discoveredAt };
 }
 

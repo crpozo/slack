@@ -2,6 +2,8 @@ import { PollyClient, SynthesizeSpeechCommand } from "@aws-sdk/client-polly";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { NewsInsights } from "@mindfultech/shared";
 import { requireEnv } from "./env";
+import { errorFields, log } from "./logger";
+import { optionalSecret } from "./secret";
 
 // ---------------------------------------------------------------------------
 // AI News in audio (Phase 54): the morning's analysis read aloud in Spanish,
@@ -21,12 +23,14 @@ export const NEWS_AUDIO_VOICE = "Lupe";
 /** Polly takes at most 3,000 billed characters a request: the script is read in pieces. */
 const MAX_CHARS_PER_REQUEST = 2_800;
 
-/** At most this many stories are read (as many as fit the minute). */
-const STORIES_READ = 4;
-/** About a minute of speech (Polly's neural voices read some 15 characters a second). */
-export const AUDIO_BUDGET_CHARS = 900;
-
-const ORDINALS = ["Primero", "Segundo", "Tercero", "Cuarto"];
+/** The news: a bit over a minute, read briskly (some 16 characters a second). */
+export const AUDIO_BUDGET_CHARS = 1_200;
+/** Then what it means for MindfulTech and what to do: about half a minute more. */
+export const AUDIO_TAKEAWAYS_BUDGET_CHARS = 480;
+const TAKEAWAYS_READ = 3;
+const TAKEAWAYS_OPENING = "Qué significa para MindfulTech y qué hacer.";
+/** How the update opens: straight to the news. */
+const AUDIO_OPENING = "Update de noticias.";
 
 /** Text as it should be read: no markdown marks, no links, tidy spaces and endings. */
 function spoken(text: string): string {
@@ -59,38 +63,62 @@ function firstSentence(text: string): string {
 }
 
 /**
- * The script read aloud, in about a minute (`AUDIO_BUDGET_CHARS`): the day,
- * a new Claude model if there is one, then the top stories, most important
- * first, each as its headline and the one sentence of what happened. As many
- * stories as fit (always the first, at most `STORIES_READ`); trends, actions
- * and sources stay on the page.
+ * The script read aloud, in about a minute and a half (`AUDIO_BUDGET_CHARS`),
+ * straight to the point: "Update de noticias.", a new Claude model if there
+ * is one, then every story, most important first, as its headline and the
+ * one sentence of what happened — no numbering, no sign-off. When the time
+ * runs short a story is read as its headline alone, and then left out
+ * (the first is always read). It closes with what it means for MindfulTech and
+ * what to do: the takeaways, each as the action and its reason in a sentence.
+ * Trends and sources stay on the page.
  */
 export function audioScript(
-  insights: Pick<NewsInsights, "day" | "stories" | "claudeAlert">,
+  insights: Pick<NewsInsights, "stories" | "claudeAlert"> &
+    Partial<Pick<NewsInsights, "takeaways">> & { audioScript?: string },
 ): string {
-  const SIGN_OFF = "Los detalles, en AI News.";
-  const parts: string[] = [];
-  const day = spokenDay(insights.day);
-  parts.push(`AI News${day ? `, ${day}` : ""}. Lo más importante en un minuto.`);
+  // Phase 62: the update as the analysis wrote it to be heard (a host's
+  // script, with rhythm and some wit); the plain one below when there's none.
+  const written = (insights.audioScript ?? "")
+    .split(/\n\s*\n/)
+    .map(spoken)
+    .filter(Boolean);
+  if (written.length > 0) return written.join("\n\n");
+  const parts: string[] = [AUDIO_OPENING];
   // Phase 56: a new Claude model goes first.
   const alert = insights.claudeAlert;
   if (alert) {
     const name = alert.model ? `: ${spoken(alert.model).replace(/\.$/, "")}` : "";
     const lead =
       alert.status === "launched"
-        ? `Atención: Anthropic lanzó un nuevo modelo de Claude${name}.`
-        : `Atención: Anthropic prepara un nuevo modelo de Claude${name}.`;
+        ? `Anthropic lanzó un nuevo modelo de Claude${name}.`
+        : `Anthropic prepara un nuevo modelo de Claude${name}.`;
     parts.push(`${lead}${alert.summary ? ` ${firstSentence(alert.summary)}` : ""}`);
   }
-  let used = parts.join("\n\n").length + SIGN_OFF.length;
-  insights.stories.slice(0, STORIES_READ).forEach((story, i) => {
-    const fact = story.summary ? ` ${firstSentence(story.summary)}` : "";
-    const line = `${ORDINALS[i] ?? "Además"}: ${spoken(story.headline)}${fact}`;
-    if (i > 0 && used + line.length > AUDIO_BUDGET_CHARS) return;
-    parts.push(line);
-    used += line.length + 2;
+  let used = parts.join("\n\n").length;
+  insights.stories.forEach((story, i) => {
+    const headline = spoken(story.headline);
+    const full = story.summary ? `${headline} ${firstSentence(story.summary)}` : headline;
+    const line = [full, headline].find((l) => used + l.length + 2 <= AUDIO_BUDGET_CHARS);
+    if (!line && i > 0) return;
+    parts.push(line ?? full);
+    used += (line ?? full).length + 2;
   });
-  parts.push(SIGN_OFF);
+  // What it means for MindfulTech and what to do: the analysis's takeaways,
+  // each as the action and its one-sentence reason.
+  const actions: string[] = [];
+  let spent = TAKEAWAYS_OPENING.length;
+  for (const takeaway of (insights.takeaways ?? []).slice(0, TAKEAWAYS_READ)) {
+    const lead = spoken(takeaway.lead).replace(/[.:]$/, "");
+    if (!lead) continue;
+    const full = takeaway.body ? `${lead}: ${firstSentence(takeaway.body)}` : `${lead}.`;
+    const line = [full, `${lead}.`].find(
+      (l) => spent + l.length + 2 <= AUDIO_TAKEAWAYS_BUDGET_CHARS,
+    );
+    if (!line && actions.length > 0) break;
+    actions.push(line ?? `${lead}.`);
+    spent += (line ?? lead).length + 2;
+  }
+  if (actions.length > 0) parts.push(TAKEAWAYS_OPENING, ...actions);
   return parts.join("\n\n");
 }
 
@@ -129,7 +157,98 @@ export function useNewsAudioClients(next: { polly?: PollyClient; s3?: S3Client }
   s3 = next?.s3 ?? null;
 }
 
-/** Reads `text` aloud: one MP3 (the pieces' frames, back to back, play as one file). */
+// --- ElevenLabs (Phase 61): a more natural voice, when its key is set -----------------
+
+export const elevenLabsKey = optionalSecret("ELEVENLABS_API_KEY", "ELEVENLABS_API_KEY_PARAMETER");
+/** Optional: another voice from the account's library (its id). */
+export const elevenLabsVoice = optionalSecret(
+  "ELEVENLABS_VOICE_ID",
+  "ELEVENLABS_VOICE_ID_PARAMETER",
+);
+/** The voice the team chose: used unless another voice id is configured in SSM. */
+export const ELEVENLABS_DEFAULT_VOICE = "g10k86KeEUyBqW9lcKYg";
+/** The multilingual model: it reads Spanish as Spanish. */
+export const ELEVENLABS_MODEL = "eleven_multilingual_v2";
+const ELEVENLABS_TIMEOUT_MS = 60_000;
+/**
+ * A newsreader's delivery rather than a flat read: less stability lets the
+ * voice move, some style adds emphasis, and the speaker boost makes it fuller.
+ */
+export const ELEVENLABS_VOICE_SETTINGS = {
+  stability: 0.4,
+  similarity_boost: 0.8,
+  style: 0.35,
+  use_speaker_boost: true,
+  // Brisk, as a news update is read (1 is the voice's own pace; 1.2 the most).
+  speed: 1.12,
+} as const;
+
+let fetchImpl: typeof fetch = (...args) => fetch(...args);
+/** Tests swap the network. */
+export function useNewsAudioFetch(next: typeof fetch | null): void {
+  fetchImpl = next ?? ((...args) => fetch(...args));
+}
+
+/** Reads `text` aloud with ElevenLabs: one MP3. Throws when the service refuses or fails. */
+export async function synthesizeWithElevenLabs(text: string, apiKey: string): Promise<Uint8Array> {
+  const voice = (await elevenLabsVoice.get()) ?? ELEVENLABS_DEFAULT_VOICE;
+  // No `language_code`: the multilingual model rejects it (it reads the
+  // language off the text), which is what kept sending the read to Polly.
+  const ask = (body: Record<string, unknown>) =>
+    fetchImpl(
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128`,
+      {
+        method: "POST",
+        headers: { "xi-api-key": apiKey, "content-type": "application/json", accept: "audio/mpeg" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(ELEVENLABS_TIMEOUT_MS),
+      },
+    );
+  let response = await ask({
+    text,
+    model_id: ELEVENLABS_MODEL,
+    voice_settings: ELEVENLABS_VOICE_SETTINGS,
+  });
+  // A setting this voice or plan doesn't take: read it plainly rather than not at all.
+  if (response.status === 400 || response.status === 422) {
+    response = await ask({ text, model_id: ELEVENLABS_MODEL });
+  }
+  if (!response.ok) {
+    // The body says why (a bad key, no credits, an unknown voice): never the key itself.
+    const detail = (await response.text().catch(() => "")).slice(0, 200);
+    throw new Error(`ElevenLabs answered ${response.status}: ${detail}`);
+  }
+  const audio = new Uint8Array(await response.arrayBuffer());
+  if (audio.length === 0) throw new Error("ElevenLabs returned no audio");
+  return audio;
+}
+
+/** Which service read the summary. */
+export type NewsAudioVoice = "elevenlabs" | "polly";
+
+/**
+ * Reads `text` aloud: with ElevenLabs when its key is configured, else (or if
+ * ElevenLabs fails: no credits, an outage) with Amazon Polly, so there is
+ * always an audio.
+ */
+export async function speak(
+  text: string,
+): Promise<{ audio: Uint8Array; voice: NewsAudioVoice; note?: string }> {
+  const key = await elevenLabsKey.get();
+  // Why Polly read it, when it did: shown on the page (never the key itself).
+  let note = "No se encontró la clave de ElevenLabs (elevenlabs-api-key) en esta cuenta y región.";
+  if (key) {
+    try {
+      return { audio: await synthesizeWithElevenLabs(text, key), voice: "elevenlabs" };
+    } catch (err) {
+      log.warn("elevenlabs failed, reading with polly", errorFields(err));
+      note = (err instanceof Error ? err.message : String(err)).slice(0, 300);
+    }
+  }
+  return { audio: await synthesize(text), voice: "polly", note };
+}
+
+/** Reads `text` aloud with Amazon Polly: one MP3 (the pieces' frames, back to back, play as one file). */
 export async function synthesize(text: string): Promise<Uint8Array> {
   const client = (polly ??= new PollyClient({}));
   const parts: Uint8Array[] = [];
@@ -159,10 +278,11 @@ export async function synthesize(text: string): Promise<Uint8Array> {
 
 /** The day's summary as an MP3 in the bucket; returns its key. */
 export async function writeNewsAudio(
-  insights: Pick<NewsInsights, "day" | "generatedAt" | "stories" | "claudeAlert">,
-): Promise<{ key: string; chars: number }> {
+  insights: Pick<NewsInsights, "day" | "generatedAt" | "stories" | "claudeAlert"> &
+    Partial<Pick<NewsInsights, "takeaways">> & { audioScript?: string },
+): Promise<{ key: string; chars: number; voice: NewsAudioVoice; note?: string }> {
   const script = audioScript(insights);
-  const audio = await synthesize(script);
+  const { audio, voice, note } = await speak(script);
   const key = `${NEWS_AUDIO_PREFIX}${insights.day}-${insights.generatedAt}.mp3`;
   await (s3 ??= new S3Client({})).send(
     new PutObjectCommand({
@@ -173,7 +293,7 @@ export async function writeNewsAudio(
       CacheControl: "private, max-age=86400, immutable",
     }),
   );
-  return { key, chars: script.length };
+  return { key, chars: script.length, voice, ...(note && { note }) };
 }
 
 /** About how long a script takes to read (Polly's neural voices: ~15 characters a second). */

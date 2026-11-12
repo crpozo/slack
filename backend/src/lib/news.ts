@@ -532,9 +532,15 @@ export interface NewsRead {
  * (at `now`), merged. Throws only when none could be read (the first
  * source's error); otherwise the ones that failed are in `failed`.
  */
+/** The sources read (all of `NEWS_FEEDS`; tests narrow it). */
+let sources: readonly NewsFeed[] = NEWS_FEEDS;
+export function useNewsSources(feeds: readonly NewsFeed[] = NEWS_FEEDS): void {
+  sources = feeds;
+}
+
 export async function readAllSources(
   fetchImpl: typeof fetch = fetch,
-  feeds: readonly NewsFeed[] = NEWS_FEEDS,
+  feeds: readonly NewsFeed[] = sources,
   now = Date.now(),
 ): Promise<NewsRead> {
   const results = await Promise.allSettled(feeds.map((feed) => readSource(feed, fetchImpl, now)));
@@ -714,12 +720,23 @@ export async function getNews(
     return { response: cachedAt(cached.response, now), fromCache: true, expiresAt: cached.until };
   }
   try {
-    const { articles, sources, failed, discarded } = await readAllSources(
-      fetchImpl,
-      NEWS_FEEDS,
-      now,
-    );
-    const response: NewsResponse = { articles, source: sources.join(", "), fetchedAt: now };
+    const {
+      articles,
+      sources: answered,
+      failed,
+      discarded,
+    } = await readAllSources(fetchImpl, sources, now);
+    const response: NewsResponse = {
+      articles,
+      sources: sources.map(({ name }) => ({
+        name,
+        connected: answered.includes(name),
+        stories: articles.filter((a) => a.sourceName === name).length,
+        withImage: articles.filter((a) => a.sourceName === name && a.imageUrl).length,
+      })),
+      source: answered.join(", "),
+      fetchedAt: now,
+    };
     const until = now + (failed.length > 0 ? RETRY_PARTIAL_MS : NEWS_CACHE_SECONDS * 1000);
     cached = { response, until, readAt: now };
     return { response, fromCache: false, expiresAt: until, failed, discarded };

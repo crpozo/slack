@@ -191,12 +191,8 @@ export function createNewsInsightsStore(
         try {
           const started = await api.refresh();
           if (!started.queued) {
-            const minutes = Math.max(1, Math.ceil((started.retryAfterSeconds ?? 60) / 60));
-            set({
-              generating: false,
-              generatingSince: null,
-              generateNotice: `El análisis se pidió hace un momento: podrás pedir otro en ${minutes} min.`,
-            });
+            // One was asked for a moment ago: no message, the page just shows the newest.
+            set({ generating: false, generatingSince: null });
             void get().load(true);
             return;
           }

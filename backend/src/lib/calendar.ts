@@ -15,6 +15,7 @@ import {
   type VacationBalance,
   type VacationEvent,
 } from "@mindfultech/shared";
+import { ecuadorHolidayDates } from "@mindfultech/shared";
 import { ddb, tables } from "./ddb";
 
 /**
@@ -127,7 +128,8 @@ async function queryYear(
 
 /** Dates of national holidays within `from`..`to`, for charging vacations. */
 export async function holidayDatesBetween(from: string, to: string): Promise<Set<string>> {
-  const dates = new Set<string>();
+  // Ecuador's holidays are known without anyone adding them (Phase 62).
+  const dates = ecuadorHolidayDates(from, to);
   for (const event of await eventsBetween(from, to)) {
     if (event.type !== "holiday") continue;
     for (let d = event.startDate; d <= event.endDate; d = addDays(d, 1)) dates.add(d);

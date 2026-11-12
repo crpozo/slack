@@ -43,13 +43,20 @@ export const INSIGHTS_MODEL = NOTES_MODEL;
  * matter, the deep dive, four trends, five takeaways, the watchlist). The
  * ceiling is far above that because Haiku 5.5 thinks before it writes and
  * the thinking counts toward `max_tokens`: at high effort (Phase 44) a run
- * can spend several thousand tokens reasoning over 40 stories. 16384 leaves
- * room for both.
+ * can spend several thousand tokens reasoning over 40 stories. With the audio
+ * script as well (Phase 62: it is drafted in the thinking too), 16,384 was
+ * reached and the answer cut; 32,000 leaves room for all of it.
  */
-export const INSIGHTS_MAX_TOKENS = 16_384;
+export const INSIGHTS_MAX_TOKENS = 32_000;
 
 /** How many of the merged stories the model reads (all of them: the view shows the same). */
 export const INSIGHTS_MAX_ARTICLES = NEWS_MAX_ARTICLES;
+
+/** How long the model writes the audio script: about a minute and a half read briskly. */
+export const NEWS_AUDIO_SCRIPT_WORDS = "230 to 270";
+/** A script outside these lengths is the model gone wrong: the plain one is read instead. */
+export const NEWS_AUDIO_SCRIPT_MIN_CHARS = 400;
+export const NEWS_AUDIO_SCRIPT_MAX_CHARS = 2_400;
 
 export const INSIGHTS_SYSTEM =
   "You are the AI analyst of MindfulTech, a small software company in Ecuador that builds " +
@@ -84,7 +91,12 @@ export const INSIGHTS_INSTRUCTION =
   "small team building AI products (tools to try, risks, client conversations, pricing). For " +
   'each: `lead`, the action in 2 to 6 words ("Evaluar modelos on-device"); `body`, the rest of ' +
   "the sentence in lower case (at most 35 words), saying for which product or client and " +
-  'why; `horizon`, "ahora" (this week), "trimestre" (plan for it) or "vigilar" (watch).\n' +
+  'why; `horizon`, "ahora" (this week), "trimestre" (plan for it) or "vigilar" (watch); ' +
+  "`example`, one or two sentences in Spanish (at most 45 words) with a concrete way " +
+  "MindfulTech could do it: a first step small enough to start this week, naming the kind of " +
+  "client or product (a clinic's booking system, an importer's back office, a dealership's " +
+  "CRM, the team's own chat app), the tool or model to use and what would be measured. " +
+  "A plausible example, said as a suggestion: never present it as something already done.\n" +
   `- watchlist: ${NEWS_INSIGHTS_MAX_WATCHLIST} things to follow in the coming days. For each: ` +
   '`topic`, two to four words in Spanish ("Precios de inferencia"); `text`, one or two ' +
   "sentences (at most 35 words) on what to look for and what it would mean.\n" +
@@ -96,7 +108,22 @@ export const INSIGHTS_INSTRUCTION =
   '"none". `model`: its name as the stories give it ("Claude Opus 6"), or "" when they ' +
   "don't name it; `headline`, at most 12 words in Spanish; `summary`, one or two sentences " +
   "in Spanish (at most 40 words) on what was announced and when it is available; " +
-  "`stories`, the numbers of the stories that say so.";
+  "`stories`, the numbers of the stories that say so.\n" +
+  "- audioScript: the script of today's audio update, read aloud by a voice in about a " +
+  `minute and a half: ${NEWS_AUDIO_SCRIPT_WORDS} words in ${NEWS_INSIGHTS_LANGUAGE}, written to be ` +
+  "heard, not read. You are the host of a short, sharp morning tech show that the team " +
+  "actually enjoys: conversational Latin American Spanish, quick, witty, with personality — " +
+  "a dry joke or an ironic aside where the news earns it, a rhetorical question, a vivid " +
+  "comparison — never cheesy, never forced, never at the expense of the facts. It starts " +
+  'exactly with "Update de noticias." and then a one-sentence hook on the day\'s biggest ' +
+  "story (a new Claude model first, when there is one). Then the top stories, each in one " +
+  "or two short sentences: what happened and why anyone should care, with natural spoken " +
+  "transitions between them instead of a list. Then say what it means for MindfulTech and " +
+  "what to do: the two or three most useful takeaways as plain advice a colleague would " +
+  "give. Close with one short line that lands. Short sentences, one idea each. Plain text " +
+  "only, paragraphs separated by a blank line: no markdown, no lists, no emojis, no URLs, " +
+  "no stage directions or sound effects; write numbers and symbols the way they are said " +
+  '("40 por ciento", "mil millones de dólares"). Only facts from the stories.';
 
 /** The JSON the model answers with (structured outputs: the API holds it to this schema). */
 export const INSIGHTS_SCHEMA = {
@@ -148,8 +175,9 @@ export const INSIGHTS_SCHEMA = {
           lead: { type: "string" },
           body: { type: "string" },
           horizon: { type: "string", enum: [...NEWS_HORIZONS] },
+          example: { type: "string" },
         },
-        required: ["lead", "body", "horizon"],
+        required: ["lead", "body", "horizon", "example"],
         additionalProperties: false,
       },
     },
@@ -174,8 +202,17 @@ export const INSIGHTS_SCHEMA = {
       required: ["status", "model", "headline", "summary", "stories"],
       additionalProperties: false,
     },
+    audioScript: { type: "string" },
   },
-  required: ["stories", "deepDive", "trends", "takeaways", "watchlist", "claudeAlert"],
+  required: [
+    "stories",
+    "deepDive",
+    "trends",
+    "takeaways",
+    "watchlist",
+    "claudeAlert",
+    "audioScript",
+  ],
   additionalProperties: false,
 } as const;
 
@@ -202,7 +239,13 @@ const modelOutput = z.object({
     z.object({ topic: z.string(), text: z.string(), stories: z.array(z.number()).optional() }),
   ),
   takeaways: z.array(
-    z.object({ lead: z.string(), body: z.string(), horizon: z.string().optional() }),
+    z.object({
+      lead: z.string(),
+      body: z.string(),
+      horizon: z.string().optional(),
+      // Phase 62 (absent on older answers).
+      example: z.string().optional(),
+    }),
   ),
   watchlist: z.array(z.object({ topic: z.string(), text: z.string() })).optional(),
   // Phase 56 (absent on older answers).
@@ -215,6 +258,8 @@ const modelOutput = z.object({
       stories: z.array(z.number()),
     })
     .optional(),
+  // Phase 62 (absent on older answers).
+  audioScript: z.string().optional(),
 });
 
 /** The stories as the model reads them: numbered, with source, title, when, the snippet, the link. */
@@ -256,7 +301,10 @@ export function insightsRequest(
 export type InsightsDashboard = Pick<
   NewsInsights,
   "stories" | "trends" | "takeaways" | "deepDive" | "watchlist" | "claudeAlert"
->;
+> & {
+  /** Phase 62: the audio update as the model wrote it to be heard (kept on the row, not sent to the page). */
+  audioScript?: string;
+};
 
 export type InsightsOutcome =
   { ok: true; dashboard: InsightsDashboard } | { ok: false; error: string };
@@ -347,6 +395,7 @@ export function insightsFrom(
       lead: fit(t.lead, 80),
       body: fit(t.body, 320),
       ...(isHorizon(t.horizon) && { horizon: t.horizon }),
+      ...(t.example?.trim() && { example: fit(t.example, 360) }),
     }))
     .filter((t) => t.lead && t.body)
     .slice(0, NEWS_INSIGHTS_MAX_TAKEAWAYS);
@@ -399,9 +448,14 @@ export function insightsFrom(
   if (trends.length === 0 || takeaways.length === 0) {
     return { ok: false, error: "the analysis is missing its trends or takeaways" };
   }
+  const audioScript = (parsed.audioScript ?? "").trim();
+  const scriptFits =
+    audioScript.length >= NEWS_AUDIO_SCRIPT_MIN_CHARS &&
+    audioScript.length <= NEWS_AUDIO_SCRIPT_MAX_CHARS;
   return {
     ok: true,
     dashboard: {
+      ...(scriptFits && { audioScript }),
       stories: stories.slice(0, NEWS_INSIGHTS_TOP_STORIES),
       trends,
       takeaways,
@@ -421,11 +475,17 @@ export interface NewsInsightsItem extends Omit<NewsInsights, "audio"> {
   /** Phase 54: the MP3 of the summary in the attachments bucket, and its script's length. */
   audioKey?: string;
   audioChars?: number;
+  /** Phase 61: which service read it. */
+  audioVoice?: "elevenlabs" | "polly";
+  /** Why ElevenLabs didn't read it, when Polly did. */
+  audioNote?: string;
+  /** Phase 62: the audio update as the model wrote it (absent on older rows). */
+  audioScript?: string;
 }
 
 /** The newest analysis as stored: what the page gets, plus where its audio is. */
 export type StoredInsights = Omit<NewsInsights, "audio"> &
-  Pick<NewsInsightsItem, "audioKey" | "audioChars">;
+  Pick<NewsInsightsItem, "audioKey" | "audioChars" | "audioVoice" | "audioNote" | "audioScript">;
 
 /** The row for `day`, built from the stories the model read and what it wrote. */
 export function insightsItem(
@@ -481,6 +541,9 @@ export async function latestInsights(): Promise<StoredInsights | null> {
     source,
     audioKey,
     audioChars,
+    audioVoice,
+    audioNote,
+    audioScript,
     claudeAlert,
   } = item as NewsInsightsItem;
   return {
@@ -497,8 +560,14 @@ export async function latestInsights(): Promise<StoredInsights | null> {
     ...(claudeAlert && { claudeAlert }),
     articles: articles ?? [],
     source: source ?? "",
+    ...(audioScript && { audioScript }),
     // Phase 54: the summary in audio (absent until it's made, and on older rows).
-    ...(audioKey && { audioKey, audioChars: audioChars ?? 0 }),
+    ...(audioKey && {
+      audioKey,
+      audioChars: audioChars ?? 0,
+      ...(audioVoice && { audioVoice }),
+      ...(audioNote && { audioNote }),
+    }),
   };
 }
 
@@ -633,17 +702,21 @@ export async function claimAudio(
 /** Adds its audio to the analysis of `day`, if it's still the one written at `generatedAt`. */
 export async function saveAudio(
   analysis: Pick<NewsInsightsItem, "day" | "generatedAt">,
-  audio: { key: string; chars: number },
+  audio: { key: string; chars: number; voice?: "elevenlabs" | "polly"; note?: string },
 ): Promise<void> {
   await ddb.send(
     new UpdateCommand({
       TableName: tables.newsInsights,
       Key: { feed: NEWS_INSIGHTS_FEED, day: analysis.day },
-      UpdateExpression: "SET audioKey = :key, audioChars = :chars",
+      UpdateExpression: `SET audioKey = :key, audioChars = :chars, audioVoice = :voice${
+        audio.note ? ", audioNote = :note" : " REMOVE audioNote"
+      }`,
       ConditionExpression: "generatedAt = :g",
       ExpressionAttributeValues: {
         ":key": audio.key,
         ":chars": audio.chars,
+        ":voice": audio.voice ?? "polly",
+        ...(audio.note && { ":note": audio.note }),
         ":g": analysis.generatedAt,
       },
     }),

@@ -364,7 +364,7 @@ function RadarChart({ points, size, selectedId, onSelect, onDrop }: Readonly<Cha
       {hovered && !drag && (
         <div
           role="tooltip"
-          className={`pointer-events-none absolute z-10 w-56 rounded-xl p-3 text-xs text-white ${GLASS}`}
+          className="pointer-events-none absolute z-10 w-64 rounded-xl border border-white/15 bg-[#1e2126] p-3 text-xs text-white shadow-xl shadow-black/50"
           style={{
             left: `${Math.min(92, Math.max(0, (hovered.x / size) * 100))}%`,
             top: `${(hovered.y / size) * 100}%`,
@@ -412,8 +412,15 @@ function BlipPanel({
   onRemove: () => void;
 }>) {
   const nameOf = useNameOf();
-  const by = blip.updatedBy === RADAR_AI_AUTHOR ? "the AI scan" : nameOf(blip.updatedBy);
-  const meta = Object.entries(blip.meta ?? {});
+  const by =
+    blip.updatedBy === RADAR_AI_AUTHOR
+      ? "the AI scan"
+      : blip.updatedBy === "seed"
+        ? "MindfulTech"
+        : nameOf(blip.updatedBy);
+  // The use case has its own section; the other facts stay in the list.
+  const useCase = blip.meta?.useCase;
+  const meta = Object.entries(blip.meta ?? {}).filter(([k]) => k !== "useCase");
   return (
     <aside
       className={`flex flex-col gap-4 rounded-2xl p-5 text-white ${GLASS}`}
@@ -450,6 +457,14 @@ function BlipPanel({
           <p className="mt-2 text-xs text-white/50">{RING_MEANING[blip.ring]}</p>
         )}
       </section>
+      {useCase && (
+        <section className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2.5">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+            Use case at MindfulTech
+          </h3>
+          <p className="mt-1 text-sm leading-relaxed text-white/90">{useCase}</p>
+        </section>
+      )}
       {blip.previousRing && blip.movedAt && (
         <p className="text-xs text-white/60">
           Moved from {blip.previousRing} to {blip.ring} on {when(blip.movedAt)}.
