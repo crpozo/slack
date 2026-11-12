@@ -485,57 +485,77 @@ function ClaudeAlertBanner({
  * screen and headphones on phones), loaded only when you press play.
  */
 function AudioSummary({ audio }: Readonly<{ audio: NewsAudio }>) {
-  const minutes = Math.max(1, Math.round(audio.seconds / 60));
   // One player for the whole app: it keeps playing when you leave AI News.
   const player = useNewsPlayer();
   const mine = player.track === trackOf(audio.url);
   const playing = mine && player.playing;
   const position = mine ? player.position : 0;
   const duration = mine && player.duration > 0 ? player.duration : audio.seconds;
+  const total = Math.max(1, Math.round(duration));
+  const at = Math.min(Math.round(position), total);
+  const progress = (at / total) * 100;
   return (
     <div
-      className="mt-1 flex w-full max-w-xl flex-wrap items-center gap-x-3 gap-y-2"
+      className="mt-2 w-full max-w-xl rounded-2xl border border-white/10 bg-white/[0.05] p-3 sm:p-4"
       data-news-audio
     >
-      <span className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-primary">
-        <HeadphonesIcon aria-hidden="true" />
-        Escucha el resumen · {minutes} min
-        {audio.voice && (
-          <span className="text-ink-secondary" data-news-audio-voice={audio.voice}>
-            · {audio.voice === "elevenlabs" ? "ElevenLabs" : "Polly"}
-          </span>
-        )}
-      </span>
-      <div className="flex h-10 w-full min-w-0 items-center gap-2.5 rounded-full bg-white/[0.08] pl-1 pr-4 sm:w-80">
+      <div className="flex items-center gap-3 sm:gap-4">
         <button
           type="button"
           onClick={() => player.toggle(audio.url)}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-surface hover:bg-ink/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-xl text-on-primary shadow-lg shadow-primary/20 transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface active:scale-95"
           aria-label={playing ? "Pausar el resumen" : "Reproducir el resumen"}
         >
           {playing ? <PauseIcon /> : <PlayIcon />}
         </button>
-        <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-secondary">
-          {clock(position)} / {clock(duration)}
-        </span>
-        <input
-          type="range"
-          min={0}
-          max={Math.max(1, Math.round(duration))}
-          value={Math.min(Math.round(position), Math.round(duration))}
-          onChange={(e) => player.seek(Number(e.target.value))}
-          disabled={!mine}
-          className="h-1 min-w-0 flex-1 cursor-pointer accent-primary disabled:cursor-default"
-          aria-label="Posición del audio"
-        />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+              <HeadphonesIcon className="text-primary" aria-hidden="true" />
+              Resumen en audio
+            </p>
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-secondary">
+              {clock(duration)} min
+              {audio.voice && (
+                <span data-news-audio-voice={audio.voice}>
+                  {" · "}
+                  {audio.voice === "elevenlabs" ? "ElevenLabs" : "Polly"}
+                </span>
+              )}
+            </p>
+          </div>
+          <div className="relative mt-2 h-4">
+            {/* The bar that's seen; the range over it is what's dragged. */}
+            <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-200 ease-linear"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={total}
+              value={at}
+              onChange={(e) => player.seek(Number(e.target.value))}
+              disabled={!mine}
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-default"
+              aria-label="Posición del audio"
+            />
+          </div>
+          <div className="mt-0.5 flex justify-between font-mono text-[11px] tabular-nums text-ink-secondary">
+            <span>{clock(position)}</span>
+            <span>{clock(duration)}</span>
+          </div>
+        </div>
       </div>
       {mine && player.error && (
-        <p className="w-full text-xs text-error" role="alert">
+        <p className="mt-2 text-xs text-error" role="alert">
           {player.error}
         </p>
       )}
       {audio.voice === "polly" && audio.note && (
-        <p className="w-full break-words text-xs text-ink-secondary" data-news-audio-note>
+        <p className="mt-2 break-words text-xs text-ink-secondary" data-news-audio-note>
           Lo leyó Polly porque ElevenLabs no respondió: {audio.note}
         </p>
       )}

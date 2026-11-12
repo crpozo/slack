@@ -47,6 +47,9 @@ describe("the AI News summary in audio (Phase 54)", () => {
       "OpenAI lanza agentes. Resumen.",
       // Only the first sentence of what happened; links dropped.
       "Nvidia invierte. Una ronda grande.",
+      // Then what it means for MindfulTech, and what to do.
+      "Qué significa para MindfulTech y qué hacer.",
+      "Probar agentes: en un cliente actual.",
     ]);
     expect(script).not.toMatch(/\*\*|https?:|Por qué importa|Fuente/);
   });
@@ -57,11 +60,15 @@ describe("the AI News summary in audio (Phase 54)", () => {
       headline: "Un titular largo sobre inteligencia artificial que ocupa bastante",
       summary: `${"palabra ".repeat(40).trim()}. Segunda frase que no se lee.`,
     };
-    const script = audioScript({ ...insights, stories: [long, long, long, long, long] });
+    const script = audioScript({
+      ...insights,
+      takeaways: [],
+      stories: [long, long, long, { ...long, headline: "Corto" }, long],
+    });
     expect(script.length).toBeLessThanOrEqual(AUDIO_BUDGET_CHARS);
     expect(script).not.toContain("Segunda frase");
     // Out of time: the last ones as the headline alone.
-    expect(script.split("\n\n").at(-1)).toBe(long.headline + ".");
+    expect(script.split("\n\n").at(-1)).toBe("Corto.");
     // One enormous story is still read, as its headline.
     const huge = { ...long, summary: `${"x".repeat(2000)}.` };
     expect(audioScript({ ...insights, stories: [huge, long] })).toContain(long.headline);

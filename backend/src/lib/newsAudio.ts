@@ -23,8 +23,12 @@ export const NEWS_AUDIO_VOICE = "Lupe";
 /** Polly takes at most 3,000 billed characters a request: the script is read in pieces. */
 const MAX_CHARS_PER_REQUEST = 2_800;
 
-/** About a minute and a half, read briskly (some 16 characters a second). */
-export const AUDIO_BUDGET_CHARS = 1_450;
+/** The news: a bit over a minute, read briskly (some 16 characters a second). */
+export const AUDIO_BUDGET_CHARS = 1_200;
+/** Then what it means for MindfulTech and what to do: about half a minute more. */
+export const AUDIO_TAKEAWAYS_BUDGET_CHARS = 480;
+const TAKEAWAYS_READ = 3;
+const TAKEAWAYS_OPENING = "Qué significa para MindfulTech y qué hacer.";
 /** How the update opens: straight to the news. */
 const AUDIO_OPENING = "Update de noticias.";
 
@@ -64,9 +68,14 @@ function firstSentence(text: string): string {
  * is one, then every story, most important first, as its headline and the
  * one sentence of what happened — no numbering, no sign-off. When the time
  * runs short a story is read as its headline alone, and then left out
- * (the first is always read); trends, actions and sources stay on the page.
+ * (the first is always read). It closes with what it means for MindfulTech and
+ * what to do: the takeaways, each as the action and its reason in a sentence.
+ * Trends and sources stay on the page.
  */
-export function audioScript(insights: Pick<NewsInsights, "stories" | "claudeAlert">): string {
+export function audioScript(
+  insights: Pick<NewsInsights, "stories" | "claudeAlert"> &
+    Partial<Pick<NewsInsights, "takeaways">>,
+): string {
   const parts: string[] = [AUDIO_OPENING];
   // Phase 56: a new Claude model goes first.
   const alert = insights.claudeAlert;
@@ -87,6 +96,22 @@ export function audioScript(insights: Pick<NewsInsights, "stories" | "claudeAler
     parts.push(line ?? full);
     used += (line ?? full).length + 2;
   });
+  // What it means for MindfulTech and what to do: the analysis's takeaways,
+  // each as the action and its one-sentence reason.
+  const actions: string[] = [];
+  let spent = TAKEAWAYS_OPENING.length;
+  for (const takeaway of (insights.takeaways ?? []).slice(0, TAKEAWAYS_READ)) {
+    const lead = spoken(takeaway.lead).replace(/[.:]$/, "");
+    if (!lead) continue;
+    const full = takeaway.body ? `${lead}: ${firstSentence(takeaway.body)}` : `${lead}.`;
+    const line = [full, `${lead}.`].find(
+      (l) => spent + l.length + 2 <= AUDIO_TAKEAWAYS_BUDGET_CHARS,
+    );
+    if (!line && actions.length > 0) break;
+    actions.push(line ?? `${lead}.`);
+    spent += (line ?? lead).length + 2;
+  }
+  if (actions.length > 0) parts.push(TAKEAWAYS_OPENING, ...actions);
   return parts.join("\n\n");
 }
 
@@ -246,7 +271,8 @@ export async function synthesize(text: string): Promise<Uint8Array> {
 
 /** The day's summary as an MP3 in the bucket; returns its key. */
 export async function writeNewsAudio(
-  insights: Pick<NewsInsights, "day" | "generatedAt" | "stories" | "claudeAlert">,
+  insights: Pick<NewsInsights, "day" | "generatedAt" | "stories" | "claudeAlert"> &
+    Partial<Pick<NewsInsights, "takeaways">>,
 ): Promise<{ key: string; chars: number; voice: NewsAudioVoice; note?: string }> {
   const script = audioScript(insights);
   const { audio, voice, note } = await speak(script);

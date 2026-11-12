@@ -23,6 +23,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **AI News audio, straight to the point:** it opens with “Update de noticias.” and reads every
   story one after another — headline and the one sentence of what happened — at a brisk pace,
   in about a minute and a half. No date, numbering or sign-off.
+- **AI News audio, what it means for MindfulTech:** after the news it reads “Qué significa para
+  MindfulTech y qué hacer.” and the analysis's top actions, each with its reason in a
+  sentence (about half a minute more).
 - **Image gallery in conversations:** clicking an image in a channel or DM opens it full screen
   at once, with **‹ ›** arrows (or **←/→**) to move through the conversation's other images and a
   counter; **Esc**, ✕ or a click beside the picture closes it. The images around it load in the
@@ -439,6 +442,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **AI News audio player, redesigned:** a card with a large green play button, the title, the
+  real length and the voice, and a filled progress bar you can drag, with the time at each end.
 - **Inviting to a private channel:** an admin in the channel can invite too, not only its
   creator. Guests on boards are now called **externals** (badge "External").
 
