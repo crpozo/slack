@@ -481,6 +481,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **AI Radar, less obvious and more specific:** the starter list drops what everybody already
+  uses (the Claude models, Claude Code, Bedrock, serverless, Cursor, Copilot) for 56 named
+  technologies worth a decision: diffusion language models, document-reading vision models,
+  time-series and tabular foundation models, visual document retrieval, voice cloning and
+  dubbing, vision-language-action and world models, code execution over MCP, browser and
+  voice agent frameworks, agent memory, agent payments, wafer-scale inference, WebGPU in the
+  browser, local-first sync engines, durable execution, database branching, passkeys, agents in
+  CI, autonomous pentesting agents, native-speed TypeScript tooling. Each keeps its MindfulTech
+  use case. As before, only the untouched starters are replaced.
 - **AI Notes, a list that uses the screen:** the notes are full-width rows instead of half-width
   cards with an empty side: category, title and two lines of the summary on the left; when,
   with whom, action items and recording on the right. Date groups sit closer together. The tag

@@ -65,11 +65,11 @@ describe("seeding", () => {
     expect(await seedRadarOnce(1)).toBe(true);
     const blips = await listBlips();
     expect(blips).toHaveLength(starterBlips().length);
-    expect(blips.find((b) => b.name === "Claude Haiku 5.5")).toMatchObject({
+    expect(blips.find((b) => b.name === "Speech-to-speech models")).toMatchObject({
       quadrant: "Models",
-      ring: "Adopt",
+      ring: "Trial",
       updatedBy: "seed",
-      meta: { modelId: "claude-haiku-5-5" },
+      meta: { useCase: expect.stringContaining("phone line") },
     });
     for (const key of [...table.keys()]) if (key.startsWith("BLIP|")) table.delete(key);
     expect(await seedRadarOnce(2)).toBe(false);
@@ -97,7 +97,7 @@ describe("seeding", () => {
     expect(await seedRadarOnce(5)).toBe(true);
     const names = (await listBlips()).map((b) => b.name);
     expect(names).not.toContain("Vite");
-    expect(names).toEqual(expect.arrayContaining(["React", "Our thing", "Claude Code"]));
+    expect(names).toEqual(expect.arrayContaining(["React", "Our thing", "Agent Skills"]));
     expect(names).toHaveLength(starterBlips().length + 2);
   });
 });
