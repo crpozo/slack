@@ -40,12 +40,58 @@ export const NEWS_FEEDS: readonly NewsFeed[] = [
     name: "InfoQ",
     urls: [{ url: "https://feed.infoq.com/ai-ml-data-eng/news" }],
   },
+  // Phase 62: the publications the industry itself reads. A source that
+  // doesn't answer (a paywall, a moved feed) is skipped; the rest still load.
+  {
+    name: "Bloomberg",
+    urls: [{ url: "https://feeds.bloomberg.com/technology/news.rss", general: true }],
+  },
+  {
+    name: "Financial Times",
+    urls: [{ url: "https://www.ft.com/artificial-intelligence?format=rss" }],
+  },
+  {
+    name: "The New York Times",
+    urls: [{ url: "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml", general: true }],
+  },
+  {
+    name: "MIT Technology Review",
+    urls: [
+      { url: "https://www.technologyreview.com/topic/artificial-intelligence/feed" },
+      { url: "https://www.technologyreview.com/feed/", general: true },
+    ],
+  },
+  {
+    name: "Wired",
+    urls: [
+      { url: "https://www.wired.com/feed/tag/ai/latest/rss" },
+      { url: "https://www.wired.com/feed/rss", general: true },
+    ],
+  },
+  {
+    name: "Ars Technica",
+    urls: [
+      { url: "https://arstechnica.com/ai/feed/" },
+      { url: "https://feeds.arstechnica.com/arstechnica/index", general: true },
+    ],
+  },
+  {
+    name: "The Guardian",
+    urls: [{ url: "https://www.theguardian.com/technology/artificialintelligenceai/rss" }],
+  },
+  {
+    name: "CNBC",
+    urls: [{ url: "https://www.cnbc.com/id/19854910/device/rss/rss.html", general: true }],
+  },
+  // First-hand: what the labs themselves announce.
+  { name: "OpenAI", urls: [{ url: "https://openai.com/news/rss.xml" }] },
+  { name: "Google DeepMind", urls: [{ url: "https://deepmind.google/blog/rss.xml" }] },
 ];
 
 /** How many articles the view gets, newest first. */
 export const NEWS_MAX_ARTICLES = 40;
 /** The most stories one source may have in the list, so a busy one can't crowd out the rest. */
-export const NEWS_MAX_PER_SOURCE = 12;
+export const NEWS_MAX_PER_SOURCE = 8;
 /**
  * Only news: a story published longer ago than this (or with no date we can
  * read) is dropped as the feed is read, before any limit and before the

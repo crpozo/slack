@@ -16,6 +16,7 @@ import {
   resetNewsCache,
   RETRY_AFTER_FAILURE_MS,
   RETRY_PARTIAL_MS,
+  useNewsSources,
 } from "../src/lib/news";
 import { resetMocks } from "./helpers";
 
@@ -24,8 +25,23 @@ import { resetMocks } from "./helpers";
  * 2026), so they're inside the 48-hour window.
  */
 const NOW = Date.parse("2026-10-27T08:00:00Z");
+/** The four sources these tests fake; the rest of the list is checked on its own below. */
+const CORE_FEEDS = NEWS_FEEDS.slice(0, 4);
 beforeEach(() => {
   vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+  useNewsSources(CORE_FEEDS);
+});
+
+describe("the sources", () => {
+  it("are the leading tech and AI publications, each once, over https", () => {
+    const names = NEWS_FEEDS.map((f) => f.name);
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toEqual(expect.arrayContaining(["TechCrunch", "Bloomberg", "Wired", "OpenAI"]));
+    for (const feed of NEWS_FEEDS) {
+      expect(feed.urls.length).toBeGreaterThan(0);
+      for (const { url } of feed.urls) expect(url.startsWith("https://"), url).toBe(true);
+    }
+  });
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -198,7 +214,7 @@ describe("only news: the 48-hour window", () => {
     // The same feeds two days later: nothing is news any more.
     const later = await readAllSources(
       feedsFetch({ [TC]: old, [INFOQ]: INFOQ_FEED }),
-      NEWS_FEEDS,
+      CORE_FEEDS,
       NOW + 3 * 24 * 3_600_000,
     );
     expect(later.articles).toEqual([]);
@@ -414,7 +430,7 @@ describe("merging the sources", () => {
     expect(merged.map((a) => a.title)).toEqual(["Big news"]);
   });
 
-  it("caps each source at 12 and the list at 40", () => {
+  it("caps each source at 8 and the list at 40", () => {
     const busy = Array.from({ length: 20 }, (_, i) =>
       article(`busy ${i}`, "Busy", `2026-10-26T${String(i).padStart(2, "0")}:00:00Z`),
     );
@@ -427,13 +443,18 @@ describe("merging the sources", () => {
     const extra = Array.from({ length: 20 }, (_, i) =>
       article(`extra ${i}`, "Extra", `2026-08-01T${String(i).padStart(2, "0")}:00:00Z`),
     );
-    const merged = mergeArticles([busy, quiet, others, extra]);
+    const more = ["Fifth", "Sixth"].map((name, n) =>
+      Array.from({ length: 20 }, (_, i) =>
+        article(`${name} ${i}`, name, `2026-0${7 - n}-01T${String(i).padStart(2, "0")}:00:00Z`),
+      ),
+    );
+    const merged = mergeArticles([busy, quiet, others, extra, ...more]);
     expect(merged).toHaveLength(40);
-    expect(merged.filter((a) => a.sourceName === "Busy")).toHaveLength(12);
-    expect(merged.filter((a) => a.sourceName === "Quiet")).toHaveLength(12);
-    expect(merged.filter((a) => a.sourceName === "Other")).toHaveLength(12);
-    // The newest stories win the last seats: the oldest source gets what's left.
-    expect(merged.filter((a) => a.sourceName === "Extra")).toHaveLength(4);
+    for (const name of ["Busy", "Quiet", "Other", "Extra", "Fifth"]) {
+      expect(merged.filter((a) => a.sourceName === name)).toHaveLength(8);
+    }
+    // The newest stories win the last seats: the oldest source gets none.
+    expect(merged.filter((a) => a.sourceName === "Sixth")).toHaveLength(0);
   });
 });
 

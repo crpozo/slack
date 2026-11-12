@@ -7,6 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **AI News, the best sources in tech and AI:** besides TechCrunch, VentureBeat, The Verge and
+  InfoQ, the news now come from **Bloomberg**, **Financial Times**, **The New York Times**,
+  **MIT Technology Review**, **Wired**, **Ars Technica**, **The Guardian** and **CNBC**, and
+  first-hand from **OpenAI** and **Google DeepMind**. General feeds contribute only their AI
+  stories; each source gives at most 8 of the 40 so none crowds out the rest; a source that
+  doesn't answer is skipped.
 - **AI News audio with ElevenLabs:** the summary is read by ElevenLabs (the multilingual model,
   in Spanish) once its API key is stored: `aws ssm put-parameter --name
 /slack/prod/elevenlabs-api-key --type SecureString --value "…"`. Optionally pick the voice
