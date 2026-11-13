@@ -27,10 +27,13 @@ describe("emoji", () => {
   it("groups the dataset, dropping skin-tone components and overlong sequences", () => {
     const groups = buildGroups(raw);
     expect(groups.map((g) => [g.id, g.emojis.map((e) => e.emoji)])).toEqual([
-      [0, ["😀"]],
-      [1, ["👍️"]],
+      // What a team uses all day comes first, in the dataset's own strings.
+      [-1, ["👍️"]],
+      // People are listed with the smileys.
+      [0, ["😀", "👍️"]],
       [9, ["🇪🇨"]],
     ]);
+    expect(groups[0]?.label).toBe("Getting Work Done");
   });
 
   it("searches labels and tags, ignoring case and accents", () => {

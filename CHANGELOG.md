@@ -560,6 +560,12 @@ SecureString --value "…"`; (2) access in Amazon Bedrock to the model the run u
 
 ### Changed
 
+- **Emoji picker, rebuilt:** a tab per section along the top (it jumps there and follows the
+  scroll), a larger "Search all emoji" field, bold section titles and bigger emoji in a wider
+  grid. New sections first: **Frequently Used** (what you pick most) and **Getting Work Done**
+  (✅ 👀 🙌 🎯 🚀 and the rest a team uses all day); people are listed with the smileys. A
+  **skin tone** for hands and people (five tones, remembered), which adds some 1,500 variants
+  to the 1,900 standard emoji, and the name of the emoji under the pointer at the bottom.
 - **AI News audio, funnier still:** the script's brief now sets a bar (two laughs and a line
   worth repeating), a comedian's voice, a different kind of joke for each story, a callback,
   a "dato para presumir en el almuerzo", and has the model draft several jokes per story and
