@@ -76,6 +76,10 @@ const existenceLookups = () =>
       (c) => c.args[0].input.RequestItems?.["slack-test-users"]?.ProjectionExpression === "userId",
     );
 
+/** Phase 63: member changes are a transaction: the list, then the system line. */
+const memberWrites = () =>
+  ddbMock.commandCalls(TransactWriteCommand).map((c) => c.args[0].input.TransactItems!);
+
 describe("channel", () => {
   beforeEach(() => {
     resetMocks();
@@ -122,6 +126,25 @@ describe("channel", () => {
     expect(queries[0]).toMatchObject({ ScanIndexForward: false, Limit: 100 });
     const teamAfter = Number(String(queries[1]?.ExpressionAttributeValues?.[":from"]).slice(0, -1));
     expect(Date.now() - teamAfter).toBeGreaterThan(6 * 24 * 3600 * 1000);
+  });
+
+  it('never counts system lines ("X was removed…"): nothing to read (Phase 63)', async () => {
+    const read = { ...general, reads: { [ALICE.userId]: { sk: "100#a", at: 100 } } };
+    mockScans([read]);
+    ddbMock.on(QueryCommand).resolves({
+      Items: [
+        { userId: BOB.userId },
+        { userId: BOB.userId, kind: "system" },
+        { userId: BOB.userId },
+      ],
+    });
+    await handler(wsEvent("channel", { action: "channel", op: "list" }));
+    const [[, event]] = sentEvents() as [[string, ChannelListEvent]];
+    expect(event.unread).toEqual({ ch_general: 2 });
+    expect(ddbMock.commandCalls(QueryCommand)[0]!.args[0].input).toMatchObject({
+      ProjectionExpression: "userId, #kind",
+      ExpressionAttributeNames: { "#kind": "kind" },
+    });
   });
 
   it("never counts thread replies: they'd come back after every read (Phase 36)", async () => {
@@ -435,7 +458,8 @@ describe("channel invite", () => {
         ProjectionExpression: "userId",
       },
     });
-    const update = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    const [write, note] = memberWrites()[0]!;
+    const update = write?.Update;
     expect(update?.Key).toEqual({ channelId: "ch_team" });
     expect(update?.ExpressionAttributeValues?.[":members"]).toEqual(
       [ALICE.userId, BOB.userId, "user-carol", "user-dave"].sort(compareIds),
@@ -443,7 +467,16 @@ describe("channel invite", () => {
     // Only if nobody changed the list meanwhile (no lost invite), and still private.
     expect(update?.ConditionExpression).toBe("#type = :private AND members = :before");
     expect(update?.ExpressionAttributeValues?.[":before"]).toEqual([ALICE.userId, "user-carol"]);
-    expect(sentEvents().every(([, e]) => e.type === "channel.list")).toBe(true);
+    // Phase 63: one line for the people actually added, in the same transaction.
+    expect(note?.Put?.Item).toMatchObject({
+      channelId: "ch_team",
+      kind: "system",
+      system: { event: "members_added", userIds: [BOB.userId, "user-dave"], by: ALICE.userId },
+    });
+    expect(sentEvents().every(([, e]) => ["channel.list", "message.new"].includes(e.type))).toBe(
+      true,
+    );
+    expect(sentEvents().some(([, e]) => e.type === "message.new")).toBe(true);
   });
 
   it("retries keys BatchGet left unprocessed once before accepting the invitees", async () => {
@@ -454,6 +487,7 @@ describe("channel invite", () => {
         UnprocessedKeys: { "slack-test-users": { Keys: [{ userId: "user-dave" }] } },
       })
       .resolvesOnce({ Responses: { "slack-test-users": [{ userId: "user-dave" }] } })
+      .resolvesOnce({ Responses: { "slack-test-users": [] } }) // the system line's names
       .resolvesOnce({ Responses: { "slack-test-users": [] } }); // nobody is a guest
 
     const result = await invite([BOB.userId, "user-dave"]);
@@ -464,7 +498,7 @@ describe("channel invite", () => {
     expect(calls[1]?.args[0].input.RequestItems?.["slack-test-users"]?.Keys).toEqual([
       { userId: "user-dave" },
     ]);
-    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
+    expect(memberWrites()).toHaveLength(1);
   });
 
   it("treats keys still unprocessed after the retry as unknown users", async () => {
@@ -705,7 +739,7 @@ describe("guests and channels", () => {
         userIds: [BOB.userId],
       }),
     );
-    const update = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    const update = memberWrites()[0]?.[0]?.Update;
     expect(update?.ExpressionAttributeValues?.[":members"]).toEqual(
       [ALICE.userId, BOB.userId].sort(compareIds),
     );

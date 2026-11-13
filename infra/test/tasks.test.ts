@@ -227,7 +227,12 @@ describe("task manager API", () => {
       "dynamodb:UpdateItem", // an invited person's directory row
     ]);
     // Tasks from AI notes: read the card, claim it (with the tasks, one transaction).
-    expect(actionsOn("DataMessages")).toEqual(["dynamodb:GetItem", "dynamodb:UpdateItem"]);
+    // PutItem (Phase 63): an invite by email writes its "was added" line in the transaction.
+    expect(actionsOn("DataMessages")).toEqual([
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+    ]);
     // ...and deleting a board unlinks its project channels (Phase 32).
     expect(actionsOn("DataChannels")).toEqual([
       "dynamodb:GetItem",

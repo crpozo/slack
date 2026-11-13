@@ -821,6 +821,9 @@ export class TasksApi extends Construct {
     data.channels.grant(this.handler, "dynamodb:GetItem", "dynamodb:Scan", "dynamodb:UpdateItem");
     grantDeleteFiles(this.handler, props.attachments, { list: true });
     data.messages.grant(this.handler, "dynamodb:GetItem", "dynamodb:UpdateItem");
+    // Phase 63: an invite by email writes its "was added to the channel" line (PutItem,
+    // in the same transaction as the member list).
+    data.messages.grant(this.handler, "dynamodb:PutItem");
 
     // calendar: events by id and by year; the ledger by person/year and by year (admins).
     data.events.grant(

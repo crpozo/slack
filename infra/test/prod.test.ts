@@ -386,8 +386,10 @@ describe("phase 5.1 resources", () => {
       "dynamodb:Scan",
     ]);
     // Deleting a channel or DM removes the row and its messages.
+    // PutItem (Phase 63): a membership change writes its system line in the transaction.
     expect(actionsOn("channel", "DataMessages")).toEqual([
       "dynamodb:BatchWriteItem",
+      "dynamodb:PutItem",
       "dynamodb:Query",
     ]);
     expect(actionsOn("channel", "DataChannels")).toContain("dynamodb:DeleteItem");

@@ -867,6 +867,8 @@ class ChatController {
       return;
     }
     if (viewing) return;
+    // Phase 63: "X was removed…" lines: no sound, no badge, no notification.
+    if (message.kind === "system") return;
     playMessageSound();
     // A brand-new DM isn't in the channel list yet; its id says what it is.
     const channel =

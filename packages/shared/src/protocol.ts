@@ -261,8 +261,50 @@ export function readBy(message: Pick<Message, "sk" | "userId">, reads: Channel["
     .sort(compareIds);
 }
 
-export const MESSAGE_KINDS = ["meeting", "ai_notes", "vault"] as const;
+export const MESSAGE_KINDS = ["meeting", "ai_notes", "vault", "system"] as const;
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
+
+/**
+ * Phase 63: a line the server writes into a conversation when its members
+ * change (`kind: "system"`), in the same transaction as the change. Clients
+ * render it small, centered and gray, naming people as they're called now
+ * (`systemNoteText`); its `text` is the same line with the names at the time,
+ * for previews, search and older clients. Never edited, reacted to or quoted.
+ */
+export const SYSTEM_EVENTS = ["member_removed", "members_added"] as const;
+export type SystemEvent = (typeof SYSTEM_EVENTS)[number];
+
+export interface SystemNote {
+  event: SystemEvent;
+  /** Who was removed or added. */
+  userIds: string[];
+  /** Who did it. */
+  by: string;
+}
+
+/** "a", "a and b", "a, b and c". */
+function listNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
+/**
+ * The line a system note reads: "@Luis was removed from the channel by Ana",
+ * "@Luis and @Eva were added to the channel by Ana", "@Ana left the channel".
+ */
+export function systemNoteText(note: SystemNote, nameOf: (userId: string) => string): string {
+  const who = listNames(note.userIds.map((id) => `@${nameOf(id)}`));
+  const plural = note.userIds.length > 1;
+  const self = note.userIds.length === 1 && note.userIds[0] === note.by;
+  if (note.event === "member_removed") {
+    return self
+      ? `${who} left the channel`
+      : `${who} was removed from the channel by ${nameOf(note.by)}`;
+  }
+  return self
+    ? `${who} joined the channel`
+    : `${who} ${plural ? "were" : "was"} added to the channel by ${nameOf(note.by)}`;
+}
 
 /** What a "meeting scheduled" message carries (see `Message.meeting`). */
 export interface MeetingCard {
@@ -330,6 +372,8 @@ export interface Message {
   isSecret?: true;
   /** Absent for ordinary messages; `"meeting"` renders `meeting` as a card. */
   kind?: MessageKind;
+  /** Phase 63: what a `kind: "system"` line says (members removed or added). */
+  system?: SystemNote;
   /** A thread reply: the parent message's id and sort key (see `threadSkPrefix`). */
   parentId?: string;
   parentSk?: string;
