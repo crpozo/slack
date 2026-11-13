@@ -67,6 +67,9 @@ const NewsView = lazy(() => import("./NewsView").then((m) => ({ default: m.NewsV
 const SkillsView = lazy(() => import("./SkillsView").then((m) => ({ default: m.SkillsView })));
 const VaultView = lazy(() => import("./VaultView").then((m) => ({ default: m.VaultView })));
 const RadarView = lazy(() => import("./RadarView").then((m) => ({ default: m.RadarView })));
+const PlatformInsightsView = lazy(() =>
+  import("./PlatformInsightsView").then((m) => ({ default: m.PlatformInsightsView })),
+);
 const SettingsModal = lazy(() =>
   import("./SettingsModal").then((m) => ({ default: m.SettingsModal })),
 );
@@ -96,6 +99,8 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const vaultMatch = useMatch("/app/vault");
   // `/app/radar`: the AI Tech Radar (Phase 56).
   const radarMatch = useMatch("/app/radar");
+  // `/app/insights`: Platform Insights (Phase 64), for its owners.
+  const insightsMatch = useMatch("/app/insights");
   const navigate = useNavigate();
   // Phones' tabs and a thread's own screen are routes too.
   const threadMatch = useMatch("/app/:channelId/thread/:messageId");
@@ -120,6 +125,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     skillsMatch ||
     vaultMatch ||
     radarMatch ||
+    insightsMatch ||
     tab
       ? null
       : (threadMatch?.params.channelId ?? params.channelId ?? GENERAL_CHANNEL_ID);
@@ -449,6 +455,14 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           <SkillsView />
         </Suspense>
       );
+    } else if (insightsMatch) {
+      screen = (
+        <Suspense
+          fallback={<div className="flex-1" aria-busy="true" aria-label="Loading insights" />}
+        >
+          <PlatformInsightsView />
+        </Suspense>
+      );
     } else if (radarMatch) {
       screen = (
         <Suspense
@@ -628,7 +642,9 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
                       ? "vault"
                       : radarMatch
                         ? "radar"
-                        : "tasks")
+                        : insightsMatch
+                          ? "insights"
+                          : "tasks")
           }
           collapsed={collapsed}
           onToggleCollapsed={isDesktop ? toggleCollapsed : undefined}
@@ -672,6 +688,12 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
               fallback={<div className="flex-1" aria-busy="true" aria-label="Loading skills" />}
             >
               <SkillsView onOpenSidebar={() => setSidebarOpen(true)} />
+            </Suspense>
+          ) : insightsMatch ? (
+            <Suspense
+              fallback={<div className="flex-1" aria-busy="true" aria-label="Loading insights" />}
+            >
+              <PlatformInsightsView onOpenSidebar={() => setSidebarOpen(true)} />
             </Suspense>
           ) : radarMatch ? (
             <Suspense

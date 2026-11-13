@@ -7,6 +7,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Insights, for the owner:** a new section that reads how the team used the platform in the
+  last 30 days and what to improve. **Analizar ahora** gathers the numbers and asks the AI
+  for a summary, what is going well, risks, four to six concrete recommendations (why, how,
+  impact) and questions worth asking the team; below, the numbers themselves: messages per day
+  and hour (and outside working hours), people, channels (and which went quiet), tasks (open,
+  stale, unassigned, time to done), hours and cost per channel, calls with AI notes.
+  **Counts only:** it never reads the text of a message, file, note or secret, a task's title,
+  or who talks to whom in direct messages (those are one total); the AI gets names and numbers,
+  no e-mail addresses. **Who sees it** is not a role: only the addresses in the SSM parameter
+  `/slack/prod/insights-owners` (a String, comma-separated), so an admin doesn't, and nobody
+  does until it is set: `aws ssm put-parameter --name /slack/prod/insights-owners --type String
+--value "you@example.com"`. Everyone else gets no menu entry and a 403 from the API.
 - **Link previews:** a message with a link shows its page under the text, as chat apps do: the
   picture, the title, a few lines of the description and the site; a click opens it. The first
   https link of the message is previewed (a YouTube video keeps its own player; secrets and

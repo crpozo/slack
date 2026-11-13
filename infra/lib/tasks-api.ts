@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { Duration, Stack } from "aws-cdk-lib";
+import { ArnFormat, Duration, Stack } from "aws-cdk-lib";
 import {
   CfnApi,
   CorsHttpMethod,
@@ -26,6 +26,7 @@ import { LAMBDA_ARCHITECTURE, LAMBDA_BUNDLING, LAMBDA_MEMORY_MB, LAMBDA_RUNTIME 
 import {
   elevenLabsKeyParameterName,
   elevenLabsVoiceParameterName,
+  insightsOwnersParameterName,
   githubTokenParameterName,
   openaiKeyParameterName,
   removalPolicyFor,
@@ -178,6 +179,13 @@ export const SEARCH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
  * AI Skills (Phase 44): the catalog of Claude Code skills, its GitHub import,
  * generation (Claude Haiku 5.5) and zip downloads, from one Lambda.
  */
+/** Platform Insights (Phase 64): the owners' view of how the team uses the app. */
+export const PLATFORM_INSIGHTS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/platform-insights/access" },
+  { method: HttpMethod.GET, path: "/platform-insights" },
+  { method: HttpMethod.POST, path: "/platform-insights" },
+];
+
 /** AI Tech Radar (Phase 56): read by the team, changed by admins and the scanner. */
 export const RADAR_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/radar" },
@@ -304,6 +312,8 @@ export class TasksApi extends Construct {
   readonly vaultHandler: NodejsFunction;
   /** Phase 56: the AI Tech Radar's endpoints, and the daily scan of the news for updates. */
   readonly radarHandler: NodejsFunction;
+  /** Phase 64: reads counts across the tables and asks the model; owners only. */
+  readonly platformInsightsHandler: NodejsFunction;
   readonly radarScanWorker: NodejsFunction;
   /** Phase 60: new technologies from the stored AI news and Hacker News, as proposals. */
   readonly radarDiscoveryEngine: NodejsFunction;
@@ -446,6 +456,22 @@ export class TasksApi extends Construct {
       schedule: Schedule.cron(RADAR_DISCOVERY_SCHEDULE),
       targets: [new LambdaFunction(this.radarDiscoveryEngine, { retryAttempts: 1 })],
     });
+    this.platformInsightsHandler = lambda(
+      "PlatformInsightsFn",
+      "platform-insights",
+      {
+        USERS_TABLE: data.users.tableName,
+        CHANNELS_TABLE: data.channels.tableName,
+        MESSAGES_TABLE: data.messages.tableName,
+        TASKS_TABLE: data.tasks.tableName,
+        TIME_LOG_TABLE: data.timeLog.tableName,
+        // The report is kept in a partition of its own of the news-insights table.
+        NEWS_INSIGHTS_TABLE: data.newsInsights.tableName,
+        INSIGHTS_OWNERS_PARAMETER: insightsOwnersParameterName(stage),
+      },
+      // The asynchronous run reads every table and waits for the model.
+      Duration.seconds(150),
+    );
     this.radarHandler = lambda("RadarFn", "radar", {
       TECH_RADAR_TABLE: data.techRadar.tableName,
       RADAR_WORKER_FUNCTION: this.radarScanWorker.functionName,
@@ -696,6 +722,13 @@ export class TasksApi extends Construct {
     for (const { method, path } of SKILLS_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: skillsIntegration });
     }
+    const platformInsightsIntegration = new HttpLambdaIntegration(
+      "PlatformInsightsIntegration",
+      this.platformInsightsHandler,
+    );
+    for (const { method, path } of PLATFORM_INSIGHTS_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: platformInsightsIntegration });
+    }
     const radarIntegration = new HttpLambdaIntegration("RadarIntegration", this.radarHandler);
     for (const { method, path } of RADAR_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: radarIntegration });
@@ -931,6 +964,31 @@ export class TasksApi extends Construct {
       "dynamodb:DeleteItem",
     );
     this.radarScanWorker.addToRolePolicy(notesModelPolicy());
+    // Phase 64, platform insights: read-only on what it counts (it never writes to
+    // them), its own rows in the news-insights table, the model, the owners'
+    // parameter, and invoking itself for the long run (by name: a grant on the
+    // function itself would be a circular dependency).
+    data.users.grant(this.platformInsightsHandler, "dynamodb:Scan");
+    data.channels.grant(this.platformInsightsHandler, "dynamodb:Scan");
+    data.messages.grant(this.platformInsightsHandler, "dynamodb:Query");
+    data.tasks.grant(this.platformInsightsHandler, "dynamodb:Scan");
+    data.timeLog.grant(this.platformInsightsHandler, "dynamodb:Scan");
+    data.newsInsights.grant(this.platformInsightsHandler, "dynamodb:GetItem", "dynamodb:PutItem");
+    this.platformInsightsHandler.addToRolePolicy(notesModelPolicy(true));
+    grantReadParameter(this.platformInsightsHandler, insightsOwnersParameterName(stage));
+    this.platformInsightsHandler.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["lambda:InvokeFunction"],
+        resources: [
+          Stack.of(this).formatArn({
+            service: "lambda",
+            resource: "function",
+            resourceName: `slack-${stage}-platform-insights`,
+            arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+          }),
+        ],
+      }),
+    );
     // Phase 60, discovery: reads the radar (to skip what it knows) and the
     // stored AI news, writes proposals only, and asks the model on Bedrock.
     this.radarDiscoveryEngine.grantInvoke(this.radarHandler);

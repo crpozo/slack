@@ -99,6 +99,10 @@ export default function App({ config }: Readonly<{ config: AppConfig }>) {
           element={me ? <ChatLayout wsUrl={config.wsUrl} /> : <Navigate to="/login" replace />}
         />
         <Route
+          path="/app/insights"
+          element={me ? <ChatLayout wsUrl={config.wsUrl} /> : <Navigate to="/login" replace />}
+        />
+        <Route
           path="/app/radar"
           element={me ? <ChatLayout wsUrl={config.wsUrl} /> : <Navigate to="/login" replace />}
         />

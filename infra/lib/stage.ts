@@ -35,3 +35,10 @@ export const elevenLabsKeyParameterName = (stage: Stage) => `/slack/${stage}/ele
 export const elevenLabsVoiceParameterName = (stage: Stage) => `/slack/${stage}/elevenlabs-voice-id`;
 
 export const githubTokenParameterName = (stage: Stage) => `/slack/${stage}/github-token`;
+
+/**
+ * Phase 64: who sees Platform Insights. A plain String with e-mail addresses
+ * separated by commas, set by hand (`aws ssm put-parameter`), so no address
+ * lives in the code. Nobody sees the section until it exists.
+ */
+export const insightsOwnersParameterName = (stage: Stage) => `/slack/${stage}/insights-owners`;
