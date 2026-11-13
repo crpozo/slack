@@ -14,6 +14,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   treats the address as hostile: https only, public hosts only (checked again at every
   redirect), a short timeout, only the page's head. Posts on X show who wrote them and the
   text (X doesn't give readers like ours the picture).
+  While you type or paste a link, the composer shows the same preview in a compact row above
+  the text (✕ hides it).
 - **AI News, when it was updated:** next to the date, the time the analysis on screen was
   written ("Actualizado 6:02").
 - **AI Radar, a use case for each technology:** a blip's details now say how MindfulTech could
