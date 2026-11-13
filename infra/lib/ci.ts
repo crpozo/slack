@@ -8,6 +8,7 @@ import {
   type IOpenIdConnectProvider,
 } from "aws-cdk-lib/aws-iam";
 import type { Table } from "aws-cdk-lib/aws-dynamodb";
+import type { IFunction } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 
 const GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com";
@@ -30,6 +31,8 @@ interface GitHubDeployRoleProps {
   existingProviderArn?: string;
   /** Table the post-deploy seed script writes #general into. */
   channelsTable: Table;
+  /** Phase 65: the Lambda the AI's workflow reports a task's progress to. */
+  tasksFunction: IFunction;
 }
 
 /** The exact `sub` claims of workflows on `branch` of the repository (both GitHub formats). */
@@ -54,6 +57,14 @@ export function githubSubjects(
  */
 export class GitHubDeployRole extends Construct {
   readonly role: Role;
+  /**
+   * Phase 65: what `.github/workflows/ai-task.yml` assumes while Claude writes
+   * the change. Deliberately not the deploy role: the model runs with this
+   * one, which can only call Claude on Bedrock and tell the tasks Lambda how
+   * the task is going. It can't deploy or touch any data; the change reaches
+   * production through the Deploy workflow, after lint and tests.
+   */
+  readonly aiTaskRole: Role;
 
   constructor(scope: Construct, id: string, props: GitHubDeployRoleProps) {
     super(scope, id);
@@ -92,5 +103,35 @@ export class GitHubDeployRole extends Construct {
     );
     // The seed creates #general on a fresh install only (Scan: is there any channel yet?).
     props.channelsTable.grant(this.role, "dynamodb:PutItem", "dynamodb:Scan");
+
+    this.aiTaskRole = new Role(this, "AiTaskRole", {
+      roleName: "slack-github-ai-task",
+      description: `GitHub Actions has Claude do a board task in ${props.repository}@${props.branch}`,
+      assumedBy: new WebIdentityPrincipal(provider.openIdConnectProviderArn, {
+        StringEquals: {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": githubSubjects(props),
+        },
+      }),
+    });
+    this.aiTaskRole.addToPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+        // Anthropic's models only, through an inference profile or directly.
+        resources: [
+          `arn:${partition}:bedrock:*:${account}:inference-profile/*anthropic.claude-*`,
+          `arn:${partition}:bedrock:*::foundation-model/anthropic.claude-*`,
+        ],
+      }),
+    );
+    this.aiTaskRole.addToPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["bedrock:ListInferenceProfiles", "bedrock:GetInferenceProfile"],
+        resources: ["*"],
+      }),
+    );
+    props.tasksFunction.grantInvoke(this.aiTaskRole);
   }
 }

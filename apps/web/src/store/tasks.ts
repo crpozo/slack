@@ -39,6 +39,8 @@ export interface TasksState {
   moveTask: (taskId: string, status: TaskStatus) => Promise<void>;
   editTask: (taskId: string, patch: UpdateTaskInput) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
+  /** Phase 65: asks the AI to do the task; its progress then arrives live. */
+  startTaskAi: (taskId: string) => Promise<void>;
   /**
    * A `board.*` push from the server. Applied idempotently (tasks are replaced
    * by id), so the actor's own echo and other members' changes converge.
@@ -263,6 +265,16 @@ export function createTasksStore(api: TasksApi = tasksApi) {
         } catch (err) {
           patchTask(taskId, before);
           set({ error: message(err, "Couldn't save the task.") });
+        }
+      },
+
+      async startTaskAi(taskId) {
+        const before = findTask(taskId);
+        if (!before || before.taskId.startsWith("pending_")) return;
+        try {
+          patchTask(taskId, await api.startTaskAi(taskId));
+        } catch (err) {
+          set({ error: message(err, "No se pudo pasar la tarea a la IA.") });
         }
       },
 

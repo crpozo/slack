@@ -151,6 +151,7 @@ describe("task manager API", () => {
       "POST /skills",
       "POST /skills/generate",
       "POST /skills/import-github",
+      "POST /tasks/{taskId}/ai",
       "POST /vault",
       "POST /vault/pin",
       "POST /vault/pin/verify",

@@ -26,6 +26,7 @@ import { LAMBDA_ARCHITECTURE, LAMBDA_BUNDLING, LAMBDA_MEMORY_MB, LAMBDA_RUNTIME 
 import {
   elevenLabsKeyParameterName,
   elevenLabsVoiceParameterName,
+  githubActionsTokenParameterName,
   insightsOwnersParameterName,
   githubTokenParameterName,
   openaiKeyParameterName,
@@ -54,6 +55,8 @@ export const TASKS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/boards/{id}/tasks/from-notes" },
   { method: HttpMethod.PUT, path: "/tasks/{taskId}" },
   { method: HttpMethod.DELETE, path: "/tasks/{taskId}" },
+  // Phase 65: an admin hands the task to the AI.
+  { method: HttpMethod.POST, path: "/tasks/{taskId}/ai" },
 ];
 
 /** Company calendar (Phase 19): events, vacation requests and the yearly allowance, its own Lambda. */
@@ -378,6 +381,9 @@ export class TasksApi extends Construct {
       CHANNELS_TABLE: data.channels.tableName,
       // A deleted board's files (Phase 32).
       ATTACHMENTS_BUCKET: props.attachments.bucketName,
+      // Phase 65: where the AI's workflow lives, and the token that starts it.
+      AI_TASK_REPOSITORY: String(this.node.tryGetContext("githubRepository") ?? "crpozo/slack"),
+      GITHUB_ACTIONS_TOKEN_PARAMETER: githubActionsTokenParameterName(stage),
     });
     // AI News (Phase 35b; several sources since Phase 41): reads public RSS and
     // Atom feeds over the internet and keeps the list in memory; deliberately
@@ -804,6 +810,7 @@ export class TasksApi extends Construct {
     // Push: each member's devices (Query), dropping expired ones (DeleteItem).
     data.pushSubscriptions.grant(this.handler, "dynamodb:Query", "dynamodb:DeleteItem");
     grantReadVapid(this.handler, stage);
+    grantReadParameter(this.handler, githubActionsTokenParameterName(stage));
     // Real-time pushes: list live connections, post to members', drop stale ones (410).
     data.connections.grant(this.handler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.handler);

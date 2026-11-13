@@ -80,6 +80,43 @@ export interface Board {
   createdAt: number;
 }
 
+/**
+ * Phase 65: a task handed to the AI. An admin presses "Hacer con IA"; a GitHub
+ * Actions run has Claude (on Amazon Bedrock) write the change in this app's
+ * repository, checks it (lint and tests), merges it and deploys it. The task
+ * moves by itself: To Do → In Progress while it works → Done when it's live.
+ */
+export const TASK_AI_PHASES = ["queued", "running", "deploying", "done", "failed"] as const;
+export type TaskAiPhase = (typeof TASK_AI_PHASES)[number];
+
+export interface TaskAi {
+  phase: TaskAiPhase;
+  /** Who asked for it, and when (epoch ms). */
+  requestedBy: string;
+  requestedAt: number;
+  /** The run on GitHub, once it started. */
+  runUrl?: string;
+  /** The commit it pushed. */
+  commit?: string;
+  /** What it did, in a few lines (or why it couldn't). */
+  summary?: string;
+  finishedAt?: number;
+}
+
+/** What the workflow reports back (it invokes the tasks Lambda directly, signed by its AWS role). */
+export interface TaskAiUpdate {
+  taskId: string;
+  phase: Exclude<TaskAiPhase, "queued">;
+  runUrl?: string;
+  commit?: string;
+  summary?: string;
+}
+
+export const TASK_AI_SUMMARY_MAX = 2_000;
+/** Whether the AI is working on it right now (it can't be asked twice). */
+export const taskAiBusy = (task: { ai?: TaskAi }) =>
+  task.ai?.phase === "queued" || task.ai?.phase === "running" || task.ai?.phase === "deploying";
+
 export interface Task {
   taskId: string;
   boardId: string;
@@ -105,6 +142,8 @@ export interface Task {
    * Done clears it.
    */
   isArchived: boolean;
+  /** Phase 65: handed to the AI (absent on every other task). */
+  ai?: TaskAi;
 }
 
 /** Done tasks are archived after a week. */

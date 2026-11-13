@@ -4,7 +4,9 @@ import {
   isTaskArchived,
   MAX_BOARD_NAME_LENGTH,
   type Board,
+  taskAiBusy,
   type Task,
+  type TaskAi,
   type TaskStatus,
 } from "@mindfultech/shared";
 import {
@@ -33,6 +35,7 @@ import {
   PencilIcon,
   PlusIcon,
   SettingsIcon,
+  SparklesIcon,
   TrashIcon,
   UserPlusIcon,
 } from "./icons";
@@ -344,6 +347,50 @@ function tagColor(name: string): string {
   return TAG_COLORS[hash % TAG_COLORS.length] ?? TAG_COLORS[0]!;
 }
 
+const AI_PHASE_LABEL: Record<TaskAi["phase"], string> = {
+  queued: "En cola para la IA…",
+  running: "Claude está trabajando…",
+  deploying: "Desplegando a producción…",
+  done: "Hecho por la IA y desplegado",
+  failed: "La IA no pudo completarla",
+};
+
+/** Phase 65: where the AI is with the task, its summary when it ends, and the run on GitHub. */
+function TaskAiStatus({ ai }: Readonly<{ ai: TaskAi }>) {
+  const busy = ai.phase === "queued" || ai.phase === "running" || ai.phase === "deploying";
+  const tone =
+    ai.phase === "failed"
+      ? "border-error/40 bg-error/10"
+      : ai.phase === "done"
+        ? "border-success/40 bg-success/10"
+        : "border-primary/40 bg-primary/10";
+  return (
+    <div
+      className={`mt-2 rounded-lg border px-2 py-1.5 text-xs ${tone}`}
+      role="status"
+      data-task-ai={ai.phase}
+    >
+      <p className="flex items-center gap-1.5 font-semibold text-ink">
+        <SparklesIcon className={busy ? "animate-pulse text-primary" : ""} aria-hidden="true" />
+        {AI_PHASE_LABEL[ai.phase]}
+      </p>
+      {!busy && ai.summary && (
+        <p className="mt-1 line-clamp-6 whitespace-pre-line text-ink-secondary">{ai.summary}</p>
+      )}
+      {ai.runUrl && (
+        <a
+          href={ai.runUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-1 inline-block text-primary hover:underline"
+        >
+          Ver la ejecución en GitHub
+        </a>
+      )}
+    </div>
+  );
+}
+
 function TaskCard({
   task,
   onDragStart,
@@ -357,6 +404,8 @@ function TaskCard({
   touch?: boolean;
 }>) {
   const deleteTask = useTasks((s) => s.deleteTask);
+  const startTaskAi = useTasks((s) => s.startTaskAi);
+  const admin = useChat((s) => s.me?.role === "admin");
   const nameOf = useNameOf();
   const pending = task.taskId.startsWith("pending_");
   const [dragging, setDragging] = useState(false);
@@ -408,6 +457,7 @@ function TaskCard({
         </p>
       )}
       <TaskImages text={task.description} attachments={task.attachments} compact max={3} />
+      {task.ai && <TaskAiStatus ai={task.ai} />}
       <div className="mt-2 flex items-center gap-1">
         {task.attachments.length > 0 && (
           <span
@@ -417,6 +467,26 @@ function TaskCard({
           >
             <PaperclipIcon /> {task.attachments.length}
           </span>
+        )}
+        {/* Phase 65: an admin hands it to the AI (not while it's working, nor once done). */}
+        {admin && !pending && task.status !== "DONE" && !taskAiBusy(task) && (
+          <button
+            type="button"
+            onClick={() => {
+              if (
+                window.confirm(
+                  `¿Pasar "${task.title}" a la IA?\n\nClaude escribirá el cambio en el código de la app y, si pasa los tests, se desplegará a producción sin revisión.`,
+                )
+              ) {
+                void startTaskAi(task.taskId);
+              }
+            }}
+            className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-1.5 py-0.5 text-[11px] font-semibold text-primary hover:bg-primary/10"
+            title="Claude escribe el cambio, lo prueba y lo despliega"
+            data-task-ai-start
+          >
+            <SparklesIcon aria-hidden="true" /> {task.ai ? "Reintentar con IA" : "Hacer con IA"}
+          </button>
         )}
         <span className="flex-1" />
         {task.assigneeId && (

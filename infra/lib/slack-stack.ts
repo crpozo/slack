@@ -139,6 +139,7 @@ export class SlackStack extends Stack {
         existingProviderArn:
           this.node.tryGetContext("githubOidcProviderArn") ?? process.env.GITHUB_OIDC_PROVIDER_ARN,
         channelsTable: data.channels,
+        tasksFunction: tasksApi.handler,
       });
       new CfnOutput(this, "GitHubDeployRoleArn", {
         value: deployRole.role.roleArn,

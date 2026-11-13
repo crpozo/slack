@@ -7,6 +7,22 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Tasks done by the AI:** on a board, an admin presses **Hacer con IA** on a task and Claude
+  (Claude Code on Amazon Bedrock, in a GitHub Actions run) writes the change in this app's
+  code, checks it and ships it. The card moves by itself and says where it is: _En cola_ →
+  **In Progress** (_Claude está trabajando…_, _Desplegando…_) → **Done** with what it did, or
+  back to **To Do** with the reason. A link opens the run on GitHub.
+  What keeps it safe: only admins, one run at a time, with a confirmation; Claude runs with
+  a role of its own (`slack-github-ai-task`) that can only call the model and report the
+  task's progress — no deploy rights, no data, no GitHub token — and with tools limited to
+  editing files and running the project's checks; nothing is pushed unless lint and every
+  test pass; a change to `.github/` is refused; the deploy itself is the usual Deploy
+  workflow. **There is no human review before production**: that was the choice.
+  To turn it on: (1) a fine-grained GitHub token for this repository with _Actions: read and
+  write_, stored with `aws ssm put-parameter --name /slack/prod/github-actions-token --type
+SecureString --value "…"`; (2) access in Amazon Bedrock to the model the run uses
+  (`us.anthropic.claude-opus-5-5` unless the repository variable `AI_TASK_MODEL` names
+  another inference profile). Until then the button says it isn't set up.
 - **Insights, for the owner:** a new section that reads how the team used the platform in the
   last 30 days and what to improve. **Analizar ahora** gathers the numbers and asks the AI
   for a summary, what is going well, risks, four to six concrete recommendations (why, how,

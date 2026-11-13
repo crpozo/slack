@@ -143,6 +143,9 @@ export const tasksApi = {
       (r) => r.task,
     ),
   deleteTask: (taskId: string) => request<void>("DELETE", `/tasks/${encodeURIComponent(taskId)}`),
+  /** Phase 65: hands the task to the AI (admins); it comes back marked as queued. */
+  startTaskAi: (taskId: string) =>
+    request<{ task: Task }>("POST", `/tasks/${encodeURIComponent(taskId)}/ai`).then((r) => r.task),
   /** An AI notes card's reviewed action items, all at once; 409 if the card was already sent. */
   createFromNotes: (boardId: string, input: TasksFromNotesInput) =>
     request<{ tasks: Task[]; notes: AiNotes }>(

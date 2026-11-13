@@ -13,7 +13,7 @@ import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import { DeleteObjectsCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
-import { handler } from "../src/handlers/tasks";
+import { applyTaskAiUpdate, handler, useAiTaskFetch } from "../src/handlers/tasks";
 import type { HttpEvent } from "../src/lib/http";
 import * as push from "../src/lib/push";
 import { ALICE, BOB, ddbMock, resetMocks, sentEvents } from "./helpers";
@@ -884,5 +884,127 @@ describe("POST /boards/{id}/tasks/from-notes", () => {
     ddbMock.on(GetCommand, { TableName: "slack-test-channels" }).resolves({});
     expect((await send()).status).toBe(404); // not in the conversation
     expect(ddbMock.commandCalls(TransactWriteCommand)).toHaveLength(0);
+  });
+});
+
+describe("a task done by the AI (Phase 65)", () => {
+  const ADMIN = { ...ALICE, groups: ["admins"] };
+  const updates = () => ddbMock.commandCalls(UpdateCommand).map((c) => c.args[0].input);
+  /** The task as the last update left it. */
+  const stored = (extra: Record<string, unknown>) => {
+    ddbMock.on(UpdateCommand).callsFake((input) => ({
+      Attributes: {
+        ...task,
+        ...extra,
+        ai: input.ExpressionAttributeValues[":ai"],
+        status: input.ExpressionAttributeValues[":status"],
+      },
+    }));
+  };
+  beforeEach(() => {
+    process.env.GITHUB_ACTIONS_TOKEN = "test-token";
+    process.env.AI_TASK_REPOSITORY = "acme/app";
+    stored({});
+  });
+
+  it("an admin hands it over: queued, and the workflow starts with the task's text", async () => {
+    const github = vi.fn(
+      async (_url: string, _init: RequestInit) => new Response(null, { status: 204 }),
+    );
+    useAiTaskFetch(github as never);
+    const { status, body } = await call("POST /tasks/{taskId}/ai", {
+      user: ADMIN,
+      params: { taskId: "t_1" },
+    });
+    expect(status).toBe(202);
+    expect(body.task.ai).toMatchObject({ phase: "queued", requestedBy: ALICE.userId });
+    expect(body.task.status).toBe("TODO");
+    const [url, init] = github.mock.calls[0]!;
+    expect(url).toBe(
+      "https://api.github.com/repos/acme/app/actions/workflows/ai-task.yml/dispatches",
+    );
+    expect((init.headers as Record<string, string>).authorization).toBe("Bearer test-token");
+    expect(JSON.parse(String(init.body))).toEqual({
+      ref: "main",
+      inputs: { task_id: "t_1", title: "Write docs", details: "" },
+    });
+    // The board sees it at once.
+    expect(sentEvents().some(([, e]) => e.type === "board.task_updated")).toBe(true);
+    useAiTaskFetch();
+  });
+
+  it("is for admins only, not twice at once, and says so when it isn't set up", async () => {
+    const github = vi.fn(async () => new Response(null, { status: 204 }));
+    useAiTaskFetch(github as never);
+    expect((await call("POST /tasks/{taskId}/ai", { params: { taskId: "t_1" } })).status).toBe(403);
+    ddbMock.on(GetCommand, { TableName: TASKS, Key: { taskId: "t_1" } }).resolves({
+      Item: { ...task, ai: { phase: "running", requestedBy: ALICE.userId, requestedAt: 1 } },
+    });
+    expect(
+      (await call("POST /tasks/{taskId}/ai", { user: ADMIN, params: { taskId: "t_1" } })).status,
+    ).toBe(409);
+    expect(github).not.toHaveBeenCalled();
+    useAiTaskFetch();
+  });
+
+  it("goes back to failed when GitHub can't be reached", async () => {
+    useAiTaskFetch((async () => new Response("no", { status: 401 })) as never);
+    const { status } = await call("POST /tasks/{taskId}/ai", {
+      user: ADMIN,
+      params: { taskId: "t_1" },
+    });
+    expect(status).toBe(502);
+    expect(updates().at(-1)?.ExpressionAttributeValues?.[":ai"]).toMatchObject({ phase: "failed" });
+    useAiTaskFetch();
+  });
+
+  it("moves by itself as the workflow reports: In Progress, then Done with what it did", async () => {
+    const asked = { phase: "queued", requestedBy: ALICE.userId, requestedAt: 1 };
+    ddbMock.on(GetCommand, { TableName: TASKS, Key: { taskId: "t_1" } }).resolves({
+      Item: { ...task, ai: asked },
+    });
+    await handler({
+      aiTask: {
+        taskId: "t_1",
+        phase: "running",
+        runUrl: "https://github.com/acme/app/actions/runs/1",
+      },
+    });
+    expect(updates().at(-1)?.ExpressionAttributeValues).toMatchObject({
+      ":status": "IN_PROGRESS",
+      ":ai": { phase: "running", runUrl: "https://github.com/acme/app/actions/runs/1" },
+    });
+    await applyTaskAiUpdate({
+      taskId: "t_1",
+      phase: "done",
+      commit: "abc123",
+      summary: " Listo. ",
+      runUrl: "javascript:alert(1)",
+    });
+    const done = updates().at(-1)!.ExpressionAttributeValues!;
+    expect(done[":status"]).toBe("DONE");
+    expect(done[":ai"]).toMatchObject({ phase: "done", commit: "abc123", summary: "Listo." });
+    expect(done[":ai"].runUrl).toBeUndefined(); // only a GitHub address is kept
+    expect(done[":ai"].finishedAt).toEqual(expect.any(Number));
+  });
+
+  it("a failure sends it back to To Do with the reason; other tasks can't be moved this way", async () => {
+    ddbMock.on(GetCommand, { TableName: TASKS, Key: { taskId: "t_1" } }).resolves({
+      Item: {
+        ...task,
+        status: "IN_PROGRESS",
+        ai: { phase: "running", requestedBy: ALICE.userId, requestedAt: 1 },
+      },
+    });
+    await applyTaskAiUpdate({ taskId: "t_1", phase: "failed", summary: "No pasó los tests." });
+    expect(updates().at(-1)?.ExpressionAttributeValues).toMatchObject({
+      ":status": "TODO",
+      ":ai": { phase: "failed", summary: "No pasó los tests." },
+    });
+    // A task nobody handed to the AI stays as it is.
+    ddbMock.resetHistory();
+    ddbMock.on(GetCommand, { TableName: TASKS, Key: { taskId: "t_1" } }).resolves({ Item: task });
+    await applyTaskAiUpdate({ taskId: "t_1", phase: "done" });
+    expect(updates()).toEqual([]);
   });
 });
