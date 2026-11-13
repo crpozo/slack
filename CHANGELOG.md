@@ -512,6 +512,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **AI News, more interesting and funnier to read:** the analysis now writes its headlines,
+  summaries, trends and deep dive like a sharp colleague telling the news over coffee: it
+  leads with what is surprising or at stake and uses wit where the news earns it, without
+  corporate filler or clickbait. Facts, names and numbers stay exactly as the stories give
+  them, and grave news is told straight. From the next analysis on.
 - **Calendar month, only its own days:** the greyed days of the months before and after are
   gone, and a month has as many weeks as it needs.
 - **AI Radar, less obvious and more specific:** the starter list drops what everybody already

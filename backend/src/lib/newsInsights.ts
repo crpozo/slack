@@ -71,10 +71,22 @@ export const INSIGHTS_INSTRUCTION =
   "then think about what is really new today, what connects the stories, and what a " +
   "small team building AI products should do about it. Be concrete and specific: name " +
   "companies, models, prices, dates and numbers from the stories; never generic advice.\n" +
+  "Voice, for everything a person reads (headlines, summaries, why it matters, trends, the " +
+  "deep dive, the watchlist): write like the sharpest, funniest colleague in the office " +
+  "telling the news over coffee, in natural Latin American Spanish. Lead with what is " +
+  "surprising, absurd or at stake, not with the press release. Use wit where the news earns " +
+  "it: irony, a vivid comparison, a dry aside, a play on words; one good line per item beats " +
+  'three forced ones. Never corporate filler ("en un movimiento estratégico", ' +
+  '"marca un hito"), never exclamation marks, emojis or clickbait that the story ' +
+  "doesn't deliver. The humour is in how it is told, never in the facts: every name, number " +
+  "and event stays exactly as the stories give it, and grave news (deaths, layoffs, abuse) " +
+  "is told straight, without jokes. The takeaways and their examples stay practical and " +
+  "clear: a light touch at most.\n" +
   `- stories: the ${NEWS_INSIGHTS_TOP_STORIES} stories that matter most today, most important ` +
-  "first. For each: `story`, its number in the list; `headline`, a clear headline in Spanish of " +
-  "at most 15 words, faithful to the original; `summary`, one or two sentences in Spanish (at " +
-  "most 40 words) on what happened; `whyItMatters`, one or two sentences in Spanish (at most " +
+  "first. For each: `story`, its number in the list; `headline`, a headline in Spanish of at " +
+  "most 15 words that makes someone want to read on (a hook, a contrast, the telling " +
+  "detail) while saying truthfully what happened; `summary`, one or two sentences in Spanish " +
+  "(at most 40 words) on what happened, told with some spark; `whyItMatters`, one or two sentences in Spanish (at most " +
   "45 words) on why it matters beyond the event: who it affects, what it changes, what it " +
   "signals. When two stories are equally important, prefer different publishers.\n" +
   "- deepDive: the single most important story, taken apart. `story`, its number; `context`, " +
