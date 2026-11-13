@@ -514,6 +514,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **Calls fill the chat:** a call now opens over the whole conversation area instead of its top
+  half, with larger video. The button at its top left brings the chat back below it, and the
+  choice is remembered on the device.
 - **AI News audio, funnier:** the audio update is now written as a late-night monologue about
   AI: a cold open with a punchline, each story as a small bit (the fact, then the joke or the
   comparison), spoken transitions, a callback and a sign-off, and the voice reads with more
