@@ -100,7 +100,9 @@ describe("a page's preview", () => {
   });
 
   it("is read once and remembered; a redirect to an inside address is refused", async () => {
-    const fetchImpl = vi.fn(async () => page(`<meta property="og:title" content="Título">`));
+    const fetchImpl = vi.fn(async (_url: URL, _init: RequestInit) =>
+      page(`<meta property="og:title" content="Título">`),
+    );
     const first = await linkPreview("https://example.com/a", fetchImpl as never, PUBLIC);
     expect(first).toMatchObject({ title: "Título", site: "example.com" });
     await linkPreview("https://example.com/a", fetchImpl as never, PUBLIC);
