@@ -108,6 +108,7 @@ describe("task manager API", () => {
       "GET /channels/{channelId}/media",
       "GET /channels/{channelId}/pins",
       "GET /channels/{channelId}/time",
+      "GET /link-preview",
       "GET /news",
       "GET /news/insights",
       "GET /notes",

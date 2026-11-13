@@ -1,7 +1,16 @@
-import { NEWS_CACHE_SECONDS } from "@mindfultech/shared";
+import { NEWS_CACHE_SECONDS, type LinkPreviewResponse } from "@mindfultech/shared";
 import { forbidden, HttpError, httpHandler, notFound, type HttpResult } from "../lib/http";
 import { errorFields, log } from "../lib/logger";
+import { linkPreview } from "../lib/linkPreview";
 import { getNews } from "../lib/news";
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "invalid";
+  }
+};
 
 /**
  * `GET /news` (Phase 35b; several sources since Phase 41): the latest AI
@@ -14,6 +23,24 @@ import { getNews } from "../lib/news";
  * minute per container) and is never cached by the browser.
  */
 export const handler = httpHandler(async (event, caller): Promise<HttpResult> => {
+  // Phase 63: a link's preview for a message (this Lambda already reads the web and
+  // holds no data permissions, so a hostile page has nothing to reach from here).
+  if (event.routeKey === "GET /link-preview") {
+    const url = event.queryStringParameters?.url ?? "";
+    if (!url) throw new HttpError(400, "url is required");
+    const preview = await linkPreview(url);
+    log.info("link preview", { host: hostOf(url), found: !!preview });
+    const body: LinkPreviewResponse = { preview };
+    return {
+      statusCode: 200,
+      headers: {
+        "content-type": "application/json",
+        // Per person (it's behind their sign-in); a page's preview rarely changes.
+        "cache-control": `private, max-age=${preview ? 86_400 : 600}`,
+      },
+      body: JSON.stringify(body),
+    };
+  }
   if (event.routeKey !== "GET /news") throw notFound(`No route for ${event.routeKey}`);
   if (caller.role === "guest") throw forbidden("Guests only have access to their boards");
   const now = Date.now();
