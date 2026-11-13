@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Members leaving and joining show in the channel:** removing someone from a private channel, or
+  adding people, now leaves a small centered line in the conversation, such as "@Luis was removed
+  from the channel by Ana". It's written together with the change, shows current names, and
+  doesn't count as unread or ping anyone.
 - **Team panel for admins (Settings → Team):** admins invite people by email as **Staff** or
   **Admin**. Cognito emails them a temporary password, and they show up in everyone's directory
   at once. The panel lists every account with its role and status (Invited, Active, Disabled),
