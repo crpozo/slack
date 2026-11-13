@@ -103,6 +103,8 @@ export const MESSAGE_TRANSCRIBE_ROUTES: Array<{ method: HttpMethod; path: string
  */
 export const NEWS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/news" },
+  // Phase 63: a shared link's preview, read by the same data-less Lambda.
+  { method: HttpMethod.GET, path: "/link-preview" },
 ];
 
 /**

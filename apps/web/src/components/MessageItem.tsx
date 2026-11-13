@@ -20,6 +20,8 @@ import { QUICK_REACTIONS } from "../lib/emoji";
 import type { MenuContext } from "../lib/contextMenu";
 import { useMessageGestures } from "../lib/gestures";
 import { renderMessageMarkdown, type MentionMarks } from "../lib/markdown";
+import { previewLinkIn } from "../lib/linkPreview";
+import { LinkPreviewCard } from "./LinkPreviewCard";
 import { handlesOf } from "../lib/mentions";
 import { youTubeVideosIn } from "../lib/youtube";
 import { selectName, useChat, useNameOf, type ChatMessage } from "../store";
@@ -567,6 +569,12 @@ export const MessageItem = memo(function MessageItem({
       message.isSecret || message.kind || message.deletedAt ? [] : youTubeVideosIn(message.text),
     [message.text, message.isSecret, message.kind, message.deletedAt],
   );
+  // Phase 63: the first other link shows its page's preview (never for secrets or cards).
+  const previewLink = useMemo(
+    () =>
+      message.isSecret || message.kind || message.deletedAt ? null : previewLinkIn(message.text),
+    [message.text, message.isSecret, message.kind, message.deletedAt],
+  );
   const time = formatTime(message.createdAt);
   // One string, not the whole directory: a refresh re-renders this row only if its name changed.
   const name = useChat((s) => selectName(s, message.userId, message.userEmail));
@@ -750,6 +758,7 @@ export const MessageItem = memo(function MessageItem({
           {videos.map((video) => (
             <YouTubePreview key={video.id} video={video} />
           ))}
+          {previewLink && <LinkPreviewCard url={previewLink} />}
 
           {/* On its way (Phase 39): its files from the local copies, as they go up. */}
           {message.status && outbox.files(message.clientId).length > 0 ? (
