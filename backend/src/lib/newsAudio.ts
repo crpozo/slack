@@ -171,13 +171,13 @@ export const ELEVENLABS_DEFAULT_VOICE = "g10k86KeEUyBqW9lcKYg";
 export const ELEVENLABS_MODEL = "eleven_multilingual_v2";
 const ELEVENLABS_TIMEOUT_MS = 60_000;
 /**
- * A newsreader's delivery rather than a flat read: less stability lets the
- * voice move, some style adds emphasis, and the speaker boost makes it fuller.
+ * A host's delivery rather than a flat read: low stability lets the voice
+ * move (it has jokes to land), style adds emphasis, the speaker boost makes it fuller.
  */
 export const ELEVENLABS_VOICE_SETTINGS = {
-  stability: 0.4,
+  stability: 0.32,
   similarity_boost: 0.8,
-  style: 0.35,
+  style: 0.5,
   use_speaker_boost: true,
   // Brisk, as a news update is read (1 is the voice's own pace; 1.2 the most).
   speed: 1.12,

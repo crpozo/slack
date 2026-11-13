@@ -512,6 +512,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **AI News audio, funnier:** the audio update is now written as a late-night monologue about
+  AI: a cold open with a punchline, each story as a small bit (the fact, then the joke or the
+  comparison), spoken transitions, a callback and a sign-off, and the voice reads with more
+  expression. Jokes come from the news itself; grave news is told straight. From the next
+  analysis on.
 - **AI News, more interesting and funnier to read:** the analysis now writes its headlines,
   summaries, trends and deep dive like a sharp colleague telling the news over coffee: it
   leads with what is surprising or at stake and uses wit where the news earns it, without
