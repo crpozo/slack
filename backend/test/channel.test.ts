@@ -319,9 +319,10 @@ describe("channel", () => {
     });
   });
 
-  it("dm with someone whose Cognito account was deleted: USER_NOT_FOUND, nothing created", async () => {
+  it("dm with someone whose Cognito account was deleted: USER_NOT_FOUND, nothing created, their profile goes", async () => {
     mockScans([general]);
     cognitoMock.on(ListUsersCommand).resolves({ Users: [] });
+    ddbMock.on(DeleteCommand).resolves({});
 
     const result = await handler(
       wsEvent("channel", { action: "channel", op: "dm", withUserId: BOB.userId, requestId: "r2" }),
@@ -332,6 +333,10 @@ describe("channel", () => {
       ["conn-alice", { type: "error", code: "USER_NOT_FOUND", requestId: "r2" }],
     ]);
     expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    // Cognito is the source of truth: the ghost profile is deleted at once.
+    expect(ddbMock.commandCalls(DeleteCommand).map((c) => c.args[0].input)).toEqual([
+      { TableName: "slack-test-users", Key: { userId: BOB.userId } },
+    ]);
   });
 
   it("dm still opens when Cognito can't answer (a hiccup must not break DMs)", async () => {

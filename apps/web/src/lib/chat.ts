@@ -88,8 +88,12 @@ type PresignRequest = DistributiveOmit<PresignAction, "action" | "requestId">;
 
 /** In front of the person (in the desktop app, per Tauri: see `activity.ts`). */
 const isFocused = isAppActive;
-/** The directory is re-read when the app comes back to the front after this long. */
-const DIRECTORY_REFRESH_MS = 10 * 60_000;
+/**
+ * The directory is re-read, silently, whenever the app comes back to the
+ * front (at most this often): an account deleted meanwhile leaves the DM
+ * list without anyone clicking on it. It is also read on every connect.
+ */
+export const DIRECTORY_REFRESH_MS = 30_000;
 /** Keystrokes send `typing` at most this often… */
 export const TYPING_INTERVAL_MS = 3000;
 /** …and the indicator stays this long after the last one (slightly more than the interval). */
@@ -475,8 +479,8 @@ class ChatController {
           return;
         }
         client.ping({ active });
-        // Back in front after a while (the desktop app runs for days): refresh
-        // names, so a display name changed elsewhere shows here too.
+        // Back in front: re-read the directory in the background (the DM list
+        // follows it), so names changed and accounts deleted elsewhere show here.
         if (active && Date.now() - this.usersFetchedAt > DIRECTORY_REFRESH_MS) {
           this.usersFetchedAt = Date.now();
           client.send("user", { op: "list" });
@@ -1074,7 +1078,8 @@ class ChatController {
       // Nothing more will arrive for it: no spinner may keep waiting.
       s.historyFailed(channelId);
       if (err instanceof DmUnavailableError) {
-        s.markUserUnavailable(userId);
+        // The server has just removed their profile: a fresh directory drops them.
+        this.refreshUsers();
         s.showToast(DM_UNAVAILABLE_TEXT, "info");
       } else {
         s.showToast(

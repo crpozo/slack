@@ -75,11 +75,13 @@ export interface ChatState {
   /** Presence: users with at least one live connection (`user.connected` / `user.disconnected`). */
   online: Record<string, true>;
   /**
-   * People a DM couldn't be opened with because their account is gone (the
-   * server said USER_NOT_FOUND): kept out of the DM list for this session.
-   * Their profile stays in `users`, so their old messages keep their name.
+   * The server's directory has arrived in this session (`user.list`). From
+   * then on it is the DM list's only source: someone it doesn't list (their
+   * account was deleted) is gone from the list, whatever the build's
+   * VITE_USERS or an old DM channel say. Re-read on connect and whenever the
+   * app comes back to the front.
    */
-  unavailableUsers: Record<string, true>;
+  usersLoaded: boolean;
   /** Per-channel pending reply (the composer's "Replying to…" banner). */
   replyTo: Record<string, ReplySnapshot>;
   /** Per-channel message being edited in the composer. */
@@ -128,8 +130,6 @@ export interface ChatState {
   /** `online` replaces the presence snapshot when given. */
   setUsers: (users: UserProfile[], online?: string[]) => void;
   setPresence: (userId: string, online: boolean) => void;
-  /** Leaves `userId` out of the DM list (their account no longer exists). */
-  markUserUnavailable: (userId: string) => void;
   /** Starts (or, with `null`, cancels) a reply in `channelId`. */
   setReplyTo: (channelId: string, reply: ReplySnapshot | null) => void;
   /** A channel or DM was deleted: forget it and everything cached for it. */
@@ -225,7 +225,7 @@ const initialState = {
   team: [],
   users: {},
   online: {},
-  unavailableUsers: {},
+  usersLoaded: false,
   replyTo: {},
   editing: {},
   reads: {},
@@ -441,13 +441,6 @@ export const useChat = create<ChatState>()((set, get) => ({
       return { threads: { ...s.threads, [parentSk]: s.threads[parentSk]!.map(flag) } };
     }),
 
-  markUserUnavailable: (userId) =>
-    set((s) =>
-      s.unavailableUsers[userId]
-        ? s
-        : { unavailableUsers: { ...s.unavailableUsers, [userId]: true } },
-    ),
-
   setUsers: (list, onlineIds) =>
     set((s) => {
       let users: Record<string, UserProfile> = {};
@@ -463,10 +456,10 @@ export const useChat = create<ChatState>()((set, get) => ({
       // The periodic refresh usually brings the same people: keep the object (and
       // everything derived from it, like every message's name) as it was.
       if (sameUsers(s.users, users)) users = s.users;
-      if (!onlineIds) return { users, directory };
+      if (!onlineIds) return { users, directory, usersLoaded: true };
       const online: Record<string, true> = {};
       for (const id of onlineIds) online[id] = true;
-      return { users, directory, online };
+      return { users, directory, online, usersLoaded: true };
     }),
 
   setPresence: (userId, isOnline) =>

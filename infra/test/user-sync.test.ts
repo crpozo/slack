@@ -2,6 +2,7 @@ import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
 import { SlackStack } from "../lib/slack-stack";
+import { RECONCILE_INPUT } from "../lib/user-sync";
 
 const synth = (context: Record<string, unknown> = {}) => {
   const app = new App({
@@ -63,6 +64,31 @@ describe("Cognito → users sync", () => {
     expect(cleanup).toContain("dynamodb:Scan");
     expect(cleanup).toContain("cognito-idp:ListUsers");
     expect(JSON.stringify(statementsOf(/channelFn/))).toContain("cognito-idp:ListUsers");
+  });
+
+  it("reconciles every 15 minutes with no CloudTrail needed: the same Lambda, told to reconcile", () => {
+    const [rule] = Object.values(
+      template.findResources("AWS::Events::Rule", {
+        Properties: { Name: "slack-dev-users-reconcile" },
+      }),
+    );
+    expect(rule?.Properties.ScheduleExpression).toBe("rate(15 minutes)");
+    const [target] = rule!.Properties.Targets as Array<{ Arn: unknown; Input: string }>;
+    expect(JSON.stringify(target!.Arn)).toMatch(/UserCleanupFn/);
+    expect(JSON.parse(target!.Input)).toEqual(RECONCILE_INPUT);
+    expect(RECONCILE_INPUT).toEqual({ action: "reconcile" });
+  });
+
+  it("lets the channel Lambda delete the profile of an account Cognito no longer has", () => {
+    const policies = Object.values(template.findResources("AWS::IAM::Policy"));
+    const channel = policies
+      .filter((p) => JSON.stringify(p.Properties.Roles).match(/channelFn/))
+      .flatMap(
+        (p) =>
+          p.Properties.PolicyDocument.Statement as Array<{ Action: unknown; Resource: unknown }>,
+      )
+      .filter((st) => JSON.stringify(st.Resource).includes("DataUsers"));
+    expect(JSON.stringify(channel)).toContain("dynamodb:DeleteItem");
   });
 
   it("creates a trail only when asked (-c cognitoTrail=true)", () => {

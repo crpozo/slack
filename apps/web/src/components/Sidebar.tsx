@@ -718,7 +718,7 @@ export function Sidebar({
     directory,
     users,
     online,
-    unavailable,
+    usersLoaded,
   } = useChat(
     useShallow((s) => ({
       me: s.me,
@@ -730,7 +730,7 @@ export function Sidebar({
       directory: s.directory,
       users: s.users,
       online: s.online,
-      unavailable: s.unavailableUsers,
+      usersLoaded: s.usersLoaded,
     })),
   );
   const unread = useChat(
@@ -777,13 +777,13 @@ export function Sidebar({
               directory,
               (id) => dmChannelId(me.userId, id),
               users,
-              unavailable,
+              usersLoaded,
             ),
             channels,
             pinned,
           )
         : [],
-    [team, channels, me, directory, users, unavailable, pinned],
+    [team, channels, me, directory, users, usersLoaded, pinned],
   );
 
   if (!me) return null;

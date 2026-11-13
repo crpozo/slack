@@ -1,28 +1,36 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { getDownloadUrl } from "../lib/upload";
 import { useChat } from "../store";
 import { downloadAttachment } from "../lib/download";
 import { CloseIcon, DownloadIcon, GlobeIcon } from "./icons";
 import { useModalDialog } from "./Modal";
+import { pdfRenderer, type PdfRenderer } from "../lib/pdf";
+
+/** pdf.js and its viewer: only downloaded the first time a phone opens a PDF. */
+const PdfPages = lazy(() => import("./PdfPages"));
 
 interface PdfViewerProps {
   /** S3 key of the attachment; a fresh download URL is fetched each time the viewer opens. */
   fileKey: string;
   name: string;
   onClose: () => void;
+  /** Which viewer to use; by default the device's best (`pdfRenderer`). */
+  renderer?: PdfRenderer;
 }
 
 /**
- * Reads a PDF without leaving the app: a large modal with the browser's own
- * PDF viewer in an iframe (paging, zoom and search come with it; nothing to
- * ship). The presigned URL serves the file inline with its stored type.
- * iOS Safari only shows the first page in a frame, so there's always "Open in
- * a new tab" and Download next to the name.
+ * Reads a PDF without leaving the app. Computers get the browser's own PDF
+ * viewer in an iframe (paging, zoom, search and print come with it). Phones
+ * and tablets get every page drawn on canvas with pdf.js (`PdfPages`): iOS
+ * WebKit shows only the first page of a PDF in a frame, or freezes, above
+ * all in the Home Screen app. New tab and Download are always next to the
+ * name. The presigned URL serves the file inline with its stored type.
  */
-export function PdfViewer({ fileKey, name, onClose }: Readonly<PdfViewerProps>) {
+export function PdfViewer({ fileKey, name, onClose, renderer: forced }: Readonly<PdfViewerProps>) {
   const dialog = useModalDialog(onClose);
   const notify = useChat((s) => s.showToast);
+  const [renderer] = useState<PdfRenderer>(() => forced ?? pdfRenderer());
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,10 +55,16 @@ export function PdfViewer({ fileKey, name, onClose }: Readonly<PdfViewerProps>) 
     <dialog
       ref={dialog}
       aria-label={name}
-      className="m-auto h-[92dvh] max-h-none w-[min(96vw,72rem)] max-w-none overflow-hidden rounded-2xl border border-line bg-surface-raised p-0 text-ink shadow-xl backdrop:bg-scrim/80"
+      data-renderer={renderer}
+      className={`m-auto max-h-none max-w-none overflow-hidden border-line bg-surface-raised p-0 text-ink shadow-xl backdrop:bg-scrim/80 ${
+        renderer === "canvas"
+          ? // Phones: the whole screen (dvh: the visible height, past Safari's bars).
+            "h-[100dvh] w-full sm:h-[92dvh] sm:w-[min(96vw,72rem)] sm:rounded-2xl sm:border"
+          : "h-[92dvh] w-[min(96vw,72rem)] rounded-2xl border"
+      }`}
     >
       <div className="flex h-full flex-col">
-        <header className="flex items-center gap-1 border-b border-line px-3 py-2">
+        <header className="flex items-center gap-1 border-b border-line px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
           <p className="mr-auto min-w-0 truncate text-sm font-medium" title={name}>
             {name}
           </p>
@@ -94,7 +108,21 @@ export function PdfViewer({ fileKey, name, onClose }: Readonly<PdfViewerProps>) 
           {!url && !error && (
             <div className="absolute inset-0 animate-pulse bg-surface-hover" aria-hidden="true" />
           )}
-          {url && (
+          {url && !error && renderer === "canvas" && (
+            <Suspense
+              fallback={
+                <div
+                  className="absolute inset-0 animate-pulse bg-surface-hover"
+                  aria-hidden="true"
+                />
+              }
+            >
+              <div className="absolute inset-0">
+                <PdfPages url={url} name={name} onError={setError} />
+              </div>
+            </Suspense>
+          )}
+          {url && renderer === "native" && (
             <iframe
               src={url}
               title={name}

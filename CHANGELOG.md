@@ -215,6 +215,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 - **The screen flickered while scrolling a PDF:** the viewer's blurred backdrop was redrawn on
   every scroll frame (worse with a call's video behind it). The backdrop is a plain dark one.
+- **PDFs on iPhone and iPad:** opening a PDF in the app on the Home Screen showed only its first
+  page, froze, or stayed blank (iOS can't show a PDF inside the app's viewer). Phones and tablets
+  now draw every page themselves: scroll through the whole document, with a page counter, ‹ ›
+  page buttons and zoom. Computers keep the browser's own PDF viewer. New tab and Download are
+  still next to the name.
+- **No more "ghost" people in the DM list:** someone whose account is deleted in Cognito leaves
+  everyone's DM list on its own, without anyone clicking on them. The server reconciles its user
+  directory against Cognito every 15 minutes (as well as on the deletion event, where CloudTrail
+  delivers it), and the app re-reads that directory in the background whenever it comes back to
+  the front and on every connect, trusting only it once it has arrived.
 - **Pasting a table ran its cells together:** a table copied from a chat answer, a doc or a web
   page arrived as one line ("InstituciónSitioHospital Metropolitanohttps://…"). It is now
   pasted as a markdown table, and the message shows it as a real table with its columns and

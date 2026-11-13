@@ -58,13 +58,20 @@ async function profileIds(): Promise<string[]> {
 
 /**
  * Deletes every `users` row with no Cognito account, and returns their ids.
- * The fallback for an event that names no `sub`. Refuses to act on an empty
- * pool listing (a wrong pool id would otherwise wipe the directory).
+ * Run every 15 minutes (the safety net that needs no CloudTrail) and for an
+ * event that names no `sub`. Refuses to act on an empty pool listing, or
+ * when not one profile has an account (both mean a wrong pool id, which
+ * would otherwise wipe the directory).
  */
 export async function reconcileOrphans(): Promise<string[]> {
   const [ids, subs] = await Promise.all([profileIds(), allAccountSubs()]);
   if (subs.size === 0) throw new Error("Cognito listed no accounts: refusing to delete profiles");
   const orphans = ids.filter((id) => !subs.has(id));
+  if (ids.length > 1 && orphans.length === ids.length) {
+    throw new Error(
+      `None of the ${ids.length} profiles has an account in this pool: refusing to delete them`,
+    );
+  }
   await Promise.all(orphans.map((id) => deleteUserRow(id)));
   return orphans;
 }
