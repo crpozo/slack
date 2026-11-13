@@ -213,6 +213,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **The screen flickered while scrolling a PDF:** the viewer's blurred backdrop was redrawn on
+  every scroll frame (worse with a call's video behind it). The backdrop is a plain dark one.
 - **Pasting a table ran its cells together:** a table copied from a chat answer, a doc or a web
   page arrived as one line ("InstituciónSitioHospital Metropolitanohttps://…"). It is now
   pasted as a markdown table, and the message shows it as a real table with its columns and
