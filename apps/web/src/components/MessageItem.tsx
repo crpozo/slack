@@ -3,6 +3,7 @@ import {
   canPinMessage,
   imageAtOf,
   isDmChannel,
+  previewLinkOf,
   readBy,
   replyPreview,
   SECRET_PREVIEW,
@@ -21,7 +22,7 @@ import type { MenuContext } from "../lib/contextMenu";
 import { useMessageGestures } from "../lib/gestures";
 import { renderMessageMarkdown, type MentionMarks } from "../lib/markdown";
 import { handlesOf } from "../lib/mentions";
-import { youTubeVideosIn } from "../lib/youtube";
+import { youTubeVideoOf, youTubeVideosIn } from "../lib/youtube";
 import { selectName, useChat, useNameOf, type ChatMessage } from "../store";
 import { Attachment } from "./Attachment";
 import { VoiceTranscript } from "./VoiceTranscript";
@@ -50,6 +51,7 @@ import {
 } from "./icons";
 import { ReactionPicker, Reactions } from "./Reactions";
 import { YouTubePreview } from "./YouTubePreview";
+import { LinkPreviewCard } from "./LinkPreviewCard";
 
 /**
  * Phase 56: the handles that mention someone in the directory, and yours, for
@@ -567,6 +569,14 @@ export const MessageItem = memo(function MessageItem({
       message.isSecret || message.kind || message.deletedAt ? [] : youTubeVideosIn(message.text),
     [message.text, message.isSecret, message.kind, message.deletedAt],
   );
+  // Phase 64: a card for the first other link (YouTube ones have their own player).
+  const previewUrl = useMemo(
+    () =>
+      message.status || message.isSecret || message.kind || message.deletedAt
+        ? null
+        : previewLinkOf(message.text, (url) => youTubeVideoOf(url) !== null),
+    [message.text, message.status, message.isSecret, message.kind, message.deletedAt],
+  );
   const time = formatTime(message.createdAt);
   // One string, not the whole directory: a refresh re-renders this row only if its name changed.
   const name = useChat((s) => selectName(s, message.userId, message.userEmail));
@@ -750,6 +760,7 @@ export const MessageItem = memo(function MessageItem({
           {videos.map((video) => (
             <YouTubePreview key={video.id} video={video} />
           ))}
+          {previewUrl && <LinkPreviewCard url={previewUrl} />}
 
           {/* On its way (Phase 39): its files from the local copies, as they go up. */}
           {message.status && outbox.files(message.clientId).length > 0 ? (

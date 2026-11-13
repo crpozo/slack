@@ -68,6 +68,8 @@ export class Data extends Construct {
   readonly skills: Table;
   /** Phase 56: AI Tech Radar blips and proposals. */
   readonly techRadar: Table;
+  /** Phase 64: link preview cards by URL hash, expiring after a day (an hour when empty). */
+  readonly linkPreviews: Table;
   /**
    * Vault (Phase 45): the team's passwords, by `secretId`. Passwords are
    * encrypted with `vaultKey` before they're written (`encryptedPassword`).
@@ -257,6 +259,14 @@ export class Data extends Construct {
       tableName: `slack-${props.stage}-tech-radar`,
       partitionKey: { name: "pk", type: AttributeType.STRING },
       sortKey: { name: "id", type: AttributeType.STRING },
+    });
+
+    // Phase 64: link previews, so a link is fetched once a day, not by every viewer.
+    this.linkPreviews = new Table(this, "LinkPreviews", {
+      ...common,
+      tableName: `slack-${props.stage}-link-previews`,
+      partitionKey: { name: "urlKey", type: AttributeType.STRING },
+      timeToLiveAttribute: "expiresAt",
     });
 
     this.skills = new Table(this, "Skills", {

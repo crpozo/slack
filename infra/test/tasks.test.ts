@@ -119,6 +119,7 @@ describe("task manager API", () => {
       "GET /skills",
       "GET /skills/{id}",
       "GET /skills/{id}/download",
+      "GET /utils/link-preview",
       "GET /vault",
       "GET /vault/channels/{channelId}",
       "GET /vault/pin",

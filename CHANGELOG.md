@@ -7,6 +7,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Link previews:** a message with a link shows a card under it with the page's image, title,
+  description and site, in the glass style. Click it to open the page. YouTube links keep their
+  own player. Each link is read once a day by the server, which only ever reaches public sites.
 - **Members leaving and joining show in the channel:** removing someone from a private channel, or
   adding people, now leaves a small centered line in the conversation, such as "@Luis was removed
   from the channel by Ana". It's written together with the change, shows current names, and

@@ -183,6 +183,11 @@ export const ADMIN_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.PUT, path: "/admin/users/{userId}/role" },
 ];
 
+/** Phase 64: link preview cards (the server fetches the page: no CORS in the browser). */
+export const LINK_PREVIEW_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/utils/link-preview" },
+];
+
 /** AI Tech Radar (Phase 56): read by the team, changed by admins and the scanner. */
 export const RADAR_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/radar" },
@@ -309,6 +314,8 @@ export class TasksApi extends Construct {
   readonly vaultHandler: NodejsFunction;
   /** Phase 62: the team panel (admins invite staff and admins, change roles). */
   readonly adminUsersHandler: NodejsFunction;
+  /** Phase 64: link previews (fetches public pages only; see lib/linkPreview). */
+  readonly linkPreviewHandler: NodejsFunction;
   /** Phase 56: the AI Tech Radar's endpoints, and the daily scan of the news for updates. */
   readonly radarHandler: NodejsFunction;
   readonly radarScanWorker: NodejsFunction;
@@ -457,6 +464,13 @@ export class TasksApi extends Construct {
       USERS_TABLE: data.users.tableName,
       USER_POOL_ID: auth.userPool.userPoolId,
     });
+    // 5 s for the page (redirects included), plus the cache read and write.
+    this.linkPreviewHandler = lambda(
+      "LinkPreviewFn",
+      "link-preview",
+      { LINK_PREVIEWS_TABLE: data.linkPreviews.tableName },
+      Duration.seconds(10),
+    );
     this.radarHandler = lambda("RadarFn", "radar", {
       TECH_RADAR_TABLE: data.techRadar.tableName,
       RADAR_WORKER_FUNCTION: this.radarScanWorker.functionName,
@@ -714,6 +728,13 @@ export class TasksApi extends Construct {
     for (const { method, path } of ADMIN_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: adminIntegration });
     }
+    const linkPreviewIntegration = new HttpLambdaIntegration(
+      "LinkPreviewIntegration",
+      this.linkPreviewHandler,
+    );
+    for (const { method, path } of LINK_PREVIEW_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: linkPreviewIntegration });
+    }
     const radarIntegration = new HttpLambdaIntegration("RadarIntegration", this.radarHandler);
     for (const { method, path } of RADAR_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: radarIntegration });
@@ -935,6 +956,8 @@ export class TasksApi extends Construct {
     this.newsInsightsWorker.grantInvoke(this.newsInsightsHandler);
     // Phase 56, radar: the endpoint owns the table; the worker adds blips and
     // proposals (never deletes a blip) and asks the model on Bedrock.
+    // Phase 64, link previews: the cache only (GetItem, PutItem). Nothing else of ours.
+    data.linkPreviews.grant(this.linkPreviewHandler, "dynamodb:GetItem", "dynamodb:PutItem");
     // Phase 62, the team panel: names and new profiles in `users` (Scan, PutItem,
     // UpdateItem); in Cognito, list accounts and groups, create staff/admin
     // accounts (deleting one whose group couldn't be set) and move people in or
