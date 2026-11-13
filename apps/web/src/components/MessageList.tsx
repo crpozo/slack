@@ -15,6 +15,7 @@ import { useChat, type ChatMessage } from "../store";
 import { isGroupedWith } from "../store/messages";
 import { ArrowDownIcon } from "./icons";
 import { MessageItem } from "./MessageItem";
+import { SystemNote } from "./SystemNote";
 
 const EMPTY: ChatMessage[] = [];
 const BOTTOM_THRESHOLD_PX = 80;
@@ -302,13 +303,17 @@ export function MessageList({
                       <div className="h-px flex-1 bg-line" />
                     </div>
                   )}
-                  <MessageItem
-                    message={m}
-                    grouped={!newDay && isGroupedWith(prev, m)}
-                    mine={m.userId === myUserId}
-                    last={row.index === messages.length - 1}
-                    onOpenThread={onOpenThread}
-                  />
+                  {m.kind === "system" ? (
+                    <SystemNote message={m} />
+                  ) : (
+                    <MessageItem
+                      message={m}
+                      grouped={!newDay && isGroupedWith(prev, m)}
+                      mine={m.userId === myUserId}
+                      last={row.index === messages.length - 1}
+                      onOpenThread={onOpenThread}
+                    />
+                  )}
                 </div>
               );
             })}

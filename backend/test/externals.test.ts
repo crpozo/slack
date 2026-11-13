@@ -5,8 +5,12 @@ import {
   CognitoIdentityProviderClient,
   UserNotFoundException,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { QueryCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  QueryCommand,
+  ScanCommand,
+  TransactWriteCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { dmChannelId, type ChannelListEvent } from "@mindfultech/shared";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -153,6 +157,15 @@ describe("what an external may do", () => {
   });
 });
 
+/** Phase 63: member changes are a transaction: the list, then the system line. */
+const memberWrites = () =>
+  ddbMock.commandCalls(TransactWriteCommand).map((c) => c.args[0].input.TransactItems!);
+const cancelled = () =>
+  Object.assign(new Error("cancelled"), {
+    name: "TransactionCanceledException",
+    CancellationReasons: [{ Code: "ConditionalCheckFailed" }],
+  });
+
 describe("removing someone from a private channel", () => {
   const remove = (userId: string, user: object = ALICE) =>
     channel(
@@ -169,12 +182,29 @@ describe("removing someone from a private channel", () => {
       .on(ScanCommand, { TableName: "slack-test-channels" })
       .resolves({ Items: [GENERAL, { ...CLIENT, members: [ALICE.userId, BOB.userId] }] });
     await remove(GUEST.userId);
-    const update = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
-    expect(update?.ExpressionAttributeValues?.[":members"]).toEqual([ALICE.userId, BOB.userId]);
-    expect(update?.ConditionExpression).toBe("#type = :private AND members = :before");
+    const [update, note] = memberWrites()[0]!;
+    expect(update?.Update?.ExpressionAttributeValues?.[":members"]).toEqual([
+      ALICE.userId,
+      BOB.userId,
+    ]);
+    expect(update?.Update?.ConditionExpression).toBe("#type = :private AND members = :before");
+    // Phase 63: the line saying so, in the same transaction.
+    expect(note?.Put).toMatchObject({
+      TableName: "slack-test-messages",
+      ConditionExpression: "attribute_not_exists(sk)",
+      Item: {
+        channelId: "ch_client",
+        kind: "system",
+        userId: ALICE.userId,
+        system: { event: "member_removed", userIds: [GUEST.userId], by: ALICE.userId },
+        text: expect.stringMatching(/was removed from the channel by/),
+      },
+    });
     const lists = toGuest() as Array<[string, ChannelListEvent]>;
     expect(lists).toHaveLength(1);
     expect(lists[0]?.[1].channels).toEqual([]);
+    // The external removed hears nothing more of the channel, its line included.
+    expect(toGuest().some(([, e]) => e.type === "message.new")).toBe(false);
   });
 
   it("an admin in it may too; another member, or anyone removing the creator, may not", async () => {
@@ -183,18 +213,15 @@ describe("removing someone from a private channel", () => {
     expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
     await remove(ALICE.userId, { ...BOB, role: "admin" });
     expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
-    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+    expect(memberWrites()).toHaveLength(0);
     await remove(GUEST.userId, { ...BOB, role: "admin" });
-    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
+    expect(memberWrites()).toHaveLength(1);
   });
 
   it("reads the list again when another change landed first", async () => {
-    ddbMock
-      .on(UpdateCommand)
-      .rejectsOnce(new ConditionalCheckFailedException({ message: "changed", $metadata: {} }))
-      .resolves({});
+    ddbMock.on(TransactWriteCommand).rejectsOnce(cancelled()).resolves({});
     await remove(GUEST.userId);
-    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(2);
+    expect(memberWrites()).toHaveLength(2);
     expect(sentEvents().some(([, e]) => e.type === "error")).toBe(false);
   });
 });
@@ -262,10 +289,16 @@ describe("inviting an external by email", () => {
     expect(cognitoMock.commandCalls(AdminAddUserToGroupCommand)[0]?.args[0].input.GroupName).toBe(
       "guests",
     );
-    const add = ddbMock.commandCalls(UpdateCommand, { TableName: "slack-test-channels" })[0]
-      ?.args[0].input;
-    expect(add?.UpdateExpression).toBe("SET members = list_append(members, :new)");
-    expect(add?.ExpressionAttributeValues?.[":new"]).toEqual([GUEST.userId]);
+    const [add, note] = memberWrites()[0]!;
+    expect(add?.Update?.UpdateExpression).toBe("SET members = list_append(members, :new)");
+    expect(add?.Update?.ExpressionAttributeValues?.[":new"]).toEqual([GUEST.userId]);
+    // Phase 63: "@client was added to the channel by …", in the same transaction.
+    expect(note?.Put?.Item).toMatchObject({
+      kind: "system",
+      system: { event: "members_added", userIds: [GUEST.userId], by: ALICE.userId },
+    });
+    // The channel (the external included) sees the line.
+    expect(toGuest().some(([, e]) => e.type === "message.new")).toBe(true);
     // The new profile (so the team sees "External"): never sent to a guest.
     const profiles = sentEvents().filter(([, e]) => e.type === "user.updated");
     expect(profiles.map(([id]) => id).sort()).toEqual(["conn-alice", "conn-bob"]);
