@@ -41,6 +41,8 @@ export interface NewsDashboardProps {
   /** "Para seguir de cerca" (Phase 44); left out while empty. */
   watchlist?: NewsWatchItem[];
   /** Every other live story, at the end. */
+  /** When the analysis shown was written (epoch ms): its time goes next to the date. */
+  updatedAt?: number;
   /** Phase 62: every source and whether it answered. */
   sources?: NewsSourceStatus[];
   moreStories?: NewsStory[];
@@ -85,6 +87,7 @@ export function NewsDashboard({
   watchlist = [],
   moreStories = [],
   sources = [],
+  updatedAt,
   now,
   refreshing,
   onRefresh,
@@ -136,6 +139,14 @@ export function NewsDashboard({
             </div>
             <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-secondary">
               <span data-news-date>{dateLabel}</span>
+              {updatedAt ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <time dateTime={new Date(updatedAt).toISOString()} data-news-updated>
+                    Actualizado {updatedTime(updatedAt)}
+                  </time>
+                </>
+              ) : null}
               <span aria-hidden="true">·</span>
               <span>
                 Resumido por IA a partir de{" "}
@@ -659,6 +670,10 @@ function SectionTabs({
     </nav>
   );
 }
+
+const updatedFmt = new Intl.DateTimeFormat("es", { hour: "numeric", minute: "2-digit" });
+/** "6:02" (the reader's own clock). */
+const updatedTime = (at: number) => updatedFmt.format(at);
 
 /**
  * Phase 62: every publisher AI News reads, whether its feed answered on the
