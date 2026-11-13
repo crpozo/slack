@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Team panel for admins (Settings → Team):** admins invite people by email as **Staff** or
+  **Admin**. Cognito emails them a temporary password, and they show up in everyone's directory
+  at once. The panel lists every account with its role and status (Invited, Active, Disabled),
+  and moves people between Staff and Admin. Guests still come from channel invites.
 - **Link previews:** a message with a link shows its page under the text, as chat apps do: the
   picture, the title, a few lines of the description and the site; a click opens it. The first
   https link of the message is previewed (a YouTube video keeps its own player; secrets and

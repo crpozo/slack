@@ -1,6 +1,7 @@
 import { MAX_DISPLAY_NAME_LENGTH } from "@mindfultech/shared";
 import { isStandalone } from "../lib/install";
 import { InstallGuideModal } from "./InstallGuide";
+import { AdminPanel } from "./AdminPanel";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { chat } from "../lib/chat";
 import {
@@ -335,6 +336,8 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
   const [error, setError] = useState<string | null>(null);
   // Phase 56: how to keep it as an app (not offered once it is one).
   const [installOpen, setInstallOpen] = useState(false);
+  // Phase 62: the team panel, for admins.
+  const [teamOpen, setTeamOpen] = useState(false);
   const installed = isStandalone() || isDesktopApp();
 
   const trimmed = name.trim();
@@ -408,6 +411,27 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
           )}
         </section>
 
+        {me.role === "admin" && (
+          <section className="space-y-2" data-admin-section>
+            <h3 className="text-sm font-semibold text-ink">Admin</h3>
+            <button
+              type="button"
+              onClick={() => setTeamOpen(true)}
+              className="flex w-full items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5 text-left hover:bg-surface-hover"
+            >
+              <span>
+                <span className="block text-sm font-medium text-ink">Team</span>
+                <span className="block text-xs text-ink-secondary">
+                  Invite people as Staff or Admin, and change their roles.
+                </span>
+              </span>
+              <span className="shrink-0 text-lg text-ink-secondary" aria-hidden="true">
+                ›
+              </span>
+            </button>
+          </section>
+        )}
+
         {!installed && (
           <section className="space-y-2">
             <h3 className="text-sm font-semibold text-ink">App</h3>
@@ -442,6 +466,7 @@ export function SettingsModal({ onClose }: Readonly<{ onClose: () => void }>) {
       </form>
       <PasswordSettings />
       {installOpen && <InstallGuideModal onClose={() => setInstallOpen(false)} />}
+      {teamOpen && <AdminPanel onClose={() => setTeamOpen(false)} />}
     </Modal>
   );
 }
