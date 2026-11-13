@@ -143,6 +143,7 @@ export function NewsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => voi
                 watchlist={insights?.watchlist ?? []}
                 moreStories={more}
                 sources={data?.sources}
+                updatedAt={insights?.generatedAt}
                 now={now}
                 refreshing={status === "loading" || insightsState.generating}
                 headerActions={

@@ -11,6 +11,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   **Admin**. Cognito emails them a temporary password, and they show up in everyone's directory
   at once. The panel lists every account with its role and status (Invited, Active, Disabled),
   and moves people between Staff and Admin. Guests still come from channel invites.
+- **AI News, when it was updated:** next to the date, the time the analysis on screen was
+  written ("Actualizado 6:02").
 - **AI Radar, a use case for each technology:** a blip's details now say how MindfulTech could
   put it to work, for itself or a client ("a phone line that books appointments for a clinic",
   "an MCP server for a client's ERP"). Admins edit it like any other fact of the blip (the
@@ -217,6 +219,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **The screen flickered while scrolling a PDF:** the viewer's blurred backdrop was redrawn on
+  every scroll frame (worse with a call's video behind it). The backdrop is a plain dark one.
 - **PDFs on iPhone and iPad:** opening a PDF in the app on the Home Screen showed only its first
   page, froze, or stayed blank (iOS can't show a PDF inside the app's viewer). Phones and tablets
   now draw every page themselves: scroll through the whole document, with a page counter, ‹ ›
@@ -514,6 +518,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **Calls fill the chat:** a call now opens over the whole conversation area instead of its top
+  half, with larger video. The button at its top left brings the chat back below it, and the
+  choice is remembered on the device.
+- **AI News audio, funnier:** the audio update is now written as a late-night monologue about
+  AI: a cold open with a punchline, each story as a small bit (the fact, then the joke or the
+  comparison), spoken transitions, a callback and a sign-off, and the voice reads with more
+  expression. Jokes come from the news itself; grave news is told straight. From the next
+  analysis on.
+- **AI News, more interesting and funnier to read:** the analysis now writes its headlines,
+  summaries, trends and deep dive like a sharp colleague telling the news over coffee: it
+  leads with what is surprising or at stake and uses wit where the news earns it, without
+  corporate filler or clickbait. Facts, names and numbers stay exactly as the stories give
+  them, and grave news is told straight. From the next analysis on.
 - **Calendar month, only its own days:** the greyed days of the months before and after are
   gone, and a month has as many weeks as it needs.
 - **AI Radar, less obvious and more specific:** the starter list drops what everybody already

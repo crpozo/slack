@@ -50,11 +50,13 @@ export function PdfViewer({ fileKey, name, onClose, renderer: forced }: Readonly
     "flex h-9 items-center gap-1.5 rounded-md px-2 text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40";
 
   return createPortal(
+    // A plain dark backdrop, no blur: a blurred backdrop is redrawn on every frame the
+    // PDF's own viewer scrolls (more so over a live call), and the screen flickers.
     <dialog
       ref={dialog}
       aria-label={name}
       data-renderer={renderer}
-      className={`m-auto max-h-none max-w-none overflow-hidden border-line bg-surface-raised p-0 text-ink shadow-xl backdrop:bg-scrim/60 backdrop:backdrop-blur-sm ${
+      className={`m-auto max-h-none max-w-none overflow-hidden border-line bg-surface-raised p-0 text-ink shadow-xl backdrop:bg-scrim/80 ${
         renderer === "canvas"
           ? // Phones: the whole screen (dvh: the visible height, past Safari's bars).
             "h-[100dvh] w-full sm:h-[92dvh] sm:w-[min(96vw,72rem)] sm:rounded-2xl sm:border"

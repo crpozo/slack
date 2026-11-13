@@ -163,12 +163,33 @@ function DocumentPipCall({ call }: Readonly<{ call: CallView }>) {
   );
 }
 
+const CALL_LAYOUT_KEY = "slack.call.expanded";
+/** A call fills the chat column unless this device last chose the split view. */
+function savedCallExpanded(): boolean {
+  try {
+    return localStorage.getItem(CALL_LAYOUT_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 /**
- * Call view size in the chat column: `split` (chat visible below) or expanded to
- * the whole column (ChannelView hides the messages and composer meanwhile).
+ * Call view size in the chat column: expanded to the whole column (ChannelView
+ * hides the messages and composer meanwhile), which is how a call starts, or
+ * `split` (chat visible below). The choice is remembered on the device.
  */
 export const useCallLayout = create<{ expanded: boolean; setExpanded: (v: boolean) => void }>(
-  (set) => ({ expanded: false, setExpanded: (expanded) => set({ expanded }) }),
+  (set) => ({
+    expanded: savedCallExpanded(),
+    setExpanded: (expanded) => {
+      try {
+        localStorage.setItem(CALL_LAYOUT_KEY, expanded ? "1" : "0");
+      } catch {
+        // Not remembered: it still applies to this call.
+      }
+      set({ expanded });
+    },
+  }),
 );
 
 /** Whether the call view fills the chat column of `channelId` right now. */
@@ -623,8 +644,6 @@ function ActiveCall({ call }: Readonly<{ call: CallView }>) {
   const expanded = useCallLayout((s) => s.expanded);
   const setExpanded = useCallLayout((s) => s.setExpanded);
   const poppedOut = usePoppedOut();
-  // Every call starts in the split view; leaving it (hang up, other channel) resets it.
-  useEffect(() => () => setExpanded(false), [setExpanded]);
 
   return (
     <section

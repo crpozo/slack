@@ -71,10 +71,22 @@ export const INSIGHTS_INSTRUCTION =
   "then think about what is really new today, what connects the stories, and what a " +
   "small team building AI products should do about it. Be concrete and specific: name " +
   "companies, models, prices, dates and numbers from the stories; never generic advice.\n" +
+  "Voice, for everything a person reads (headlines, summaries, why it matters, trends, the " +
+  "deep dive, the watchlist): write like the sharpest, funniest colleague in the office " +
+  "telling the news over coffee, in natural Latin American Spanish. Lead with what is " +
+  "surprising, absurd or at stake, not with the press release. Use wit where the news earns " +
+  "it: irony, a vivid comparison, a dry aside, a play on words; one good line per item beats " +
+  'three forced ones. Never corporate filler ("en un movimiento estratégico", ' +
+  '"marca un hito"), never exclamation marks, emojis or clickbait that the story ' +
+  "doesn't deliver. The humour is in how it is told, never in the facts: every name, number " +
+  "and event stays exactly as the stories give it, and grave news (deaths, layoffs, abuse) " +
+  "is told straight, without jokes. The takeaways and their examples stay practical and " +
+  "clear: a light touch at most.\n" +
   `- stories: the ${NEWS_INSIGHTS_TOP_STORIES} stories that matter most today, most important ` +
-  "first. For each: `story`, its number in the list; `headline`, a clear headline in Spanish of " +
-  "at most 15 words, faithful to the original; `summary`, one or two sentences in Spanish (at " +
-  "most 40 words) on what happened; `whyItMatters`, one or two sentences in Spanish (at most " +
+  "first. For each: `story`, its number in the list; `headline`, a headline in Spanish of at " +
+  "most 15 words that makes someone want to read on (a hook, a contrast, the telling " +
+  "detail) while saying truthfully what happened; `summary`, one or two sentences in Spanish " +
+  "(at most 40 words) on what happened, told with some spark; `whyItMatters`, one or two sentences in Spanish (at most " +
   "45 words) on why it matters beyond the event: who it affects, what it changes, what it " +
   "signals. When two stories are equally important, prefer different publishers.\n" +
   "- deepDive: the single most important story, taken apart. `story`, its number; `context`, " +
@@ -111,19 +123,28 @@ export const INSIGHTS_INSTRUCTION =
   "`stories`, the numbers of the stories that say so.\n" +
   "- audioScript: the script of today's audio update, read aloud by a voice in about a " +
   `minute and a half: ${NEWS_AUDIO_SCRIPT_WORDS} words in ${NEWS_INSIGHTS_LANGUAGE}, written to be ` +
-  "heard, not read. You are the host of a short, sharp morning tech show that the team " +
-  "actually enjoys: conversational Latin American Spanish, quick, witty, with personality — " +
-  "a dry joke or an ironic aside where the news earns it, a rhetorical question, a vivid " +
-  "comparison — never cheesy, never forced, never at the expense of the facts. It starts " +
-  'exactly with "Update de noticias." and then a one-sentence hook on the day\'s biggest ' +
-  "story (a new Claude model first, when there is one). Then the top stories, each in one " +
-  "or two short sentences: what happened and why anyone should care, with natural spoken " +
-  "transitions between them instead of a list. Then say what it means for MindfulTech and " +
-  "what to do: the two or three most useful takeaways as plain advice a colleague would " +
-  "give. Close with one short line that lands. Short sentences, one idea each. Plain text " +
-  "only, paragraphs separated by a blank line: no markdown, no lists, no emojis, no URLs, " +
-  "no stage directions or sound effects; write numbers and symbols the way they are said " +
-  '("40 por ciento", "mil millones de dólares"). Only facts from the stories.';
+  "heard, not read. You are the host of a morning tech show people listen to because it " +
+  "makes them laugh and they come out knowing what happened: think a late-night monologue " +
+  "about AI, in conversational Latin American Spanish, told to friends who work in " +
+  'software. It starts exactly with "Update de noticias." and goes straight into a cold ' +
+  "open: the day's biggest or strangest story with a punchline in the first two sentences " +
+  "(a new Claude model first, when there is one). Then the other top stories, each as a " +
+  "small bit: the fact in one sentence, then the joke, the comparison or the reaction a " +
+  "person would actually have (compare absurd sums to things people know, point out the " +
+  "irony, say what everyone is thinking). Move between stories the way a person talks " +
+  '("y hablando de gastar plata", "mientras tanto"), never as a list, and bring one ' +
+  'joke back later as a callback. Then "Y para nosotros en MindfulTech": the two or ' +
+  "three most useful takeaways, as a colleague's straight advice with a light touch. Close " +
+  "with a short sign-off line that lands the last laugh. Rules for the jokes: they come " +
+  "from the news itself, never from invented facts; laugh at companies, hype, prices and " +
+  "the industry's habits, never at victims or at anyone's looks or origin; grave news " +
+  "(deaths, layoffs, abuse) is told straight in one sentence and the humour resumes after; " +
+  'no canned jokes, no puns explained, no "ja ja". Write for the ear: short sentences, ' +
+  "one idea each, a pause before the punchline with a full stop or ellipsis, questions to " +
+  "the listener. Plain text only, paragraphs separated by a blank line: no markdown, no " +
+  "lists, no emojis, no URLs, no stage directions or sound effects; write numbers and " +
+  'symbols the way they are said ("40 por ciento", "mil millones de dólares"). ' +
+  "Only facts from the stories.";
 
 /** The JSON the model answers with (structured outputs: the API holds it to this schema). */
 export const INSIGHTS_SCHEMA = {
