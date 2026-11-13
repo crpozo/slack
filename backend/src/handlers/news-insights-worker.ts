@@ -7,6 +7,8 @@ import { writeNewsAudio } from "../lib/newsAudio";
 import {
   claimAudio,
   insightsFrom,
+  audioScriptFrom,
+  audioScriptRequest,
   insightsItem,
   insightsRequest,
   latestInsights,
@@ -134,7 +136,7 @@ async function makeAudio(
   const started = Date.now();
   try {
     if (!(await claimAudio(analysis.generatedAt, started, force)).claimed) return;
-    const audio = await writeNewsAudio(analysis);
+    const audio = await writeNewsAudio({ ...analysis, audioScript: await hostScript(analysis) });
     await saveAudio(analysis, audio);
     log.info("news audio written", {
       day: analysis.day,
@@ -144,6 +146,28 @@ async function makeAudio(
     });
   } catch (err) {
     log.warn("news audio failed", { day: analysis.day, ...errorFields(err) });
+  }
+}
+
+/**
+ * The audio update as a host would tell it, written by the model from the
+ * dashboard (its own request since Phase 62b). `undefined` when it can't be
+ * written: the plain script is read instead, so there is always an audio.
+ */
+async function hostScript(
+  analysis: Parameters<typeof writeNewsAudio>[0],
+): Promise<string | undefined> {
+  if (analysis.audioScript) return analysis.audioScript;
+  try {
+    const response = await (model ??= bedrockModel(INSIGHTS_REQUEST_TIMEOUT_MS, 0)).stream(
+      audioScriptRequest({ ...analysis, takeaways: analysis.takeaways ?? [] }),
+    );
+    const script = audioScriptFrom(response);
+    if (!script) log.warn("news audio script unusable", { stopReason: response.stop_reason });
+    return script ?? undefined;
+  } catch (err) {
+    log.warn("news audio script failed", errorFields(err));
+    return undefined;
   }
 }
 

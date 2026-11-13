@@ -120,8 +120,16 @@ export const INSIGHTS_INSTRUCTION =
   '"none". `model`: its name as the stories give it ("Claude Opus 6"), or "" when they ' +
   "don't name it; `headline`, at most 12 words in Spanish; `summary`, one or two sentences " +
   "in Spanish (at most 40 words) on what was announced and when it is available; " +
-  "`stories`, the numbers of the stories that say so.\n" +
-  "- audioScript: the script of today's audio update, read aloud by a voice in about a " +
+  "`stories`, the numbers of the stories that say so.";
+
+/**
+ * Phase 62b: the audio update's script is its own, small request after the
+ * analysis (the two in one answer went past the output ceiling and cut the
+ * whole analysis). It reads the dashboard just written, not the 40 stories.
+ */
+export const AUDIO_SCRIPT_MAX_TOKENS = 8_000;
+export const AUDIO_SCRIPT_INSTRUCTION =
+  "Write the script of today's audio update, read aloud by a voice in about a " +
   `minute and a half: ${NEWS_AUDIO_SCRIPT_WORDS} words in ${NEWS_INSIGHTS_LANGUAGE}, written to be ` +
   "heard, not read. You are the host of a morning tech show people listen to because it " +
   "makes them laugh and they come out knowing what happened: think a late-night monologue " +
@@ -223,17 +231,8 @@ export const INSIGHTS_SCHEMA = {
       required: ["status", "model", "headline", "summary", "stories"],
       additionalProperties: false,
     },
-    audioScript: { type: "string" },
   },
-  required: [
-    "stories",
-    "deepDive",
-    "trends",
-    "takeaways",
-    "watchlist",
-    "claudeAlert",
-    "audioScript",
-  ],
+  required: ["stories", "deepDive", "trends", "takeaways", "watchlist", "claudeAlert"],
   additionalProperties: false,
 } as const;
 
@@ -316,6 +315,51 @@ export function insightsRequest(
       },
     ],
   };
+}
+
+/** The request for the audio update's script, from the dashboard already written. */
+export function audioScriptRequest(
+  dashboard: Pick<NewsInsights, "stories" | "takeaways" | "claudeAlert">,
+): Anthropic.MessageCreateParamsNonStreaming {
+  const facts = {
+    stories: dashboard.stories.map(({ headline, summary, whyItMatters, sourceName }) => ({
+      headline,
+      summary,
+      whyItMatters,
+      sourceName,
+    })),
+    takeaways: dashboard.takeaways,
+    ...(dashboard.claudeAlert && { newClaudeModel: dashboard.claudeAlert }),
+  };
+  return {
+    model: INSIGHTS_MODEL,
+    max_tokens: AUDIO_SCRIPT_MAX_TOKENS,
+    system: INSIGHTS_SYSTEM,
+    output_config: { effort: "medium" },
+    messages: [
+      {
+        role: "user",
+        content:
+          `${AUDIO_SCRIPT_INSTRUCTION} Answer with the script alone, nothing before or after ` +
+          `it.\n\n<articles>\n${JSON.stringify(facts)}\n</articles>`,
+      },
+    ],
+  };
+}
+
+/** The script the model wrote, or `null` when it isn't one (the plain script is read instead). */
+export function audioScriptFrom(response: Anthropic.Message): string | null {
+  if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") return null;
+  const text = response.content
+    .filter((block): block is Anthropic.TextBlock => block.type === "text")
+    .map((block) => block.text)
+    .join("")
+    .trim();
+  // Prose for a voice: never the JSON or the markdown of some other answer.
+  if (/^[{[`#]/.test(text)) return null;
+  return text.length >= NEWS_AUDIO_SCRIPT_MIN_CHARS && text.length <= NEWS_AUDIO_SCRIPT_MAX_CHARS
+    ? text
+    : null;
 }
 
 /** What the model wrote, joined to the stories it picked. */

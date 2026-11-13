@@ -240,6 +240,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **AI News: "El análisis salió demasiado largo y se cortó", again:** with 40 stories, the new
+  voice and the audio script all in one answer, the analysis went past its output ceiling and
+  was lost whole. The audio's script is now its own small request after the analysis (from the
+  dashboard just written), so the analysis is shorter and a script that fails only falls back
+  to the plain read.
 - **The screen flickered while scrolling a PDF:** the viewer's blurred backdrop was redrawn on
   every scroll frame (worse with a call's video behind it). The backdrop is a plain dark one.
 - **PDFs on iPhone and iPad:** opening a PDF in the app on the Home Screen showed only its first

@@ -467,7 +467,9 @@ describe("the morning worker", () => {
     ddbMock.resetHistory();
     ddbMock.on(QueryCommand).resolves({ Items: [stored] });
     await expect(worker({ audioOnly: true })).resolves.toBeNull();
-    expect(create).not.toHaveBeenCalled(); // no new analysis
+    // No new analysis: the one request is the audio's script (Phase 62b).
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ max_tokens: 8_000 });
     expect(store).toHaveBeenCalledTimes(1);
     expect(
       ddbMock.commandCalls(UpdateCommand).some((c) => c.args[0].input.Key?.day === stored.day),
