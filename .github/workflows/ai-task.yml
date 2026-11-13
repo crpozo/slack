@@ -1,0 +1,190 @@
+name: AI task
+
+# A board task handed to the AI (Phase 65). An admin presses "Hacer con IA" on
+# a task; the tasks Lambda starts this workflow with the task's title and
+# details. Claude (Claude Code, on Amazon Bedrock) writes the change here, the
+# workflow checks it (lint and tests), commits it to main and starts the Deploy
+# workflow. The task moves by itself on the board: In Progress while this
+# runs, Done once the deploy succeeds, back to To Do with the reason if not.
+#
+# What keeps it safe:
+# - Only an admin can start it, one run at a time.
+# - Claude runs with the `slack-github-ai-task` role, which can only call
+#   Claude on Bedrock and report the task's progress. It has no deploy rights
+#   and no access to data. It gets no GitHub token either: this workflow, not
+#   the model, commits and pushes.
+# - Its tools are limited to reading and editing files and running the
+#   project's own checks.
+# - Nothing is pushed unless lint and every test pass, and a change to the
+#   workflows themselves is refused.
+#
+# Repository variables: AWS_DEPLOY_ROLE_ARN (as for Deploy; the AI role's ARN
+# is derived from it) and, optionally, AI_TASK_MODEL (a Bedrock inference
+# profile id; see `aws bedrock list-inference-profiles`).
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: The board task's id
+        required: true
+        type: string
+      title:
+        description: What to do
+        required: true
+        type: string
+      details:
+        description: The task's description and notes
+        required: false
+        type: string
+
+concurrency:
+  group: ai-task
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: write
+  actions: write
+
+env:
+  TASK_ID: ${{ inputs.task_id }}
+  TASK_TITLE: ${{ inputs.title }}
+  TASK_DETAILS: ${{ inputs.details }}
+  TASKS_FUNCTION: slack-prod-tasks
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  AWS_REGION: us-east-1
+
+jobs:
+  work:
+    if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The model never sees a GitHub token: the push below passes one explicitly.
+          persist-credentials: false
+
+      - name: The AI's own role (never the deploy role)
+        id: role
+        env:
+          DEPLOY_ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: echo "arn=${DEPLOY_ROLE/slack-github-deploy/slack-github-ai-task}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ steps.role.outputs.arn }}
+          role-session-name: slack-ai-task-${{ github.run_id }}
+          aws-region: us-east-1
+          role-duration-seconds: 5400
+
+      - name: Tell the board it started (In Progress)
+        run: .github/scripts/ai-task-report.sh running
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: npm install -g @anthropic-ai/claude-code
+
+      - name: Claude does the task
+        env:
+          CLAUDE_CODE_USE_BEDROCK: "1"
+          MODEL: ${{ vars.AI_TASK_MODEL || 'us.anthropic.claude-opus-5-5' }}
+        run: |
+          # The task's text reaches the model as data in a file, never as shell.
+          {
+            cat .github/scripts/ai-task-prompt.md
+            printf '\n<task>\n<title>\n%s\n</title>\n<details>\n%s\n</details>\n</task>\n' \
+              "$TASK_TITLE" "$TASK_DETAILS"
+          } > "$RUNNER_TEMP/prompt.md"
+          claude -p "$(cat "$RUNNER_TEMP/prompt.md")" \
+            --model "$MODEL" \
+            --permission-mode acceptEdits \
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(pnpm install*),Bash(pnpm lint*),Bash(pnpm test*),Bash(pnpm --filter *),Bash(npx vitest *),Bash(npx tsc *),Bash(npx prettier *),Bash(npx eslint *),Bash(git status*),Bash(git diff*),Bash(git log*),Bash(ls *)" \
+            --max-turns 200 \
+            --output-format json > "$RUNNER_TEMP/result.json"
+          jq -r '.result // "Sin resumen."' "$RUNNER_TEMP/result.json" | head -c 1800 > "$RUNNER_TEMP/summary.txt"
+          cat "$RUNNER_TEMP/summary.txt"
+
+      - name: Refuse a change to the workflows, or no change at all
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Claude no hizo ningún cambio en el código." > "$RUNNER_TEMP/summary.txt"
+            exit 1
+          fi
+          if git diff --cached --name-only | grep -q '^\.github/'; then
+            echo "El cambio tocaba los flujos de GitHub (.github/), y eso no se permite a la IA." > "$RUNNER_TEMP/summary.txt"
+            exit 1
+          fi
+
+      - name: Lint and tests (nothing is pushed unless they pass)
+        run: |
+          if ! (pnpm lint && pnpm test); then
+            echo "El cambio no pasó el lint o los tests, así que no se subió. Detalles en el registro de la ejecución." > "$RUNNER_TEMP/summary.txt"
+            exit 1
+          fi
+
+      - name: Commit to main
+        id: push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "MindfulTech AI"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          {
+            printf 'AI task: %s\n\n' "$(printf '%s' "$TASK_TITLE" | head -c 60 | tr '\n' ' ')"
+            printf 'Board task %s, done by Claude from the Task Manager.\n%s\n' "$TASK_ID" "$RUN_URL"
+          } > "$RUNNER_TEMP/message.txt"
+          git commit -q -F "$RUNNER_TEMP/message.txt"
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # Someone else may have pushed meanwhile: put this change on top of theirs.
+          git pull -q --rebase "$remote" main
+          git push -q "$remote" HEAD:main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy it, and wait until it's live
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.push.outputs.sha }}
+        run: |
+          COMMIT="$SHA" .github/scripts/ai-task-report.sh deploying
+          # A push made with the workflow's own token doesn't start Deploy; a dispatch does.
+          gh workflow run deploy.yml --ref main
+          sleep 20
+          run_id=""
+          for _ in $(seq 1 12); do
+            run_id=$(gh run list --workflow deploy.yml --branch main --event workflow_dispatch \
+              --limit 5 --json databaseId,headSha --jq "map(select(.headSha == \"$SHA\")) | .[0].databaseId // empty")
+            [ -n "$run_id" ] && break
+            sleep 10
+          done
+          if [ -z "$run_id" ]; then
+            echo "El cambio se subió, pero no se pudo iniciar el despliegue." > "$RUNNER_TEMP/summary.txt"
+            exit 1
+          fi
+          if ! gh run watch "$run_id" --exit-status --interval 30 > /dev/null; then
+            echo "El cambio se subió, pero el despliegue falló. Revísalo en GitHub Actions." > "$RUNNER_TEMP/summary.txt"
+            exit 1
+          fi
+
+      - name: Tell the board it's done
+        env:
+          COMMIT: ${{ steps.push.outputs.sha }}
+        run: .github/scripts/ai-task-report.sh done
+
+      - name: Tell the board it failed (back to To Do, with the reason)
+        if: ${{ failure() || cancelled() }}
+        env:
+          COMMIT: ${{ steps.push.outputs.sha }}
+        run: |
+          [ -s "$RUNNER_TEMP/summary.txt" ] || echo "La ejecución falló antes de terminar. Detalles en el registro." > "$RUNNER_TEMP/summary.txt"
+          .github/scripts/ai-task-report.sh failed || true

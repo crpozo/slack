@@ -1,3 +1,4 @@
+import { usePlatformInsights } from "../store/platformInsights";
 import {
   GENERAL_CHANNEL_ID,
   canArchiveChannel,
@@ -8,7 +9,7 @@ import {
   type Channel,
 } from "@mindfultech/shared";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Radar as RadarIcon } from "lucide-react";
+import { ChartNoAxesCombined as ChartIcon, Radar as RadarIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
@@ -641,6 +642,14 @@ const PHONE_APPS: PhoneApp[] = [
   },
 ];
 
+/** Phase 64: only for the owners of Platform Insights. */
+const INSIGHTS_APP: PhoneApp = {
+  path: "/app/insights",
+  label: "Insights",
+  tile: "bg-gradient-to-br from-[#6366F1] to-[#0F172A] text-white",
+  icon: <ChartIcon size={20} />,
+};
+
 function AppTile({ app }: Readonly<{ app: PhoneApp }>) {
   return (
     <span
@@ -698,6 +707,12 @@ export function Sidebar({
   onOpenSettings,
   onSignOut,
 }: Readonly<SidebarProps>) {
+  // Phase 64: Platform Insights is listed only for its owners (asked once per session).
+  const insightsAllowed = usePlatformInsights((st) => st.allowed === true);
+  const checkInsightsAccess = usePlatformInsights((st) => st.checkAccess);
+  useEffect(() => {
+    void checkInsightsAccess();
+  }, [checkInsightsAccess]);
   const navigate = useNavigate();
   const nameOf = useNameOf();
   // Phase 49: AI News spins while an analysis is being written, wherever you are.
@@ -1086,7 +1101,7 @@ export function Sidebar({
             folded={folded.apps}
             onToggle={() => toggleSection("apps")}
           >
-            {PHONE_APPS.map((app) => (
+            {[...PHONE_APPS, ...(insightsAllowed ? [INSIGHTS_APP] : [])].map((app) => (
               <PhoneRow
                 key={app.path}
                 label={app.label}
@@ -1427,6 +1442,16 @@ export function Sidebar({
                 unread={0}
                 onClick={() => navigate("/app/radar")}
               />
+              {insightsAllowed && (
+                <NavItem
+                  compact={compact}
+                  label="Insights"
+                  icon={<ChartIcon size={16} className="text-ink-secondary" aria-hidden="true" />}
+                  active={activeChannelId === "insights"}
+                  unread={0}
+                  onClick={() => navigate("/app/insights")}
+                />
+              )}
             </ul>
           </Section>
         )}

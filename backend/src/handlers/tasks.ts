@@ -19,6 +19,9 @@ import {
   InviteByEmailSchema,
   InviteToBoardSchema,
   MAX_BOARD_MEMBERS,
+  TASK_AI_PHASES,
+  TASK_AI_SUMMARY_MAX,
+  taskAiBusy,
   taskProvenance,
   TasksFromNotesSchema,
   UpdateBoardSchema,
@@ -30,6 +33,9 @@ import {
   type NotesSentToBoard,
   type ServerEvent,
   type Task,
+  type TaskAi,
+  type TaskAiUpdate,
+  type TaskStatus,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
 import {
@@ -46,6 +52,7 @@ import { speakerNames } from "../lib/callNotes";
 import { channelAudience, getAccessibleChannel, scanChannels, visibleTo } from "../lib/channels";
 import { purgeBoard, type PurgeReport } from "../lib/boardDeletion";
 import { ddb, tables } from "../lib/ddb";
+import { optionalSecret } from "../lib/secret";
 import {
   forbidden,
   HttpError,
@@ -741,6 +748,179 @@ async function deleteTask(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
   return json(204);
 }
 
+// --- Tasks done by the AI (Phase 65) -----------------------------------------------
+
+const githubActionsToken = optionalSecret("GITHUB_ACTIONS_TOKEN", "GITHUB_ACTIONS_TOKEN_PARAMETER");
+let aiFetch: typeof fetch = fetch;
+/** Tests: a fake GitHub. */
+export function useAiTaskFetch(fake: typeof fetch = fetch): void {
+  aiFetch = fake;
+}
+
+/** Writes `ai` (and a column move, if any) on the task and tells the board. */
+async function setTaskAi(
+  board: Board,
+  before: Task,
+  ai: TaskAi,
+  status: TaskStatus,
+  by: string,
+): Promise<Task> {
+  const now = Date.now();
+  const moved = status !== before.status;
+  const { Attributes } = await ddb.send(
+    new UpdateCommand({
+      TableName: tables.tasks,
+      Key: { taskId: before.taskId },
+      UpdateExpression: `SET ai = :ai, updatedAt = :now, #status = :status${
+        moved ? ", doneAt = :doneAt, isArchived = :no" : ""
+      }`,
+      ConditionExpression: "attribute_exists(taskId)",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: {
+        ":ai": ai,
+        ":now": now,
+        ":status": status,
+        ...(moved && { ":doneAt": status === "DONE" ? now : null, ":no": false }),
+      },
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  const task = toTask(Attributes ?? {});
+  await notifyBoard(board, {
+    type: "board.task_updated",
+    boardId: board.boardId,
+    task,
+    by,
+    boardName: board.name,
+    ...(moved && { previousStatus: before.status }),
+  });
+  return task;
+}
+
+/**
+ * `POST /tasks/{taskId}/ai` ("Hacer con IA"): admins only, since what it
+ * writes goes to production. Marks the task as queued and starts the
+ * `ai-task` workflow on GitHub, which does the work and reports back.
+ */
+async function startTaskAi(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  if (caller.role !== "admin") throw forbidden("Only admins can hand a task to the AI");
+  const taskId = pathParam(event, "taskId");
+  const { task, board } = await accessibleTask(taskId, caller);
+  if (task.status === "DONE") throw new HttpError(409, "This task is already done");
+  if (taskAiBusy(task)) throw new HttpError(409, "The AI is already working on this task");
+  const token = await githubActionsToken.get();
+  const repository = process.env.AI_TASK_REPOSITORY;
+  if (!token || !repository) {
+    throw new HttpError(
+      503,
+      "Tasks by AI aren't set up yet: the GitHub token (github-actions-token) is missing.",
+    );
+  }
+  const queued = await setTaskAi(
+    board,
+    task,
+    { phase: "queued", requestedBy: caller.userId, requestedAt: Date.now() },
+    task.status,
+    caller.userId,
+  );
+  try {
+    const response = await aiFetch(
+      `https://api.github.com/repos/${repository}/actions/workflows/ai-task.yml/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28",
+          "content-type": "application/json",
+          "user-agent": "MindfulTechSlack",
+        },
+        body: JSON.stringify({
+          ref: "main",
+          inputs: {
+            task_id: task.taskId,
+            title: task.title.slice(0, 300),
+            // What to build: the task's description and notes, as its author wrote them.
+            details: [task.description, task.notes].filter(Boolean).join("\n\n").slice(0, 6_000),
+          },
+        }),
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
+  } catch (err) {
+    log.error("ai task: couldn't start the workflow", { taskId, ...errorFields(err) });
+    await setTaskAi(
+      board,
+      queued,
+      {
+        ...queued.ai!,
+        phase: "failed",
+        summary: "No se pudo iniciar el trabajo en GitHub. Revisa el token y vuelve a intentarlo.",
+        finishedAt: Date.now(),
+      },
+      queued.status,
+      caller.userId,
+    );
+    throw new HttpError(502, "Couldn't start the AI's run on GitHub");
+  }
+  log.info("ai task queued", { taskId, userId: caller.userId });
+  return json(202, { task: queued });
+}
+
+/** Who moved the task, for the board's live update, when it was the workflow. */
+const AI_TASK_AUTHOR = "ai";
+
+/** The column each phase puts the task in. */
+const AI_PHASE_STATUS: Record<TaskAiUpdate["phase"], TaskStatus | null> = {
+  running: "IN_PROGRESS",
+  deploying: "IN_PROGRESS",
+  done: "DONE",
+  // Back where a person can pick it up or retry.
+  failed: "TODO",
+};
+
+/**
+ * The workflow reporting its progress. Not an HTTP route: the run invokes this
+ * Lambda directly with its AWS role, so there's no public endpoint or shared
+ * secret to guard. Only a task the AI was asked to do can be moved this way.
+ */
+export async function applyTaskAiUpdate(update: TaskAiUpdate): Promise<void> {
+  if (!TASK_AI_PHASES.includes(update.phase) || typeof update.taskId !== "string") return;
+  const { Item } = await ddb.send(
+    new GetCommand({ TableName: tables.tasks, Key: { taskId: update.taskId } }),
+  );
+  if (!Item) return;
+  const task = toTask(Item);
+  if (!task.ai) {
+    log.warn("ai task update for a task the AI wasn't asked to do", { taskId: task.taskId });
+    return;
+  }
+  const board = await getLiveBoard(task.boardId);
+  if (!board) return;
+  const finished = update.phase === "done" || update.phase === "failed";
+  const text = (value: unknown, max: number) =>
+    typeof value === "string" && value.trim() ? value.trim().slice(0, max) : undefined;
+  const runUrl = text(update.runUrl, 300);
+  const commit = text(update.commit, 64);
+  const summary = text(update.summary, TASK_AI_SUMMARY_MAX);
+  await setTaskAi(
+    board,
+    task,
+    {
+      ...task.ai,
+      phase: update.phase,
+      ...(runUrl?.startsWith("https://github.com/") && { runUrl }),
+      ...(commit && { commit }),
+      ...(summary && { summary }),
+      ...(finished && { finishedAt: Date.now() }),
+    },
+    AI_PHASE_STATUS[update.phase] ?? task.status,
+    AI_TASK_AUTHOR,
+  );
+  log.info("ai task update", { taskId: task.taskId, phase: update.phase });
+}
+
 // --- Router ----------------------------------------------------------------------
 
 const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<HttpResult>> = {
@@ -756,10 +936,17 @@ const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<H
   "POST /boards/{id}/tasks/from-notes": createTasksFromNotes,
   "PUT /tasks/{taskId}": updateTask,
   "DELETE /tasks/{taskId}": deleteTask,
+  "POST /tasks/{taskId}/ai": startTaskAi,
 };
 
-export const handler = httpHandler(async (event, caller) => {
+const http = httpHandler(async (event, caller) => {
   const route = ROUTES[event.routeKey];
   if (!route) throw notFound(`No route for ${event.routeKey}`);
   return route(event, caller);
 });
+
+/** HTTP requests, and (Phase 65) the AI workflow's direct `{ aiTask }` invocations. */
+export const handler = async (event: HttpEvent | { aiTask: TaskAiUpdate }) => {
+  if ("aiTask" in event) return applyTaskAiUpdate(event.aiTask);
+  return http(event);
+};

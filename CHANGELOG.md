@@ -11,6 +11,34 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   adding people, now leaves a small centered line in the conversation, such as "@Luis was removed
   from the channel by Ana". It's written together with the change, shows current names, and
   doesn't count as unread or ping anyone.
+- **Tasks done by the AI:** on a board, an admin presses **Hacer con IA** on a task and Claude
+  (Claude Code on Amazon Bedrock, in a GitHub Actions run) writes the change in this app's
+  code, checks it and ships it. The card moves by itself and says where it is: _En cola_ →
+  **In Progress** (_Claude está trabajando…_, _Desplegando…_) → **Done** with what it did, or
+  back to **To Do** with the reason. A link opens the run on GitHub.
+  What keeps it safe: only admins, one run at a time, with a confirmation; Claude runs with
+  a role of its own (`slack-github-ai-task`) that can only call the model and report the
+  task's progress — no deploy rights, no data, no GitHub token — and with tools limited to
+  editing files and running the project's checks; nothing is pushed unless lint and every
+  test pass; a change to `.github/` is refused; the deploy itself is the usual Deploy
+  workflow. **There is no human review before production**: that was the choice.
+  To turn it on: (1) a fine-grained GitHub token for this repository with _Actions: read and
+  write_, stored with `aws ssm put-parameter --name /slack/prod/github-actions-token --type
+SecureString --value "…"`; (2) access in Amazon Bedrock to the model the run uses
+  (`us.anthropic.claude-opus-5-5` unless the repository variable `AI_TASK_MODEL` names
+  another inference profile). Until then the button says it isn't set up.
+- **Insights, for the owner:** a new section that reads how the team used the platform in the
+  last 30 days and what to improve. **Analizar ahora** gathers the numbers and asks the AI
+  for a summary, what is going well, risks, four to six concrete recommendations (why, how,
+  impact) and questions worth asking the team; below, the numbers themselves: messages per day
+  and hour (and outside working hours), people, channels (and which went quiet), tasks (open,
+  stale, unassigned, time to done), hours and cost per channel, calls with AI notes.
+  **Counts only:** it never reads the text of a message, file, note or secret, a task's title,
+  or who talks to whom in direct messages (those are one total); the AI gets names and numbers,
+  no e-mail addresses. **Who sees it** is not a role: only the addresses in the SSM parameter
+  `/slack/prod/insights-owners` (a String, comma-separated), so an admin doesn't, and nobody
+  does until it is set: `aws ssm put-parameter --name /slack/prod/insights-owners --type String
+--value "you@example.com"`. Everyone else gets no menu entry and a 403 from the API.
 - **Team panel for admins (Settings → Team):** admins invite people by email as **Staff** or
   **Admin**. Cognito emails them a temporary password, and they show up in everyone's directory
   at once. The panel lists every account with its role and status (Invited, Active, Disabled),
@@ -22,6 +50,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   treats the address as hostile: https only, public hosts only (checked again at every
   redirect), a short timeout, only the page's head. Posts on X show who wrote them and the
   text (X doesn't give readers like ours the picture).
+  While you type or paste a link, the composer shows the same preview in a compact row above
+  the text (✕ hides it).
 - **AI News, when it was updated:** next to the date, the time the analysis on screen was
   written ("Actualizado 6:02").
 - **AI Radar, a use case for each technology:** a blip's details now say how MindfulTech could
@@ -230,6 +260,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **AI News: "El análisis salió demasiado largo y se cortó", again:** with 40 stories, the new
+  voice and the audio script all in one answer, the analysis went past its output ceiling and
+  was lost whole. The audio's script is now its own small request after the analysis (from the
+  dashboard just written), so the analysis is shorter and a script that fails only falls back
+  to the plain read.
 - **The screen flickered while scrolling a PDF:** the viewer's blurred backdrop was redrawn on
   every scroll frame (worse with a call's video behind it). The backdrop is a plain dark one.
 - **PDFs on iPhone and iPad:** opening a PDF in the app on the Home Screen showed only its first
@@ -529,6 +564,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **Emoji picker, rebuilt:** a tab per section along the top (it jumps there and follows the
+  scroll), a larger "Search all emoji" field, bold section titles and bigger emoji in a wider
+  grid. New sections first: **Frequently Used** (what you pick most) and **Getting Work Done**
+  (✅ 👀 🙌 🎯 🚀 and the rest a team uses all day); people are listed with the smileys. A
+  **skin tone** for hands and people (five tones, remembered), which adds some 1,500 variants
+  to the 1,900 standard emoji, and the name of the emoji under the pointer at the bottom.
+- **AI News audio, funnier still:** the script's brief now sets a bar (two laughs and a line
+  worth repeating), a comedian's voice, a different kind of joke for each story, a callback,
+  a "dato para presumir en el almuerzo", and has the model draft several jokes per story and
+  keep the best. A little longer (about 1:45) to make room for them.
 - **Calls fill the chat:** a call now opens over the whole conversation area instead of its top
   half, with larger video. The button at its top left brings the chat back below it, and the
   choice is remembered on the device.

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { previewLinkIn, resetLinkPreviews } from "../lib/linkPreview";
 import * as api from "../lib/tasksApi";
-import { LinkPreviewCard } from "./LinkPreviewCard";
+import { ComposerLinkPreview, LinkPreviewCard } from "./LinkPreviewCard";
 
 // Phase 63: a shared link shows its page's preview under the message.
 
@@ -58,5 +58,21 @@ describe("the preview card", () => {
     const { container } = render(<LinkPreviewCard url="https://example.com/none" />);
     await waitFor(() => expect(api.request).toHaveBeenCalled());
     expect(container.innerHTML).toBe("");
+  });
+
+  it("above the composer: shows what the typed link will look like, and can be hidden", async () => {
+    vi.spyOn(api, "request").mockResolvedValue({
+      preview: { url: "https://example.com/a", title: "Un título", site: "example.com" },
+    });
+    render(<ComposerLinkPreview url="https://example.com/a" />);
+    expect(screen.queryByLabelText("Link preview")).toBeNull(); // waits for the typing to pause
+    await waitFor(
+      () => expect(screen.getByLabelText("Link preview").textContent).toContain("Un título"),
+      {
+        timeout: 2000,
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Hide the link preview" }));
+    expect(screen.queryByLabelText("Link preview")).toBeNull();
   });
 });

@@ -44,6 +44,7 @@ function fakeApi() {
     createTask: vi.fn(() => next<Task>()),
     updateTask: vi.fn(() => next<Task>()),
     deleteTask: vi.fn(() => next<void>()),
+    startTaskAi: vi.fn(() => next<Task>()),
     createFromNotes: vi.fn(() => next<{ tasks: Task[]; notes: AiNotes }>()),
     invite: vi.fn(() =>
       next<{ board: Board; invited: { userId: string; role: "guest"; created: boolean } }>(),
@@ -298,5 +299,19 @@ describe("tasks store", () => {
         .applyEvent({ type: "board.updated", board: { ...shared, members: ["other"] } }, "me");
       expect(store.getState().boards).toEqual([]);
     });
+  });
+
+  it("hands a task to the AI: the card comes back queued (Phase 65)", async () => {
+    const { store, api, settle } = await loaded([task("t_1", "TODO")]);
+    const asking = store.getState().startTaskAi("t_1");
+    expect(api.startTaskAi).toHaveBeenCalledWith("t_1");
+    await settle({
+      ...task("t_1", "TODO"),
+      ai: { phase: "queued", requestedBy: "u-ana", requestedAt: 5 },
+    });
+    await asking;
+    expect(store.getState().tasksByBoard.b_1?.find((t) => t.taskId === "t_1")?.ai?.phase).toBe(
+      "queued",
+    );
   });
 });

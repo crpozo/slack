@@ -1,3 +1,5 @@
+import { previewLinkIn } from "../lib/linkPreview";
+import { ComposerLinkPreview } from "./LinkPreviewCard";
 import {
   canArchiveChannel,
   dmMembers,
@@ -913,6 +915,8 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
             </button>
           </div>
         )}
+        {/* Phase 63: what the link being typed will show (never for a secret). */}
+        <ComposerLinkPreview url={secret ? null : previewLinkIn(text)} />
         {replyTo && !editing && (
           <div
             className="flex items-center gap-2 border-b border-line px-3 py-2 text-sm"
