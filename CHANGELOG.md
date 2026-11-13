@@ -213,6 +213,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **PDFs on iPhone and iPad:** opening a PDF in the app on the Home Screen showed only its first
+  page, froze, or stayed blank (iOS can't show a PDF inside the app's viewer). Phones and tablets
+  now draw every page themselves: scroll through the whole document, with a page counter, ‹ ›
+  page buttons and zoom. Computers keep the browser's own PDF viewer. New tab and Download are
+  still next to the name.
 - **No more "ghost" people in the DM list:** someone whose account is deleted in Cognito leaves
   everyone's DM list on its own, without anyone clicking on them. The server reconciles its user
   directory against Cognito every 15 minutes (as well as on the deletion event, where CloudTrail
