@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Team panel for admins (Settings → Team):** admins invite people by email as **Staff** or
+  **Admin**. Cognito emails them a temporary password, and they show up in everyone's directory
+  at once. The panel lists every account with its role and status (Invited, Active, Disabled),
+  and moves people between Staff and Admin. Guests still come from channel invites.
 - **AI Radar, a use case for each technology:** a blip's details now say how MindfulTech could
   put it to work, for itself or a client ("a phone line that books appointments for a clinic",
   "an MCP server for a client's ERP"). Admins edit it like any other fact of the blip (the

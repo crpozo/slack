@@ -176,6 +176,13 @@ export const SEARCH_ROUTES: Array<{ method: HttpMethod; path: string }> = [
  * AI Skills (Phase 44): the catalog of Claude Code skills, its GitHub import,
  * generation (Claude Haiku 5.5) and zip downloads, from one Lambda.
  */
+/** Phase 62: the team panel (admins only): list accounts, invite staff/admins, change roles. */
+export const ADMIN_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/admin/users" },
+  { method: HttpMethod.POST, path: "/admin/users" },
+  { method: HttpMethod.PUT, path: "/admin/users/{userId}/role" },
+];
+
 /** AI Tech Radar (Phase 56): read by the team, changed by admins and the scanner. */
 export const RADAR_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/radar" },
@@ -300,6 +307,8 @@ export class TasksApi extends Construct {
   readonly skillsHandler: NodejsFunction;
   /** `vault`: the team's passwords (Phase 45), the only code that can use the Vault key. */
   readonly vaultHandler: NodejsFunction;
+  /** Phase 62: the team panel (admins invite staff and admins, change roles). */
+  readonly adminUsersHandler: NodejsFunction;
   /** Phase 56: the AI Tech Radar's endpoints, and the daily scan of the news for updates. */
   readonly radarHandler: NodejsFunction;
   readonly radarScanWorker: NodejsFunction;
@@ -443,6 +452,10 @@ export class TasksApi extends Construct {
       description: "Discovers new technologies for the Tech Radar's proposals",
       schedule: Schedule.cron(RADAR_DISCOVERY_SCHEDULE),
       targets: [new LambdaFunction(this.radarDiscoveryEngine, { retryAttempts: 1 })],
+    });
+    this.adminUsersHandler = lambda("AdminUsersFn", "admin-users", {
+      USERS_TABLE: data.users.tableName,
+      USER_POOL_ID: auth.userPool.userPoolId,
     });
     this.radarHandler = lambda("RadarFn", "radar", {
       TECH_RADAR_TABLE: data.techRadar.tableName,
@@ -694,6 +707,13 @@ export class TasksApi extends Construct {
     for (const { method, path } of SKILLS_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: skillsIntegration });
     }
+    const adminIntegration = new HttpLambdaIntegration(
+      "AdminUsersIntegration",
+      this.adminUsersHandler,
+    );
+    for (const { method, path } of ADMIN_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: adminIntegration });
+    }
     const radarIntegration = new HttpLambdaIntegration("RadarIntegration", this.radarHandler);
     for (const { method, path } of RADAR_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: radarIntegration });
@@ -912,6 +932,31 @@ export class TasksApi extends Construct {
     this.newsInsightsWorker.grantInvoke(this.newsInsightsHandler);
     // Phase 56, radar: the endpoint owns the table; the worker adds blips and
     // proposals (never deletes a blip) and asks the model on Bedrock.
+    // Phase 62, the team panel: names and new profiles in `users` (Scan, PutItem,
+    // UpdateItem); in Cognito, list accounts and groups, create staff/admin
+    // accounts (deleting one whose group couldn't be set) and move people in or
+    // out of `admins`. Admins only, checked in the handler from the token.
+    data.users.grant(
+      this.adminUsersHandler,
+      "dynamodb:Scan",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+    );
+    this.adminUsersHandler.addToRolePolicy(
+      new PolicyStatement({
+        actions: [
+          "cognito-idp:ListUsers",
+          "cognito-idp:ListUsersInGroup",
+          "cognito-idp:AdminGetUser",
+          "cognito-idp:AdminListGroupsForUser",
+          "cognito-idp:AdminCreateUser",
+          "cognito-idp:AdminDeleteUser",
+          "cognito-idp:AdminAddUserToGroup",
+          "cognito-idp:AdminRemoveUserFromGroup",
+        ],
+        resources: [auth.userPool.userPoolArn],
+      }),
+    );
     data.techRadar.grant(
       this.radarHandler,
       "dynamodb:Query",

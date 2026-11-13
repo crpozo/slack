@@ -98,6 +98,7 @@ describe("task manager API", () => {
       "DELETE /tasks/{taskId}",
       "DELETE /vault/pin/{userId}",
       "DELETE /vault/secrets/{secretId}",
+      "GET /admin/users",
       "GET /boards",
       "GET /boards/{id}/tasks",
       "GET /calendar/balances",
@@ -121,6 +122,7 @@ describe("task manager API", () => {
       "GET /vault",
       "GET /vault/channels/{channelId}",
       "GET /vault/pin",
+      "POST /admin/users",
       "POST /boards",
       "POST /boards/{id}/invites",
       "POST /boards/{id}/members",
@@ -149,6 +151,7 @@ describe("task manager API", () => {
       "POST /vault/pin",
       "POST /vault/pin/verify",
       "POST /vault/reveal/{secretId}",
+      "PUT /admin/users/{userId}/role",
       "PUT /boards/{id}",
       "PUT /calendar/balances/{userId}/{year}",
       "PUT /calendar/events/{id}",
@@ -261,9 +264,12 @@ describe("guest access", () => {
       JSON.stringify(p).includes("cognito-idp:"),
     );
     // The calendar Lambda only lists the admins group (see calendar.test.ts);
-    // `channel` and `user-cleanup` only check accounts exist (ListUsers, below).
+    // `channel` and `user-cleanup` only check accounts exist (ListUsers, below);
+    // Phase 62's team panel (admins only) creates staff/admin accounts and sets
+    // their group (see admin-users.test.ts).
     expect(withCognito.map(([id]) => id.replace(/[0-9A-F]{8}$/, "")).sort()).toEqual([
       "ApichannelFnServiceRoleDefaultPolicy",
+      "TasksApiAdminUsersFnServiceRoleDefaultPolicy",
       "TasksApiCalendarFnServiceRoleDefaultPolicy",
       "TasksApiFnServiceRoleDefaultPolicy",
       "UserSyncUserCleanupFnServiceRoleDefaultPolicy",
