@@ -15,6 +15,7 @@ export * from "./vault";
 export * from "./radar";
 export * from "./timelog";
 export * from "./gallery";
+export * from "./team";
 export * from "./publicHolidays";
 export * from "./linkPreview";
 export * from "./platformInsights";
