@@ -544,6 +544,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **AI News audio, funnier still:** the script's brief now sets a bar (two laughs and a line
+  worth repeating), a comedian's voice, a different kind of joke for each story, a callback,
+  a "dato para presumir en el almuerzo", and has the model draft several jokes per story and
+  keep the best. A little longer (about 1:45) to make room for them.
 - **Calls fill the chat:** a call now opens over the whole conversation area instead of its top
   half, with larger video. The button at its top left brings the chat back below it, and the
   choice is remembered on the device.

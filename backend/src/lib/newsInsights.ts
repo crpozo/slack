@@ -53,10 +53,10 @@ export const INSIGHTS_MAX_TOKENS = 32_000;
 export const INSIGHTS_MAX_ARTICLES = NEWS_MAX_ARTICLES;
 
 /** How long the model writes the audio script: about a minute and a half read briskly. */
-export const NEWS_AUDIO_SCRIPT_WORDS = "230 to 270";
+export const NEWS_AUDIO_SCRIPT_WORDS = "260 to 310";
 /** A script outside these lengths is the model gone wrong: the plain one is read instead. */
 export const NEWS_AUDIO_SCRIPT_MIN_CHARS = 400;
-export const NEWS_AUDIO_SCRIPT_MAX_CHARS = 2_400;
+export const NEWS_AUDIO_SCRIPT_MAX_CHARS = 2_800;
 
 export const INSIGHTS_SYSTEM =
   "You are the AI analyst of MindfulTech, a small software company in Ecuador that builds " +
@@ -127,32 +127,47 @@ export const INSIGHTS_INSTRUCTION =
  * analysis (the two in one answer went past the output ceiling and cut the
  * whole analysis). It reads the dashboard just written, not the 40 stories.
  */
-export const AUDIO_SCRIPT_MAX_TOKENS = 8_000;
+export const AUDIO_SCRIPT_MAX_TOKENS = 16_000;
 export const AUDIO_SCRIPT_INSTRUCTION =
-  "Write the script of today's audio update, read aloud by a voice in about a " +
-  `minute and a half: ${NEWS_AUDIO_SCRIPT_WORDS} words in ${NEWS_INSIGHTS_LANGUAGE}, written to be ` +
-  "heard, not read. You are the host of a morning tech show people listen to because it " +
-  "makes them laugh and they come out knowing what happened: think a late-night monologue " +
-  "about AI, in conversational Latin American Spanish, told to friends who work in " +
-  'software. It starts exactly with "Update de noticias." and goes straight into a cold ' +
-  "open: the day's biggest or strangest story with a punchline in the first two sentences " +
-  "(a new Claude model first, when there is one). Then the other top stories, each as a " +
-  "small bit: the fact in one sentence, then the joke, the comparison or the reaction a " +
-  "person would actually have (compare absurd sums to things people know, point out the " +
-  "irony, say what everyone is thinking). Move between stories the way a person talks " +
-  '("y hablando de gastar plata", "mientras tanto"), never as a list, and bring one ' +
-  'joke back later as a callback. Then "Y para nosotros en MindfulTech": the two or ' +
-  "three most useful takeaways, as a colleague's straight advice with a light touch. Close " +
-  "with a short sign-off line that lands the last laugh. Rules for the jokes: they come " +
-  "from the news itself, never from invented facts; laugh at companies, hype, prices and " +
-  "the industry's habits, never at victims or at anyone's looks or origin; grave news " +
-  "(deaths, layoffs, abuse) is told straight in one sentence and the humour resumes after; " +
-  'no canned jokes, no puns explained, no "ja ja". Write for the ear: short sentences, ' +
-  "one idea each, a pause before the punchline with a full stop or ellipsis, questions to " +
-  "the listener. Plain text only, paragraphs separated by a blank line: no markdown, no " +
-  "lists, no emojis, no URLs, no stage directions or sound effects; write numbers and " +
-  'symbols the way they are said ("40 por ciento", "mil millones de dólares"). ' +
-  "Only facts from the stories.";
+  "Write the script of today's audio update, read aloud by one voice in about a minute " +
+  `and a half: ${NEWS_AUDIO_SCRIPT_WORDS} words in ${NEWS_INSIGHTS_LANGUAGE}, written to be heard. ` +
+  "The bar: someone plays it on the way to work, laughs out loud at least twice, and repeats " +
+  "one line to a colleague at lunch. A flat recap with a pun at the end is a failure.\n" +
+  "Who is talking: the funniest person in a software team, a stand-up comedian who actually " +
+  "understands AI. Sharp, a little irreverent, fond of the industry and merciless with its " +
+  'hype. Conversational Latin American Spanish as friends speak it ("plata", "o sea", ' +
+  '"ojo", "imagínate"), never a newsreader, never a press release.\n' +
+  "How to write it: first, in your thinking, find for each story the angle that is actually " +
+  "funny or surprising (the contradiction, the absurd number, who ends up paying, what it " +
+  "resembles in everyday life) and draft three different jokes for it; keep only the best " +
+  "one and drop any that you have heard before. Then write the script.\n" +
+  'Shape: it starts exactly with "Update de noticias." Then a cold open: the day\'s ' +
+  "biggest or strangest story, with a punchline by the second sentence (a new Claude model " +
+  "first, when there is one). Then three or four more stories, each as a bit: the fact in " +
+  "one clean sentence, then the turn. Vary the kind of turn so no two are alike: an " +
+  'exaggerated comparison ("eso es más plata que el PIB de..." only with a figure the ' +
+  "story gives), saying aloud what everyone thinks, a mock quote of what the CEO surely " +
+  "said in the meeting, a fake-serious piece of advice, an aside to the listener, the " +
+  "rule of three with the third one absurd. Link the stories the way a person talks " +
+  '("y hablando de quemar plata", "mientras tanto, en otro universo"), never as a ' +
+  "list. Bring one earlier joke back near the end as a callback: it is the biggest laugh. " +
+  'Include one "dato para presumir en el almuerzo": the most curious fact of the day in ' +
+  'one sentence. Then "Y para nosotros en MindfulTech": the two most useful takeaways, as ' +
+  "a colleague's straight advice, each with a light touch. Close with a sign-off of one " +
+  "line that lands the last laugh.\n" +
+  "Rules for the humour: every joke stands on a true fact from the stories and never adds " +
+  "one (no invented quotes presented as real, no invented numbers); laugh at companies, " +
+  "valuations, hype, buzzwords and the industry's habits, at AI itself and at us who work " +
+  "with it, never at victims or at anyone's looks, origin, gender or beliefs; grave news " +
+  "(deaths, layoffs, abuse) gets one straight sentence and the humour resumes on the next " +
+  'story; nothing crude. No canned jokes, no explained puns, no "ja ja", no "qué ' +
+  'locura" filler, no opening with the weather or with "buenos días".\n' +
+  "Rhythm for the ear: short sentences, one idea each. Set up, then a full stop or an " +
+  "ellipsis, then the punchline alone in its sentence. Questions to the listener. Vary " +
+  "sentence length so it doesn't drone. Plain text only, paragraphs separated by a blank " +
+  "line: no markdown, no lists, no emojis, no URLs, no stage directions or sound effects; " +
+  'write numbers and symbols the way they are said ("40 por ciento", "mil millones de ' +
+  'dólares"). Only facts from the stories.';
 
 /** The JSON the model answers with (structured outputs: the API holds it to this schema). */
 export const INSIGHTS_SCHEMA = {
@@ -335,7 +350,9 @@ export function audioScriptRequest(
     model: INSIGHTS_MODEL,
     max_tokens: AUDIO_SCRIPT_MAX_TOKENS,
     system: INSIGHTS_SYSTEM,
-    output_config: { effort: "medium" },
+    // High effort: the jokes are drafted and chosen in the thinking, which is what
+    // separates a script worth hearing from a recap.
+    output_config: { effort: "high" },
     messages: [
       {
         role: "user",
