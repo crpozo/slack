@@ -256,6 +256,10 @@ SecureString --value "…"`; (2) access in Amazon Bedrock to the model the run u
 
 ### Fixed
 
+- **Phones opened inside #general:** the app now opens on **Home**, the list of every channel
+  and conversation.
+- **Phones: Back from a direct message went to the DMs tab:** Back returns to the tab the
+  conversation was opened from: Home when you opened it from Home, DMs when from DMs.
 - **AI News: "El análisis salió demasiado largo y se cortó", again:** with 40 stories, the new
   voice and the audio script all in one answer, the analysis went past its output ceiling and
   was lost whole. The audio's script is now its own small request after the analysis (from the

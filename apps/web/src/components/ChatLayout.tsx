@@ -152,6 +152,17 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
 
   // Desktop sidebar: resizable width + icon-only mode, both remembered.
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
+  // Phones: the app opens on Home (every channel and DM), not inside #general.
+  const rootMatch = useMatch("/app");
+  useEffect(() => {
+    if (!isDesktop && rootMatch) navigate("/app/home", { replace: true });
+  }, [isDesktop, rootMatch, navigate]);
+  // Phones: back from a conversation returns to the tab it was opened from
+  // (Home when it wasn't opened from one), never to a tab the person didn't visit.
+  const cameFrom = useRef<string>("/app/home");
+  useEffect(() => {
+    if (tab) cameFrom.current = `/app/${tab}`;
+  }, [tab]);
   const [sidebar, setSidebar] = useState<SidebarPrefs>(loadSidebarPrefs);
   const [resizing, setResizing] = useState(false);
   const dragStart = useRef<{ x: number; width: number } | null>(null);
@@ -430,12 +441,15 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     };
     const headerButton = "rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink";
     let screen;
-    if (channelId) {
+    if (rootMatch) {
+      // On its way to Home (the effect above): #general isn't opened, or marked read, meanwhile.
+      screen = null;
+    } else if (channelId) {
       screen = (
         <ChannelView
           channelId={channelId}
           onOpenSidebar={() => navigate("/app/home")}
-          onBack={() => navigate(isDmChannel(channelId) ? "/app/dms" : "/app/home")}
+          onBack={() => navigate(cameFrom.current)}
           threadId={threadId}
           onOpenThread={openThread}
           onCloseThread={closeThread}
