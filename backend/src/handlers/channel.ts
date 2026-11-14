@@ -29,6 +29,7 @@ import {
   type Board,
   type Channel,
   type ChannelAction,
+  type Message,
   type ProjectBoard,
 } from "@mindfultech/shared";
 import { ulid } from "ulid";
@@ -42,7 +43,8 @@ import { accountExists } from "../lib/cognito";
 import { deleteUserRow } from "../lib/orphans";
 import { errorFields, log } from "../lib/logger";
 import { badRequest, ok, reply, replyError, type HandlerResult } from "../lib/response";
-import { guestsAmong, unknownUsers } from "../lib/users";
+import { announceNote, systemMessage } from "../lib/systemNotes";
+import { displayNamesOf, guestsAmong, unknownUsers } from "../lib/users";
 
 /** Sends every connection its own filtered `channel.list`. */
 async function broadcastChannelList(): Promise<void> {
@@ -99,13 +101,16 @@ export async function unreadCount(channel: Channel, userId: string): Promise<num
         ":from": `${after}\u0000`,
         ":before": THREAD_SK_PREFIX,
       },
-      ProjectionExpression: "userId",
+      ProjectionExpression: "userId, #kind",
+      ExpressionAttributeNames: { "#kind": "kind" },
       ScanIndexForward: false,
       Limit: MAX_UNREAD_COUNT + 1,
     }),
   );
   const mine = Items.findIndex((m) => m.userId === userId);
-  return mine === -1 ? Items.length : mine;
+  const unseen = mine === -1 ? Items : Items.slice(0, mine);
+  // Phase 63: "X was removed…" lines aren't anything to read (the app doesn't count them either).
+  return unseen.filter((m) => m.kind !== "system").length;
 }
 
 async function listChannels(caller: Caller) {
@@ -337,25 +342,47 @@ async function managedChannel(
  * Writes a private channel's new member list, only if it is still the list
  * read (no lost update between two invites) and still private.
  */
-async function saveMembers(channel: Channel, members: string[]): Promise<boolean> {
+async function saveMembers(
+  channel: Channel,
+  members: string[],
+  note?: Message | null,
+): Promise<boolean> {
+  const update = {
+    TableName: tables.channels,
+    Key: { channelId: channel.channelId },
+    UpdateExpression: "SET members = :members",
+    ConditionExpression: "#type = :private AND members = :before",
+    ExpressionAttributeNames: { "#type": "type" },
+    ExpressionAttributeValues: {
+      ":members": members,
+      ":before": channel.members ?? [],
+      ":private": "private",
+    },
+  };
   try {
+    if (!note) {
+      await ddb.send(new UpdateCommand(update));
+      return true;
+    }
+    // Phase 63: the member list and the line saying so, together or not at all.
     await ddb.send(
-      new UpdateCommand({
-        TableName: tables.channels,
-        Key: { channelId: channel.channelId },
-        UpdateExpression: "SET members = :members",
-        ConditionExpression: "#type = :private AND members = :before",
-        ExpressionAttributeNames: { "#type": "type" },
-        ExpressionAttributeValues: {
-          ":members": members,
-          ":before": channel.members ?? [],
-          ":private": "private",
-        },
+      new TransactWriteCommand({
+        TransactItems: [
+          { Update: update },
+          {
+            Put: {
+              TableName: tables.messages,
+              Item: note,
+              ConditionExpression: "attribute_not_exists(sk)",
+            },
+          },
+        ],
       }),
     );
     return true;
   } catch (err) {
     if (err instanceof ConditionalCheckFailedException) return false;
+    if (err instanceof Error && err.name === "TransactionCanceledException") return false;
     throw err;
   }
 }
@@ -371,7 +398,12 @@ async function changeMembers(
   caller: Caller,
   what: string,
   next: (members: string[], channel: Channel) => string[],
-): Promise<{ ok: true; channel: Channel } | { ok: false; error: () => Promise<HandlerResult> }> {
+  /** Phase 63: the system line for this change (from the lists before and after), if any. */
+  noteFor?: (before: string[], after: string[], channel: Channel) => Message | null,
+): Promise<
+  | { ok: true; channel: Channel; note: Message | null }
+  | { ok: false; error: () => Promise<HandlerResult> }
+> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const found = await managedChannel(channelId, caller, what);
     if ("error" in found) return { ok: false, error: found.error };
@@ -379,8 +411,9 @@ async function changeMembers(
     const before = channel.members ?? [];
     const members = next(before, channel);
     const same = members.length === before.length && members.every((m, i) => m === before[i]);
-    if (same || (await saveMembers(channel, members))) {
-      return { ok: true, channel: { ...channel, members } };
+    const note = same ? null : (noteFor?.(before, members, channel) ?? null);
+    if (same || (await saveMembers(channel, members, note))) {
+      return { ok: true, channel: { ...channel, members }, note };
     }
   }
   return { ok: false, error: () => replyError(caller.connectionId, "INTERNAL_ERROR") };
@@ -401,8 +434,23 @@ async function invite(action: ActionOf<"invite">, caller: Caller) {
       `Unknown users: ${missing.join(", ")}`,
     );
   }
-  const outcome = await changeMembers(action.channelId, caller, "take invitations", (members) =>
-    [...new Set([...members, ...invitees])].sort(compareIds),
+  const names = await displayNamesOf([...invitees, caller.userId]);
+  const outcome = await changeMembers(
+    action.channelId,
+    caller,
+    "take invitations",
+    (members) => [...new Set([...members, ...invitees])].sort(compareIds),
+    (before, _after, channel) => {
+      const added = invitees.filter((id) => !before.includes(id));
+      return added.length === 0
+        ? null
+        : systemMessage(
+            channel,
+            { event: "members_added", userIds: added, by: caller.userId },
+            caller,
+            names,
+          );
+    },
   );
   if (!outcome.ok) return outcome.error();
   const { channel } = outcome;
@@ -414,6 +462,7 @@ async function invite(action: ActionOf<"invite">, caller: Caller) {
     externals: externals.length,
   });
   await broadcastChannelList();
+  await announceNote(channel, outcome.note);
   return ok();
 }
 
@@ -424,6 +473,7 @@ async function invite(action: ActionOf<"invite">, caller: Caller) {
  */
 async function removeMember(action: ActionOf<"remove">, caller: Caller) {
   let creator = false;
+  const names = await displayNamesOf([action.userId, caller.userId]);
   const outcome = await changeMembers(
     action.channelId,
     caller,
@@ -432,6 +482,14 @@ async function removeMember(action: ActionOf<"remove">, caller: Caller) {
       creator = action.userId === channel.createdBy;
       return creator ? members : members.filter((id) => id !== action.userId);
     },
+    // Phase 63: "@Luis was removed from the channel by Ana", in the same transaction.
+    (_before, _after, channel) =>
+      systemMessage(
+        channel,
+        { event: "member_removed", userIds: [action.userId], by: caller.userId },
+        caller,
+        names,
+      ),
   );
   if (!outcome.ok) return outcome.error();
   if (creator) {
@@ -444,6 +502,8 @@ async function removeMember(action: ActionOf<"remove">, caller: Caller) {
     removed: action.userId,
   });
   await broadcastChannelList();
+  // To those who still see the channel (the person removed no longer does).
+  await announceNote(channel, outcome.note);
   return ok();
 }
 

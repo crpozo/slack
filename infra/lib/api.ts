@@ -240,6 +240,8 @@ export class Api extends Construct {
     );
     // Deleting a channel or DM removes its messages too.
     messages.grant(handlers.channel, "dynamodb:Query", "dynamodb:BatchWriteItem");
+    // Phase 63: a membership change writes its system line (PutItem, in the transaction).
+    messages.grant(handlers.channel, "dynamodb:PutItem");
     users.grant(handlers.channel, "dynamodb:BatchGetItem"); // invitees must exist
     // A DM with an account Cognito no longer has deletes that profile (DeleteItem).
     users.grant(handlers.channel, "dynamodb:DeleteItem");

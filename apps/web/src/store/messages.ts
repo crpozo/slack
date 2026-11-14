@@ -57,6 +57,9 @@ const GROUP_WINDOW_MS = 5 * 60 * 1000;
 export function isGroupedWith(prev: ChatMessage | undefined, m: ChatMessage): boolean {
   return (
     !!prev &&
+    // Phase 63: a system line stands alone, and the message after it starts afresh.
+    prev.kind !== "system" &&
+    m.kind !== "system" &&
     prev.userId === m.userId &&
     m.createdAt - prev.createdAt < GROUP_WINDOW_MS &&
     new Date(prev.createdAt).toDateString() === new Date(m.createdAt).toDateString()

@@ -6,10 +6,7 @@ import {
   TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import {
-  ConditionalCheckFailedException,
-  TransactionCanceledException,
-} from "@aws-sdk/client-dynamodb";
+import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import {
   AddBoardMembersSchema,
   attachmentPrefixFor,
@@ -71,7 +68,8 @@ import {
 import { errorFields, log } from "../lib/logger";
 import { findOrInviteGuest, type InvitedAccount } from "../lib/cognito";
 import { notifyTaskActivity, notifyTasksFromNotes } from "../lib/notify";
-import { defaultDisplayName, toUserProfile, unknownUsers } from "../lib/users";
+import { announceNote, systemMessage } from "../lib/systemNotes";
+import { defaultDisplayName, displayNamesOf, toUserProfile, unknownUsers } from "../lib/users";
 
 /**
  * Task Manager HTTP API. Rows of the `boards` table:
@@ -309,25 +307,48 @@ async function inviteToChannel(event: HttpEvent, caller: HttpCaller): Promise<Ht
   const account = await findOrInviteGuest(email);
   await saveInvitedProfile(account);
   const members = [...new Set([...(channel.members ?? []), account.userId])].sort(compareIds);
+  // Phase 63: "@client was added to the channel by Ana", in the same transaction.
+  const names = await displayNamesOf([account.userId, caller.userId]);
+  names.set(account.userId, names.get(account.userId) ?? defaultDisplayName(account.email));
+  let note: ReturnType<typeof systemMessage> | null = systemMessage(
+    channel,
+    { event: "members_added", userIds: [account.userId], by: caller.userId },
+    { userId: caller.userId, userEmail: caller.email },
+    names,
+  );
   try {
     await ddb.send(
-      new UpdateCommand({
-        TableName: tables.channels,
-        Key: { channelId: channel.channelId },
-        // Appended to whatever the list is now (another invite may have just landed).
-        UpdateExpression: "SET members = list_append(members, :new)",
-        ConditionExpression: "#type = :private AND NOT contains(members, :id)",
-        ExpressionAttributeNames: { "#type": "type" },
-        ExpressionAttributeValues: {
-          ":new": [account.userId],
-          ":id": account.userId,
-          ":private": "private",
-        },
+      new TransactWriteCommand({
+        TransactItems: [
+          {
+            Update: {
+              TableName: tables.channels,
+              Key: { channelId: channel.channelId },
+              // Appended to whatever the list is now (another invite may have just landed).
+              UpdateExpression: "SET members = list_append(members, :new)",
+              ConditionExpression: "#type = :private AND NOT contains(members, :id)",
+              ExpressionAttributeNames: { "#type": "type" },
+              ExpressionAttributeValues: {
+                ":new": [account.userId],
+                ":id": account.userId,
+                ":private": "private",
+              },
+            },
+          },
+          {
+            Put: {
+              TableName: tables.messages,
+              Item: note,
+              ConditionExpression: "attribute_not_exists(sk)",
+            },
+          },
+        ],
       }),
     );
   } catch (err) {
     // Already in it: nothing to add (the account may still have been re-sent its email).
-    if (!(err instanceof ConditionalCheckFailedException)) throw err;
+    if (!(err instanceof Error && err.name === "TransactionCanceledException")) throw err;
+    note = null;
   }
   log.info("channel invite", {
     channelId: channel.channelId,
@@ -345,6 +366,7 @@ async function inviteToChannel(event: HttpEvent, caller: HttpCaller): Promise<Ht
   } catch (err) {
     log.error("channel list broadcast failed", { channelId, ...errorFields(err) });
   }
+  await announceNote({ ...channel, members }, note);
   return json(200, {
     channel: { ...channel, members },
     invited: { userId: account.userId, role: account.role, created: account.created },

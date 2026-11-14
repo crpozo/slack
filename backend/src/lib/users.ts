@@ -79,3 +79,37 @@ export async function guestsAmong(userIds: string[]): Promise<string[]> {
     .filter((item) => item.role === "guest")
     .map((item) => String(item.userId));
 }
+
+/**
+ * Display names for `userIds` (BatchGetItem), the email's local part for
+ * anyone without one, and "someone" for an id with no row at all.
+ */
+export async function displayNamesOf(userIds: string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  const ids = [...new Set(userIds)];
+  if (ids.length === 0) return names;
+  try {
+    const result: BatchGetCommandOutput = await ddb.send(
+      new BatchGetCommand({
+        RequestItems: {
+          [tables.users]: {
+            Keys: ids.map((userId) => ({ userId })),
+            ProjectionExpression: "userId, displayName, email",
+          },
+        },
+      }),
+    );
+    for (const item of result.Responses?.[tables.users] ?? []) {
+      const email = typeof item.email === "string" ? item.email : "";
+      const name =
+        typeof item.displayName === "string" && item.displayName
+          ? item.displayName
+          : defaultDisplayName(email);
+      names.set(String(item.userId), name);
+    }
+  } catch (err) {
+    log.warn("display names lookup failed", { users: ids.length, ...errorFields(err) });
+  }
+  for (const id of ids) if (!names.has(id)) names.set(id, "someone");
+  return names;
+}
