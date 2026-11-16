@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Team: remove someone:** each row of **Settings → Team** has a remove button (two taps:
+  🗑 then **Remove**). It deletes their account, so they can't sign in again and they leave
+  everyone's DM list; what they wrote stays in the conversations. You can't remove yourself or
+  the last admin.
 - **Members leaving and joining show in the channel:** removing someone from a private channel, or
   adding people, now leaves a small centered line in the conversation, such as "@Luis was removed
   from the channel by Ana". It's written together with the change, shows current names, and

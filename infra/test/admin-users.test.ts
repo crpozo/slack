@@ -65,7 +65,12 @@ describe("the team panel (Phase 62)", () => {
       .filter((st) => JSON.stringify(st.Resource).includes("DataUsers"))
       .flatMap((st) => [st.Action].flat())
       .sort();
-    expect(dynamo).toEqual(["dynamodb:PutItem", "dynamodb:Scan", "dynamodb:UpdateItem"]);
+    expect(dynamo).toEqual([
+      "dynamodb:DeleteItem",
+      "dynamodb:PutItem",
+      "dynamodb:Scan",
+      "dynamodb:UpdateItem",
+    ]);
     expect(JSON.stringify(all)).not.toMatch(/DataMessages|DataChannels/);
   });
 });

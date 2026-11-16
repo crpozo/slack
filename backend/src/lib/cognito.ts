@@ -315,3 +315,8 @@ export async function setAdmin(username: string, admin: boolean): Promise<void> 
     admin ? new AdminAddUserToGroupCommand(input) : new AdminRemoveUserFromGroupCommand(input),
   );
 }
+
+/** Phase 67: deletes the account (they can't sign in again; their messages stay). */
+export async function deleteAccount(username: string): Promise<void> {
+  await cognito().send(new AdminDeleteUserCommand({ UserPoolId: poolId(), Username: username }));
+}

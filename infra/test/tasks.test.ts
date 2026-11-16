@@ -88,6 +88,7 @@ describe("task manager API", () => {
       }),
     ).map((r) => r.Properties as { RouteKey: string; AuthorizationType?: string });
     expect(routes.map((r) => r.RouteKey).sort((a, b) => a.localeCompare(b))).toEqual([
+      "DELETE /admin/users/{userId}",
       "DELETE /boards/{id}",
       "DELETE /calendar/events/{id}",
       "DELETE /channels/{channelId}/time/{date}/{entryId}",

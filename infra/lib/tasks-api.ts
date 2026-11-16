@@ -194,6 +194,8 @@ export const ADMIN_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/admin/users" },
   { method: HttpMethod.POST, path: "/admin/users" },
   { method: HttpMethod.PUT, path: "/admin/users/{userId}/role" },
+  // Phase 67: remove someone from the platform.
+  { method: HttpMethod.DELETE, path: "/admin/users/{userId}" },
 ];
 
 /** AI Tech Radar (Phase 56): read by the team, changed by admins and the scanner. */
@@ -986,6 +988,7 @@ export class TasksApi extends Construct {
       "dynamodb:Scan",
       "dynamodb:PutItem",
       "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
     );
     this.adminUsersHandler.addToRolePolicy(
       new PolicyStatement({

@@ -1,5 +1,5 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { paginateScan, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, paginateScan, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import {
   InviteTeamMemberSchema,
   SetTeamRoleSchema,
@@ -9,7 +9,9 @@ import {
 import {
   accountBySub,
   AccountExistsError,
+  adminUserIds,
   createTeamAccount,
+  deleteAccount,
   listPoolAccounts,
   setAdmin,
   type PoolAccount,
@@ -150,10 +152,33 @@ async function changeRole(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
 }
 
 /**
+ * `DELETE /admin/users/{userId}` (Phase 67): removes someone from the
+ * platform. Their Cognito account is deleted (they can't sign in again, and an
+ * open session ends at its next refresh) and their profile leaves the
+ * directory; what they wrote stays in the conversations. Never yourself, and
+ * never the last admin.
+ */
+async function removeMember(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  adminOnly(caller);
+  const userId = decodeURIComponent(pathParam(event, "userId"));
+  if (userId === caller.userId) throw new HttpError(409, "You can't remove yourself");
+  const account = await accountBySub(userId);
+  if (!account) throw notFound("No such account");
+  if (account.role === "admin" && (await adminUserIds()).length <= 1) {
+    throw new HttpError(409, "The team needs at least one admin");
+  }
+  await deleteAccount(account.username);
+  await ddb.send(new DeleteCommand({ TableName: tables.users, Key: { userId } }));
+  log.info("team member removed", { userId, role: account.role, by: caller.userId });
+  return json(204);
+}
+
+/**
  * The team panel (Phase 62), on the HTTP API behind the Cognito JWT authorizer:
  *   GET  /admin/users                  → `{ members }`
  *   POST /admin/users                  → 201 `{ member }` (invites by email)
  *   PUT  /admin/users/{userId}/role    → `{ member }`
+ *   DELETE /admin/users/{userId}       → 204 (Phase 67)
  */
 export const handler = httpHandler(async (event, caller) => {
   switch (event.routeKey) {
@@ -163,6 +188,8 @@ export const handler = httpHandler(async (event, caller) => {
       return invite(event, caller);
     case "PUT /admin/users/{userId}/role":
       return changeRole(event, caller);
+    case "DELETE /admin/users/{userId}":
+      return removeMember(event, caller);
     default:
       throw notFound(`No route for ${event.routeKey}`);
   }

@@ -12,7 +12,7 @@ import {
   type UserStatusType,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { PutCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, PutCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import type { TeamMember } from "@mindfultech/shared";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -255,5 +255,67 @@ describe("changing a role", () => {
     cognito.on(ListUsersCommand).resolves({ Users: [] });
     expect((await put(STAFF.userId, "admin")).status).toBe(404);
     expect(cognito.commandCalls(AdminAddUserToGroupCommand)).toHaveLength(0);
+  });
+});
+
+describe("removing someone (Phase 67)", () => {
+  const found = (groups: string[]) => {
+    cognito.on(ListUsersCommand).resolves({
+      Users: [
+        {
+          Username: "u-staff",
+          Attributes: [
+            { Name: "sub", Value: STAFF.userId },
+            { Name: "email", Value: STAFF.email },
+          ],
+        },
+      ],
+    });
+    cognito
+      .on(AdminListGroupsForUserCommand)
+      .resolves({ Groups: groups.map((GroupName) => ({ GroupName })) });
+    cognito.on(AdminDeleteUserCommand).resolves({});
+    ddbMock.on(DeleteCommand).resolves({});
+  };
+  const del = (userId: string, user = ADMIN) =>
+    call("DELETE /admin/users/{userId}", undefined, user, user === ADMIN ? "[admins]" : "", {
+      userId,
+    });
+
+  it("deletes the account and the profile", async () => {
+    found([]);
+    expect((await del(STAFF.userId)).status).toBe(204);
+    expect(cognito.commandCalls(AdminDeleteUserCommand)[0]!.args[0].input).toMatchObject({
+      UserPoolId: "us-east-1_TEST",
+      Username: "u-staff",
+    });
+    expect(ddbMock.commandCalls(DeleteCommand)[0]!.args[0].input).toMatchObject({
+      Key: { userId: STAFF.userId },
+    });
+  });
+
+  it("never yourself, never by staff, never the last admin, and 404 for nobody", async () => {
+    found(["admins"]);
+    expect((await del(ADMIN.userId)).status).toBe(409);
+    expect((await del(ADMIN.userId, STAFF)).status).toBe(403);
+    // The one admin left.
+    cognito.on(ListUsersInGroupCommand).resolves({
+      Users: [{ Username: "u-staff", Attributes: [{ Name: "sub", Value: STAFF.userId }] }],
+    });
+    expect((await del(STAFF.userId)).status).toBe(409);
+    cognito.on(ListUsersCommand).resolves({ Users: [] });
+    expect((await del("dddddddd-0000-4000-8000-000000000004")).status).toBe(404);
+    expect(cognito.commandCalls(AdminDeleteUserCommand)).toHaveLength(0);
+  });
+
+  it("an admin can go while another admin remains", async () => {
+    found(["admins"]);
+    cognito.on(ListUsersInGroupCommand).resolves({
+      Users: [
+        { Username: "u-staff", Attributes: [{ Name: "sub", Value: STAFF.userId }] },
+        { Username: "u-carlos", Attributes: [{ Name: "sub", Value: ADMIN.userId }] },
+      ],
+    });
+    expect((await del(STAFF.userId)).status).toBe(204);
   });
 });

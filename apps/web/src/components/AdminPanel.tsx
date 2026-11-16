@@ -11,6 +11,7 @@ import { chat } from "../lib/chat";
 import { teamApi } from "../lib/teamApi";
 import { useChat } from "../store";
 import { Avatar } from "./Avatar";
+import { TrashIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 
 const STATUS: Record<AccountStatus, { label: string; className: string }> = {
@@ -39,6 +40,8 @@ export function AdminPanel({ onClose }: Readonly<{ onClose: () => void }>) {
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [changing, setChanging] = useState<string | null>(null);
+  /** Phase 67: the row asking "remove?" (two taps, so a slip can't remove anyone). */
+  const [confirming, setConfirming] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -88,6 +91,22 @@ export function AdminPanel({ onClose }: Readonly<{ onClose: () => void }>) {
       showToast(errorText(err, "Couldn't change the role."), "error");
     } finally {
       setChanging(null);
+    }
+  }
+
+  async function remove(member: TeamMember) {
+    setChanging(member.userId);
+    try {
+      await teamApi.remove(member.userId);
+      setMembers((list) => (list ?? []).filter((m) => m.userId !== member.userId));
+      showToast(`${member.displayName} was removed from the platform.`, "success");
+      // They leave everyone's DM list.
+      chat.refreshUsers();
+    } catch (err) {
+      showToast(errorText(err, "Couldn't remove them."), "error");
+    } finally {
+      setChanging(null);
+      setConfirming(null);
     }
   }
 
@@ -211,12 +230,43 @@ export function AdminPanel({ onClose }: Readonly<{ onClose: () => void }>) {
                       ))}
                     </select>
                   )}
+                  {!self &&
+                    (confirming === m.userId ? (
+                      <span className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => void remove(m)}
+                          disabled={changing === m.userId}
+                          className="rounded-md bg-error px-2 py-1 text-xs font-semibold text-on-accent hover:brightness-110 disabled:opacity-60"
+                        >
+                          {changing === m.userId ? "Removing…" : "Remove"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirming(null)}
+                          className="rounded-md px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink"
+                        >
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirming(m.userId)}
+                        aria-label={`Remove ${m.displayName} from the platform`}
+                        title="Remove from the platform"
+                        className="shrink-0 rounded-md p-1.5 text-ink-secondary hover:bg-error/15 hover:text-error"
+                      >
+                        <TrashIcon />
+                      </button>
+                    ))}
                 </li>
               );
             })}
           </ul>
           <p className="text-xs text-ink-secondary">
-            A new role applies when that person next signs in, or within the hour.
+            A new role applies when that person next signs in, or within the hour. Removing someone
+            deletes their account: they can't sign in again, and what they wrote stays.
           </p>
         </section>
       </div>

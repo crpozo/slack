@@ -10,4 +10,6 @@ export const teamApi = {
     request<{ member: TeamMember }>("PUT", `/admin/users/${encodeURIComponent(userId)}/role`, {
       role,
     }).then((r) => r.member),
+  /** Phase 67: removes the account; their messages stay. */
+  remove: (userId: string) => request<void>("DELETE", `/admin/users/${encodeURIComponent(userId)}`),
 };
