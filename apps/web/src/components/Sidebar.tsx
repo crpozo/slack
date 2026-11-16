@@ -9,10 +9,16 @@ import {
   type Channel,
 } from "@mindfultech/shared";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChartNoAxesCombined as ChartIcon, Radar as RadarIcon } from "lucide-react";
+import {
+  ChartNoAxesCombined as ChartIcon,
+  Compass as CompassIcon,
+  ExternalLink as ExternalLinkIcon,
+  Radar as RadarIcon,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
+import { DISCOVERY_URL } from "../lib/config";
 import { LONG_PRESS_MS, SLOP_PX, swallowNextClick } from "../lib/gestures";
 import {
   dmEntries,
@@ -275,6 +281,44 @@ function NavItem({
         <UnreadBadge count={unread} compact={compact} urgent={urgent} />
       </button>
       {!compact && menu && menu.length > 0 && <RowMenu label={label} items={menu} />}
+    </li>
+  );
+}
+
+/**
+ * A row that leaves this app (Phase 68: Discovery): a link, opened in a new
+ * tab, styled as the other rows.
+ */
+function ExternalNavItem({
+  compact,
+  label,
+  href,
+  icon,
+}: Readonly<{ compact: boolean; label: string; href: string; icon: ReactNode }>) {
+  return (
+    <li className="rounded-md">
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={compact ? label : `${label} (opens in a new tab)`}
+        aria-label={compact ? label : undefined}
+        className={`flex w-full items-center gap-2 rounded-md text-left text-sm text-ink-secondary transition-colors hover:bg-surface-hover hover:text-ink ${
+          compact ? "h-10 justify-center px-0" : "px-2 py-1.5"
+        }`}
+      >
+        <span className="flex shrink-0 items-center justify-center">{icon}</span>
+        {!compact && (
+          <>
+            <span className="truncate">{label}</span>
+            <ExternalLinkIcon
+              size={12}
+              className="ml-auto shrink-0 opacity-60"
+              aria-hidden="true"
+            />
+          </>
+        )}
+      </a>
     </li>
   );
 }
@@ -1450,6 +1494,15 @@ export function Sidebar({
                   active={activeChannelId === "insights"}
                   unread={0}
                   onClick={() => navigate("/app/insights")}
+                />
+              )}
+              {/* Phase 68: Discovery, for the team only (members and admins, never guests). */}
+              {me && me.role !== "guest" && (
+                <ExternalNavItem
+                  compact={compact}
+                  label="Discovery"
+                  href={DISCOVERY_URL}
+                  icon={<CompassIcon size={16} className="text-ink-secondary" aria-hidden="true" />}
                 />
               )}
             </ul>

@@ -350,7 +350,9 @@ describe("web push", () => {
     const json = template.toJSON() as { Parameters?: Record<string, unknown> };
     expect(JSON.stringify(json)).not.toMatch(/privateKey/);
     // No SSM resource nor deploy-time SSM lookup of the keys (only CDK's BootstrapVersion).
-    expect(Object.keys(template.findResources("AWS::SSM::Parameter"))).toEqual([]);
+    // The one SSM parameter the stack creates is the User Pool ID for Discovery (Phase 68).
+    const parameters = Object.values(template.findResources("AWS::SSM::Parameter"));
+    expect(parameters.map((p) => p.Properties.Name)).toEqual(["/slack/dev/user-pool-id"]);
     expect(Object.keys(json.Parameters ?? {})).toEqual(["BootstrapVersion"]);
     for (const name of ["slack-dev-push", "slack-dev-message"]) {
       expect(

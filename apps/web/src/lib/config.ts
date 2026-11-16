@@ -1,4 +1,11 @@
+import { DISCOVERY_URL as SHARED_DISCOVERY_URL } from "@mindfultech/shared";
 import { assertWebSocketUrl } from "./ws";
+
+/**
+ * Phase 68: Discovery, the MindfulTech app that shares this app's User Pool.
+ * Linked from the team's sidebar (never from the guest layout).
+ */
+export const DISCOVERY_URL = SHARED_DISCOVERY_URL;
 
 export interface DirectoryUser {
   email: string;

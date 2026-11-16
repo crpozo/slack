@@ -19,3 +19,4 @@ export * from "./team";
 export * from "./publicHolidays";
 export * from "./linkPreview";
 export * from "./platformInsights";
+export * from "./discovery";
