@@ -27,3 +27,33 @@ export function saveOwnProfile(profile: UserProfile): void {
     // Storage blocked: the name still arrives with the directory.
   }
 }
+
+/**
+ * The team's directory as the server last gave it, remembered per person on
+ * this device. Until the directory arrives over the WebSocket the DM list had
+ * to stand in with the build's VITE_USERS and old DM channels, so someone
+ * whose account was deleted showed for a moment on every load. Seeding from
+ * this copy lists exactly the people who were there last time; the next
+ * `user.list` replaces it.
+ */
+const directoryKey = (userId: string) => `slack.directory.${userId}`;
+
+export function loadDirectory(userId: string): UserProfile[] | null {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(directoryKey(userId)) ?? "null");
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter(
+      (u): u is UserProfile => !!u && typeof u.userId === "string" && typeof u.email === "string",
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function saveDirectory(userId: string, users: UserProfile[]): void {
+  try {
+    localStorage.setItem(directoryKey(userId), JSON.stringify(users));
+  } catch {
+    // Storage blocked or full: the list still arrives with the directory.
+  }
+}

@@ -15,7 +15,7 @@ import { useCallback } from "react";
 import { create } from "zustand";
 import type { SessionUser } from "../lib/auth";
 import { displayName } from "../lib/channels";
-import { loadOwnProfile, saveOwnProfile } from "../lib/profile";
+import { loadDirectory, loadOwnProfile, saveDirectory, saveOwnProfile } from "../lib/profile";
 import type { DirectoryUser } from "../lib/config";
 import { toneOf, type ToastTone } from "../lib/toast";
 import type { WsStatus } from "../lib/ws";
@@ -303,12 +303,21 @@ export const useChat = create<ChatState>()((set, get) => ({
     if (me) directory[me.userId] = me.email;
     // Your saved profile: your display name shows before the directory arrives.
     const own = me ? loadOwnProfile(me.userId) : null;
+    const users: Record<string, UserProfile> = own ? { [own.userId]: own } : {};
+    // The directory as it was last time: the DM list shows the right people from
+    // the first frame (no account deleted since, nobody from the build's list).
+    const cached = me ? loadDirectory(me.userId) : null;
+    for (const u of cached ?? []) {
+      if (u.userId !== me?.userId) users[u.userId] = u;
+      directory[u.userId] = u.email;
+    }
     set({
       ...initialState,
       me,
       team,
       directory,
-      users: own ? { [own.userId]: own } : {},
+      users,
+      usersLoaded: !!cached && cached.length > 0,
     });
   },
 
@@ -453,6 +462,7 @@ export const useChat = create<ChatState>()((set, get) => ({
       if (mine) saveOwnProfile(mine);
       // A guest's directory may not list them yet: keep what we know about ourselves.
       else if (s.me && s.users[s.me.userId]) users[s.me.userId] = s.users[s.me.userId]!;
+      if (s.me) saveDirectory(s.me.userId, list);
       // The periodic refresh usually brings the same people: keep the object (and
       // everything derived from it, like every message's name) as it was.
       if (sameUsers(s.users, users)) users = s.users;

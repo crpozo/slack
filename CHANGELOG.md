@@ -260,6 +260,10 @@ SecureString --value "…"`; (2) access in Amazon Bedrock to the model the run u
 
 ### Fixed
 
+- **A deleted account flashed in the DM list on every load:** until the directory arrived,
+  the list stood in with the build's list of people and old DM channels. The app now
+  remembers the directory as the server last gave it (per person, on the device) and starts
+  from that, so someone who was removed doesn't show again.
 - **Phones opened inside #general:** the app now opens on **Home**, the list of every channel
   and conversation.
 - **Phones: Back from a direct message went to the DMs tab:** Back returns to the tab the
