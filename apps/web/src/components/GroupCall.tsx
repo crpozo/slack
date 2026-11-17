@@ -16,6 +16,7 @@ import {
   CloseIcon,
   LinkIcon,
   MaximizeIcon,
+  MinimizeIcon,
   MicIcon,
   MicOffIcon,
   PhoneIcon,
@@ -24,6 +25,7 @@ import {
   VideoIcon,
   VideoOffIcon,
 } from "./icons";
+import { useCallLayout } from "./CallLayer";
 import { ReconnectingOverlay, useSecondsLeft } from "./Reconnecting";
 import { StreamMedia } from "./StreamMedia";
 
@@ -436,15 +438,31 @@ export function GroupCallPanel({
   const call = useGroupCall((s) => (s.call?.channelId === channelId ? s.call : null));
   const team = useChat((s) => s.me?.role !== "guest");
   const elapsed = useElapsed(call?.startedAt ?? null);
+  // Phase 69: like a DM call, it fills the conversation or leaves the chat below.
+  const expanded = useCallLayout((s) => s.expanded);
+  const setExpanded = useCallLayout((s) => s.setExpanded);
   if (!call) return null;
   const count = call.peers.length + 1;
   return (
     <section
       aria-label={`Call in ${label}`}
-      className="flex h-[min(52vh,560px)] min-h-[300px] shrink-0 flex-col border-b border-line bg-[#0E0D12] text-white"
+      className={`flex flex-col border-b border-line bg-[#0E0D12] text-white ${
+        expanded ? "min-h-0 flex-1" : "h-[min(52vh,560px)] min-h-[300px] shrink-0"
+      }`}
       data-group-call={call.roomId ?? "joining"}
+      data-expanded={expanded || undefined}
     >
       <header className="flex items-center gap-2 px-3 py-2 text-sm">
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          aria-pressed={expanded}
+          aria-label={expanded ? "Show the chat" : "Expand the call"}
+          title={expanded ? "Show the chat" : "Expand the call"}
+          className="-ml-1 rounded-md p-1.5 text-white/80 hover:bg-white/15 hover:text-white"
+        >
+          {expanded ? <MinimizeIcon /> : <MaximizeIcon />}
+        </button>
         <span className="h-2 w-2 shrink-0 rounded-full bg-success" aria-hidden="true" />
         <p className="truncate font-semibold">{label}</p>
         <p className="truncate text-white/70" aria-live="polite">

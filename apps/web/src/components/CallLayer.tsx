@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { create } from "zustand";
 import { calls, useCall, type CallView } from "../lib/call";
+import { useGroupCall } from "../lib/groupCall";
 import {
   createPipController,
   detectPipEnv,
@@ -195,8 +196,10 @@ export const useCallLayout = create<{ expanded: boolean; setExpanded: (v: boolea
 /** Whether the call view fills the chat column of `channelId` right now. */
 export function useCallExpanded(channelId: string): boolean {
   const here = useCall((s) => s.call?.channelId === channelId && s.call.phase !== "incoming");
+  // Phase 69: a channel's group call fills the column the same way.
+  const groupHere = useGroupCall((s) => s.call?.channelId === channelId);
   const expanded = useCallLayout((s) => s.expanded);
-  return here && expanded;
+  return (here || groupHere) && expanded;
 }
 
 function useElapsed(since: number | null): string {

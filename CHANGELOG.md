@@ -282,6 +282,10 @@ SecureString --value "…"`; (2) access in Amazon Bedrock to the model the run u
 
 ### Fixed
 
+- **A channel call couldn't be expanded:** only calls in direct messages had the expand
+  button. A channel's group call now has it too (top left of the call): it fills the whole
+  conversation area, or leaves the chat below; the choice is shared with DM calls and
+  remembered on the device.
 - **No popup while working in another app with the chat open in Chrome:** the system
   notification came only from the server's push, which isn't sent for a few minutes after
   you were last in front of the app. The open tab now shows it itself (DMs, private channels
