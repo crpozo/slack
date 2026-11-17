@@ -5,6 +5,8 @@ import {
   newMessageSk,
   normalizeWebsite,
   SetVaultPinSchema,
+  MAX_VAULT_ALLOWED,
+  ShareVaultSecretSchema,
   UpdateVaultSecretSchema,
   VAULT_SESSION_HEADER,
   vaultCardText,
@@ -151,6 +153,7 @@ async function requireSession(event: HttpEvent, caller: HttpCaller): Promise<Htt
 }
 
 /** Posts the "🔒 Shared a Secret" card in the secret's channel (best effort past the write). */
+/** Posts the secret's card in `channel` (its own channel, or where it's tagged). */
 async function postCard(secret: VaultSecret, channel: Channel, caller: HttpCaller) {
   const now = Date.now();
   const card: VaultCard = {
@@ -161,7 +164,7 @@ async function postCard(secret: VaultSecret, channel: Channel, caller: HttpCalle
   };
   const message: Message = {
     messageId: ulid(now),
-    channelId: secret.channelId,
+    channelId: channel.channelId,
     sk: newMessageSk(now),
     userId: caller.userId,
     userEmail: caller.email,
@@ -291,6 +294,39 @@ async function update(event: HttpEvent, caller: HttpCaller): Promise<HttpResult>
 }
 
 /**
+ * `POST /vault/secrets/{secretId}/share` (Phase 68): tags a saved secret in a
+ * conversation, by someone who may manage it, while their Vault is open. The
+ * conversation's teammates join who may reveal it and a card is posted there
+ * that opens it. A conversation with people from outside MindfulTech takes
+ * none. The secret stays filed under its own channel (its encryption context).
+ */
+async function share(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  const secretId = secretIdOf(event);
+  const { channelId } = parseBody(ShareVaultSecretSchema, event);
+  const row = await accessibleRow(secretId, caller);
+  if (!canManageVaultSecret(row, caller.userId, caller.role)) {
+    throw forbidden("Only people this secret is shared with can share it");
+  }
+  const channel = await channelFor(channelId, caller, false);
+  const members = await channelMemberIds(channel, row.createdBy);
+  const { encryptedPassword, ...current } = row;
+  const next: VaultSecret = {
+    ...current,
+    allowedUserIds: [...new Set([...row.allowedUserIds, ...members])].slice(0, MAX_VAULT_ALLOWED),
+    updatedAt: Date.now(),
+  };
+  await replaceVaultRow({ ...next, encryptedPassword });
+  const message = await postCard(next, channel, caller);
+  log.info("vault secret tagged", {
+    secretId,
+    channelId: channel.channelId,
+    userId: caller.userId,
+    allowed: next.allowedUserIds.length,
+  });
+  return json(200, { secret: next, message });
+}
+
+/**
  * `POST /vault/reveal/{secretId}`: the password, for someone the secret is
  * shared with (anyone else gets "not found"), while their Vault is unlocked
  * (the session header, Phase 52: one PIN for `VAULT_SESSION_MS`) or with
@@ -397,6 +433,8 @@ export const handler = httpHandler(async (event, caller): Promise<HttpResult> =>
     }
     case "PUT /vault/secrets/{secretId}":
       return update(event, caller);
+    case "POST /vault/secrets/{secretId}/share":
+      return share(event, caller);
     case "DELETE /vault/secrets/{secretId}":
       return remove(event, caller);
     default:

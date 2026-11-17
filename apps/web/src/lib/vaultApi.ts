@@ -55,6 +55,14 @@ export const vaultApi = {
       undefined,
       session(token),
     ).then((r) => r.password),
+  /** Phase 68: tags the secret in a conversation (its members get access and a card). */
+  share: (secretId: string, channelId: string, token: string) =>
+    request<{ secret: VaultSecret }>(
+      "POST",
+      `/vault/secrets/${encodeURIComponent(secretId)}/share`,
+      { channelId },
+      session(token),
+    ).then((r) => r.secret),
   remove: (secretId: string, token: string) =>
     request<{ deleted: string }>(
       "DELETE",

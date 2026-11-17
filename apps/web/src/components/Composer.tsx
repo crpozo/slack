@@ -1,3 +1,5 @@
+import { KeyRound } from "lucide-react";
+import { VaultTagPicker } from "./VaultTagPicker";
 import { previewLinkIn } from "../lib/linkPreview";
 import { ComposerLinkPreview } from "./LinkPreviewCard";
 import {
@@ -254,7 +256,6 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
   const showToast = useChat((s) => s.showToast);
   const userId = useChat((s) => s.me?.userId);
   // Phase 55: an external writes in their channels, without the team's calendar or Vault.
-  const guest = useChat((s) => s.me?.role === "guest");
   // This composer's unsent text survives switching away and reloads (see lib/drafts).
   const storageKey = userId ? draftKey(userId, channelId, thread?.sk) : null;
   const [text, setText] = useState(() => (storageKey ? loadDraft(storageKey) : ""));
@@ -276,6 +277,9 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
   const nameOf = useNameOf();
   /** Secret mode: the message is sent masked, text only, and deleted after 24 hours. */
   const [secret, setSecret] = useState(false);
+  /** Phase 68: picking a Vault secret to tag here. */
+  const [tagging, setTagging] = useState(false);
+  const guest = useChat((s) => s.me?.role === "guest");
   // "Send as normal text" on the auto-detect hint: this message isn't a credential.
   const [plainAnyway, setPlainAnyway] = useState(false);
   // Direct messages: schedule a meeting with the other person from here.
@@ -720,6 +724,7 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
   );
   const pickers = (
     <>
+      {tagging && <VaultTagPicker channelId={channelId} onClose={() => setTagging(false)} />}
       {scheduling && (
         <ScheduleMeetingModal channelId={channelId} onClose={() => setScheduling(false)} />
       )}
@@ -1078,6 +1083,18 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
                             },
                           ]
                         : []),
+                      ...(!guest
+                        ? [
+                            {
+                              key: "vault",
+                              icon: <KeyRound size={18} />,
+                              label: "Compartir del Vault",
+                              hint: "Una credencial guardada, para este chat",
+                              off: !!editing,
+                              run: () => setTagging(true),
+                            },
+                          ]
+                        : []),
                       {
                         key: "secret",
                         icon: <LockIcon />,
@@ -1133,6 +1150,19 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
               >
                 <LockIcon />
               </button>
+              {!guest && (
+                <button
+                  type="button"
+                  onClick={() => setTagging(true)}
+                  disabled={disabled || !!editing}
+                  className="rounded-lg p-2 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-50"
+                  aria-label="Share from the Vault"
+                  title="Compartir una credencial del Vault aquí"
+                  data-vault-tag
+                >
+                  <KeyRound size={18} />
+                </button>
+              )}
               {canSchedule && (
                 <button
                   type="button"

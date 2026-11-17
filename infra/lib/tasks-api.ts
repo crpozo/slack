@@ -240,6 +240,8 @@ export const VAULT_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/vault/reveal/{secretId}" },
   { method: HttpMethod.PUT, path: "/vault/secrets/{secretId}" },
   { method: HttpMethod.DELETE, path: "/vault/secrets/{secretId}" },
+  // Phase 68: tag a saved secret in a conversation.
+  { method: HttpMethod.POST, path: "/vault/secrets/{secretId}/share" },
   { method: HttpMethod.GET, path: "/vault/pin" },
   { method: HttpMethod.POST, path: "/vault/pin" },
   { method: HttpMethod.POST, path: "/vault/pin/verify" },

@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Tag a Vault credential in a chat:** the 🔑 button in the message box (on phones, in the
+  **+** menu) lists the credentials you manage; pick one and it's shared with that chat:
+  its teammates get access and a card is posted there that opens it (with their Vault PIN).
+  Asks for your PIN first when the Vault is locked. Never in a channel with externals.
 - **An AI companion in every chat:** the **IA** button in a conversation's header (on phones,
   in its ⋯ sheet) opens a chat with the AI about that conversation: "¿qué queda pendiente y
   quién lo tiene?", a summary of the week, the decisions taken, what you still owe an answer

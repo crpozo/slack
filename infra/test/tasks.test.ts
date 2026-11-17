@@ -158,6 +158,7 @@ describe("task manager API", () => {
       "POST /vault/pin",
       "POST /vault/pin/verify",
       "POST /vault/reveal/{secretId}",
+      "POST /vault/secrets/{secretId}/share",
       "PUT /admin/users/{userId}/role",
       "PUT /boards/{id}",
       "PUT /calendar/balances/{userId}/{year}",

@@ -203,6 +203,12 @@ export const UpdateVaultSecretSchema = z.object({
 });
 export type UpdateVaultSecretInput = z.input<typeof UpdateVaultSecretSchema>;
 
+/**
+ * `POST /vault/secrets/{secretId}/share` (Phase 68): tags a saved secret in a
+ * conversation. Its members get access and a card there opens it.
+ */
+export const ShareVaultSecretSchema = z.object({ channelId: z.string().min(1).max(256) });
+
 // --- The Vault PIN (Phase 46) -----------------------------------------------
 
 export const VAULT_PIN_LENGTH = 4;

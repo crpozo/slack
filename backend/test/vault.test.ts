@@ -469,6 +469,47 @@ describe("/secret: sharing a secret as a chat card", () => {
   });
 });
 
+describe("tagging a saved secret in a conversation (Phase 68)", () => {
+  const share = (secretId: string, channelId: string, user: Caller = ALICE) =>
+    call("POST /vault/secrets/{secretId}/share", {
+      params: { secretId },
+      body: { channelId },
+      user,
+    });
+
+  it("its members get access and a card there; the secret stays filed where it was", async () => {
+    const saved = await save({ password: "pw" });
+    expect(saved.json.secret.allowedUserIds).toEqual([]);
+    await unlockAs(ALICE);
+    const res = await share(saved.json.secret.secretId, "ch_general");
+    expect(res.status).toBe(200);
+    expect(res.json.secret.channelId).toBe("ch_project");
+    expect(res.json.secret.allowedUserIds.sort()).toEqual(
+      [ADMIN.userId, BOB.userId, CAROL.userId].sort(),
+    );
+    expect(messages.at(-1)).toMatchObject({ channelId: "ch_general", kind: "vault" });
+    // Bob can now reveal it.
+    await unlockAs(BOB);
+    expect((await reveal(saved.json.secret.secretId, BOB)).json.password).toBe("pw");
+  });
+
+  it("only with the Vault open, by someone who may manage it, never where externals are", async () => {
+    const saved = await save({ password: "pw" });
+    const id = saved.json.secret.secretId as string;
+    expect((await share(id, "ch_general")).status).toBe(401);
+    await unlockAs(BOB);
+    expect((await share(id, "ch_general", BOB)).status).toBe(404);
+    await unlockAs(ALICE);
+    mockChannels(
+      GENERAL,
+      PROJECT,
+      privateRow("ch_client", ALICE.userId, [ALICE.userId, BOB.userId, GUEST.userId]),
+    );
+    expect((await share(id, "ch_client")).status).toBe(400);
+    expect(messages).toHaveLength(0);
+  });
+});
+
 describe("the Vault PIN", () => {
   it("is set once, refused when too easy, and stored only as a KMS-wrapped bcrypt hash", async () => {
     expect((await call("GET /vault/pin")).json).toEqual({ hasPin: false, attemptsLeft: 5 });
