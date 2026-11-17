@@ -21,6 +21,7 @@ import {
   PinOffIcon,
   UserPlusIcon,
   VideoIcon,
+  SparklesIcon,
 } from "./icons";
 import { useTimeLog } from "../store/timeLog";
 import { tasksApiConfigured } from "../lib/tasksApi";
@@ -218,6 +219,7 @@ export function PhoneChannelSheet({
   onClose,
   onDetails,
   onPins,
+  onAssistant,
   onInvite,
 }: Readonly<{
   channelId: string;
@@ -228,6 +230,8 @@ export function PhoneChannelSheet({
   /** Phase 38: the details on a tab (About, Members, Files & Links). */
   onDetails: (tab: DetailsTab) => void;
   onPins: () => void;
+  /** Phase 68: the conversation's AI companion (not for guests). */
+  onAssistant?: () => void;
   onInvite: () => void;
 }>) {
   const sidebarPinned = useChat((s) => s.pinned.includes(channelId));
@@ -243,6 +247,17 @@ export function PhoneChannelSheet({
   const boardId = channel?.isProject ? channel.linkedBoardId : undefined;
   const rows: ReactNode[] = [];
   if (channel) {
+    if (onAssistant) {
+      rows.push(
+        <OptionRow
+          key="assistant"
+          icon={<SparklesIcon />}
+          label="Pregúntale a la IA"
+          hint="Lo pendiente, un resumen, decisiones…"
+          onClick={then(onAssistant)}
+        />,
+      );
+    }
     rows.push(
       <OptionRow
         key="pins"

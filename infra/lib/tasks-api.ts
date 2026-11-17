@@ -171,6 +171,8 @@ export const MESSAGES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/channels/{channelId}/time" },
   { method: HttpMethod.DELETE, path: "/channels/{channelId}/time/{date}/{entryId}" },
   { method: HttpMethod.PUT, path: "/channels/{channelId}/time/rates/{userId}" },
+  // Phase 68: the conversation's AI companion.
+  { method: HttpMethod.POST, path: "/channels/{channelId}/ask" },
 ];
 
 /** Message search (Phase 42): its own small Lambda, reading the index and the messages. */
@@ -609,17 +611,24 @@ export class TasksApi extends Construct {
       },
       Duration.minutes(5), // scans the whole tasks table
     );
-    this.messagesHandler = lambda("MessagesFn", "messages", {
-      MESSAGES_TABLE: data.messages.tableName,
-      CHANNELS_TABLE: data.channels.tableName,
-      CONNECTIONS_TABLE: data.connections.tableName,
-      MEETING_NOTES_TABLE: data.meetingNotes.tableName,
-      NOTE_DETAILS_TABLE: data.noteDetails.tableName,
-      CHANNEL_MEDIA_TABLE: data.channelMedia.tableName,
-      TIME_LOG_TABLE: data.timeLog.tableName,
-      ATTACHMENTS_BUCKET: props.attachments.bucketName,
-      WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
-    });
+    this.messagesHandler = lambda(
+      "MessagesFn",
+      "messages",
+      {
+        MESSAGES_TABLE: data.messages.tableName,
+        CHANNELS_TABLE: data.channels.tableName,
+        CONNECTIONS_TABLE: data.connections.tableName,
+        MEETING_NOTES_TABLE: data.meetingNotes.tableName,
+        NOTE_DETAILS_TABLE: data.noteDetails.tableName,
+        CHANNEL_MEDIA_TABLE: data.channelMedia.tableName,
+        TIME_LOG_TABLE: data.timeLog.tableName,
+        ATTACHMENTS_BUCKET: props.attachments.bucketName,
+        WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+        // Phase 68: the AI companion names who wrote each message.
+        USERS_TABLE: data.users.tableName,
+      },
+      Duration.seconds(29),
+    );
     // Message search (Phase 42): the endpoint reads the conversations (to know
     // which the caller sees), the index and the matching messages; the indexer
     // follows the messages table's stream and writes only the index.
@@ -1190,6 +1199,9 @@ export class TasksApi extends Construct {
     data.connections.grant(this.messagesHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.messagesHandler);
     grantDeleteFiles(this.messagesHandler, props.attachments);
+    // Phase 68, the AI companion: authors' names (GetItem) and the model on Bedrock.
+    data.users.grant(this.messagesHandler, "dynamodb:GetItem");
+    this.messagesHandler.addToRolePolicy(notesModelPolicy());
     // Phase 38: a conversation's files/links/pins (Query the index; BatchGetItem the
     // pinned messages as they are now; images in Files are signed: s3:GetObject); a
     // deleted message's rows leave the index (BatchWriteItem) and a pinned one lowers

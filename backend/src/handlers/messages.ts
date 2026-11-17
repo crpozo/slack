@@ -1,3 +1,11 @@
+import type Anthropic from "@anthropic-ai/sdk";
+import { AskChannelSchema, type AskChannelResponse } from "@mindfultech/shared";
+import {
+  channelAnswerFrom,
+  channelAssistantRequest,
+  conversationText,
+} from "../lib/channelAssistant";
+import { bedrockModel, type ClaudeModel } from "../lib/claude";
 import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import {
   BatchGetCommand,
@@ -29,6 +37,7 @@ import {
   httpHandler,
   json,
   notFound,
+  parseBody,
   pathParam,
   type HttpCaller,
   type HttpEvent,
@@ -580,6 +589,52 @@ async function listPinned(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
   return json(200, { messages } satisfies ChannelPins);
 }
 
+// --- The conversation's AI companion (Phase 68) -------------------------------------
+
+const ASSISTANT_TIMEOUT_MS = 24_000;
+let assistantModel: ClaudeModel | null = null;
+/** Tests: a fake model. */
+export function useChannelAssistantModel(fake: ClaudeModel | null): void {
+  assistantModel = fake;
+}
+
+/** `POST /channels/{channelId}/ask`: a question about this conversation, for its members. */
+async function askChannel(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  if (caller.role === "guest") throw forbidden("The AI companion is for the team");
+  const channel = await readableChannel(event, caller);
+  const { question, history } = parseBody(AskChannelSchema, event);
+  const conversation = await conversationText(channel.channelId);
+  const name = channel.type === "dm" ? "a direct message" : `#${channel.name}`;
+  const started = Date.now();
+  let response: Anthropic.Message;
+  try {
+    response = await (assistantModel ??= bedrockModel(ASSISTANT_TIMEOUT_MS, 0)).create(
+      channelAssistantRequest(name, conversation, history, question),
+    );
+  } catch (err) {
+    log.error("channel question failed", {
+      channelId: channel.channelId,
+      ms: Date.now() - started,
+      ...errorFields(err),
+    });
+    throw new HttpError(502, "No se pudo responder ahora. Intenta de nuevo.");
+  }
+  const answer = channelAnswerFrom(response);
+  log.info("channel question answered", {
+    channelId: channel.channelId,
+    userId: caller.userId,
+    read: conversation.read,
+    ok: !!answer,
+    inputTokens: response.usage.input_tokens,
+    cachedTokens: response.usage.cache_read_input_tokens ?? 0,
+    ms: Date.now() - started,
+  });
+  if (!answer)
+    throw new HttpError(502, "No llegó una respuesta. Prueba a preguntarlo de otra forma.");
+  const body: AskChannelResponse = { answer, read: conversation.read, since: conversation.since };
+  return json(200, body);
+}
+
 const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<HttpResult>> = {
   "DELETE /messages/{channelId}/{sk}": deleteMessage,
   "GET /channels/{channelId}/files": listFiles,
@@ -592,6 +647,7 @@ const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<H
   "POST /channels/{channelId}/time": logTime,
   "DELETE /channels/{channelId}/time/{date}/{entryId}": deleteTime,
   "PUT /channels/{channelId}/time/rates/{userId}": setTimeRate,
+  "POST /channels/{channelId}/ask": askChannel,
 };
 
 export const handler = httpHandler(async (event, caller) => {

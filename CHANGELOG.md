@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **An AI companion in every chat:** the **IA** button in a conversation's header (on phones,
+  in its ⋯ sheet) opens a chat with the AI about that conversation: "¿qué queda pendiente y
+  quién lo tiene?", a summary of the week, the decisions taken, what you still owe an answer
+  to; or any question. It reads the conversation's messages on the server (threads, voice
+  transcripts and call notes included; secrets and deleted messages never) and answers with
+  what they say, without inventing. Only for people who can see the conversation; not for
+  externals. The questions stay in the panel until the page is reloaded.
 - **Ready for Discovery:** Discovery (`discovery.mindfultech.ec`, its own repo) shares this
   app's User Pool. The pool's ID is published in SSM at `/slack/<stage>/user-pool-id` for
   Discovery to import it; an invitation Discovery sends (`AdminCreateUser`, or its `RESEND`,

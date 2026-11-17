@@ -1,3 +1,4 @@
+import { ChannelAssistant } from "./ChannelAssistant";
 import {
   canAccessChannel,
   canManageMembers,
@@ -33,6 +34,7 @@ import {
   PinOffIcon,
   UserPlusIcon,
   VideoIcon,
+  SparklesIcon,
 } from "./icons";
 import { ThreadPanel } from "./ThreadPanel";
 import { ChannelBoardPane } from "./ChannelBoardPane";
@@ -225,6 +227,7 @@ function ChannelHeader({
   onInvite,
   onDetails,
   onPins,
+  onAssistant,
   panel,
 }: Readonly<{
   channelId: string;
@@ -239,6 +242,8 @@ function ChannelHeader({
   onDetails: (tab?: DetailsTab) => void;
   /** Opens its pinned messages (Phase 38). */
   onPins: () => void;
+  /** Phase 68: the conversation's AI companion. */
+  onAssistant: () => void;
   /** What's open now, so its button shows as pressed. */
   panel: "pins" | DetailsTab | null;
 }>) {
@@ -363,6 +368,22 @@ function ChannelHeader({
                 <HoursButton channelId={channelId} className={segment(false)} />
               </>
             )}
+            {!guest && tasksApiConfigured() && (
+              <>
+                <span className="mx-0.5 h-5 w-px bg-white/10" aria-hidden="true" />
+                <button
+                  type="button"
+                  onClick={onAssistant}
+                  className={segment(false)}
+                  title="Pregúntale a la IA sobre este chat"
+                  data-assistant-button
+                >
+                  <SparklesIcon aria-hidden="true" />
+                  <span className="hidden lg:inline">IA</span>
+                  <span className="sr-only lg:hidden">IA del chat</span>
+                </button>
+              </>
+            )}
           </div>
         )}
         {access.canCall && peer && <CallButtons channelId={channelId} peer={peer} label={label} />}
@@ -470,6 +491,7 @@ export function ChannelView({
   const [options, setOptions] = useState(false);
   // Phase 38: the pinned messages, or the details on a tab.
   const [panel, setPanel] = useState<"pins" | DetailsTab | null>(null);
+  const [assistant, setAssistant] = useState(false);
   const jump = (target: JumpTarget) => {
     setPanel(null);
     setOptions(false);
@@ -553,11 +575,15 @@ export function ChannelView({
           onClose={() => setOptions(false)}
           onDetails={(tab) => setPanel(tab)}
           onPins={() => setPanel("pins")}
+          onAssistant={access.guest ? undefined : () => setAssistant(true)}
           onInvite={() => setInviting(true)}
         />
       )}
       {hoursOpen && channel && !access.dm && (
         <TimeLogModal channel={channel} onClose={() => useTimeLog.getState().close()} />
+      )}
+      {assistant && (
+        <ChannelAssistant channelId={channelId} title={title} onClose={() => setAssistant(false)} />
       )}
       {panel === "pins" && (
         <PinnedMessagesModal
@@ -592,6 +618,7 @@ export function ChannelView({
           onInvite={() => setInviting(true)}
           onDetails={(tab) => setPanel(tab ?? "about")}
           onPins={() => setPanel("pins")}
+          onAssistant={() => setAssistant(true)}
           panel={panel}
         />
       )}

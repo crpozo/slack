@@ -561,3 +561,24 @@ export interface AskNewsResponse {
   answer: string;
   sources: NewsCitation[];
 }
+
+// ---------------------------------------------------------------------------
+// Phase 68: every conversation's own AI companion. Ask it about that chat
+// ("¿qué queda pendiente?"); it reads the conversation's recent messages, and
+// only for someone who can see the conversation.
+// ---------------------------------------------------------------------------
+
+export const AskChannelSchema = z.object({
+  question: z.string().trim().min(1).max(MAX_NEWS_QUESTION_LENGTH),
+  history: z.array(NewsChatTurnSchema).max(MAX_NEWS_CHAT_HISTORY).default([]),
+});
+export type AskChannelInput = z.input<typeof AskChannelSchema>;
+
+/** `POST /channels/{channelId}/ask`. */
+export interface AskChannelResponse {
+  /** Markdown. */
+  answer: string;
+  /** How many messages it read, and from when (epoch ms), so the panel can say so. */
+  read: number;
+  since: number | null;
+}

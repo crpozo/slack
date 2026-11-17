@@ -135,6 +135,7 @@ describe("task manager API", () => {
       "POST /calendar/events",
       "POST /calls/{callId}/clips",
       "POST /calls/summary",
+      "POST /channels/{channelId}/ask",
       "POST /channels/{channelId}/invites",
       "POST /channels/{channelId}/time",
       "POST /messages/{channelId}/{sk}/transcribe",
