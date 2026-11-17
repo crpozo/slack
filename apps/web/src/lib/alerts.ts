@@ -21,8 +21,9 @@ const currentPath = () => (typeof location === "undefined" ? "" : location.pathn
  * Something happened that the person should hear about (a DM, an @mention,
  * board activity). It always lands in the bell; unless they're looking
  * at that very screen, it also plays the message sound (`sound: false` when
- * the caller already played it) and, with the desktop app in the background,
- * shows a native notification.
+ * the caller already played it) and, when the app isn't in front (the desktop
+ * app in the background, or Chrome behind another app), shows a system
+ * notification.
  */
 export function raiseAlert(alert: AlertInput, { sound = true }: { sound?: boolean } = {}): void {
   const active = isAppActive();
@@ -30,7 +31,39 @@ export function raiseAlert(alert: AlertInput, { sound = true }: { sound?: boolea
   useNotifications.getState().add(alert, onScreen);
   if (onScreen) return;
   if (sound) playMessageSound();
-  if (!active) void notifyDesktop(alert.title, alert.body);
+  if (!active) {
+    // The desktop app shows its own; a browser in the background shows one from
+    // the service worker (Phase 69), since the server may still count this tab as
+    // "in front" for a few minutes and send no push.
+    void notifyDesktop(alert.title, alert.body).then((shown) => {
+      if (!shown) void notifyBrowser(alert);
+    });
+  }
+}
+
+/**
+ * A system notification from the open tab, when the person is in another app
+ * or tab: the same look as a push, with the conversation as its tag, so the
+ * push that may follow for the same chat replaces it instead of doubling it.
+ * Only with notifications allowed; never throws.
+ */
+export async function notifyBrowser(alert: AlertInput): Promise<boolean> {
+  try {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return false;
+    const registration = await navigator.serviceWorker?.getRegistration();
+    if (!registration) return false;
+    await registration.showNotification(alert.title, {
+      body: alert.body,
+      tag: alert.channelId ?? alert.url,
+      renotify: true,
+      icon: "/icons/icon-192.png?v=b0ae91fbc6",
+      badge: "/icons/badge-96.png?v=b0ae91fbc6",
+      data: { url: alert.url, ...(alert.channelId && { channelId: alert.channelId }) },
+    } as NotificationOptions);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -282,6 +282,12 @@ SecureString --value "…"`; (2) access in Amazon Bedrock to the model the run u
 
 ### Fixed
 
+- **No popup while working in another app with the chat open in Chrome:** the system
+  notification came only from the server's push, which isn't sent for a few minutes after
+  you were last in front of the app. The open tab now shows it itself (DMs, private channels
+  and @mentions) as soon as Chrome isn't in front, tagged by conversation so a push that
+  arrives too replaces it instead of doubling it. Needs notifications allowed for the site
+  (Settings → Push notifications) and, on a Mac, for Chrome in System Settings.
 - **A deleted account flashed in the DM list on every load:** until the directory arrived,
   the list stood in with the build's list of people and old DM channels. The app now
   remembers the directory as the server last gave it (per person, on the device) and starts
