@@ -1,4 +1,4 @@
-import { URL_PATTERN } from "@mindfultech/shared";
+import { URL_PATTERN, atxHeading } from "@mindfultech/shared";
 
 const ESCAPES: Record<string, string> = {
   "&": "&amp;",
@@ -91,7 +91,7 @@ function markMentions(html: string, { known, mine }: MentionMarks): string {
     /(^|[^\p{L}\p{N}_.@&;-])@([\p{L}\p{N}._-]{1,64})/gu,
     (whole, before: string, raw: string) => {
       // "@ana." at the end of a sentence means "ana".
-      const handle = raw.replace(/[._-]+$/, "");
+      const handle = raw.replace(/(?<![._-])[._-]+$/, "");
       const key = handle.toLowerCase();
       if (!known.has(key)) return whole;
       const cls = mine.has(key) ? "mention mention-me" : "mention";
@@ -114,13 +114,42 @@ function markMentions(html: string, { known, mine }: MentionMarks): string {
 export const MAX_LIST_DEPTH = 4;
 
 const FENCE = /^\s*```/;
-const HEADING = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
 const RULE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
-const LIST_ITEM = /^(\s*)(?:([-*+•●◦▪‣–])|(\d{1,9})[.)])\s+(.*)$/;
-const TASK = /^\[([ xX])\]\s+(.*)$/;
+const LIST_ITEM = /^(\s*)(?:([-*+•●◦▪‣–])|(\d{1,9})[.)])\s+(?!\s)(.*)$/;
+const TASK = /^\[([ xX])\]\s+(?!\s)(.*)$/;
 const QUOTE = /^\s{0,3}>\s?(.*)$/;
-/** A GFM table's delimiter row: `| --- | :--: | --: |` (outer pipes optional). */
-const TABLE_DELIMITER = /^\s{0,3}\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/**
+ * Whether `line` is a GFM table's delimiter row: `| --- | :--: | --: |` (outer
+ * pipes optional). The rows `/^\s{0,3}\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/`
+ * matches, read cell by cell (Phase 69) instead of by a backtracking regex.
+ */
+function isTableDelimiter(line: string): boolean {
+  const isSpace = (at: number) => /\s/.test(line[at] ?? "");
+  const skipSpaces = (from: number) => {
+    let at = from;
+    while (isSpace(at)) at++;
+    return at;
+  };
+  let at = skipSpaces(0);
+  if (line[at] === "|") {
+    if (at > 3) return false;
+    at = skipSpaces(at + 1);
+  }
+  for (;;) {
+    // A cell: `:?-+:?` and its spaces.
+    if (line[at] === ":") at++;
+    if (line[at] !== "-") return false;
+    while (line[at] === "-") at++;
+    if (line[at] === ":") at++;
+    at = skipSpaces(at);
+    if (line[at] !== "|") return at === line.length;
+    const next = skipSpaces(at + 1);
+    // Another cell after the pipe, or the closing pipe and nothing else.
+    if (line[next] !== ":" && line[next] !== "-") return next === line.length;
+    at = next;
+  }
+}
 /** More columns than this is a wall of pipes, not a table. */
 export const MAX_TABLE_COLUMNS = 20;
 
@@ -158,7 +187,7 @@ export function splitTableRow(line: string): string[] {
 
 /** Whether `header` and `delimiter` start a GFM table (the same number of columns). */
 function isTableStart(header: string, delimiter: string | undefined): boolean {
-  if (delimiter === undefined || !header.includes("|") || !TABLE_DELIMITER.test(delimiter)) {
+  if (delimiter === undefined || !header.includes("|") || !isTableDelimiter(delimiter)) {
     return false;
   }
   const columns = splitTableRow(header).length;
@@ -210,8 +239,11 @@ export function renderNotesMarkdown(text: string, mentions?: MentionMarks): stri
     blankInList = false;
   };
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!.replace(/\t/g, "    ");
+  // A fence or a table reads several lines at once and moves `i` past them,
+  // so `i` is a cursor (a `while`), not a `for` loop's counter.
+  let i = -1;
+  while (++i < lines.length) {
+    const line = lines[i]!.replaceAll("\t", "    ");
 
     if (FENCE.test(line)) {
       flushAll();
@@ -256,12 +288,12 @@ export function renderNotesMarkdown(text: string, mentions?: MentionMarks): stri
       out.push("<hr>");
       continue;
     }
-    const heading = HEADING.exec(line);
+    const heading = atxHeading(line);
     if (heading) {
       flushAll();
       // Inside a message the card title is the top heading: model `#`/`##` → h3, deeper → h4.
-      const tag = heading[1]!.length <= 2 ? "h3" : "h4";
-      out.push(`<${tag}>${inline(heading[2]!)}</${tag}>`);
+      const tag = heading[0].length <= 2 ? "h3" : "h4";
+      out.push(`<${tag}>${inline(heading[1])}</${tag}>`);
       continue;
     }
     const item = LIST_ITEM.exec(line);
@@ -348,7 +380,7 @@ export function looksLikeMarkdown(text: string): boolean {
       continue;
     }
     if (inFence) continue;
-    if (HEADING.test(line) || isTableStart(line, lines[i + 1])) return true;
+    if (atxHeading(line) || isTableStart(line, lines[i + 1])) return true;
     if (QUOTE.test(line) && line.trim().length > 1) return true;
     // A rule between two blocks (not a lone "---" message).
     if (RULE.test(line) && lines.length > 2) return true;

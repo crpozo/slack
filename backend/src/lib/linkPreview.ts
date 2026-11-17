@@ -1,6 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { LINK_PREVIEW_MAX_URL, type LinkPreview } from "@mindfultech/shared";
+import { LINK_PREVIEW_MAX_URL, type LinkPreview, replaceTags } from "@mindfultech/shared";
 import { coverImageOf, decodeEntities } from "./news";
 
 // ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ async function xPreview(url: URL, fetchImpl: typeof fetch): Promise<LinkPreview 
   const author = typeof data.author_name === "string" ? data.author_name : "";
   const body =
     typeof data.html === "string" ? (/<p[^>]*>([\s\S]*?)<\/p>/i.exec(data.html)?.[1] ?? "") : "";
-  const text = clean(body.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, ""), 400);
+  const text = clean(replaceTags(body.replace(/<br\s*\/?>/gi, " "), ""), 400);
   if (!author && !text) return null;
   return {
     url: url.href,

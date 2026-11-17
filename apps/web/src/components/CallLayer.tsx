@@ -348,7 +348,7 @@ export function KeepAudioSwitch({ call }: Readonly<{ call: CallView }>) {
       <span
         aria-hidden="true"
         className="relative h-3.5 w-6 shrink-0 rounded-full bg-white/20 transition-colors peer-checked:bg-primary peer-disabled:opacity-50 peer-focus-visible:ring-2 peer-focus-visible:ring-primary after:absolute after:left-0.5 after:top-0.5 after:h-2.5 after:w-2.5 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-2.5"
-      />
+      />{" "}
       Guardar audio original como respaldo
     </label>
   );

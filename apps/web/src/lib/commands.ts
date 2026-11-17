@@ -49,7 +49,7 @@ export function matchCommands(query: string): SlashCommand[] {
 
 /** A complete command at the start of `text`: its definition and the text after it. */
 export function parseCommand(text: string): { command: SlashCommand; rest: string } | null {
-  const m = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/i.exec(text.trimStart());
+  const m = /^\/([a-z0-9-]+)(?:\s+(?!\s)([\s\S]*))?$/i.exec(text.trimStart());
   if (!m) return null;
   const command = SLASH_COMMANDS.find((c) => c.name === m[1]!.toLowerCase());
   return command ? { command, rest: m[2] ?? "" } : null;

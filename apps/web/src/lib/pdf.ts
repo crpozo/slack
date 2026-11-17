@@ -10,19 +10,24 @@ import { isIos } from "./install";
 
 export type PdfRenderer = "canvas" | "native";
 
-/** `canvas` on every iPhone/iPad and every touch-first device; `native` on computers. */
-export function pdfRenderer(
-  env: {
-    ios?: boolean;
-    coarsePointer?: boolean;
-    android?: boolean;
-  } = {
+interface PdfEnv {
+  ios?: boolean;
+  coarsePointer?: boolean;
+  android?: boolean;
+}
+
+/** This device, as `pdfRenderer` reads it when not told. */
+function currentPdfEnv(): PdfEnv {
+  return {
     ios: isIos(),
     coarsePointer:
       typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true,
     android: typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent),
-  },
-): PdfRenderer {
+  };
+}
+
+/** `canvas` on every iPhone/iPad and every touch-first device; `native` on computers. */
+export function pdfRenderer(env: PdfEnv = currentPdfEnv()): PdfRenderer {
   return env.ios || env.coarsePointer || env.android ? "canvas" : "native";
 }
 

@@ -53,7 +53,7 @@ export function chatAnalysisText(insights: NewsInsights | null): string {
       `Top story: ${s.headline}. ${s.summary}${s.whyItMatters ? ` Why it matters: ${s.whyItMatters}` : ""}`,
     );
   }
-  for (const t of insights.trends) parts.push(`Trend, ${t.topic}: ${t.text.replace(/\*\*/g, "")}`);
+  for (const t of insights.trends) parts.push(`Trend, ${t.topic}: ${t.text.replaceAll("**", "")}`);
   for (const t of insights.takeaways) {
     parts.push(`For MindfulTech${t.horizon ? ` (${t.horizon})` : ""}: ${t.lead} ${t.body}`);
   }

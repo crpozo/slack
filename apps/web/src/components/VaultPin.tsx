@@ -37,7 +37,12 @@ export function PinInput({
     if (autoFocus && !disabled) ref.current?.focus();
   }, [autoFocus, disabled]);
   return (
-    <div className="relative mx-auto w-fit" onClick={() => ref.current?.focus()}>
+    // Only a wider target for the mouse: the input itself takes the keyboard.
+    <div
+      role="presentation"
+      className="relative mx-auto w-fit"
+      onClick={() => ref.current?.focus()}
+    >
       <input
         ref={ref}
         value={value}

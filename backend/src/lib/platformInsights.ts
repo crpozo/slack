@@ -100,8 +100,8 @@ export function buildMetrics(input: {
   // Messages.
   const perDay = new Map<string, number>();
   for (let d = from; d <= to; d = addDays(d, 1)) perDay.set(d, 0);
-  const perHour = Array<number>(24).fill(0);
-  const perWeekday = Array<number>(7).fill(0);
+  const perHour = new Array<number>(24).fill(0);
+  const perWeekday = new Array<number>(7).fill(0);
   let outsideHours = 0;
   const byPerson = new Map<string, { messages: number; days: Set<string>; last: number }>();
   const byChannel = new Map<string, { messages: number; people: Set<string> }>();

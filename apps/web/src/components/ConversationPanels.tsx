@@ -16,6 +16,7 @@ import { chat } from "../lib/chat";
 import { dmPeer, externalsIn, formatDay, formatTime } from "../lib/channels";
 import { isDesktopApp } from "../lib/desktop";
 import { openExternal } from "../lib/external";
+import { focusOnMount } from "../lib/focusOnMount";
 import { looksLikeMarkdown, renderMessageMarkdown } from "../lib/markdown";
 import { mediaApi } from "../lib/mediaApi";
 import { formatBytes, getDownloadUrl } from "../lib/upload";
@@ -387,7 +388,7 @@ function MembersTab({
                       chat.removeMember(channelId, userId);
                     }}
                     onBlur={() => setConfirming(null)}
-                    autoFocus
+                    ref={focusOnMount}
                     className="shrink-0 rounded-md bg-error px-2.5 py-1.5 text-xs font-semibold text-on-accent hover:opacity-90"
                     data-remove-member
                   >

@@ -31,14 +31,13 @@ export function discoveryInvitation(usernameParameter: string, codeParameter: st
  * untouched, and Cognito keeps using the pool's own `userInvitation`
  * template and its default messages: this app's invitations don't change.
  */
-export async function handler(
-  event: CustomMessageTriggerEvent,
-): Promise<CustomMessageTriggerEvent> {
+export function handler(event: CustomMessageTriggerEvent): Promise<CustomMessageTriggerEvent> {
+  // Nothing to wait for (Phase 69): Lambda only needs the promise.
   if (
     event.triggerSource !== "CustomMessage_AdminCreateUser" ||
     event.request.clientMetadata?.app !== DISCOVERY_CLIENT_METADATA_APP
   ) {
-    return event;
+    return Promise.resolve(event);
   }
   const { usernameParameter, codeParameter } = event.request;
   event.response.emailSubject = DISCOVERY_INVITE_SUBJECT;
@@ -46,5 +45,5 @@ export async function handler(
     usernameParameter ?? "{username}",
     codeParameter,
   );
-  return event;
+  return Promise.resolve(event);
 }

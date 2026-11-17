@@ -183,7 +183,7 @@ function unquote(value: string): string {
       .replace(/\\(["\\/nt])/g, (_, c: string) => ({ n: "\n", t: "\t" })[c] ?? c);
   }
   if (v.length >= 2 && v.startsWith("'") && v.endsWith("'"))
-    return v.slice(1, -1).replace(/''/g, "'");
+    return v.slice(1, -1).replaceAll("''", "'");
   return v;
 }
 
@@ -193,7 +193,7 @@ function unquote(value: string): string {
  * keys (`metadata:` maps, lists) are kept as their raw text.
  */
 export function parseFrontmatter(skillMd: string): Frontmatter | null {
-  const text = skillMd.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  const text = skillMd.replace(/^\uFEFF/, "").replaceAll("\r\n", "\n");
   if (!text.startsWith("---\n")) return null;
   const end = text.indexOf("\n---", 3);
   if (end < 0) return null;
@@ -202,7 +202,7 @@ export function parseFrontmatter(skillMd: string): Frontmatter | null {
   const lines = text.slice(4, end).split("\n");
   const data: Record<string, string> = {};
   for (let i = 0; i < lines.length; i++) {
-    const match = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(lines[i]!);
+    const match = /^([A-Za-z0-9_-]+):\s*(?!\s)(.*)$/.exec(lines[i]!);
     if (!match) continue;
     const [, key, rest] = match as unknown as [string, string, string];
     const block: string[] = [];
@@ -240,9 +240,9 @@ export function toSkillSlug(text: string): string {
     .replace(/\p{M}+/gu, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
+    .replace(/^-+|(?<!-)-+$/g, "")
     .slice(0, MAX_SKILL_SLUG)
-    .replace(/-+$/, "");
+    .replace(/(?<!-)-+$/, "");
 }
 
 // --- GitHub ----------------------------------------------------------------
@@ -310,8 +310,8 @@ export function skillBundle(skill: Pick<Skill, "skillMd" | "files">): SkillFile[
 type Installable = Pick<Skill, "slug" | "sourceType" | "repoUrl" | "repoPath" | "repoRef"> &
   Partial<Pick<Skill, "skillMd" | "files">>;
 
-const shQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-const psQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;
+const shQuote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
+const psQuote = (s: string) => `'${s.replaceAll("'", "''")}'`;
 
 /** A heredoc delimiter that isn't a line of `content`. */
 function delimiter(content: string): string {

@@ -322,7 +322,7 @@ export function EventFormModal({
                 checked={allDay}
                 onChange={(e) => setAllDay(e.target.checked)}
                 disabled={busy}
-              />
+              />{" "}
               All day
             </label>
             {allDay ? (

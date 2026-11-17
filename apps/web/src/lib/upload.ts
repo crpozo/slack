@@ -114,7 +114,7 @@ export function startUpload(
   channelId: string,
   extra: Partial<Attachment> = {},
 ): UploadTask {
-  return new UploadTask(file, (onProgress) => uploadFile(file, channelId, onProgress), extra);
+  return UploadTask.begin(file, (onProgress) => uploadFile(file, channelId, onProgress), extra);
 }
 
 const downloadUrls = new Map<string, { url: string; expiresAt: number }>();

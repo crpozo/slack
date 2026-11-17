@@ -240,7 +240,7 @@ export function RepeatFields({
                 name={`${id}-end`}
                 checked={end === "never"}
                 onChange={() => setEnd("never")}
-              />
+              />{" "}
               Never
             </label>
             <label className="flex items-center gap-1.5">
@@ -249,7 +249,7 @@ export function RepeatFields({
                 name={`${id}-end`}
                 checked={end === "until"}
                 onChange={() => setEnd("until")}
-              />
+              />{" "}
               On
             </label>
             {end === "until" && (
@@ -269,7 +269,7 @@ export function RepeatFields({
                 name={`${id}-end`}
                 checked={end === "count"}
                 onChange={() => setEnd("count")}
-              />
+              />{" "}
               After
             </label>
             {end === "count" && (
@@ -289,7 +289,7 @@ export function RepeatFields({
                       ),
                     })
                   }
-                />
+                />{" "}
                 meetings
               </span>
             )}

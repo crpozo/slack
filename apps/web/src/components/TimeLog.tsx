@@ -100,7 +100,7 @@ function RateField({
   }
   return (
     <label className="flex shrink-0 items-center gap-1 text-xs text-ink-secondary">
-      $
+      ${" "}
       <input
         inputMode="decimal"
         value={value}
@@ -116,7 +116,7 @@ function RateField({
         aria-label="Tarifa por hora en dólares"
         aria-invalid={!valid}
         className="w-16 rounded-md border border-line bg-surface px-1.5 py-1 text-right text-base text-ink focus:border-primary focus:outline-none sm:text-sm"
-      />
+      />{" "}
       /h
     </label>
   );

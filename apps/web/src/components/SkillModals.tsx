@@ -9,6 +9,7 @@ import {
   type SkillFile,
 } from "@mindfultech/shared";
 import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { focusOnMount } from "../lib/focusOnMount";
 import { CATEGORY_LABELS } from "../lib/skills";
 import { skillsApi, type ImportResult } from "../lib/skillsApi";
 import { TasksApiError } from "../lib/tasksApi";
@@ -37,7 +38,7 @@ function CategorySelect({
 }>) {
   return (
     <label className={LABEL}>
-      Categoría
+      Categoría{" "}
       <select
         className={INPUT}
         value={value}
@@ -129,7 +130,7 @@ export function ImportSkillModal({
         }}
       >
         <label className={LABEL}>
-          URL del repositorio o de la carpeta del skill
+          URL del repositorio o de la carpeta del skill{" "}
           <input
             className={INPUT}
             value={repoUrl}
@@ -139,7 +140,7 @@ export function ImportSkillModal({
             }}
             placeholder={EXAMPLE_REPO}
             inputMode="url"
-            autoFocus
+            ref={focusOnMount}
             data-import-url
           />
           <span className="text-xs font-normal text-ink-secondary">
@@ -298,7 +299,7 @@ export function CreateSkillModal({
         {!editing && (
           <section className="flex flex-col gap-2 rounded-xl border border-primary/30 bg-primary/[0.06] p-3">
             <label className={LABEL}>
-              Describe la idea
+              Describe la idea{" "}
               <textarea
                 className={`${INPUT} min-h-[64px]`}
                 value={idea}
@@ -373,7 +374,7 @@ export function CreateSkillModal({
           <div className="grid gap-3 sm:grid-cols-2">
             {!fm?.data.name && (
               <label className={LABEL}>
-                Nombre
+                Nombre{" "}
                 <input
                   className={INPUT}
                   value={name}
@@ -384,7 +385,7 @@ export function CreateSkillModal({
             )}
             {!fm?.data.description && (
               <label className={`${LABEL} sm:col-span-2`}>
-                Descripción (qué hace y cuándo usarlo)
+                Descripción (qué hace y cuándo usarlo){" "}
                 <input
                   className={INPUT}
                   value={description}

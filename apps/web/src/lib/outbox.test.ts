@@ -44,7 +44,7 @@ const statusOf = (m: ChatMessage) =>
 /** A file whose upload is settled by the test (each attempt has its own deferred). */
 function controlledFile(name: string, type = "image/png") {
   const attempts: Array<ReturnType<typeof deferred<Attachment>>> = [];
-  const task = new UploadTask(new File(["x"], name, { type }), () => {
+  const task = UploadTask.begin(new File(["x"], name, { type }), () => {
     const d = deferred<Attachment>();
     attempts.push(d);
     return d.promise;

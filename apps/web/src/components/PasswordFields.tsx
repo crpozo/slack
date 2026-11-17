@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MIN_PASSWORD_LENGTH, passwordProblem } from "../lib/auth";
+import { useFocusOnMount } from "../lib/focusOnMount";
 import { CheckIcon, EyeIcon, EyeOffIcon } from "./icons";
 
 /** A password input with an optional show/hide toggle inside it. */
@@ -22,6 +23,7 @@ export function PasswordInput({
   shown?: boolean;
   onToggleShown?: () => void;
 }>) {
+  const focusIfAsked = useFocusOnMount(autoFocus === true);
   return (
     <div className="space-y-1.5">
       <label htmlFor={id} className="text-sm font-medium text-ink">
@@ -36,7 +38,7 @@ export function PasswordInput({
           autoCorrect="off"
           spellCheck={false}
           required
-          autoFocus={autoFocus}
+          ref={focusIfAsked}
           className={`input ${onToggleShown ? "pr-10" : ""}`}
           value={value}
           onChange={(e) => onChange(e.target.value)}

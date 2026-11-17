@@ -79,16 +79,71 @@ export function evaluateCondition(
   return or();
 }
 
+// Phase 69: the parts of an update are found by scanning, not by one regex
+// that backtracks quadratically on long input; each helper says which regex
+// it stands for.
+
+const LINE_BREAK = /[\n\r\u2028\u2029]/;
+
+/**
+ * The `SET` and `REMOVE` parts of `expr`: what
+ * `/^(?:SET\s+(.*?))?\s*(?:REMOVE\s+(.*))?$/` captures (`""` when absent).
+ */
+function updateParts(expr: string): [set: string, remove: string] {
+  const isSpace = (at: number) => /\s/.test(expr[at] ?? "");
+  // `\s*(?:REMOVE\s+(.*))?$` from `at`: the REMOVE part, `""` without one, or null.
+  const tail = (at: number): string | null => {
+    let p = at;
+    while (isSpace(p)) p++;
+    if (p === expr.length) return "";
+    if (!expr.startsWith("REMOVE", p) || !isSpace(p + 6)) return null;
+    let start = p + 6;
+    while (isSpace(start)) start++;
+    const remove = expr.slice(start);
+    return LINE_BREAK.test(remove) ? null : remove;
+  };
+  if (expr.startsWith("SET") && isSpace(3)) {
+    let start = 3;
+    while (isSpace(start)) start++;
+    const lineBreak = expr.slice(start).search(LINE_BREAK);
+    const last = lineBreak < 0 ? expr.length : start + lineBreak;
+    // The shortest SET part after which the rest fits; inside a run of spaces
+    // the rest fits as it does from the run's start.
+    for (let end = start; end <= last; end++) {
+      if (end > start && isSpace(end - 1)) continue;
+      const remove = tail(end);
+      if (remove !== null) return [expr.slice(start, end), remove];
+    }
+  }
+  return ["", tail(0) ?? ""];
+}
+
+/** `set` split at its top-level commas: what `set.split(/,(?![^(]*\))/)` returns. */
+function splitClauses(set: string): string[] {
+  const parts: string[] = [];
+  let end = set.length;
+  let nextParen: string | undefined;
+  for (let i = set.length - 1; i >= 0; i--) {
+    const c = set[i];
+    if (c === "(" || c === ")") nextParen = c;
+    else if (c === "," && nextParen !== ")") {
+      parts.push(set.slice(i + 1, end));
+      end = i;
+    }
+  }
+  parts.push(set.slice(0, end));
+  return parts.reverse();
+}
+
 /** `row` after `expr` (a new object; the input is left alone). */
 export function applyUpdate(row: Row, expr: string, values: Values = {}, names: Names = {}): Row {
   const next: Row = { ...row };
-  const [, setPart = "", removePart = ""] =
-    /^(?:SET\s+(.*?))?\s*(?:REMOVE\s+(.*))?$/.exec(expr.trim()) ?? [];
-  for (const clause of setPart
-    .split(/,(?![^(]*\))/)
+  const [setPart, removePart] = updateParts(expr.trim());
+  for (const clause of splitClauses(setPart)
     .map((c) => c.trim())
     .filter(Boolean)) {
-    const [lhs, rhs] = clause.split(/\s*=\s*/, 2) as [string, string];
+    // Same pieces as `/\s*=\s*/`; spaces right after a previous `=` belong to it.
+    const [lhs, rhs] = clause.split(/(?<!\s)\s*=\s*|=\s*/, 2) as [string, string];
     const target = name(lhs, names);
     const ifNotExists = /^if_not_exists\(\s*([#\w]+)\s*,\s*(:\w+)\s*\)(?:\s*\+\s*(:\w+))?$/.exec(
       rhs,

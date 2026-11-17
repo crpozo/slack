@@ -10,7 +10,24 @@
 // ---------------------------------------------------------------------------
 
 const EMAIL = /^[\w.%+-]+@[\w-]+(\.[\w-]+)*\.[a-z]{2,}$/i;
-const EMAIL_IN_TEXT = /[\w.%+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}/gi;
+// The emails in a text, as `/[\w.%+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}/gi` finds
+// them (Phase 69), without retrying from every character of a long run. An
+// email starts where the search resumes or after a character that can't be in
+// one: one that started inside a run would also match from the run's start.
+const EMAIL_HERE = /[\w.%+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}/iy;
+const EMAIL_LATER = /(?<![\w.%+-])[\w.%+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}/gi;
+
+function* emailsIn(text: string): Generator<RegExpExecArray> {
+  let from = 0;
+  for (;;) {
+    EMAIL_HERE.lastIndex = from;
+    EMAIL_LATER.lastIndex = from;
+    const match = EMAIL_HERE.exec(text) ?? EMAIL_LATER.exec(text);
+    if (!match) return;
+    yield match;
+    from = match.index + match[0].length;
+  }
+}
 
 /** Usernames that mean "an account login" when a password-looking value follows. */
 const USERNAMES = [
@@ -106,7 +123,8 @@ const KEYWORD_LABEL = new RegExp(
   "giu",
 );
 
-const strip = (token: string) => token.replace(/^["'`(<[]+|["'`)>\],.;!?]+$/g, "");
+const strip = (token: string) =>
+  token.replace(/^["'`(<[]+/, "").replace(/(?<!["'`)>\],.;!?])["'`)>\],.;!?]+$/, "");
 
 export type CredentialKind = "email-password" | "user-password" | "keyword" | "token" | "url";
 
@@ -122,7 +140,7 @@ export function credentialKind(text: string): CredentialKind | null {
   if (/\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/i.test(trimmed)) return "url";
 
   // An email, then (after spaces or a line break) a password.
-  for (const match of trimmed.matchAll(EMAIL_IN_TEXT)) {
+  for (const match of emailsIn(trimmed)) {
     const after = trimmed.slice(match.index + match[0].length);
     const next = /^[\s:/|,;-]+(\S+)/.exec(after)?.[1];
     if (next && isCredentialValue(strip(next))) return "email-password";
@@ -134,7 +152,7 @@ export function credentialKind(text: string): CredentialKind | null {
     .map(strip)
     .filter((t) => /[\p{L}\d]/u.test(t));
   for (let i = 0; i < tokens.length - 1; i++) {
-    const name = tokens[i]!.replace(/[:/=]+$/, "").toLowerCase();
+    const name = tokens[i]!.replace(/(?<![:/=])[:/=]+$/, "").toLowerCase();
     if (USERNAMES.includes(name) && isCredentialValue(tokens[i + 1]!)) return "user-password";
   }
 
@@ -185,8 +203,11 @@ const NAME_LIKE = /^[\p{L}][\p{L} &.'\-/()]{0,59}$/u;
 
 /** "Acme Store:": a name ending in a colon, with nothing after it. */
 function headingOf(line: string): string | null {
-  const m = /^(.+?)\s*:$/u.exec(line);
-  return m && NAME_LIKE.test(m[1]!) ? m[1]! : null;
+  // What `/^(.+?)\s*:$/u` captured: the line before its final colon, spaces
+  // trimmed (Phase 69). A line of spaces only fails NAME_LIKE either way.
+  if (!line.endsWith(":")) return null;
+  const name = line.slice(0, -1).trimEnd();
+  return NAME_LIKE.test(name) ? name : null;
 }
 
 const LABELED = /^(?<label>[\p{L}][\p{L}\d _.-]{0,29}?)\s*[:=]\s*(?<value>\S.*)$/u;

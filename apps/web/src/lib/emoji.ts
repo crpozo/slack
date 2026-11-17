@@ -62,7 +62,7 @@ const WORK_EMOJIS = [
   "💬",
   "📎",
 ];
-const bare = (emoji: string) => emoji.replace(/\uFE0F/g, "");
+const bare = (emoji: string) => emoji.replaceAll("\uFE0F", "");
 
 const GROUP_LABELS: Record<number, string> = {
   [WORK_GROUP_ID]: "Getting Work Done",

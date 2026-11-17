@@ -171,7 +171,7 @@ export function SkillDetail({
               {canChangeSkill(skill, me) &&
                 (confirmDelete ? (
                   <span className="flex items-center gap-2 text-sm">
-                    ¿Eliminar del catálogo?
+                    ¿Eliminar del catálogo?{" "}
                     <button
                       type="button"
                       className="rounded-lg bg-error px-3 py-1.5 text-xs font-semibold text-white"
