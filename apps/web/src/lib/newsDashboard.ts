@@ -29,7 +29,7 @@ export function storyOf(article: NewsArticle): NewsStory {
 const pageOf = (link: string) => {
   try {
     const url = new URL(link);
-    return `${url.host.replace(/^www\./, "")}${url.pathname.replace(/\/+$/, "")}`.toLowerCase();
+    return `${url.host.replace(/^www\./, "")}${url.pathname.replace(/(?<!\/)\/+$/, "")}`.toLowerCase();
   } catch {
     return link;
   }

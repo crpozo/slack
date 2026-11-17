@@ -95,7 +95,7 @@ export function SendStatus({ message }: Readonly<{ message: ChatMessage }>) {
         <span
           className="h-3 w-3 animate-spin rounded-full border-2 border-ink-secondary/40 border-t-ink-secondary motion-reduce:animate-none"
           aria-hidden="true"
-        />
+        />{" "}
         Sending…
       </p>
     );
@@ -108,8 +108,8 @@ export function SendStatus({ message }: Readonly<{ message: ChatMessage }>) {
       className="mt-1 flex items-center gap-2 rounded text-xs text-error hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
       data-retry
     >
-      <span className="h-1.5 w-1.5 rounded-full bg-error" aria-hidden="true" />
-      Failed to send · Click to retry
+      <span className="h-1.5 w-1.5 rounded-full bg-error" aria-hidden="true" /> Failed to send ·
+      Click to retry
     </button>
   );
 }

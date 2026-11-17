@@ -7,6 +7,7 @@ import {
   MAX_CHANNEL_DESCRIPTION_LENGTH,
   MAX_CHANNEL_NAME_LENGTH,
   MAX_CHANNEL_TOPIC_LENGTH,
+  PLAUSIBLE_EMAIL,
   slugifyChannelName,
   type ChannelVisibility,
   type Channel,
@@ -302,7 +303,7 @@ export function CreateChannelModal({
 
 /** Invite more people to a private channel (only its creator sees this). */
 /** A plausible email address (the server checks it properly). */
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL = PLAUSIBLE_EMAIL;
 
 /**
  * Invites people to a private channel: teammates (and externals already in

@@ -1,4 +1,9 @@
-import { NOTES_CATEGORIES, type Message, type NotesCategory } from "@mindfultech/shared";
+import {
+  NOTES_CATEGORIES,
+  type Message,
+  type NotesCategory,
+  unlinkMarkdown,
+} from "@mindfultech/shared";
 
 // ---------------------------------------------------------------------------
 // The AI Notes hub's filters (Phase 46): by category, by topic and by words,
@@ -109,10 +114,7 @@ export function notePreview(summary: string): string {
     if (/^(#{1,6}\s|[-*+•]\s|\d+[.)]\s)/.test(line)) break;
     lines.push(line);
   }
-  return lines
-    .join(" ")
-    .replace(/\*\*|__|`/g, "")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+  return unlinkMarkdown(lines.join(" ").replace(/\*\*|__|`/g, ""))
     .replace(/\s+/g, " ")
     .trim();
 }

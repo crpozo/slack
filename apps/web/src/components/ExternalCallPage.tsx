@@ -7,6 +7,7 @@ import {
   stopExternalCall,
   useExternalCall,
 } from "../lib/externalCall";
+import { focusOnMount } from "../lib/focusOnMount";
 import { useGroupCall } from "../lib/groupCall";
 import { supportsCalls } from "../lib/media";
 import { ControlButton, Controls, Grid } from "./GroupCall";
@@ -64,12 +65,12 @@ function NameStep({
       </p>
       <form onSubmit={onSubmit} className="flex w-full flex-col gap-3">
         <label className="flex flex-col gap-1 text-left text-xs text-white/70">
-          Your name
+          Your name{" "}
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={MAX_EXTERNAL_NAME}
-            autoFocus
+            ref={focusOnMount}
             autoComplete="name"
             className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-primary"
             placeholder="Ana Pérez"

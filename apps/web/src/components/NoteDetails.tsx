@@ -96,7 +96,7 @@ function Questions({
                 <span
                   className="h-3 w-3 animate-spin rounded-full border-2 border-ink-secondary/40 border-t-ink-secondary motion-reduce:animate-none"
                   aria-hidden="true"
-                />
+                />{" "}
                 Reading the notes…
               </p>
             </li>

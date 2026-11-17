@@ -51,11 +51,12 @@ export function detectPushSupport(): PushStatus {
 /** Base64url (VAPID public key) → bytes, as `pushManager.subscribe` wants it. */
 export function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
   const base64 = (value + "=".repeat((4 - (value.length % 4)) % 4))
-    .replace(/-/g, "+")
-    .replace(/_/g, "/");
+    .replaceAll("-", "+")
+    .replaceAll("_", "/");
   const binary = atob(base64);
   const bytes = new Uint8Array(new ArrayBuffer(binary.length));
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  // `atob` gives one character per byte (all below U+0100): code point = code unit.
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.codePointAt(i)!;
   return bytes;
 }
 

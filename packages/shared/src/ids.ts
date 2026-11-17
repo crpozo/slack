@@ -9,9 +9,19 @@ export function compareIds(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
-/** Deterministic DM channel id: same result regardless of argument order. */
+/** `sort()`'s own order, spelled out (Phase 69): by UTF-16 code units. */
+function compareCodeUnits(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+/**
+ * Deterministic DM channel id: same result regardless of argument order. The
+ * order is UTF-16 code units (what `sort()` does by default), not the locale's:
+ * every stored DM id depends on it.
+ */
 export function dmChannelId(userIdA: string, userIdB: string): string {
-  const [first, second] = [userIdA, userIdB].sort();
+  const [first, second] = [userIdA, userIdB].sort(compareCodeUnits);
   return `${DM_PREFIX}${first}_${second}`;
 }
 

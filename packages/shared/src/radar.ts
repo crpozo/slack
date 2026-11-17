@@ -197,9 +197,9 @@ export function techCoreKey(name: string): string {
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .split(/[^a-z0-9.]+|(?<=[a-z])\.(?=[a-z])/)
-    .map((w) => w.replace(/^\.+|\.+$/g, ""))
+    .map((w) => w.replace(/^\.+|(?<!\.)\.+$/g, ""))
     .filter((w) => w && !VERSION_WORD.test(w));
-  const core = words.join("").replace(/\./g, "");
+  const core = words.join("").replaceAll(".", "");
   const stripped = core.replace(PACKAGING_SUFFIX, "");
   return stripped.length >= 3 ? stripped : core;
 }

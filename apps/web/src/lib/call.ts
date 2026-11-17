@@ -495,9 +495,15 @@ export class CallManager {
   /**
    * Switches AI notes on or off for both sides. The other side is told over
    * the data channel (and shown who did it), so nobody is transcribed without
-   * knowing.
+   * knowing. Nothing in it waits (Phase 69); the promise is for callers that
+   * await it.
    */
-  async toggleNotes(): Promise<void> {
+  toggleNotes(): Promise<void> {
+    this.switchNotes();
+    return Promise.resolve();
+  }
+
+  private switchNotes(): void {
     const session = this.session;
     const me = this.deps?.myUserId();
     if (!session || !me || session.phase !== "connected") return;
@@ -508,7 +514,7 @@ export class CallManager {
     const on = !session.notes.on;
     const at = Date.now();
     this.sendNotesMessage(session, { type: "notes", on, at });
-    await this.applyNotes(session, on, at, me);
+    this.applyNotes(session, on, at, me);
   }
 
   /**
@@ -1331,7 +1337,7 @@ export class CallManager {
 
   private receiveNotesMessage(session: Session, message: NotesPeerMessage): void {
     if (message.type === "notes") {
-      void this.applyNotes(session, message.on, message.at, session.peerId);
+      this.applyNotes(session, message.on, message.at, session.peerId);
     } else if (message.type === "backup") {
       this.applyKeepAudio(session, message.keep, message.at, session.peerId);
     }
@@ -1340,7 +1346,7 @@ export class CallManager {
   }
 
   /** Turns notes on or off for this call, whoever asked (`by`). */
-  private async applyNotes(session: Session, on: boolean, at: number, by: string): Promise<void> {
+  private applyNotes(session: Session, on: boolean, at: number, by: string): void {
     const notes = session.notes;
     if (at < notes.changedAt) return; // an older toggle crossing a newer one
     notes.changedAt = at;

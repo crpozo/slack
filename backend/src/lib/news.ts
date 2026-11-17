@@ -10,6 +10,7 @@ import {
   type NewsArticle,
   type NewsFeed,
   type NewsResponse,
+  replaceTags,
 } from "@mindfultech/shared";
 import { XMLParser } from "fast-xml-parser";
 
@@ -112,7 +113,7 @@ export function decodeEntities(text: string): string {
   return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, code: string) => {
     if (code[0] === "#") {
       const n =
-        code[1]?.toLowerCase() === "x" ? parseInt(code.slice(2), 16) : Number(code.slice(1));
+        code[1]?.toLowerCase() === "x" ? Number.parseInt(code.slice(2), 16) : Number(code.slice(1));
       return Number.isFinite(n) && n > 0 && n < 0x110000 ? String.fromCodePoint(n) : whole;
     }
     return NAMED_ENTITIES[code.toLowerCase()] ?? whole;
@@ -121,22 +122,23 @@ export function decodeEntities(text: string): string {
 
 /** HTML to plain text: tags out, entities decoded, whitespace collapsed. */
 export function plainText(html: string): string {
-  const text = html
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<br\s*\/?>|<\/p>/gi, " ")
-    .replace(/<[^>]*>/g, " ");
+  const text = replaceTags(
+    html.replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ").replace(/<br\s*\/?>|<\/p>/gi, " "),
+    " ",
+    { empty: true },
+  );
   return decodeEntities(text).replace(/\s+/g, " ").trim();
 }
 
 /** At most `max` characters, cut at a word, with an ellipsis when cut. */
 export function clip(text: string, max = NEWS_SNIPPET_CHARS): string {
   // WordPress's own "The post … appeared first on …" footer isn't part of the story.
-  const body = text.replace(/\s*The post .* appeared first on .*$/i, "").trim();
+  const body = text.replace(/(?<!\s)\s*The post .* appeared first on .*$/i, "").trim();
   if (body.length <= max) return body;
   const cut = body.slice(0, max);
   const atWord = cut
     .slice(0, Math.max(cut.lastIndexOf(" "), max * 0.6))
-    .replace(/[\s,.;:–—-]+$/, "");
+    .replace(/(?<![\s,.;:–—-])[\s,.;:–—-]+$/, "");
   return `${atWord}…`;
 }
 
@@ -443,7 +445,7 @@ const newestFirst = (articles: NewsArticle[]) =>
 /** A link without what varies between feeds for the same page (tracking query, `#`, trailing `/`). */
 function canonicalLink(link: string): string {
   const url = new URL(link);
-  return `${url.host.replace(/^www\./, "")}${url.pathname.replace(/\/+$/, "")}`.toLowerCase();
+  return `${url.host.replace(/^www\./, "")}${url.pathname.replace(/(?<!\/)\/+$/, "")}`.toLowerCase();
 }
 
 const titleKey = (title: string) =>

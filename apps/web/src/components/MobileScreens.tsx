@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } 
 import { useLocation, useNavigate } from "react-router-dom";
 import { chat } from "../lib/chat";
 import { channelLabel, dmPeer, formatDay, formatTime } from "../lib/channels";
+import { focusOnMount } from "../lib/focusOnMount";
 import { useGroupCall } from "../lib/groupCall";
 import { loadRecents } from "../lib/recents";
 import { tasksApiConfigured } from "../lib/tasksApi";
@@ -769,7 +770,7 @@ export function SearchScreen() {
             }}
             placeholder="Search messages, channels or people…"
             aria-label="Search"
-            autoFocus
+            ref={focusOnMount}
             className="w-full bg-transparent py-3 text-base text-ink placeholder:text-ink-secondary focus:outline-none"
           />
           {search.status === "loading" && (

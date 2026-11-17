@@ -113,7 +113,8 @@ export function notesMetaOf(value: unknown): NotesMeta | null {
       ? title
           .replace(/\s+/g, " ")
           .trim()
-          .replace(/^["'“”«»]+|["'“”«».]+$/g, "")
+          .replace(/^["'“”«»]+/, "")
+          .replace(/(?<!["'“”«».])["'“”«».]+$/, "")
           .trim()
           .slice(0, MAX_NOTE_TITLE_LENGTH)
       : "";

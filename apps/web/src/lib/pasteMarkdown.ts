@@ -80,8 +80,10 @@ function isCode(el: Element, inherited: boolean): boolean {
 
 /** Wraps `text` in a marker, keeping its outer spaces outside (`** x**` doesn't render). */
 function wrap(text: string, marker: string): string {
-  const match = /^(\s*)([\s\S]*?)(\s*)$/.exec(text);
-  const [, before = "", core = "", after = ""] = match ?? [];
+  // `trim` and `\s` know the same spaces (Phase 69: no regex to backtrack).
+  const core = text.trim();
+  const before = text.slice(0, text.length - text.trimStart().length);
+  const after = text.slice(text.trimEnd().length);
   return core ? `${before}${marker}${core}${marker}${after}` : text;
 }
 
@@ -188,7 +190,7 @@ export function htmlToMarkdown(html: string): string {
     if (SKIP.has(el.tagName)) return;
     if (el.tagName === "PRE") {
       blankLine();
-      out.push("```\n" + (el.textContent ?? "").replace(/\n+$/, "") + "\n```");
+      out.push("```\n" + (el.textContent ?? "").replace(/(?<!\n)\n+$/, "") + "\n```");
       blankLine();
       return;
     }
@@ -230,7 +232,7 @@ export function htmlToMarkdown(html: string): string {
         .map((tr) =>
           [...tr.children]
             .filter((cell) => cell.tagName === "TD" || cell.tagName === "TH")
-            .map((cell) => inline(cell, NONE).replace(/\s+/g, " ").trim().replace(/\|/g, "\\|")),
+            .map((cell) => inline(cell, NONE).replace(/\s+/g, " ").trim().replaceAll("|", "\\|")),
         )
         .filter((cells) => cells.some(Boolean));
       const columns = Math.max(0, ...rows.map((cells) => cells.length));
@@ -242,7 +244,7 @@ export function htmlToMarkdown(html: string): string {
         out.push(
           [
             line(rows[0]!),
-            line(Array<string>(columns).fill("---")),
+            line(new Array<string>(columns).fill("---")),
             ...rows.slice(1).map(line),
           ].join("\n"),
         );
@@ -285,7 +287,7 @@ export function htmlToMarkdown(html: string): string {
   walk(doc.body, NONE);
   return out
     .join("")
-    .replace(/[ \t]+\n/g, "\n")
+    .replace(/(?<![ \t])[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

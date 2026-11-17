@@ -28,7 +28,7 @@ const walk = (dir) =>
   });
 const files = walk(root)
   .map((full) => ({
-    path: relative(root, full).split("\\").join("/"),
+    path: relative(root, full).replaceAll("\\", "/"),
     content: readFileSync(full, "utf8"),
   }))
   .filter((f) => f.path !== "SKILL.md")

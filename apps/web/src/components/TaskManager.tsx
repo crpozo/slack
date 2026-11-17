@@ -3,6 +3,7 @@ import {
   canDeleteBoard,
   isTaskArchived,
   MAX_BOARD_NAME_LENGTH,
+  PLAUSIBLE_EMAIL,
   type Board,
   taskAiBusy,
   type Task,
@@ -150,7 +151,7 @@ function ShareBoardModal({ board, onClose }: Readonly<{ board: Board; onClose: (
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const shareLabel = selected.length > 0 ? `Share (${selected.length})` : "Share";
-  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const emailValid = PLAUSIBLE_EMAIL.test(email.trim());
 
   async function share() {
     setBusy(true);

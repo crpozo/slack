@@ -3,6 +3,7 @@ import { dateInZone } from "./calendar";
 import { transcriptClock } from "./callNotes";
 import { UserIdSchema, type Message } from "./protocol";
 import { MAX_TASK_DESCRIPTION_LENGTH, MAX_TASK_TITLE_LENGTH } from "./tasks";
+import { atxHeading, unlinkMarkdown } from "./text";
 
 // ---------------------------------------------------------------------------
 // AI notes → board (Phase 29). The worker asks for "a bulleted list of
@@ -142,20 +143,38 @@ const isOtherHeading = (text: string) =>
   startsWithAny(normalizeLabel(text.replace(/^\s*\d{1,2}[.)]\s+/, "")), OTHER_HEADINGS);
 
 const FENCE = /^\s*(```|~~~)/;
-const ATX = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
-/** A line that is only bold text: `**Action Items**`, `**Tareas:**`, `__Next steps__:`. */
-const BOLD_LINE = /^\s{0,3}(\*\*|__)(.+?)\1\s*:?\s*$/;
+const BOLD_OPEN = /^\s{0,3}(\*\*|__)/;
+const LINE_TERMINATOR = /[\n\r\u2028\u2029]/;
+
+/**
+ * The text of a line that is only bold text: `**Action Items**`, `**Tareas:**`,
+ * `__Next steps__:`. What `/^\s{0,3}(\*\*|__)(.+?)\1\s*:?\s*$/` captures,
+ * scanned from the end (Phase 69): after the closing marker come only spaces
+ * and one colon, so the marker can only end where those start.
+ */
+function boldLineText(line: string): string | null {
+  const open = BOLD_OPEN.exec(line);
+  if (!open) return null;
+  const isSpace = (at: number) => /\s/.test(line[at] ?? "");
+  let tail = line.length;
+  while (tail > 0 && isSpace(tail - 1)) tail--;
+  if (line[tail - 1] === ":") tail--;
+  while (tail > 0 && isSpace(tail - 1)) tail--;
+  const close = tail - 2;
+  if (close <= open[0].length || line.slice(close, tail) !== open[1]) return null;
+  const text = line.slice(open[0].length, close);
+  return LINE_TERMINATOR.test(text) ? null : text;
+}
+
 /** A short label line: `Action items:`, `Próximos pasos:` (no list marker, nothing after the colon). */
 const LABEL_LINE = /^\s{0,3}([^\s\-*+•#>`|][^:]{0,58}):\s*$/;
 const RULE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
-const LIST_ITEM = /^(\s*)(?:[-*+•●◦▪‣–]|\d{1,3}[.)])\s+(.*)$/;
+const LIST_ITEM = /^(\s*)(?:[-*+•●◦▪‣–]|\d{1,3}[.)])\s+(?!\s)(.*)$/;
 const CHECKBOX = /^\[([ xX])\]\s+/;
 
 /** Markdown out of one line of text: links keep their label, emphasis and code marks go. */
 export function plainText(markdown: string): string {
-  return markdown
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+  return unlinkMarkdown(markdown.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1"), { emptyUrl: true })
     .replace(/`([^`]*)`/g, "$1")
     .replace(/(\*\*|__)(.+?)\1/g, "$2")
     .replace(/(^|[^\w*])\*(?=\S)([^*]*?\S)\*(?![\w*])/g, "$1$2")
@@ -177,8 +196,34 @@ const TRAILING_OWNER = new RegExp(
   String.raw`^(.+?)\s*[([]\s*(?:owner|assignee|assigned to|responsable|encargad[oa]|asignad[oa] a)?\s*:?\s*@?(${NAME})\s*[)\]]\s*\.?$`,
   "iu",
 );
-/** `task — Name` or `Name — task`: which side is the name is up to the board's members. */
-const DASH = /^(.+?)\s+[–—]\s+(.+)$/u;
+/**
+ * `task — Name` or `Name — task`: which side is the name is up to the board's
+ * members. What `/^(.+?)\s+[–—]\s+(.+)$/u` captures, found dash by dash
+ * (Phase 69): the left side ends where the spaces before the first dash that
+ * works start; the right side is what follows the spaces after it.
+ */
+function splitAtDash(raw: string): [left: string, right: string] | null {
+  const isSpace = (at: number) => /\s/.test(raw[at] ?? "");
+  const first = (raw.codePointAt(0) ?? 0) > 0xffff ? 2 : 1;
+  for (let dash = 0; dash < raw.length; dash++) {
+    if (raw[dash] !== "–" && raw[dash] !== "—") continue;
+    let start = dash;
+    while (start > 0 && isSpace(start - 1)) start--;
+    const leftEnd = Math.max(start, first);
+    if (leftEnd >= dash) continue;
+    const left = raw.slice(0, leftEnd);
+    if (LINE_TERMINATOR.test(left)) return null;
+    let end = dash + 1;
+    while (end < raw.length && isSpace(end)) end++;
+    if (end === dash + 1) continue;
+    // Only spaces after the dash: the last of them is the right side.
+    let right = "";
+    if (end < raw.length) right = raw.slice(end);
+    else if (end - dash > 2) right = raw.slice(end - 1);
+    if (right && !LINE_TERMINATOR.test(right)) return [left, right];
+  }
+  return null;
+}
 const ONLY_NAME = new RegExp(String.raw`^@?(${NAME})\.?$`, "u");
 
 /** The owner hints of one item's raw markdown, most likely first. */
@@ -197,9 +242,9 @@ function ownersOf(raw: string): OwnerHint[] {
     const m = pattern.exec(raw);
     if (m) add(m[nameAt], m[restAt]);
   }
-  const dash = DASH.exec(raw);
+  const dash = splitAtDash(raw);
   if (dash) {
-    const [, left = "", right = ""] = dash;
+    const [left, right] = dash;
     if (ONLY_NAME.test(plainText(right))) add(right, left);
     if (ONLY_NAME.test(plainText(left))) add(left, right);
   }
@@ -213,10 +258,10 @@ interface Heading {
 }
 
 function headingOf(line: string): Heading | null {
-  const atx = ATX.exec(line);
-  if (atx) return { level: atx[1]!.length, text: plainText(atx[2]!) };
-  const bold = BOLD_LINE.exec(line);
-  if (bold) return { level: 7, text: plainText(bold[2]!) };
+  const atx = atxHeading(line);
+  if (atx) return { level: atx[0].length, text: plainText(atx[1]) };
+  const bold = boldLineText(line);
+  if (bold) return { level: 7, text: plainText(bold) };
   const label = LABEL_LINE.exec(line);
   if (label) return { level: 7, text: plainText(label[1]!) };
   return null;
@@ -259,7 +304,7 @@ export function extractActionItems(markdown: string): ActionItem[] {
   };
 
   for (const rawLine of lines) {
-    const line = rawLine.replace(/\t/g, "    ");
+    const line = rawLine.replaceAll("\t", "    ");
     if (FENCE.test(line)) {
       inFence = !inFence;
       continue;

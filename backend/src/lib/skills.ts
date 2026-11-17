@@ -153,7 +153,7 @@ export async function deleteSkill(id: string): Promise<void> {
  * frontmatter added for `name`/`description` when there was none.
  */
 export function normalizeSkillMd(skillMd: string, slug: string, description: string): string {
-  const text = skillMd.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  const text = skillMd.replace(/^\uFEFF/, "").replaceAll("\r\n", "\n");
   const fm = parseFrontmatter(text);
   if (!fm) {
     const head = `---\nname: ${slug}\ndescription: ${JSON.stringify(description)}\n---\n\n`;

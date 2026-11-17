@@ -323,7 +323,7 @@ function AudioAttachment({ attachment }: Readonly<{ attachment: AttachmentData }
   const [rate, setRate] = usePlaybackRate();
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
-  const [duration, setDuration] = useState(() => clipSeconds(NaN, attachment.durationMs));
+  const [duration, setDuration] = useState(() => clipSeconds(Number.NaN, attachment.durationMs));
 
   useEffect(() => {
     const el = audioRef.current;

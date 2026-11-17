@@ -1,5 +1,6 @@
 import {
   MAX_DISPLAY_NAME_LENGTH,
+  PLAUSIBLE_EMAIL,
   ROLE_LABELS,
   TEAM_ROLES,
   type AccountStatus,
@@ -110,7 +111,7 @@ export function AdminPanel({ onClose }: Readonly<{ onClose: () => void }>) {
     }
   }
 
-  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const validEmail = PLAUSIBLE_EMAIL.test(email.trim());
 
   return (
     <Modal

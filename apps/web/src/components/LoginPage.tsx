@@ -9,6 +9,7 @@ import {
   type SessionUser,
   type SignInResult,
 } from "../lib/auth";
+import { focusOnMount, useFocusOnMount } from "../lib/focusOnMount";
 import { NewPasswordFields, newPasswordProblem, PasswordInput } from "./PasswordFields";
 
 /** The official MindfulTech logo (generated from `public/logo.webp` by `pnpm --filter web icons`). */
@@ -61,6 +62,8 @@ function TextLink({ onClick, children }: Readonly<{ onClick: () => void; childre
 
 export function LoginPage({ onSignedIn }: Readonly<{ onSignedIn: (user: SessionUser) => void }>) {
   const [step, setStep] = useState<Step>("signIn");
+  // The email field, when it first shows on the "forgot" step (`autoFocus` did the same).
+  const focusEmail = useFocusOnMount(step === "forgot");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -189,7 +192,7 @@ export function LoginPage({ onSignedIn }: Readonly<{ onSignedIn: (user: SessionU
                 type="email"
                 autoComplete="username"
                 required
-                autoFocus={step === "forgot"}
+                ref={focusEmail}
                 className="input"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -225,7 +228,7 @@ export function LoginPage({ onSignedIn }: Readonly<{ onSignedIn: (user: SessionU
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 required
-                autoFocus
+                ref={focusOnMount}
                 maxLength={12}
                 className="input tracking-widest"
                 value={code}

@@ -396,7 +396,7 @@ function fit(text: string, max: number): string {
   const clean = text.replace(/\s+/g, " ").trim();
   if (clean.length <= max) return clean;
   const cut = clean.slice(0, max);
-  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), max * 0.6)).replace(/[\s,.;:–—-]+$/, "")}…`;
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), max * 0.6)).replace(/(?<![\s,.;:–—-])[\s,.;:–—-]+$/, "")}…`;
 }
 
 /**

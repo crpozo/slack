@@ -24,3 +24,6 @@ cdk.out/
 cdk.context.json
 *.tsbuildinfo
 coverage/
+
+# SonarCloud issue exports (local triage only)
+sonar_issues.json

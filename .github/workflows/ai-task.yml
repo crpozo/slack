@@ -91,7 +91,11 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: npm install -g @anthropic-ai/claude-code
+      # Phase 69: a fixed version (bumped on purpose), and no install scripts but
+      # Claude Code's own: its `postinstall` sets up the native binary.
+      - run: |
+          npm install -g --ignore-scripts @anthropic-ai/claude-code@2.1.317
+          npm rebuild -g @anthropic-ai/claude-code
 
       - name: Claude does the task
         env:

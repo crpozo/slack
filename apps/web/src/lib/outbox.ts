@@ -41,7 +41,20 @@ export class UploadTask {
       file.type.startsWith("image/") && typeof URL.createObjectURL === "function"
         ? URL.createObjectURL(file)
         : null;
-    void this.start().catch(() => {});
+  }
+
+  /**
+   * A task that starts uploading at once (Phase 69: started here rather than
+   * in the constructor). A failure shows in its state; `start` retries.
+   */
+  static begin(
+    file: File,
+    upload: (onProgress: (fraction: number) => void) => Promise<Attachment>,
+    extra: Partial<Attachment> = {},
+  ): UploadTask {
+    const task = new UploadTask(file, upload, extra);
+    void task.start().catch(() => {});
+    return task;
   }
 
   get state(): UploadState {

@@ -77,7 +77,7 @@ export function stripAttachmentRefs(text: string): string {
     .split("\n")
     .flatMap((line) => {
       if (!hasAttachmentRefs(line)) return [line];
-      const rest = line.replace(ATTACHMENT_MARKDOWN, "").replace(/[ \t]+$/, "");
+      const rest = line.replace(ATTACHMENT_MARKDOWN, "").replace(/(?<![ \t])[ \t]+$/, "");
       return rest.trim() ? [rest] : [];
     })
     .join("\n");

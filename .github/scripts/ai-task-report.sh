@@ -5,7 +5,7 @@
 set -euo pipefail
 phase="$1"
 summary=""
-if [ -s "${RUNNER_TEMP:-/tmp}/summary.txt" ]; then
+if [[ -s "${RUNNER_TEMP:-/tmp}/summary.txt" ]]; then
   summary=$(head -c 1800 "${RUNNER_TEMP:-/tmp}/summary.txt")
 fi
 payload=$(jq -n \

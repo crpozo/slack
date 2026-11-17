@@ -11,6 +11,7 @@ import {
 } from "@mindfultech/shared";
 import { useMemo, useState, type FormEvent } from "react";
 import { channelLabel, displayName } from "../lib/channels";
+import { focusOnMount } from "../lib/focusOnMount";
 import { TasksApiError } from "../lib/tasksApi";
 import { vaultApi } from "../lib/vaultApi";
 import { useShallow } from "zustand/react/shallow";
@@ -198,7 +199,7 @@ export function SecretFormModal({
         autoComplete="off"
       >
         <label className={LABEL}>
-          Title
+          Title{" "}
           <input
             className={INPUT}
             value={name}
@@ -206,12 +207,12 @@ export function SecretFormModal({
             maxLength={MAX_VAULT_NAME}
             placeholder="AWS console (prod)"
             required
-            autoFocus
+            ref={focusOnMount}
             data-vault-name
           />
         </label>
         <label className={LABEL}>
-          URL
+          URL{" "}
           <input
             className={`${INPUT} ${websiteInvalid ? "border-error/70" : ""}`}
             value={website}
@@ -229,7 +230,7 @@ export function SecretFormModal({
           )}
         </label>
         <label className={LABEL}>
-          Username
+          Username{" "}
           <input
             className={INPUT}
             value={username}
@@ -277,7 +278,7 @@ export function SecretFormModal({
           </span>
         </div>
         <label className={LABEL}>
-          Project / channel
+          Project / channel{" "}
           <select
             className={INPUT}
             value={channelId}
@@ -318,7 +319,7 @@ export function SecretFormModal({
               checked={share}
               onChange={(e) => setShare(e.target.checked)}
               className="h-4 w-4 accent-primary"
-            />
+            />{" "}
             Also post a 🔒 card in the channel
           </label>
         )}

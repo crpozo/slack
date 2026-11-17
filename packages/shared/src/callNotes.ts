@@ -288,7 +288,7 @@ export function aiNotesText(notes: Pick<AiNotes, "status" | "summary">): string 
       .map((l) =>
         l
           .replace(/^[#>*\-\s]+/, "")
-          .replace(/\*\*/g, "")
+          .replaceAll("**", "")
           .trim(),
       )
       .find((l) => l.length > 0) ?? "";

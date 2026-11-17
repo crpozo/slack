@@ -8,7 +8,8 @@ export type ToastTone = "success" | "info" | "error";
 
 const ERROR =
   /\b(couldn'?t|could not|can'?t|cannot|failed|fails|error|not allowed|denied|expired|unavailable|not found|invalid|too (?:long|short|large|big)|try again|went wrong|no longer)\b/i;
-const SUCCESS = /^(?:\W*\s*)?(copied|saved|sent|done|added|created|linked|updated)\b|\bcopied\b/i;
+// `\s` is part of `\W`, so `^\W*` is the old `^(?:\W*\s*)?` without its backtracking.
+const SUCCESS = /(?:^\W*(copied|saved|sent|done|added|created|linked|updated)\b)|\bcopied\b/i;
 
 /** The tone of `message` when the caller didn't give one. */
 export function toneOf(message: string): ToastTone {

@@ -169,6 +169,7 @@ export function MessageContextMenu({
     <div
       ref={ref}
       role="menu"
+      tabIndex={-1}
       aria-label="Message actions"
       onKeyDown={onKeyDown}
       onContextMenu={(e) => e.preventDefault()}
