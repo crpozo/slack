@@ -21,7 +21,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 - **Ready for Discovery:** Discovery (`discovery.mindfultech.ec`, its own repo) shares this
   app's User Pool. The pool's ID is published in SSM at `/slack/<stage>/user-pool-id` for
   Discovery to import it; an invitation Discovery sends (`AdminCreateUser`, or its `RESEND`,
-  with `ClientMetadata.app = "discovery"`) now arrives in Spanish with Discovery's name and
+  with `ClientMetadata.app = "discovery"`) now arrives in English with Discovery's name and
   link (a Cognito _Custom message_ trigger). This app's own invitations and every other email
   are unchanged. Members and admins get a **Discovery** link under **Apps** in the sidebar
   (new tab); guests never see it.
