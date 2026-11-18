@@ -5,21 +5,21 @@ import {
 } from "@mindfultech/shared";
 import type { CustomMessageTriggerEvent } from "aws-lambda";
 
-export const DISCOVERY_INVITE_SUBJECT = "Te invitamos a MindfulTech Discovery";
+export const DISCOVERY_INVITE_SUBJECT = "You're invited to MindfulTech Discovery";
 
 /**
- * Discovery's invitation (Phase 68), in Spanish. Cognito swaps in the
+ * Discovery's invitation (Phase 68), in English like the app itself. Cognito swaps in the
  * placeholders it gives us: the username (the email) and the temporary
  * password, which it requires in the message.
  */
 export function discoveryInvitation(usernameParameter: string, codeParameter: string): string {
   const host = DISCOVERY_URL.replace(/^https:\/\//, "");
   return (
-    "¡Hola! Te invitamos a participar en <b>MindfulTech Discovery</b>.<br><br>" +
-    `Ingresa en <a href="${DISCOVERY_URL}">${host}</a> con:<br>` +
-    `Correo: ${usernameParameter}<br>Contraseña temporal: ${codeParameter}<br><br>` +
-    "La primera vez que ingreses elegirás tu propia contraseña. " +
-    `La contraseña temporal vence en ${TEMPORARY_PASSWORD_VALIDITY_DAYS} días.`
+    "Hi! You've been invited to take part in <b>MindfulTech Discovery</b>.<br><br>" +
+    `Sign in at <a href="${DISCOVERY_URL}">${host}</a> with:<br>` +
+    `Email: ${usernameParameter}<br>Temporary password: ${codeParameter}<br><br>` +
+    "You'll choose your own password the first time you sign in. " +
+    `The temporary password expires in ${TEMPORARY_PASSWORD_VALIDITY_DAYS} days.`
   );
 }
 

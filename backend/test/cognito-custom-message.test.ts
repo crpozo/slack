@@ -37,8 +37,14 @@ describe("Cognito Custom message trigger", () => {
     expect(DISCOVERY_URL).toBe("https://discovery.mindfultech.ec");
     expect(body).toContain("{####}");
     expect(body).toContain("{username}");
-    expect(body).toMatch(/7 días/);
-    expect(body).toMatch(/Contraseña temporal/);
+    expect(result.response.emailSubject).toBe("You're invited to MindfulTech Discovery");
+    expect(body).toBe(
+      "Hi! You've been invited to take part in <b>MindfulTech Discovery</b>.<br><br>" +
+        'Sign in at <a href="https://discovery.mindfultech.ec">discovery.mindfultech.ec</a> with:<br>' +
+        "Email: {username}<br>Temporary password: {####}<br><br>" +
+        "You'll choose your own password the first time you sign in. " +
+        "The temporary password expires in 7 days.",
+    );
     // SMS stays Cognito's: the pool's own template.
     expect(result.response.smsMessage).toBeNull();
   });
