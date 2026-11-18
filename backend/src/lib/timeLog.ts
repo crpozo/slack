@@ -5,6 +5,7 @@ import {
   CreateTimeEntrySchema,
   managesTimeRates,
   seesAllTime,
+  SetTimeClientsSchema,
   SetTimeRateSchema,
   UserIdSchema,
   type Channel,
@@ -27,7 +28,7 @@ import {
   type HttpResult,
 } from "./http";
 import { errorFields, log } from "./logger";
-import { defaultDisplayName } from "./users";
+import { defaultDisplayName, guestsAmong } from "./users";
 
 // ---------------------------------------------------------------------------
 // Hours (Phase 60): a channel's time log. Rows of `time-log`, by channel:
@@ -35,10 +36,39 @@ import { defaultDisplayName } from "./users";
 //   - `rate#<userId>`: that person's hourly rate in this channel (admins only).
 // Anyone in the channel logs their own hours (externals too); the team sees
 // everyone's, an external only theirs; rates never leave for a non-admin.
+// Phase 70: `bill#<userId>` (what the client pays per hour) and `clients` (the
+// externals who review the hours, read-only: every entry and its amount).
 // ---------------------------------------------------------------------------
 
 const ENTRY = "entry#";
 const RATE = "rate#";
+/** Phase 70: what the client pays per hour of someone's work; and who reviews the hours. */
+const BILL = "bill#";
+const CLIENTS = "clients";
+
+/** The externals marked as this channel's clients (read-only reviewers of its hours). */
+const clientIdsOf = (rows: Record<string, unknown>[]): string[] => {
+  const ids = rows.find((r) => r.sk === CLIENTS)?.clientIds;
+  return Array.isArray(ids) ? ids.map(String) : [];
+};
+const ratesOf = (rows: Record<string, unknown>[], prefix: string) =>
+  Object.fromEntries(
+    rows
+      .filter((r) => String(r.sk).startsWith(prefix) && typeof r.hourlyRate === "number")
+      .map((r) => [String(r.sk).slice(prefix.length), r.hourlyRate as number]),
+  );
+
+/** Whether `caller` reviews this channel's hours as its client (read-only). */
+async function isClient(channel: Channel, caller: HttpCaller): Promise<boolean> {
+  if (caller.role !== "guest") return false;
+  const { Item } = await ddb.send(
+    new GetCommand({
+      TableName: tables.timeLog,
+      Key: { channelId: channel.channelId, sk: CLIENTS },
+    }),
+  );
+  return Array.isArray(Item?.clientIds) && (Item.clientIds as unknown[]).includes(caller.userId);
+}
 
 const entrySk = (date: string, entryId: string) => `${ENTRY}${date}#${entryId}`;
 
@@ -93,17 +123,22 @@ export async function listTime(event: HttpEvent, caller: HttpCaller): Promise<Ht
   const channel = await channelOf(event, caller, false);
   const rows = await rowsOf(channel.channelId);
   const all = rows.filter((r) => String(r.sk).startsWith(ENTRY));
-  const visible = seesAllTime(caller.role) ? all : all.filter((r) => r.userId === caller.userId);
+  // Phase 70: the channel's client sees every entry (read-only) and what each costs them.
+  const client = caller.role === "guest" && clientIdsOf(rows).includes(caller.userId);
+  const visible =
+    seesAllTime(caller.role) || client ? all : all.filter((r) => r.userId === caller.userId);
   const entries = visible
     .map(toEntry)
     .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
   const body: TimeLogResponse = { entries };
   if (managesTimeRates(caller.role)) {
-    body.rates = Object.fromEntries(
-      rows
-        .filter((r) => String(r.sk).startsWith(RATE) && typeof r.hourlyRate === "number")
-        .map((r) => [String(r.sk).slice(RATE.length), r.hourlyRate as number]),
-    );
+    body.rates = ratesOf(rows, RATE);
+    body.billRates = ratesOf(rows, BILL);
+    body.clientIds = clientIdsOf(rows);
+  } else if (client) {
+    // Never the internal rates: only what the client is billed.
+    body.billRates = ratesOf(rows, BILL);
+    body.client = true;
   }
   return json(200, body);
 }
@@ -111,6 +146,8 @@ export async function listTime(event: HttpEvent, caller: HttpCaller): Promise<Ht
 /** `POST /channels/{channelId}/time`: the caller logs their own hours for a day. */
 export async function logTime(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const channel = await channelOf(event, caller, true);
+  if (await isClient(channel, caller))
+    throw forbidden("The client reviews the hours; it can't log them");
   const input = parseBody(CreateTimeEntrySchema, event);
   const now = Date.now();
   const entry: TimeEntry = {
@@ -142,6 +179,8 @@ export async function logTime(event: HttpEvent, caller: HttpCaller): Promise<Htt
 /** `DELETE /channels/{channelId}/time/{date}/{entryId}`: whoever logged it, or an admin. */
 export async function deleteTime(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   const channel = await channelOf(event, caller, true);
+  if (await isClient(channel, caller))
+    throw forbidden("The client reviews the hours; it can't change them");
   const key = {
     channelId: channel.channelId,
     sk: entrySk(pathParam(event, "date"), pathParam(event, "entryId")),
@@ -186,4 +225,70 @@ export async function setTimeRate(event: HttpEvent, caller: HttpCaller): Promise
   });
   await announce(channel);
   return json(200, { userId: userId.data, hourlyRate });
+}
+
+/**
+ * `PUT /channels/{channelId}/time/bill-rates/{userId}` (Phase 70): an admin
+ * sets what the client pays per hour of someone's work here (0 clears it).
+ */
+export async function setBillRate(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  if (!managesTimeRates(caller.role)) throw forbidden("Only an admin sets what the client pays");
+  const channel = await channelOf(event, caller, true);
+  const userId = UserIdSchema.safeParse(pathParam(event, "userId"));
+  if (!userId.success) throw new HttpError(400, "Invalid user id");
+  const { hourlyRate } = parseBody(SetTimeRateSchema, event);
+  const key = { channelId: channel.channelId, sk: `${BILL}${userId.data}` };
+  if (hourlyRate === 0) {
+    await ddb.send(new DeleteCommand({ TableName: tables.timeLog, Key: key }));
+  } else {
+    await ddb.send(
+      new PutCommand({
+        TableName: tables.timeLog,
+        Item: { ...key, hourlyRate, setBy: caller.userId, updatedAt: Date.now() },
+      }),
+    );
+  }
+  log.info("bill rate set", {
+    channelId: channel.channelId,
+    userId: caller.userId,
+    cleared: hourlyRate === 0,
+  });
+  await announce(channel);
+  return json(200, { userId: userId.data, hourlyRate });
+}
+
+/**
+ * `PUT /channels/{channelId}/time/clients` (Phase 70): an admin chooses which
+ * externals of the channel review its hours. Only people from outside
+ * MindfulTech who are in the channel; they see every entry and what it costs
+ * them, and can't log or change anything.
+ */
+export async function setTimeClients(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+  if (!managesTimeRates(caller.role)) throw forbidden("Only an admin chooses the client");
+  const channel = await channelOf(event, caller, false);
+  const { clientIds } = parseBody(SetTimeClientsSchema, event);
+  const ids = [...new Set(clientIds)];
+  const members = new Set(channel.members ?? []);
+  if (ids.some((id) => !members.has(id))) {
+    throw new HttpError(400, "Only people in this channel can review its hours");
+  }
+  const guests = new Set(await guestsAmong(ids));
+  if (ids.some((id) => !guests.has(id))) {
+    throw new HttpError(400, "Only people from outside MindfulTech are clients");
+  }
+  await ddb.send(
+    new PutCommand({
+      TableName: tables.timeLog,
+      Item: {
+        channelId: channel.channelId,
+        sk: CLIENTS,
+        clientIds: ids,
+        setBy: caller.userId,
+        updatedAt: Date.now(),
+      },
+    }),
+  );
+  log.info("time clients set", { channelId: channel.channelId, clients: ids.length });
+  await announce(channel);
+  return json(200, { clientIds: ids });
 }

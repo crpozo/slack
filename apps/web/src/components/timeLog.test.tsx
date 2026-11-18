@@ -96,4 +96,48 @@ describe("the channel's hours", () => {
       }),
     );
   });
+
+  it("a client sees every entry and what it's billed, read-only, and can download it", async () => {
+    useChat.setState({ me: { userId: "u-buyer", email: "b@cliente.com", role: "guest" } });
+    vi.spyOn(timeApi, "list").mockResolvedValue({
+      entries: [
+        entry(),
+        entry({ entryId: "e2", userId: "u-other", userName: "otro", minutes: 60 }),
+      ],
+      billRates: { "u-dev": 40 },
+      client: true,
+    });
+    render(<TimeLogModal channel={channel} onClose={() => {}} />);
+    await screen.findAllByText("Harryson");
+    expect(document.querySelector("[data-client-total-hours]")!.textContent).toBe("3h 30m");
+    // 2.5 h × $40; the hour without a billing rate doesn't add up.
+    expect(document.querySelector("[data-client-total-cost]")!.textContent).toMatch(/100[.,]00/);
+    expect(screen.getByText(/1h aún sin tarifa/)).toBeTruthy();
+    expect(screen.queryByLabelText("Tiempo trabajado")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Borrar/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Descargar CSV" })).toBeTruthy();
+  });
+
+  it("an admin marks the client and sets what each hour is billed", async () => {
+    useChat.setState({ me: { userId: "u-admin", email: "a@x.com", role: "admin" } });
+    vi.spyOn(timeApi, "list").mockResolvedValue({
+      entries: [entry()],
+      rates: { "u-dev": 20 },
+      billRates: {},
+      clientIds: [],
+    });
+    const setClients = vi.spyOn(timeApi, "setClients").mockResolvedValue({ clientIds: ["u-dev"] });
+    const setBillRate = vi
+      .spyOn(timeApi, "setBillRate")
+      .mockResolvedValue({ userId: "u-dev", hourlyRate: 45 });
+    render(<TimeLogModal channel={channel} onClose={() => {}} />);
+    await screen.findByText("API de pagos");
+    fireEvent.click(screen.getByRole("tab", { name: "Cliente" }));
+    fireEvent.click(screen.getByRole("button", { name: /Harryson/ }));
+    await waitFor(() => expect(setClients).toHaveBeenCalledWith("ch_cam", ["u-dev"]));
+    const bill = screen.getByLabelText("Cobro al cliente por hora en dólares");
+    fireEvent.change(bill, { target: { value: "45" } });
+    fireEvent.blur(bill);
+    await waitFor(() => expect(setBillRate).toHaveBeenCalledWith("ch_cam", "u-dev", 45));
+  });
 });

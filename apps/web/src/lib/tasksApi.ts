@@ -203,4 +203,18 @@ export const timeApi = {
       `/channels/${encodeURIComponent(channelId)}/time/rates/${encodeURIComponent(userId)}`,
       { hourlyRate },
     ),
+  /** Admins (Phase 70): what the client pays per hour of someone's work (0 clears it). */
+  setBillRate: (channelId: string, userId: string, hourlyRate: number) =>
+    request<{ userId: string; hourlyRate: number }>(
+      "PUT",
+      `/channels/${encodeURIComponent(channelId)}/time/bill-rates/${encodeURIComponent(userId)}`,
+      { hourlyRate },
+    ),
+  /** Admins (Phase 70): the externals of the channel who review its hours (read-only). */
+  setClients: (channelId: string, clientIds: string[]) =>
+    request<{ clientIds: string[] }>(
+      "PUT",
+      `/channels/${encodeURIComponent(channelId)}/time/clients`,
+      { clientIds },
+    ),
 };

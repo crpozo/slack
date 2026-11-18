@@ -165,6 +165,8 @@ describe("task manager API", () => {
       "PUT /calendar/events/{id}",
       "PUT /calendar/vacations/{id}/status",
       "PUT /calls/{callId}/audio",
+      "PUT /channels/{channelId}/time/bill-rates/{userId}",
+      "PUT /channels/{channelId}/time/clients",
       "PUT /channels/{channelId}/time/rates/{userId}",
       "PUT /notes/{callId}/topic",
       "PUT /radar/blips/{id}",

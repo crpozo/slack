@@ -52,11 +52,26 @@ export const SetTimeRateSchema = z.object({
 
 /** `GET /channels/{channelId}/time`. */
 export interface TimeLogResponse {
-  /** Newest day first. An external gets only their own. */
+  /** Newest day first. An external gets only their own (a client: everyone's). */
   entries: TimeEntry[];
   /** Admins only: each person's hourly rate in this channel (dollars), by user id. */
   rates?: Record<string, number>;
+  /**
+   * Phase 70: what the client is billed per hour of each person's work in this
+   * channel (dollars), by user id. Admins and the channel's clients; never the
+   * internal `rates`.
+   */
+  billRates?: Record<string, number>;
+  /** Phase 70, admins: the externals of this channel who review its hours (read-only). */
+  clientIds?: string[];
+  /** Phase 70: the caller is one of those clients: everything is read-only. */
+  client?: boolean;
 }
+
+/** `PUT /channels/{channelId}/time/clients` (Phase 70): who reviews the hours. */
+export const SetTimeClientsSchema = z.object({
+  clientIds: z.array(z.string().min(1).max(128)).max(50),
+});
 
 /** Pushed to the channel when its log changes: clients read it again. */
 export interface TimeLogUpdatedEvent {
@@ -122,6 +137,36 @@ export interface TimeTotals {
   /** Minutes logged by people with no rate set. */
   unpricedMinutes: number;
   byUser: Array<{ userId: string; userName: string; minutes: number; rate?: number; cost: number }>;
+}
+
+/** "Fecha,Persona,Descripción,Horas,Tarifa,Monto": the entries as a spreadsheet (Phase 70). */
+export function timeLogCsv(
+  entries: TimeEntry[],
+  nameOf: (e: TimeEntry) => string,
+  rates: Record<string, number> = {},
+): string {
+  const cell = (v: string | number) => {
+    const text = String(v);
+    // Quoted when needed; a leading =,+,-,@ can't start a formula in a spreadsheet.
+    const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+    return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+  };
+  const rows = [...entries]
+    .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt)
+    .map((e) => {
+      const rate = rates[e.userId];
+      return [
+        e.date,
+        nameOf(e),
+        e.description,
+        (e.minutes / 60).toFixed(2),
+        rate ? rate.toFixed(2) : "",
+        rate ? costOf(e.minutes, rate).toFixed(2) : "",
+      ];
+    });
+  return [["Fecha", "Persona", "Descripción", "Horas", "Tarifa (USD/h)", "Monto (USD)"], ...rows]
+    .map((r) => r.map(cell).join(","))
+    .join("\n");
 }
 
 /** Hours and cost of `entries`, in all and by person (most hours first). */

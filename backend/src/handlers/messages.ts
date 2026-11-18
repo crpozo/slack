@@ -55,7 +55,14 @@ import {
   type LinkRow,
 } from "../lib/media";
 import { toWireMessage } from "../lib/messages";
-import { deleteTime, listTime, logTime, setTimeRate } from "../lib/timeLog";
+import {
+  deleteTime,
+  listTime,
+  logTime,
+  setBillRate,
+  setTimeClients,
+  setTimeRate,
+} from "../lib/timeLog";
 import { forgetNote } from "../lib/noteDetails";
 import { deleteObjects, signAttachments, withSignedUrls } from "../lib/s3";
 
@@ -647,6 +654,8 @@ const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<H
   "POST /channels/{channelId}/time": logTime,
   "DELETE /channels/{channelId}/time/{date}/{entryId}": deleteTime,
   "PUT /channels/{channelId}/time/rates/{userId}": setTimeRate,
+  "PUT /channels/{channelId}/time/bill-rates/{userId}": setBillRate,
+  "PUT /channels/{channelId}/time/clients": setTimeClients,
   "POST /channels/{channelId}/ask": askChannel,
 };
 

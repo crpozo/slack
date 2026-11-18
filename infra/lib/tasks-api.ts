@@ -171,6 +171,9 @@ export const MESSAGES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/channels/{channelId}/time" },
   { method: HttpMethod.DELETE, path: "/channels/{channelId}/time/{date}/{entryId}" },
   { method: HttpMethod.PUT, path: "/channels/{channelId}/time/rates/{userId}" },
+  // Phase 70: what the client pays, and which externals review the hours.
+  { method: HttpMethod.PUT, path: "/channels/{channelId}/time/bill-rates/{userId}" },
+  { method: HttpMethod.PUT, path: "/channels/{channelId}/time/clients" },
   // Phase 68: the conversation's AI companion.
   { method: HttpMethod.POST, path: "/channels/{channelId}/ask" },
 ];
@@ -1201,8 +1204,9 @@ export class TasksApi extends Construct {
     data.connections.grant(this.messagesHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
     wsApi.webSocketApi.grantManageConnections(this.messagesHandler);
     grantDeleteFiles(this.messagesHandler, props.attachments);
-    // Phase 68, the AI companion: authors' names (GetItem) and the model on Bedrock.
-    data.users.grant(this.messagesHandler, "dynamodb:GetItem");
+    // Phase 68, the AI companion: authors' names (GetItem) and the model on Bedrock;
+    // Phase 70: whether the hours' clients are externals (BatchGetItem).
+    data.users.grant(this.messagesHandler, "dynamodb:GetItem", "dynamodb:BatchGetItem");
     this.messagesHandler.addToRolePolicy(notesModelPolicy());
     // Phase 38: a conversation's files/links/pins (Query the index; BatchGetItem the
     // pinned messages as they are now; images in Files are signed: s3:GetObject); a

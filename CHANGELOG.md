@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Client hours dashboard:** an external client can review a channel's hours read-only. In
+  **Horas**, an admin opens the **Cliente** tab and marks which externals of the channel are its
+  clients, and sets what each person's hour is billed to the client (separate from the internal
+  rate, which never reaches the client). The client opens **Horas** and sees the period's
+  hours, the total to bill, each person's hours × rate and every entry with its amount (this
+  month, last month, this week, all), and can download it as CSV. A client can't log, edit or
+  delete anything; the admin previews exactly what the client sees.
 - **Tag a Vault credential in a chat:** the 🔑 button in the message box (on phones, in the
   **+** menu) lists the credentials you manage; pick one and it's shared with that chat:
   its teammates get access and a card is posted there that opens it (with their Vault PIN).

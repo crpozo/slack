@@ -1,4 +1,5 @@
 import {
+  BatchGetCommand,
   DeleteCommand,
   GetCommand,
   PutCommand,
@@ -186,5 +187,75 @@ describe("logging hours in a channel", () => {
     expect((await log(BOB, undefined, 0)).status).toBe(400);
     expect((await log(BOB, undefined, 60, "ayer")).status).toBe(400);
     expect(rows.size).toBe(0);
+  });
+
+  it("a client reviews every entry and what it's billed, never the internal rates, and can't edit", async () => {
+    const BUYER = { userId: "user-buyer", email: "ana@cliente.com" };
+    mockChannels(
+      GENERAL,
+      privateRow("ch_client", ALICE.userId, [ALICE.userId, BOB.userId, DEV.userId, BUYER.userId]),
+    );
+    ddbMock.on(BatchGetCommand).resolves({
+      Responses: {
+        "slack-test-users": [
+          { userId: BUYER.userId, role: "guest" },
+          { userId: DEV.userId, role: "guest" },
+          { userId: BOB.userId, role: "member" },
+        ],
+      },
+    });
+    await log(DEV, "[guests]", 120);
+    await log(BOB, undefined, 90, "2026-11-09");
+    const admin = (
+      path: string,
+      params: Record<string, string>,
+      body: unknown,
+      groups = "[admins]",
+    ) => call(`PUT /channels/{channelId}/time/${path}`, ALICE, { groups, params, body });
+    await admin("rates/{userId}", { userId: DEV.userId }, { hourlyRate: 25 });
+    await admin("bill-rates/{userId}", { userId: DEV.userId }, { hourlyRate: 60 });
+    await admin("bill-rates/{userId}", { userId: BOB.userId }, { hourlyRate: 80 });
+
+    // Not marked yet: an external like any other, only their own (none).
+    expect((await list(BUYER, "[guests]")).entries).toEqual([]);
+    // Only externals in the channel can be clients; only an admin marks them.
+    expect((await admin("clients", {}, { clientIds: [BOB.userId] })).status).toBe(400);
+    expect((await admin("clients", {}, { clientIds: ["user-x"] })).status).toBe(400);
+    expect(
+      (
+        await call("PUT /channels/{channelId}/time/clients", BOB, {
+          body: { clientIds: [BUYER.userId] },
+        })
+      ).status,
+    ).toBe(403);
+    expect((await admin("clients", {}, { clientIds: [BUYER.userId] })).status).toBe(200);
+
+    const view = await list(BUYER, "[guests]");
+    expect(view.client).toBe(true);
+    expect(view.entries.map((e) => e.userId)).toEqual([DEV.userId, BOB.userId]);
+    expect(view.billRates).toEqual({ [DEV.userId]: 60, [BOB.userId]: 80 });
+    expect(view.rates).toBeUndefined();
+    expect(view.clientIds).toBeUndefined();
+    expect(JSON.stringify(view)).not.toContain("25");
+
+    // The admin sees both, and who the clients are; the contractor still only their own.
+    const full = await list(ALICE, "[admins]");
+    expect(full.rates).toEqual({ [DEV.userId]: 25 });
+    expect(full.billRates).toEqual({ [DEV.userId]: 60, [BOB.userId]: 80 });
+    expect(full.clientIds).toEqual([BUYER.userId]);
+    expect((await list(DEV, "[guests]")).entries).toHaveLength(1);
+
+    // Read-only.
+    expect((await log(BUYER, "[guests]", 60)).status).toBe(403);
+    const entry = view.entries[0]!;
+    const del = await call("DELETE /channels/{channelId}/time/{date}/{entryId}", BUYER, {
+      groups: "[guests]",
+      params: { date: entry.date, entryId: entry.entryId },
+    });
+    expect(del.status).toBe(403);
+    expect(
+      (await admin("bill-rates/{userId}", { userId: DEV.userId }, { hourlyRate: 1 }, "[guests]"))
+        .status,
+    ).toBe(403);
   });
 });
