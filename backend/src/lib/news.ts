@@ -4,6 +4,7 @@ import {
   NEWS_FUTURE_TOLERANCE_MS,
   NEWS_MAX_AGE_MS,
   NEWS_MAX_ARTICLES,
+  NEWS_MAX_PER_PRESS_SOURCE,
   NEWS_MAX_PER_SOURCE,
   NEWS_REFRESH_MIN_SECONDS,
   NEWS_SNIPPET_CHARS,
@@ -375,6 +376,19 @@ export function isAboutAi(story: Pick<FeedStory, "title" | "snippet" | "categori
   return [story.title, ...story.categories, story.snippet].some((text) => AI_TOPIC.test(text));
 }
 
+/**
+ * Phase 71: what makes an outlet's story business or politics, not technology
+ * to adopt: markets and money, courts, governments. Read in the title only (a
+ * technical story may mention a price in passing).
+ */
+const BUSINESS_OR_POLITICS =
+  /\b(?:stocks?|shares|shareholders?|investors?|earnings|revenue|profits?|valuation|valued|market cap|IPO|Wall Street|funding|fundrais\w*|billion|trillion|acquires?|acquisition|merger|buyout|layoffs?|lawsuits?|sues?|sued|court|judge|trial|antitrust|settlement|regulators?|regulation|Congress|Senate|White House|Trump|Biden|election|tariffs?|sanctions?|export controls?|lobby\w*|geopolitic\w*|Pentagon)\b|\$\s?\d[\d.,]*\s?(?:[BM]\b|bn\b|million|billion)/i;
+
+/** Whether an outlet's story is about business or politics rather than technology. */
+export function isBusinessOrPolitics(story: Pick<FeedStory, "title">): boolean {
+  return BUSINESS_OR_POLITICS.test(story.title);
+}
+
 /** A feed's stories, and how many were dropped as too old or undated. */
 export interface FeedRead {
   articles: NewsArticle[];
@@ -395,7 +409,11 @@ export interface FeedRead {
 export function readFeed(
   xml: string,
   sourceName: string,
-  { general = false, now = Date.now() }: { general?: boolean; now?: number } = {},
+  {
+    general = false,
+    press = false,
+    now = Date.now(),
+  }: { general?: boolean; press?: boolean; now?: number } = {},
 ): FeedRead {
   const doc = parser.parse(xml) as XmlNode;
   const rss = (doc["rss"] as XmlNode | undefined)?.["channel"] as XmlNode | undefined;
@@ -418,6 +436,7 @@ export function readFeed(
       continue; // one odd item doesn't cost the feed
     }
     if (!story || (general && !isAboutAi(story))) continue;
+    if (press && isBusinessOrPolitics(story)) continue;
     const { title, link, snippet, pubDate, imageUrl } = story;
     if (!isRecent(pubDate, now)) {
       if (pubDate && Date.parse(pubDate) < now) result.stale++;
@@ -434,7 +453,7 @@ export function readFeed(
 export function parseFeed(
   xml: string,
   sourceName: string,
-  options: { general?: boolean; now?: number } = {},
+  options: { general?: boolean; press?: boolean; now?: number } = {},
 ): NewsArticle[] {
   return readFeed(xml, sourceName, options).articles;
 }
@@ -459,6 +478,7 @@ const titleKey = (title: string) =>
  * (by link or title, the first source's copy kept), at most
  * `NEWS_MAX_PER_SOURCE` from each source and `NEWS_MAX_ARTICLES` in all.
  */
+const PRESS = new Set(NEWS_FEEDS.filter((f) => f.press).map((f) => f.name));
 export function mergeArticles(lists: NewsArticle[][]): NewsArticle[] {
   const links = new Set<string>();
   const titles = new Set<string>();
@@ -469,7 +489,8 @@ export function mergeArticles(lists: NewsArticle[][]): NewsArticle[] {
     const title = titleKey(article.title);
     if (links.has(link) || titles.has(title)) continue;
     const count = perSource.get(article.sourceName) ?? 0;
-    if (count >= NEWS_MAX_PER_SOURCE) continue;
+    if (count >= (PRESS.has(article.sourceName) ? NEWS_MAX_PER_PRESS_SOURCE : NEWS_MAX_PER_SOURCE))
+      continue;
     links.add(link);
     titles.add(title);
     perSource.set(article.sourceName, count + 1);
@@ -511,7 +532,11 @@ export async function readSource(
   let failure: unknown = new Error(`${feed.name} has no feed address`);
   for (const { url, general } of feed.urls) {
     try {
-      return readFeed(await fetchFeed(fetchImpl, url), feed.name, { general, now });
+      return readFeed(await fetchFeed(fetchImpl, url), feed.name, {
+        general,
+        press: feed.press,
+        now,
+      });
     } catch (err) {
       failure = err;
     }

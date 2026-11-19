@@ -5,6 +5,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Changed
+
+- **AI News is about technology to adopt:** the sources are now mostly engineering ones
+  (GitHub Blog, Simon Willison, The New Stack, Hugging Face, AWS, Cloudflare, Vercel, Docker,
+  Stack Overflow, The Pragmatic Engineer, Latent Space, Engineering at Meta, Martin Fowler,
+  Hacker News, InfoQ, OpenAI, Google DeepMind). The business press (Bloomberg, Financial
+  Times, The New York Times, CNBC, The Guardian, Wired) is gone; the outlets that stay
+  (TechCrunch, VentureBeat, The Verge, MIT Technology Review, Ars Technica) lose their
+  stock-price, funding, lawsuit and politics stories and get at most 3 places each. The daily
+  analysis picks and ranks stories by what helps decide what to adopt, try or learn, and says
+  how mature each technology is and whether it's worth trying now.
+
 ### Added
 
 - **Client hours dashboard:** an external client can review a channel's hours read-only. In

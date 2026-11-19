@@ -8,6 +8,7 @@ import {
   getNews,
   imageOf,
   isAboutAi,
+  isBusinessOrPolitics,
   mergeArticles,
   parseFeed as parseAnyFeed,
   plainText,
@@ -32,11 +33,56 @@ beforeEach(() => {
   useNewsSources(CORE_FEEDS);
 });
 
+describe("an outlet's business and politics (Phase 71)", () => {
+  it("are left out; technology stays", () => {
+    const out = [
+      "Nvidia shares slide after earnings miss",
+      "OpenAI in talks at a $300 billion valuation",
+      "Senate grills AI executives over export controls",
+      "Startup raises $40M to build AI agents",
+      "Authors' lawsuit against Anthropic goes to trial",
+    ];
+    const kept = [
+      "Anthropic releases Claude Opus 6 with a 2M-token context",
+      "How we cut inference latency by 40% with speculative decoding",
+      "Postgres 19 adds native vector search",
+    ];
+    for (const title of out) expect(isBusinessOrPolitics({ title }), title).toBe(true);
+    for (const title of kept) expect(isBusinessOrPolitics({ title }), title).toBe(false);
+  });
+
+  it("an outlet gets fewer places in the list than an engineering source", () => {
+    const stories = (sourceName: string) =>
+      Array.from({ length: 6 }, (_, i) => ({
+        title: `${sourceName} story ${i}`,
+        link: `https://example.com/${sourceName.replace(/ /g, "-")}/${i}`,
+        snippet: "",
+        pubDate: new Date(NOW - i * 60_000).toISOString(),
+        imageUrl: null,
+        sourceName,
+      }));
+    const merged = mergeArticles([stories("TechCrunch"), stories("GitHub Blog")]);
+    expect(merged.filter((a) => a.sourceName === "TechCrunch")).toHaveLength(3);
+    expect(merged.filter((a) => a.sourceName === "GitHub Blog")).toHaveLength(6);
+  });
+});
+
 describe("the sources", () => {
   it("are the leading tech and AI publications, each once, over https", () => {
     const names = NEWS_FEEDS.map((f) => f.name);
     expect(new Set(names).size).toBe(names.length);
-    expect(names).toEqual(expect.arrayContaining(["TechCrunch", "Bloomberg", "Wired", "OpenAI"]));
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "TechCrunch",
+        "GitHub Blog",
+        "Simon Willison",
+        "Cloudflare",
+        "OpenAI",
+      ]),
+    );
+    // Phase 71: mostly engineering sources; the business press is gone.
+    expect(names).not.toEqual(expect.arrayContaining(["Bloomberg"]));
+    expect(NEWS_FEEDS.filter((f) => f.press).length).toBeLessThan(NEWS_FEEDS.length / 3);
     for (const feed of NEWS_FEEDS) {
       expect(feed.urls.length).toBeGreaterThan(0);
       for (const { url } of feed.urls) expect(url.startsWith("https://"), url).toBe(true);

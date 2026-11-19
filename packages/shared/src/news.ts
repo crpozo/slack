@@ -18,15 +18,24 @@ export interface NewsFeed {
   name: string;
   /** Tried in order: the next one only when the one before can't be read. */
   urls: readonly NewsFeedUrl[];
+  /**
+   * Phase 71: a news outlet, not an engineering source. Its business and
+   * politics stories (stock prices, funding, lawsuits, governments) are left
+   * out, and it gets fewer places in the list (`NEWS_MAX_PER_PRESS_SOURCE`):
+   * the list is for technology the team can adopt.
+   */
+  press?: boolean;
 }
 
 export const NEWS_FEEDS: readonly NewsFeed[] = [
   {
     name: "TechCrunch",
+    press: true,
     urls: [{ url: "https://techcrunch.com/category/artificial-intelligence/feed/" }],
   },
   {
     name: "VentureBeat",
+    press: true,
     urls: [
       { url: "https://venturebeat.com/category/ai/feed/" },
       { url: "https://feeds.feedburner.com/venturebeat/SZYF", general: true },
@@ -34,54 +43,60 @@ export const NEWS_FEEDS: readonly NewsFeed[] = [
   },
   {
     name: "The Verge",
+    press: true,
     urls: [{ url: "https://www.theverge.com/rss/index.xml", general: true }],
   },
   {
     name: "InfoQ",
-    urls: [{ url: "https://feed.infoq.com/ai-ml-data-eng/news" }],
+    urls: [
+      { url: "https://feed.infoq.com/ai-ml-data-eng/news" },
+      { url: "https://feed.infoq.com/" },
+    ],
   },
-  // Phase 62: the publications the industry itself reads. A source that
-  // doesn't answer (a paywall, a moved feed) is skipped; the rest still load.
+  // Phase 71: technology to adopt, from the people who build and use it.
+  // Engineering blogs, tool makers and practitioners come whole; a source that
+  // doesn't answer is skipped and the rest still load.
+  { name: "Simon Willison", urls: [{ url: "https://simonwillison.net/atom/everything/" }] },
+  { name: "GitHub Blog", urls: [{ url: "https://github.blog/feed/" }] },
+  { name: "The New Stack", urls: [{ url: "https://thenewstack.io/feed/" }] },
+  { name: "Hugging Face", urls: [{ url: "https://huggingface.co/blog/feed.xml" }] },
   {
-    name: "Bloomberg",
-    urls: [{ url: "https://feeds.bloomberg.com/technology/news.rss", general: true }],
+    name: "AWS Machine Learning",
+    urls: [{ url: "https://aws.amazon.com/blogs/machine-learning/feed/" }],
   },
+  { name: "AWS News", urls: [{ url: "https://aws.amazon.com/blogs/aws/feed/" }] },
+  { name: "Cloudflare", urls: [{ url: "https://blog.cloudflare.com/rss/" }] },
+  { name: "Vercel", urls: [{ url: "https://vercel.com/atom" }] },
+  { name: "Docker", urls: [{ url: "https://www.docker.com/blog/feed/" }] },
+  { name: "Stack Overflow Blog", urls: [{ url: "https://stackoverflow.blog/feed/" }] },
   {
-    name: "Financial Times",
-    urls: [{ url: "https://www.ft.com/artificial-intelligence?format=rss" }],
+    name: "The Pragmatic Engineer",
+    urls: [{ url: "https://newsletter.pragmaticengineer.com/feed" }],
   },
+  { name: "Latent Space", urls: [{ url: "https://www.latent.space/feed" }] },
+  { name: "Engineering at Meta", urls: [{ url: "https://engineering.fb.com/feed/" }] },
+  { name: "Martin Fowler", urls: [{ url: "https://martinfowler.com/feed.atom" }] },
+  // What developers are talking about today (its AI stories, well voted).
   {
-    name: "The New York Times",
-    urls: [{ url: "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml", general: true }],
+    name: "Hacker News",
+    urls: [{ url: "https://hnrss.org/frontpage?points=200", general: true }],
   },
+  // A few outlets for context, without their business and politics.
   {
     name: "MIT Technology Review",
+    press: true,
     urls: [
       { url: "https://www.technologyreview.com/topic/artificial-intelligence/feed" },
       { url: "https://www.technologyreview.com/feed/", general: true },
     ],
   },
   {
-    name: "Wired",
-    urls: [
-      { url: "https://www.wired.com/feed/tag/ai/latest/rss" },
-      { url: "https://www.wired.com/feed/rss", general: true },
-    ],
-  },
-  {
     name: "Ars Technica",
+    press: true,
     urls: [
       { url: "https://arstechnica.com/ai/feed/" },
       { url: "https://feeds.arstechnica.com/arstechnica/index", general: true },
     ],
-  },
-  {
-    name: "The Guardian",
-    urls: [{ url: "https://www.theguardian.com/technology/artificialintelligenceai/rss" }],
-  },
-  {
-    name: "CNBC",
-    urls: [{ url: "https://www.cnbc.com/id/19854910/device/rss/rss.html", general: true }],
   },
   // First-hand: what the labs themselves announce.
   { name: "OpenAI", urls: [{ url: "https://openai.com/news/rss.xml" }] },
@@ -92,6 +107,8 @@ export const NEWS_FEEDS: readonly NewsFeed[] = [
 export const NEWS_MAX_ARTICLES = 40;
 /** The most stories one source may have in the list, so a busy one can't crowd out the rest. */
 export const NEWS_MAX_PER_SOURCE = 8;
+/** Phase 71: a news outlet (`press`) gets fewer: the list is mostly engineering sources. */
+export const NEWS_MAX_PER_PRESS_SOURCE = 3;
 /**
  * Only news: a story published longer ago than this (or with no date we can
  * read) is dropped as the feed is read, before any limit and before the
