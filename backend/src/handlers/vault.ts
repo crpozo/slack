@@ -211,7 +211,7 @@ async function create(event: HttpEvent, caller: HttpCaller): Promise<HttpResult>
   const allowedUserIds =
     input.allowedUserIds !== undefined
       ? await allowedList(input.allowedUserIds, caller.userId)
-      : input.share
+      : input.share || input.withChannel
         ? await channelMemberIds(channel, caller.userId)
         : [];
   const secret: VaultSecret = {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { credentialKind, detectCredentials, isHighEntropy, secretParts } from "./credentials";
+import {
+  credentialKind,
+  detectCredentials,
+  isHighEntropy,
+  secretParts,
+  vaultDraftOf,
+} from "./credentials";
 
 describe("detectCredentials", () => {
   it.each([
@@ -136,5 +142,29 @@ describe("secretParts", () => {
       { label: null, value: "API key", heading: true },
       { label: "Password", value: "example-Key-123" },
     ]);
+  });
+});
+
+describe("vaultDraftOf (Phase 72)", () => {
+  it("reads a name, the account and the password from a secret message", () => {
+    expect(vaultDraftOf("Acme\n\nana@example.com\nXk9vRQHDTaLqz", "x")).toEqual({
+      name: "Acme",
+      username: "ana@example.com",
+      password: "Xk9vRQHDTaLqz",
+    });
+    expect(vaultDraftOf("ana@example.com Xk9vRQHDTaLqz", "Shared in #dev")).toEqual({
+      name: "ana@example.com",
+      username: "ana@example.com",
+      password: "Xk9vRQHDTaLqz",
+    });
+    expect(vaultDraftOf("Xk9vRQHDTaLqz7Pw2", "Shared in #dev")).toEqual({
+      name: "Shared in #dev",
+      password: "Xk9vRQHDTaLqz7Pw2",
+    });
+  });
+
+  it("is nothing when no single value is clearly the password", () => {
+    expect(vaultDraftOf("hola equipo, nos vemos mañana", "x")).toBeNull();
+    expect(vaultDraftOf("password: abc12345\ntoken: zzz99999", "x")).toBeNull();
   });
 });

@@ -269,3 +269,39 @@ export function secretParts(text: string): SecretPart[] {
   }
   return parts.length > 0 ? parts : [{ label: null, value: text }];
 }
+
+// --- A secret message, as a Vault entry (Phase 72) -----------------------------------
+
+export interface VaultDraft {
+  name: string;
+  username?: string;
+  password: string;
+}
+
+const PASSWORD_LABEL = /pass|contrase|clave|pwd|secret|token|key|pin\b/i;
+const USER_LABEL = /^(?:email|e-mail|correo|mail|user|usuario|username|login|cuenta|account)$/i;
+
+/**
+ * What a secret message would be in the Vault: its password, the account it
+ * goes with and a name (the message's own title, else the account, else
+ * `fallbackName`). `null` when no one value is clearly the password.
+ */
+export function vaultDraftOf(text: string, fallbackName: string): VaultDraft | null {
+  const parts = secretParts(text);
+  const values = parts.filter((p) => !p.heading);
+  const labeled = values.filter((p) => p.label && PASSWORD_LABEL.test(p.label));
+  const password =
+    labeled.length === 1
+      ? labeled[0]!.value
+      : labeled.length === 0 && values.length === 1 && credentialKind(text) === "token"
+        ? values[0]!.value.trim()
+        : null;
+  if (!password) return null;
+  const username = values.find((p) => p.label && USER_LABEL.test(p.label))?.value;
+  const heading = parts.find((p) => p.heading)?.value;
+  return {
+    name: (heading ?? username ?? fallbackName).slice(0, 100),
+    ...(username && { username: username.slice(0, 200) }),
+    password,
+  };
+}

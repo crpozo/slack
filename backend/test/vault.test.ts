@@ -461,6 +461,21 @@ describe("/secret: sharing a secret as a chat card", () => {
     expect(messages).toHaveLength(0);
   });
 
+  it("a password sent as a message (Phase 72): its channel's members get it, with no card", async () => {
+    const res = await save({ password: "pw-from-a-message", withChannel: true });
+    expect(res.status).toBe(201);
+    expect(res.json.shared).toBe(false);
+    expect(res.json.secret.allowedUserIds.length).toBeGreaterThan(0);
+    expect(messages).toHaveLength(0);
+    mockChannels(
+      GENERAL,
+      privateRow("ch_client", ALICE.userId, [ALICE.userId, BOB.userId, GUEST.userId]),
+    );
+    const withGuests = await save({ channelId: "ch_client", password: "pw", withChannel: true });
+    expect(withGuests.status).toBe(400);
+    expect(vault.size).toBe(1);
+  });
+
   it("in a public channel, shares it with the whole team but never guests", async () => {
     const res = await save({ channelId: "ch_general", password: "pw", share: true });
     expect(res.json.secret.allowedUserIds.sort()).toEqual(

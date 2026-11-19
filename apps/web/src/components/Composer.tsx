@@ -40,7 +40,7 @@ import {
   useVoiceRecorder,
   type VoiceClip,
 } from "../lib/voice";
-import { detectCredentials } from "../lib/credentials";
+import { detectCredentials, vaultDraftOf } from "../lib/credentials";
 import { hasRichFormatting, htmlToMarkdown } from "../lib/pasteMarkdown";
 import { looksLikeMarkdown, renderNotesMarkdown } from "../lib/markdown";
 import { tasksApiConfigured } from "../lib/tasksApi";
@@ -379,6 +379,14 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
         : null; // public: the whole team (externals never see one)
     return all.filter((u) => u.userId !== userId && (ids ? ids.has(u.userId) : u.role !== "guest"));
   }, [directory, conversation, channelId, userId]);
+  /** Phase 72: a secret sent here is also kept in the Vault: the team only, no externals, no thread. */
+  const vaultHere =
+    !guest &&
+    !thread &&
+    tasksApiConfigured() &&
+    !(conversation?.members ?? dmMembers(channelId) ?? []).some(
+      (id) => directory[id]?.role === "guest",
+    );
   const mention = commandText === null ? mentionQuery(text, caret) : null;
   const mentionText = mention ? mention.query : null;
   const mentionPeople = useMemo(
@@ -577,7 +585,8 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
     if (replyTo) setReplyTo(channelId, null);
     setText("");
     setPlainAnyway(false);
-    if (detected) {
+    const kept = asSecret && keepInVault(outgoing);
+    if (detected && !kept) {
       showToast("Sent as a secret: it looked like a password. It's deleted in 24 hours.", "info");
     }
     if (secret) setSecret(false);
@@ -586,6 +595,37 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
       setUploads([]);
     }
     textareaRef.current?.focus();
+  }
+
+  /**
+   * Phase 72: a password sent as a secret is also kept in the Vault, for who
+   * sent it and who received it (this conversation's team members), so it
+   * outlives the message's 24 hours. Team conversations only: never with
+   * people from outside MindfulTech here (the server refuses those too).
+   * Whether it's being saved.
+   */
+  function keepInVault(secretText: string): boolean {
+    if (!vaultHere) return false;
+    const draft = vaultDraftOf(
+      secretText,
+      conversation?.type === "dm" || isDmChannel(channelId)
+        ? "Shared in a direct message"
+        : `Shared in #${conversation?.name ?? "a channel"}`,
+    );
+    if (!draft) return false;
+    vaultApi.create({ channelId, ...draft, withChannel: true }).then(
+      (saved) =>
+        showToast(
+          `🔒 Sent as a secret and saved to the Vault as "${saved.secret.name}" for you and who received it`,
+          "success",
+        ),
+      () =>
+        showToast(
+          "Sent as a secret (deleted in 24 hours); it couldn't be saved to the Vault",
+          "info",
+        ),
+    );
+    return true;
   }
 
   /**
@@ -905,7 +945,8 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
             <LockIcon className="shrink-0 text-warning" />
             <p className="min-w-0 flex-1 text-ink-secondary">
               <strong className="text-ink">Looks like a password:</strong> it will be sent as a
-              secret, masked and deleted after 24 hours.
+              secret, masked and deleted after 24 hours
+              {vaultHere ? ", and saved to the Vault for you and who receives it." : "."}
             </p>
             <button
               type="button"

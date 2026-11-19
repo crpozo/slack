@@ -188,6 +188,13 @@ export const CreateVaultSecretSchema = z.object({
   allowedUserIds: allowedField.optional(),
   /** Also post a "🔒 Shared a Secret" card in the channel (`/secret`). */
   share: z.boolean().optional(),
+  /**
+   * Phase 72: a password sent as a secret message is kept in the Vault of who
+   * sent it and who received it: the channel's members get access as with
+   * `share`, with no card (the message is already there). Refused like `share`
+   * in a channel with people from outside MindfulTech.
+   */
+  withChannel: z.boolean().optional(),
 });
 export type CreateVaultSecretInput = z.input<typeof CreateVaultSecretSchema>;
 

@@ -19,6 +19,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **A password shared in a chat is kept in the Vault:** when a message goes out as a secret
+  (typed in secret mode, or detected as a password), its password is also saved to the Vault
+  for who sent it and who received it (the conversation's team members), with the message's
+  title as its name and the email or user as its account. It outlives the message's 24 hours.
+  Team conversations only: never in a channel with externals, nor in a thread.
 - **Client hours dashboard:** an external client can review a channel's hours read-only. In
   **Horas**, an admin opens the **Cliente** tab and marks which externals of the channel are its
   clients, and sets what each person's hour is billed to the client (separate from the internal
