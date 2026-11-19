@@ -236,7 +236,7 @@ describe("logging hours in a channel", () => {
     expect(view.billRates).toEqual({ [DEV.userId]: 60, [BOB.userId]: 80 });
     expect(view.rates).toBeUndefined();
     expect(view.clientIds).toBeUndefined();
-    expect(JSON.stringify(view)).not.toContain("25");
+    expect(Object.keys(view).sort()).toEqual(["billRates", "client", "entries"]);
 
     // The admin sees both, and who the clients are; the contractor still only their own.
     const full = await list(ALICE, "[admins]");
