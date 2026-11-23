@@ -44,7 +44,9 @@ import {
 } from "./MobileScreens";
 import { useCalendar } from "../store/calendar";
 import { useNews } from "../store/news";
+import { useMusic } from "../store/music";
 import { useSales } from "../store/sales";
+import { MusicPlayer } from "./music/MusicPlayer";
 import { useNotesHub } from "../store/notesHub";
 import { CreateChannelModal, NewDmModal } from "./ChannelModals";
 import { CallLayer } from "./CallLayer";
@@ -67,6 +69,7 @@ const NotesHub = lazy(() => import("./NotesHub").then((m) => ({ default: m.Notes
 const NewsView = lazy(() => import("./NewsView").then((m) => ({ default: m.NewsView })));
 const SkillsView = lazy(() => import("./SkillsView").then((m) => ({ default: m.SkillsView })));
 const VaultView = lazy(() => import("./VaultView").then((m) => ({ default: m.VaultView })));
+const MusicView = lazy(() => import("./music/MusicView").then((m) => ({ default: m.MusicView })));
 const SalesView = lazy(() => import("./sales/SalesView").then((m) => ({ default: m.SalesView })));
 const PlatformInsightsView = lazy(() =>
   import("./PlatformInsightsView").then((m) => ({ default: m.PlatformInsightsView })),
@@ -100,6 +103,8 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const vaultMatch = useMatch("/app/vault");
   // `/app/sales`: Ventas, the sales assistant (Phase 73).
   const salesMatch = useMatch("/app/sales");
+  // `/app/music`: the listening rooms (Phase 78).
+  const musicMatch = useMatch("/app/music");
   // `/app/insights`: Platform Insights (Phase 64), for its owners.
   const insightsMatch = useMatch("/app/insights");
   const navigate = useNavigate();
@@ -126,6 +131,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     skillsMatch ||
     vaultMatch ||
     salesMatch ||
+    musicMatch ||
     insightsMatch ||
     tab
       ? null
@@ -234,6 +240,8 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     useNotesHub.getState().reset();
     useNews.getState().reset();
     useSales.getState().reset();
+    void useMusic.getState().leave();
+    useMusic.getState().reset();
     const userId = useChat.getState().me?.userId;
     if (userId) {
       await forgetPersisted(userId);
@@ -428,6 +436,8 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
       <Toast />
       {/* Phase 56: the AI News audio goes on outside AI News; its controls follow. */}
       <NewsAudioPill hidden={!!newsMatch} />
+      {/* Phase 78: the music room this person is in keeps playing wherever they go. */}
+      <MusicPlayer />
     </>
   );
 
@@ -477,6 +487,14 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           fallback={<div className="flex-1" aria-busy="true" aria-label="Loading insights" />}
         >
           <PlatformInsightsView />
+        </Suspense>
+      );
+    } else if (musicMatch) {
+      screen = (
+        <Suspense
+          fallback={<div className="flex-1" aria-busy="true" aria-label="Cargando Música" />}
+        >
+          <MusicView />
         </Suspense>
       );
     } else if (salesMatch) {
@@ -656,11 +674,13 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
                     ? "skills"
                     : vaultMatch
                       ? "vault"
-                      : salesMatch
-                        ? "sales"
-                        : insightsMatch
-                          ? "insights"
-                          : "tasks")
+                      : musicMatch
+                        ? "music"
+                        : salesMatch
+                          ? "sales"
+                          : insightsMatch
+                            ? "insights"
+                            : "tasks")
           }
           collapsed={collapsed}
           onToggleCollapsed={isDesktop ? toggleCollapsed : undefined}
@@ -710,6 +730,12 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
               fallback={<div className="flex-1" aria-busy="true" aria-label="Loading insights" />}
             >
               <PlatformInsightsView onOpenSidebar={() => setSidebarOpen(true)} />
+            </Suspense>
+          ) : musicMatch ? (
+            <Suspense
+              fallback={<div className="flex-1" aria-busy="true" aria-label="Cargando Música" />}
+            >
+              <MusicView onOpenSidebar={() => setSidebarOpen(true)} />
             </Suspense>
           ) : salesMatch ? (
             <Suspense

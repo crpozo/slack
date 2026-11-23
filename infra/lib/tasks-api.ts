@@ -213,6 +213,16 @@ export const SKILLS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/skills/generate" },
 ];
 
+/** Música (Phase 78): rooms where the team listens to the same thing together. */
+export const MUSIC_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/music" },
+  { method: HttpMethod.POST, path: "/music" },
+  { method: HttpMethod.DELETE, path: "/music/{id}" },
+  { method: HttpMethod.POST, path: "/music/{id}/join" },
+  { method: HttpMethod.POST, path: "/music/{id}/leave" },
+  { method: HttpMethod.POST, path: "/music/{id}/control" },
+];
+
 /**
  * Ventas (Phase 73): the sales assistant. One Lambda; what a person sees is
  * decided in it (`visibleSales`) for every route.
@@ -331,6 +341,8 @@ export class TasksApi extends Construct {
   readonly skillsHandler: NodejsFunction;
   /** `vault`: the team's passwords (Phase 45), the only code that can use the Vault key. */
   readonly vaultHandler: NodejsFunction;
+  /** `music`: Música (Phase 78), the listening rooms. */
+  readonly musicHandler: NodejsFunction;
   /** `sales`: Ventas (Phase 73), the sales assistant. */
   readonly salesHandler: NodejsFunction;
   /** Phase 62: the team panel (admins invite staff and admins, change roles). */
@@ -439,6 +451,13 @@ export class TasksApi extends Construct {
       CHANNELS_TABLE: data.channels.tableName,
       USERS_TABLE: data.users.tableName,
       MESSAGES_TABLE: data.messages.tableName,
+      CONNECTIONS_TABLE: data.connections.tableName,
+      WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
+    });
+    // Música (Phase 78): its rooms, the listener's name, and the team's connections to tell.
+    this.musicHandler = lambda("MusicFn", "music", {
+      MUSIC_TABLE: data.music.tableName,
+      USERS_TABLE: data.users.tableName,
       CONNECTIONS_TABLE: data.connections.tableName,
       WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
     });
@@ -745,6 +764,10 @@ export class TasksApi extends Construct {
     for (const { method, path } of VAULT_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: vaultIntegration });
     }
+    const musicIntegration = new HttpLambdaIntegration("MusicIntegration", this.musicHandler);
+    for (const { method, path } of MUSIC_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: musicIntegration });
+    }
     const salesIntegration = new HttpLambdaIntegration("SalesIntegration", this.salesHandler);
     for (const { method, path } of SALES_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: salesIntegration });
@@ -1048,6 +1071,19 @@ export class TasksApi extends Construct {
     data.users.grant(this.skillsHandler, "dynamodb:GetItem");
     grantReadParameter(this.skillsHandler, githubTokenParameterName(stage));
     this.skillsHandler.addToRolePolicy(notesModelPolicy());
+
+    // music (Phase 78): its rooms (a handful: read whole), the caller's name, and
+    // the team's connections to send each change to.
+    data.music.grant(
+      this.musicHandler,
+      "dynamodb:Scan",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+    );
+    data.users.grant(this.musicHandler, "dynamodb:GetItem");
+    data.connections.grant(this.musicHandler, "dynamodb:Scan", "dynamodb:DeleteItem");
+    wsApi.webSocketApi.grantManageConnections(this.musicHandler);
 
     // sales (Phase 73): its own table only (the organization's partition is read
     // whole and filtered to the caller in code; rows written one or a batch at a

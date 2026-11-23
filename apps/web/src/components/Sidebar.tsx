@@ -13,6 +13,7 @@ import {
   ChartNoAxesCombined as ChartIcon,
   Compass as CompassIcon,
   ExternalLink as ExternalLinkIcon,
+  Music as MusicIcon,
   TrendingUp as SalesIcon,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -681,6 +682,14 @@ const PHONE_APPS: PhoneApp[] = [
   },
 ];
 
+/** Phase 78: the listening rooms, for the team. */
+const MUSIC_APP: PhoneApp = {
+  path: "/app/music",
+  label: "Música",
+  tile: "bg-gradient-to-br from-[#E01E5A] to-[#4A154B] text-white",
+  icon: <MusicIcon size={20} />,
+};
+
 /** Phase 73: Ventas, for the team (never externals). */
 const SALES_APP: PhoneApp = {
   path: "/app/sales",
@@ -1150,7 +1159,7 @@ export function Sidebar({
           >
             {[
               ...PHONE_APPS,
-              ...(me && me.role !== "guest" ? [SALES_APP] : []),
+              ...(me && me.role !== "guest" ? [SALES_APP, MUSIC_APP] : []),
               ...(insightsAllowed ? [INSIGHTS_APP] : []),
             ].map((app) => (
               <PhoneRow
@@ -1485,6 +1494,16 @@ export function Sidebar({
                 unread={0}
                 onClick={() => navigate("/app/vault")}
               />
+              {me && me.role !== "guest" && (
+                <NavItem
+                  compact={compact}
+                  label="Música"
+                  icon={<MusicIcon size={16} className="text-ink-secondary" aria-hidden="true" />}
+                  active={activeChannelId === "music"}
+                  unread={0}
+                  onClick={() => navigate("/app/music")}
+                />
+              )}
               {me && me.role !== "guest" && (
                 <NavItem
                   compact={compact}

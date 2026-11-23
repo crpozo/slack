@@ -55,6 +55,8 @@ export class Data extends Construct {
    * organization (`pk`), a row per item (`sk`).
    */
   readonly sales: Table;
+  /** Música (Phase 78): one row per room (its queue, its clock, who's listening). */
+  readonly music: Table;
   /**
    * Message search (Phase 42): an inverted index. Per conversation, one tiny
    * row per term of each message (`<term>#<message sk>`), kept in step with
@@ -249,6 +251,12 @@ export class Data extends Construct {
       tableName: `slack-${props.stage}-sales`,
       partitionKey: { name: "pk", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
+    });
+
+    this.music = new Table(this, "Music", {
+      ...common,
+      tableName: `slack-${props.stage}-music`,
+      partitionKey: { name: "roomId", type: AttributeType.STRING },
     });
 
     this.messageSearch = new Table(this, "MessageSearch", {

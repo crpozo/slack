@@ -22,3 +22,4 @@ export * from "./discovery";
 export * from "./text";
 export * from "./sales";
 export * from "./salesDemo";
+export * from "./music";

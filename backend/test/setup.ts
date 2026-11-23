@@ -16,6 +16,7 @@ Object.assign(process.env, {
   CHANNEL_MEDIA_TABLE: "slack-test-channel-media",
   TIME_LOG_TABLE: "slack-test-time-log",
   SALES_TABLE: "slack-test-sales",
+  MUSIC_TABLE: "slack-test-music",
   MESSAGE_SEARCH_TABLE: "slack-test-message-search",
   MEETING_NOTES_TABLE: "slack-test-meeting-notes",
   NOTE_DETAILS_TABLE: "slack-test-note-details",

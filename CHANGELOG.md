@@ -43,6 +43,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Música: listen together.** A new app for the team (**Música** in the sidebar and the
+  phone's Apps): anyone opens a room and is its DJ, pastes YouTube links into its queue and
+  controls what plays (play, pause, seek, next, pick or remove a song, delete the room);
+  everyone else joins or leaves with one click and hears the same moment of the same song. A
+  small player stays on screen while you work elsewhere, with your own volume. The server
+  keeps only the room's clock (what plays and since when) and tells everyone when it changes;
+  each listener's player follows it and jumps back if it drifts more than two seconds. The next
+  song starts by itself; if the DJ leaves, a listener can take over.
 - **The Vault opens with your fingerprint:** on a device with its own unlock (Touch ID on a
   Mac, Windows Hello, a phone's biometrics), the Vault offers it once after your PIN; from
   then on **Unlock with fingerprint** opens it there instead of the PIN. It's WebAuthn: the key

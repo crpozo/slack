@@ -59,6 +59,10 @@ export const tables = {
   get messageSearch() {
     return requireEnv("MESSAGE_SEARCH_TABLE");
   },
+  /** Phase 78: the music rooms (one row each). */
+  get music() {
+    return requireEnv("MUSIC_TABLE");
+  },
   /** Phase 73: Ventas (accounts, opportunities, meetings, results, changes). */
   get sales() {
     return requireEnv("SALES_TABLE");

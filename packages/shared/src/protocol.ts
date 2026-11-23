@@ -6,6 +6,7 @@ import type { Board, Task, TaskStatus } from "./tasks";
 import type { CalendarPushEvent } from "./calendar";
 import type { Recurrence } from "./recurrence";
 import type { VaultCard } from "./vault";
+import type { MusicUpdatedEvent } from "./music";
 import type { TimeLogUpdatedEvent } from "./timelog";
 
 // ---------------------------------------------------------------------------
@@ -1589,6 +1590,7 @@ export type ServerEvent =
   | BoardEvent
   | CalendarPushEvent
   | TimeLogUpdatedEvent
+  | MusicUpdatedEvent
   | PongEvent
   | ErrorEvent;
 
