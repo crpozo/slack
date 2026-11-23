@@ -5,6 +5,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Removed
+
+- **AI Radar** is gone: its view, its sidebar and phone entries, its endpoints (`/radar/*`),
+  the daily scan and discovery runs and their Lambdas. The `tech-radar` table stays, unused,
+  so its data isn't lost.
+
 ### Changed
 
 - **AI News is about technology to adopt:** the sources are now mostly engineering ones

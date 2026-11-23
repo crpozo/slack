@@ -72,7 +72,10 @@ export class Data extends Construct {
    * (`meta`, one `file#<path>` per companion file). See backend/src/lib/skills.ts.
    */
   readonly skills: Table;
-  /** Phase 56: AI Tech Radar blips and proposals. */
+  /**
+   * The AI Tech Radar's table (Phase 56). The radar was removed in Phase 74:
+   * nothing reads or writes it any more; the table stays so its data isn't lost.
+   */
   readonly techRadar: Table;
   /**
    * Vault (Phase 45): the team's passwords, by `secretId`. Passwords are

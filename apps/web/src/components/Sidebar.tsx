@@ -13,7 +13,6 @@ import {
   ChartNoAxesCombined as ChartIcon,
   Compass as CompassIcon,
   ExternalLink as ExternalLinkIcon,
-  Radar as RadarIcon,
   TrendingUp as SalesIcon,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -678,12 +677,6 @@ const PHONE_APPS: PhoneApp[] = [
     label: "Vault",
     tile: "bg-gradient-to-br from-[#F4C95C] to-[#8A5A12] text-white",
     icon: <LockIcon />,
-  },
-  {
-    path: "/app/radar",
-    label: "AI Radar",
-    tile: "bg-gradient-to-br from-[#34D399] to-[#1E1B4B] text-white",
-    icon: <RadarIcon size={20} />,
   },
 ];
 
@@ -1490,14 +1483,6 @@ export function Sidebar({
                 active={activeChannelId === "vault"}
                 unread={0}
                 onClick={() => navigate("/app/vault")}
-              />
-              <NavItem
-                compact={compact}
-                label="AI Radar"
-                icon={<RadarIcon size={16} className="text-ink-secondary" aria-hidden="true" />}
-                active={activeChannelId === "radar"}
-                unread={0}
-                onClick={() => navigate("/app/radar")}
               />
               {me && me.role !== "guest" && (
                 <NavItem

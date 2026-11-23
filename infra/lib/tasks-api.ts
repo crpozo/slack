@@ -203,23 +203,6 @@ export const ADMIN_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.DELETE, path: "/admin/users/{userId}" },
 ];
 
-/** AI Tech Radar (Phase 56): read by the team, changed by admins and the scanner. */
-export const RADAR_ROUTES: Array<{ method: HttpMethod; path: string }> = [
-  { method: HttpMethod.GET, path: "/radar" },
-  { method: HttpMethod.POST, path: "/radar/blips" },
-  { method: HttpMethod.PUT, path: "/radar/blips/{id}" },
-  { method: HttpMethod.DELETE, path: "/radar/blips/{id}" },
-  { method: HttpMethod.POST, path: "/radar/proposals/{id}/apply" },
-  { method: HttpMethod.POST, path: "/radar/proposals/{id}/dismiss" },
-  { method: HttpMethod.POST, path: "/radar/scan" },
-];
-
-/** The radar scan runs after the morning's AI Insights (06:30 in Ecuador). */
-export const RADAR_SCAN_SCHEDULE = { hour: "11", minute: "30" };
-
-/** Phase 60: the Discovery Engine, daily at 06:00 UTC (01:00 in Ecuador). */
-export const RADAR_DISCOVERY_SCHEDULE = { hour: "6", minute: "0" };
-
 export const SKILLS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/skills" },
   { method: HttpMethod.POST, path: "/skills" },
@@ -230,12 +213,6 @@ export const SKILLS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/skills/generate" },
 ];
 
-/**
- * Vault (Phase 45): the team's passwords, encrypted with KMS. Lists are
- * metadata only; `reveal` decrypts one password. Phase 46: who sees which
- * secret (admins all; staff theirs and those shared with them), and the
- * 4-digit PIN that unlocks the Vault and every reveal.
- */
 /**
  * Ventas (Phase 73): the sales assistant. One Lambda; what a person sees is
  * decided in it (`visibleSales`) for every route.
@@ -250,6 +227,12 @@ export const SALES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/sales/demo/reset" },
 ];
 
+/**
+ * Vault (Phase 45): the team's passwords, encrypted with KMS. Lists are
+ * metadata only; `reveal` decrypts one password. Phase 46: who sees which
+ * secret (admins all; staff theirs and those shared with them), and the
+ * 4-digit PIN that unlocks the Vault and every reveal.
+ */
 export const VAULT_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/vault" },
   { method: HttpMethod.POST, path: "/vault" },
@@ -347,13 +330,8 @@ export class TasksApi extends Construct {
   readonly salesHandler: NodejsFunction;
   /** Phase 62: the team panel (admins invite staff and admins, change roles). */
   readonly adminUsersHandler: NodejsFunction;
-  /** Phase 56: the AI Tech Radar's endpoints, and the daily scan of the news for updates. */
-  readonly radarHandler: NodejsFunction;
   /** Phase 64: reads counts across the tables and asks the model; owners only. */
   readonly platformInsightsHandler: NodejsFunction;
-  readonly radarScanWorker: NodejsFunction;
-  /** Phase 60: new technologies from the stored AI news and Hacker News, as proposals. */
-  readonly radarDiscoveryEngine: NodejsFunction;
   /** Base URL clients call, without a trailing slash. */
   readonly url: string;
   private readonly origins: string[];
@@ -466,43 +444,6 @@ export class TasksApi extends Construct {
       { SALES_TABLE: data.sales.tableName, USERS_TABLE: data.users.tableName },
       Duration.seconds(29),
     );
-    // AI Tech Radar (Phase 56): the worker reads the feeds and asks the model;
-    // the endpoint reads and writes the table and, for admins, starts the worker.
-    this.radarScanWorker = lambda(
-      "RadarScanWorkerFn",
-      "radar-scan-worker",
-      { TECH_RADAR_TABLE: data.techRadar.tableName },
-      Duration.minutes(3),
-    );
-    this.radarScanWorker.configureAsyncInvoke({ retryAttempts: 1, maxEventAge: Duration.hours(1) });
-    new Rule(this, "RadarScanSchedule", {
-      ruleName: `slack-${stage}-radar-scan`,
-      description: "Scans the AI news for Tech Radar updates",
-      schedule: Schedule.cron(RADAR_SCAN_SCHEDULE),
-      targets: [new LambdaFunction(this.radarScanWorker, { retryAttempts: 1 })],
-    });
-    // Phase 60: the Discovery Engine reads the stored AI news and Hacker News
-    // (the public API, over the internet like the news feeds) and files
-    // proposals; it never writes a blip.
-    this.radarDiscoveryEngine = lambda(
-      "RadarDiscoveryEngineFn",
-      "radar-discovery-engine",
-      {
-        TECH_RADAR_TABLE: data.techRadar.tableName,
-        NEWS_INSIGHTS_TABLE: data.newsInsights.tableName,
-      },
-      Duration.minutes(3),
-    );
-    this.radarDiscoveryEngine.configureAsyncInvoke({
-      retryAttempts: 1,
-      maxEventAge: Duration.hours(1),
-    });
-    new Rule(this, "RadarDiscoverySchedule", {
-      ruleName: `slack-${stage}-radar-discovery`,
-      description: "Discovers new technologies for the Tech Radar's proposals",
-      schedule: Schedule.cron(RADAR_DISCOVERY_SCHEDULE),
-      targets: [new LambdaFunction(this.radarDiscoveryEngine, { retryAttempts: 1 })],
-    });
     this.platformInsightsHandler = lambda(
       "PlatformInsightsFn",
       "platform-insights",
@@ -522,11 +463,6 @@ export class TasksApi extends Construct {
     this.adminUsersHandler = lambda("AdminUsersFn", "admin-users", {
       USERS_TABLE: data.users.tableName,
       USER_POOL_ID: auth.userPool.userPoolId,
-    });
-    this.radarHandler = lambda("RadarFn", "radar", {
-      TECH_RADAR_TABLE: data.techRadar.tableName,
-      RADAR_WORKER_FUNCTION: this.radarScanWorker.functionName,
-      RADAR_DISCOVERY_FUNCTION: this.radarDiscoveryEngine.functionName,
     });
     this.newsInsightsHandler = lambda(
       "NewsInsightsFn",
@@ -794,10 +730,6 @@ export class TasksApi extends Construct {
     for (const { method, path } of ADMIN_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: adminIntegration });
     }
-    const radarIntegration = new HttpLambdaIntegration("RadarIntegration", this.radarHandler);
-    for (const { method, path } of RADAR_ROUTES) {
-      this.httpApi.addRoutes({ path, methods: [method], integration: radarIntegration });
-    }
     const vaultIntegration = new HttpLambdaIntegration("VaultIntegration", this.vaultHandler);
     for (const { method, path } of VAULT_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: vaultIntegration });
@@ -1018,8 +950,6 @@ export class TasksApi extends Construct {
       "dynamodb:GetItem",
     );
     this.newsInsightsWorker.grantInvoke(this.newsInsightsHandler);
-    // Phase 56, radar: the endpoint owns the table; the worker adds blips and
-    // proposals (never deletes a blip) and asks the model on Bedrock.
     // Phase 62, the team panel: names and new profiles in `users` (Scan, PutItem,
     // UpdateItem); in Cognito, list accounts and groups, create staff/admin
     // accounts (deleting one whose group couldn't be set) and move people in or
@@ -1046,23 +976,6 @@ export class TasksApi extends Construct {
         resources: [auth.userPool.userPoolArn],
       }),
     );
-    data.techRadar.grant(
-      this.radarHandler,
-      "dynamodb:Query",
-      "dynamodb:GetItem",
-      "dynamodb:PutItem",
-      "dynamodb:UpdateItem",
-      "dynamodb:DeleteItem",
-    );
-    this.radarScanWorker.grantInvoke(this.radarHandler);
-    data.techRadar.grant(
-      this.radarScanWorker,
-      "dynamodb:Query",
-      "dynamodb:GetItem",
-      "dynamodb:PutItem",
-      "dynamodb:DeleteItem",
-    );
-    this.radarScanWorker.addToRolePolicy(notesModelPolicy());
     // Phase 64, platform insights: read-only on what it counts (it never writes to
     // them), its own rows in the news-insights table, the model, the owners'
     // parameter, and invoking itself for the long run (by name: a grant on the
@@ -1088,12 +1001,6 @@ export class TasksApi extends Construct {
         ],
       }),
     );
-    // Phase 60, discovery: reads the radar (to skip what it knows) and the
-    // stored AI news, writes proposals only, and asks the model on Bedrock.
-    this.radarDiscoveryEngine.grantInvoke(this.radarHandler);
-    data.techRadar.grant(this.radarDiscoveryEngine, "dynamodb:Query", "dynamodb:PutItem");
-    data.newsInsights.grant(this.radarDiscoveryEngine, "dynamodb:Query");
-    this.radarDiscoveryEngine.addToRolePolicy(notesModelPolicy());
     // Phase 54: the summary read aloud. The worker asks Amazon Polly for the
     // speech and writes the MP3 under news-audio/; the endpoint only reads
     // there (to sign the page's URL). Nothing else in the bucket is reachable.
