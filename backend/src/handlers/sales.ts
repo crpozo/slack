@@ -434,11 +434,20 @@ async function importLeads(event: HttpEvent, caller: HttpCaller): Promise<HttpRe
   return json(200, { added: rows, skipped });
 }
 
-/** `POST /sales/demo/reset`: the demo's fictitious rows back to how they start. */
-async function demoReset(_event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
+/**
+ * `POST /sales/demo/reset`: the demo's fictitious rows back to how they start;
+ * with `{ "clear": true }`, taken away (real records are never touched).
+ */
+async function demoReset(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
   if (!canUseSales(caller.role)) throw forbidden("Ventas es para el equipo de MindfulTech");
-  await resetDemo(await loadSales());
-  log.info("sales demo reset", { userId: caller.userId });
+  let clear = false;
+  try {
+    clear = (JSON.parse(event.body || "{}") as { clear?: unknown }).clear === true;
+  } catch {
+    // No body, or not JSON: a plain reset.
+  }
+  await resetDemo(await loadSales(), Date.now(), !clear);
+  log.info(clear ? "sales demo cleared" : "sales demo reset", { userId: caller.userId });
   const [seen, people] = await Promise.all([seenBy(caller), salesPeople()]);
   return json(200, stateFor(seen, caller, people));
 }

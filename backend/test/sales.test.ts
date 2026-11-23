@@ -345,6 +345,16 @@ describe("the guided demo, end to end", () => {
     });
     expect(reset.records).toHaveLength(seeded.records.length);
     expect(reset.changes).toHaveLength(seeded.changes.length);
+
+    // 6. "Quitar la demo": its rows go, and only its rows.
+    await call("PUT /sales/records/{id}", BOB, {
+      id: "acct_real",
+      body: account("acct_real", "Real"),
+    });
+    const cleared = (await call("POST /sales/demo/reset", BOB, { body: { clear: true } }))
+      .json as SalesState;
+    expect(cleared.records.map((r) => r.id)).toEqual(["acct_real"]);
+    expect(cleared.artifacts).toEqual([]);
   });
 
   it("quotes come back exact even when the model can't answer; none is said plainly", async () => {

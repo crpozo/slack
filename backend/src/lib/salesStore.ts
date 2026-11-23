@@ -106,17 +106,19 @@ export const putArtifact = (a: SalesArtifact) =>
   ddb.send(new PutCommand({ TableName: tables.sales, Item: artifactItem(a) }));
 
 /** The demo back to how it starts: its rows (and only its rows) replaced. */
-export async function resetDemo(rows: SalesRows, now = Date.now()): Promise<void> {
+export async function resetDemo(rows: SalesRows, now = Date.now(), seed = true): Promise<void> {
   await deleteKeys([
     ...rows.records.filter((r) => r.demo || isDemoId(r.id)).map((r) => recordKey(r.id)),
     ...rows.artifacts.filter((a) => a.demo || isDemoId(a.id)).map((a) => artifactKey(a.id)),
     ...rows.changes.filter((c) => c.demo || isDemoId(c.recordId)).map(changeKey),
   ]);
-  const seed = demoSalesSeed(now);
+  // `seed` false: the demo is taken away and nothing put back.
+  if (!seed) return;
+  const demo = demoSalesSeed(now);
   await putRows([
-    ...seed.records.map(recordItem),
-    ...seed.artifacts.map(artifactItem),
-    ...seed.changes.map(changeItem),
+    ...demo.records.map(recordItem),
+    ...demo.artifacts.map(artifactItem),
+    ...demo.changes.map(changeItem),
   ]);
 }
 

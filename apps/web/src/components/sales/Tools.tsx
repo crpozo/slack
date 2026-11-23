@@ -594,6 +594,15 @@ export function DemoTab() {
   const records = useSales((s) => s.state?.records ?? []);
   const artifacts = useSales((s) => s.state?.artifacts ?? []);
   const resetDemo = useSales((s) => s.resetDemo);
+  const clearDemo = useSales((s) => s.clearDemo);
+  async function clear() {
+    try {
+      await clearDemo();
+      showToast("Demo quitada: quedan solo tus datos reales", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "No se pudo quitar la demo.", "error");
+    }
+  }
   const loading = useSales((s) => s.loading);
   const showToast = useChat((s) => s.showToast);
   const loaded = records.some((r) => r.id === DEMO_OPP_ID);
@@ -676,16 +685,24 @@ export function DemoTab() {
       <Card
         title="Demo guiada"
         action={
-          <SmallButton primary={!loaded} disabled={loading} onClick={() => void reset()}>
-            {loading ? "Cargando…" : loaded ? "Reiniciar demo" : "Cargar la demo"}
-          </SmallButton>
+          <div className="flex gap-1.5">
+            {loaded && (
+              <SmallButton disabled={loading} onClick={() => void clear()}>
+                Quitar la demo
+              </SmallButton>
+            )}
+            <SmallButton primary={!loaded} disabled={loading} onClick={() => void reset()}>
+              {loading ? "Cargando…" : loaded ? "Reiniciar demo" : "Cargar la demo"}
+            </SmallButton>
+          </div>
         }
       >
         <p className="text-sm text-ink-secondary">
           Un recorrido con un solo cliente y una sola oportunidad, de principio a fin. Todos los
           datos son <strong className="text-warning">ficticios</strong> y llevan la marca{" "}
           <DemoTag />: no se mezclan con tus clientes y funcionan sin credenciales externas.
-          «Reiniciar demo» los devuelve a su estado original.
+          «Reiniciar demo» los devuelve a su estado original y «Quitar la demo» los borra (tus datos
+          reales no se tocan).
         </p>
       </Card>
       {loaded ? (

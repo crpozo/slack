@@ -35,4 +35,6 @@ export const salesApi = {
       { leads },
     ),
   resetDemo: () => request<SalesState>("POST", "/sales/demo/reset"),
+  /** Takes the demo's fictitious rows away (nothing else). */
+  clearDemo: () => request<SalesState>("POST", "/sales/demo/reset", { clear: true }),
 };

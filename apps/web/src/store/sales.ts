@@ -28,6 +28,7 @@ interface SalesStore {
   ) => Promise<{ repeated: boolean; applied: Array<{ recordId: string; field: string }> }>;
   importLeads: (leads: SalesLead[]) => Promise<{ added: number; skipped: number }>;
   resetDemo: () => Promise<void>;
+  clearDemo: () => Promise<void>;
   reset: () => void;
 }
 
@@ -87,6 +88,15 @@ export const useSales = create<SalesStore>((set, get) => ({
     set({ loading: true });
     try {
       set({ state: await salesApi.resetDemo(), error: null, loading: false });
+    } catch (err) {
+      set({ error: message(err), loading: false });
+      throw err;
+    }
+  },
+  clearDemo: async () => {
+    set({ loading: true });
+    try {
+      set({ state: await salesApi.clearDemo(), error: null, loading: false });
     } catch (err) {
       set({ error: message(err), loading: false });
       throw err;
