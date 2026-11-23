@@ -14,6 +14,7 @@
     --c-primary-hover: 109 178 166; /* #6DB2A6 */
     --c-primary-fg: 129 197 185; /* #81C5B9 */
     --c-on-primary: 0 0 0; /* #000000 on #81C5B9 */
+    --c-primary-soft: 166 216 207; /* #A6D8CF: teal text on teal tints (selected chips, highlights) */
     --c-sky: 133 191 233; /* #85BFE9 */
     --c-ink: 248 248 248; /* #F8F8F8 */
     --c-ink-secondary: 171 171 173; /* #ABABAD */
@@ -409,7 +410,7 @@
 
 /* "Pregunta a la IA" (Phase 50): a cited story, as a small numbered pill. */
 .news-cite {
-  @apply mx-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-primary/40 bg-primary/15 px-1 align-[1px] font-mono text-[10px] font-semibold text-[#a6d8cf] no-underline hover:bg-primary/30;
+  @apply mx-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-primary/40 bg-primary/15 px-1 align-[1px] font-mono text-[10px] font-semibold text-primary-soft no-underline hover:bg-primary/30;
 }
 
 /* AI News as a newspaper (Phase 51), on the app's dark background (51b): the
@@ -421,6 +422,7 @@
   --c-primary: 129 197 185; /* #81C5B9 fills */
   --c-primary-hover: 109 178 166;
   --c-primary-fg: 166 216 207; /* #A6D8CF: teal text, 11.2:1 on the page */
+  --c-primary-soft: 166 216 207;
   --c-on-primary: 0 0 0;
   --c-ink: 240 237 230; /* #F0EDE6 warm off-white */
   --c-ink-secondary: 163 159 150; /* #A39F96, 7.2:1 */
@@ -438,6 +440,7 @@
   --c-primary: 129 197 185;
   --c-primary-hover: 109 178 166;
   --c-primary-fg: 166 216 207;
+  --c-primary-soft: 166 216 207;
   --c-on-primary: 0 0 0;
   --c-ink: 248 248 248;
   --c-ink-secondary: 171 171 173;
@@ -464,6 +467,7 @@ html.light {
   --c-primary: 129 197 185;
   --c-primary-hover: 109 178 166;
   --c-primary-fg: 46 116 104; /* #2E7468 on white: 5.5:1 */
+  --c-primary-soft: 31 92 82; /* #1F5C52: 6.6:1 on a 25% teal tint over white */
   --c-on-primary: 0 0 0;
   --c-sky: 18 100 163; /* #1264A3 */
   --c-ink: 29 28 29; /* #1D1C1D */
@@ -482,6 +486,7 @@ html.light {
 }
 html.light :is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) {
   --c-primary-fg: 129 197 185;
+  --c-primary-soft: 166 216 207;
   --c-sky: 133 191 233;
   --c-ink: 248 248 248;
   --c-ink-secondary: 171 171 173;

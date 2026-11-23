@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **Teal labels readable in the light theme:** search highlights, the AI Skills buttons and
+  chips and the Vault card's button used a fixed pale teal that was hard to
+  read on white. They now follow the theme: pale teal on dark, a deep #1F5C52 / #2E7468 on
+  light (at least 4.5:1 on their tinted backgrounds).
 - **New accent colour:** the app's green (#40B375) is now teal **#81C5B9**: buttons, links,
   highlights, active icons, the AI News and AI Skills tiles and the background glow. Text on
   teal buttons stays black (10.6:1); teal text in the light theme is a darker #2E7468 (5.5:1

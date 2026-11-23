@@ -66,7 +66,14 @@ export default {
         scrim: token("scrim"),
       },
       // Primary as a foreground (see above).
-      textColor: { primary: { DEFAULT: token("primary-fg"), hover: token("primary-fg") } },
+      textColor: {
+        primary: {
+          DEFAULT: token("primary-fg"),
+          hover: token("primary-fg"),
+          /** Teal text on teal tints: #A6D8CF dark, #1F5C52 light. */
+          soft: token("primary-soft"),
+        },
+      },
       borderColor: { primary: { DEFAULT: token("primary-fg"), hover: token("primary-fg") } },
       ringColor: { primary: { DEFAULT: token("primary-fg"), hover: token("primary-fg") } },
       outlineColor: { primary: token("primary-fg") },
