@@ -74,7 +74,7 @@ function Highlighted({ snippet }: Readonly<{ snippet: SearchSnippet }>) {
     if (start < at) return;
     if (start > at) parts.push(snippet.text.slice(at, start));
     parts.push(
-      <mark key={i} className="rounded bg-primary/25 px-0.5 font-semibold text-[#a6d8cf]">
+      <mark key={i} className="rounded bg-primary/25 px-0.5 font-semibold text-primary-soft">
         {snippet.text.slice(start, end)}
       </mark>,
     );

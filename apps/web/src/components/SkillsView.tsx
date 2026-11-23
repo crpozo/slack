@@ -35,7 +35,7 @@ export const GLASS_CARD =
 export const PRIMARY_BUTTON =
   "inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] bg-primary px-4 text-[13px] font-semibold text-[#0E0D12] shadow-[0_0_24px_rgb(64_179_117/0.25)] transition hover:bg-[#4fc485] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:opacity-60";
 export const OUTLINE_BUTTON =
-  "inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-primary/50 bg-primary/[0.06] px-4 text-[13px] font-semibold text-[#81c5b9] backdrop-blur-md transition hover:border-primary hover:bg-primary/[0.14] hover:text-[#a6d8cf] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60";
+  "inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-primary/50 bg-primary/[0.06] px-4 text-[13px] font-semibold text-primary backdrop-blur-md transition hover:border-primary hover:bg-primary/[0.14] hover:text-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60";
 const QUICK_ACTION =
   "inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 text-xs font-medium text-ink/85 transition hover:border-primary/50 hover:bg-primary/[0.08] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50";
 
@@ -45,7 +45,7 @@ const errorText = (err: unknown, fallback: string) =>
 /** "/security-audit": how the skill is called in Claude Code. */
 export function InvocationBadge({ slug }: Readonly<{ slug: string }>) {
   return (
-    <span className="rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] text-[#81c5b9]">
+    <span className="rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] text-primary">
       /{slug}
     </span>
   );
@@ -78,7 +78,7 @@ export function SourceBadge({
   }
   return (
     <span
-      className="inline-flex min-w-0 items-center gap-1 rounded-md bg-primary/[0.12] px-1.5 py-0.5 text-[11px] text-[#81c5b9]"
+      className="inline-flex min-w-0 items-center gap-1 rounded-md bg-primary/[0.12] px-1.5 py-0.5 text-[11px] text-primary"
       title={`MindfulTech · ${skill.authorName}`}
       data-source="team"
     >
@@ -249,7 +249,7 @@ export function SkillsView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => v
                       onClick={() => setFilter(f.id)}
                       className={`h-8 rounded-full border px-3 text-xs font-semibold transition ${
                         filter === f.id
-                          ? "border-primary bg-primary/20 text-[#a6d8cf]"
+                          ? "border-primary bg-primary/20 text-primary-soft"
                           : "border-white/10 bg-white/[0.04] text-ink-secondary hover:border-white/25 hover:text-ink"
                       }`}
                     >
@@ -449,7 +449,7 @@ function SkillCard({
       <div className="flex flex-wrap gap-1.5">
         <button
           type="button"
-          className={`${QUICK_ACTION} border-primary/40 text-[#81c5b9]`}
+          className={`${QUICK_ACTION} border-primary/40 text-primary`}
           onClick={onInstall}
           disabled={busy === `install:${skill.id}`}
         >
