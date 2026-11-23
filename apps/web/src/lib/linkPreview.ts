@@ -22,6 +22,19 @@ export function previewLinkIn(text: string): string | null {
   return null;
 }
 
+/**
+ * The link the message box previews while it's being written: the first https
+ * link, a YouTube video included (once sent it gets its player; here, its
+ * picture and title).
+ */
+export function composerLinkIn(text: string): string | null {
+  const prose = text.replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]*`/g, " ");
+  for (const [link] of prose.matchAll(URL_PATTERN)) {
+    if (link.startsWith("https://")) return link;
+  }
+  return null;
+}
+
 const asked = new Map<string, Promise<LinkPreview | null>>();
 
 /** The preview of `url`, or `null` when it has none (or it couldn't be read). */

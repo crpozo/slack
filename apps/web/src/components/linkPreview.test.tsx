@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { previewLinkIn, resetLinkPreviews } from "../lib/linkPreview";
+import { composerLinkIn, previewLinkIn, resetLinkPreviews } from "../lib/linkPreview";
 import * as api from "../lib/tasksApi";
 import { ComposerLinkPreview, LinkPreviewCard } from "./LinkPreviewCard";
 
@@ -74,5 +74,16 @@ describe("the preview card", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Hide the link preview" }));
     expect(screen.queryByLabelText("Link preview")).toBeNull();
+  });
+
+  it("a YouTube link shows its picture while it's written, even when the page can't be read", async () => {
+    expect(composerLinkIn("mira https://www.youtube.com/watch?v=X3G2C15azIs")).toBe(
+      "https://www.youtube.com/watch?v=X3G2C15azIs",
+    );
+    vi.spyOn(api, "request").mockResolvedValue({ preview: null });
+    render(<ComposerLinkPreview url="https://www.youtube.com/watch?v=X3G2C15azIs" />);
+    const card = await waitFor(() => screen.getByLabelText("Link preview"), { timeout: 2000 });
+    expect(card.textContent).toContain("YouTube");
+    expect(card.querySelector("img")!.getAttribute("src")).toContain("X3G2C15azIs");
   });
 });

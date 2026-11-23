@@ -1,3 +1,4 @@
+import { thumbnailUrl, youTubeVideoOf } from "../lib/youtube";
 import type { LinkPreview } from "@mindfultech/shared";
 import { useEffect, useState } from "react";
 import { loadLinkPreview } from "../lib/linkPreview";
@@ -83,16 +84,28 @@ export function ComposerLinkPreview({ url }: Readonly<{ url: string | null }>) {
       cancelled = true;
     };
   }, [settled]);
-  if (!url || !preview || settled !== url || hidden === url) return null;
+  // A YouTube video always has something to show: its picture, and the page's
+  // title when the server could read it.
+  const video = url && settled === url ? youTubeVideoOf(url) : null;
+  const shown: LinkPreview | null = video
+    ? {
+        url: url!,
+        title: preview?.title ?? "YouTube video",
+        description: preview?.description ?? "Plays right here once it's sent",
+        image: thumbnailUrl(video.id),
+        site: "YouTube",
+      }
+    : preview;
+  if (!url || !shown || settled !== url || hidden === url) return null;
   return (
     <div
       className="flex items-center gap-3 border-b border-line px-3 py-2"
       aria-label="Link preview"
-      data-composer-link-preview={preview.site}
+      data-composer-link-preview={shown.site}
     >
-      {preview.image && !noImage && (
+      {shown.image && !noImage && (
         <img
-          src={preview.image}
+          src={shown.image}
           alt=""
           decoding="async"
           referrerPolicy="no-referrer"
@@ -101,11 +114,11 @@ export function ComposerLinkPreview({ url }: Readonly<{ url: string | null }>) {
         />
       )}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-ink">{preview.title}</p>
-        {preview.description && (
-          <p className="truncate text-[13px] text-ink-secondary">{preview.description}</p>
+        <p className="truncate text-sm font-semibold text-ink">{shown.title}</p>
+        {shown.description && (
+          <p className="truncate text-[13px] text-ink-secondary">{shown.description}</p>
         )}
-        <p className="truncate text-xs text-ink-secondary">{preview.site}</p>
+        <p className="truncate text-xs text-ink-secondary">{shown.site}</p>
       </div>
       <button
         type="button"
