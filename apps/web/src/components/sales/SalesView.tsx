@@ -194,7 +194,7 @@ export function SalesView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
             </div>
           </nav>
           <main className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
-            <div className="mx-auto max-w-5xl">
+            <div className="w-full">
               {error && (
                 <p
                   role="alert"
