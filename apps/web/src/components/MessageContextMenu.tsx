@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { createPortal } from "react-dom";
 import { chat } from "../lib/chat";
 import { menuActions, placeMenu, type MenuAction, type MenuContext } from "../lib/contextMenu";
-import { QUICK_REACTIONS } from "../lib/emoji";
+import { countEmoji, quickReactions } from "../lib/emoji";
 import { openExternal } from "../lib/external";
 import { useChat, type ChatMessage } from "../store";
 import {
@@ -188,13 +188,14 @@ export function MessageContextMenu({
           role="group"
           aria-label="React"
         >
-          {QUICK_REACTIONS.map((emoji) => (
+          {quickReactions().map((emoji) => (
             <button
               key={emoji}
               type="button"
               role="menuitem"
               onClick={() => {
                 onClose();
+                countEmoji(emoji);
                 chat.toggleReaction(message, emoji);
               }}
               className="flex h-8 w-8 items-center justify-center rounded-lg text-base outline-none hover:bg-primary/15 focus:bg-primary/15"

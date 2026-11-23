@@ -15,6 +15,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **Quick reactions are yours:** the row of reactions next to a message shows the emoji you
+  use most (from the picker and from the row itself), then the usual six to fill it.
 - **Sales: "Respuestas a clientes" explains itself:** what the tab is for in three steps
   (load MindfulTech's documents, ask the client's question, review the draft), example
   questions, and a clear first step when there are no documents yet.

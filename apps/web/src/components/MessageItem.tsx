@@ -16,7 +16,7 @@ import { chat } from "../lib/chat";
 import { secretParts } from "../lib/credentials";
 import { outbox } from "../lib/outbox";
 import { formatDay, formatTime, seenByLine } from "../lib/channels";
-import { QUICK_REACTIONS } from "../lib/emoji";
+import { countEmoji, quickReactions } from "../lib/emoji";
 import type { MenuContext } from "../lib/contextMenu";
 import { useMessageGestures } from "../lib/gestures";
 import { renderMessageMarkdown, type MentionMarks } from "../lib/markdown";
@@ -147,11 +147,12 @@ function MessageActions({
       aria-label="Message actions"
       className={`absolute -top-4 right-4 z-10 items-center gap-0.5 rounded-lg glass-strong border border-white/10 p-0.5 ${visibility}`}
     >
-      {QUICK_REACTIONS.map((emoji) => (
+      {quickReactions().map((emoji) => (
         <button
           key={emoji}
           type="button"
           onClick={() => {
+            countEmoji(emoji);
             chat.toggleReaction(message, emoji);
             done();
           }}

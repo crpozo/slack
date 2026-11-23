@@ -200,6 +200,7 @@ function loadCounts(): Record<string, number> {
 
 /** Counts a pick (and keeps it among the recents). */
 export function countEmoji(emoji: string): void {
+  quickCache = null;
   rememberEmoji(emoji);
   try {
     const counts = loadCounts();
@@ -244,4 +245,25 @@ export function saveSkinTone(tone: number): void {
   } catch {
     // Kept for this session only.
   }
+}
+
+let quickCache: string[] | null = null;
+
+/**
+ * The reactions offered next to a message: the ones this person uses most
+ * (from the picker and from this bar), then the usual six to fill the row.
+ * The same emoji with or without its variation selector is one.
+ */
+export function quickReactions(): string[] {
+  if (quickCache) return quickCache;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const emoji of [...frequentEmojis(), ...QUICK_REACTIONS]) {
+    if (seen.has(bare(emoji))) continue;
+    seen.add(bare(emoji));
+    out.push(emoji);
+    if (out.length === QUICK_REACTIONS.length) break;
+  }
+  quickCache = out;
+  return out;
 }
