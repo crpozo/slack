@@ -683,7 +683,7 @@ const PHONE_APPS: PhoneApp[] = [
 /** Phase 73: Ventas, for the team (never externals). */
 const SALES_APP: PhoneApp = {
   path: "/app/sales",
-  label: "Ventas",
+  label: "Sales",
   tile: "bg-gradient-to-br from-[#36C5F0] to-[#1F6E47] text-white",
   icon: <SalesIcon size={20} />,
 };
@@ -1487,7 +1487,7 @@ export function Sidebar({
               {me && me.role !== "guest" && (
                 <NavItem
                   compact={compact}
-                  label="Ventas"
+                  label="Sales"
                   icon={<SalesIcon size={16} className="text-ink-secondary" aria-hidden="true" />}
                   active={activeChannelId === "sales"}
                   unread={0}

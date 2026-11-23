@@ -135,7 +135,7 @@ export function SalesView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
             <MenuIcon />
           </button>
         )}
-        <h1 className="text-base font-bold text-ink">Ventas</h1>
+        <h1 className="text-base font-bold text-ink">Sales</h1>
         <span className="hidden text-xs text-ink-secondary sm:inline">Asistente comercial</span>
         {loading && state && (
           <span className="ml-auto text-xs text-ink-secondary" aria-live="polite">
