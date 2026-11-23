@@ -62,9 +62,20 @@ export function PinInput({
           if (pin.length === VAULT_PIN_LENGTH) onComplete?.(pin);
         }}
         disabled={disabled}
-        type="password"
+        // Not a password field: the browser's password manager would offer saved
+        // logins over it (and to save the PIN). It's never shown anyway: the
+        // field is invisible and the boxes show dots.
+        type="text"
         inputMode="numeric"
+        pattern="[0-9]*"
         autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        name="vault-code"
+        data-1p-ignore
+        data-lpignore="true"
+        data-bwignore
+        data-form-type="other"
         maxLength={VAULT_PIN_LENGTH}
         aria-label={label}
         aria-invalid={invalid}
