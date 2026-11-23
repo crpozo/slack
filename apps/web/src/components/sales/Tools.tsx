@@ -1,16 +1,12 @@
 import {
-  callMetrics,
-  coachingTrend,
   DEMO_ACCOUNT_ID,
   DEMO_MEETING_ID,
   DEMO_OPP_ID,
   DEMO_PAST_MEETING_ID,
-  DEMO_REP_ID,
   duplicateOf,
   leadsSales,
   salesCsv,
   type SalesAccount,
-  type SalesCall,
   type SalesCompetitor,
   type SalesDoc,
   type SalesLead,
@@ -23,7 +19,7 @@ import { RecordForm, type RecordFormTarget } from "./RecordForm";
 import { FlowButton, ResultView } from "./Result";
 import { Badge, Card, DemoTag, Empty, fmtDay, SmallButton, useSalesNav } from "./ui";
 
-// Ventas (Phase 73): prospecting, internal answers, coaching and the guided demo.
+// Ventas (Phase 73): prospecting, internal answers and the guided demo.
 
 // --- Prospección (descubrimiento y enriquecimiento) ---------------------------------
 
@@ -266,28 +262,81 @@ export function KnowledgeTab() {
   }
   return (
     <div className="space-y-3" data-sales-tab="conocimiento">
-      <Card title="Pregunta comercial o técnica">
-        <textarea
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          rows={3}
-          className="input w-full text-sm"
-          placeholder="¿Con qué ERP nos integramos y cuánto tarda una integración?"
-          aria-label="Pregunta"
-        />
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={running !== null || !question.trim()}
-            onClick={() => void run()}
-          >
-            {running === "answer" ? "Buscando en los documentos…" : "Responder con los documentos"}
-          </button>
-          <p className="text-xs text-ink-secondary">
-            Solo usa los documentos de abajo y cita cada uno.
-          </p>
-        </div>
+      <Card title="¿Qué es esto?">
+        <p className="text-sm text-ink">
+          Cuando un cliente te pregunta algo (precios, plazos, qué tecnologías usamos, cómo
+          trabajamos), escríbelo aquí y el asistente te da la respuesta lista para enviar, usando{" "}
+          <strong>solo los documentos de MindfulTech</strong> que el equipo haya cargado abajo.
+        </p>
+        <ol className="mt-2 grid gap-2 text-xs text-ink-secondary sm:grid-cols-3">
+          <li className="rounded-lg border border-line p-2">
+            <strong className="text-ink">1. Carga documentos.</strong> Propuestas tipo, tarifas,
+            metodología, casos de éxito, respuestas ya aprobadas. Pega el texto y di quién es el
+            experto.
+          </li>
+          <li className="rounded-lg border border-line p-2">
+            <strong className="text-ink">2. Haz la pregunta.</strong> Tal como te la hizo el
+            cliente.
+          </li>
+          <li className="rounded-lg border border-line p-2">
+            <strong className="text-ink">3. Revisa y envía.</strong> Sale un borrador editable, con
+            el documento del que salió cada dato y a quién consultar. Lo que no esté en los
+            documentos, lo dice.
+          </li>
+        </ol>
+      </Card>
+      <Card title="Pregunta de un cliente">
+        {docs.length === 0 ? (
+          <div className="space-y-2 text-center">
+            <p className="text-sm text-ink-secondary">
+              Todavía no hay documentos, así que el asistente no tiene de dónde responder.
+            </p>
+            <button type="button" className="btn-primary" onClick={() => setForm({ kind: "doc" })}>
+              Cargar el primer documento
+            </button>
+          </div>
+        ) : (
+          <>
+            <textarea
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              rows={3}
+              className="input w-full text-sm"
+              placeholder="Escribe la pregunta del cliente…"
+              aria-label="Pregunta"
+            />
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {[
+                "¿Cuánto cuesta y cuánto tarda un proyecto como este?",
+                "¿Qué incluye el soporte después de la entrega?",
+                "¿Con qué sistemas se pueden integrar?",
+              ].map((example) => (
+                <button
+                  key={example}
+                  type="button"
+                  onClick={() => setQuestion(example)}
+                  className="rounded-full border border-line px-2.5 py-1 text-xs text-ink-secondary hover:border-primary/60 hover:text-ink"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={running !== null || !question.trim()}
+                onClick={() => void run()}
+              >
+                {running === "answer" ? "Buscando en los documentos…" : "Preparar la respuesta"}
+              </button>
+              <p className="text-xs text-ink-secondary">
+                Usa los {docs.length} {docs.length === 1 ? "documento" : "documentos"} de abajo y
+                cita cada uno.
+              </p>
+            </div>
+          </>
+        )}
         {answer && (
           <div className="mt-3 border-t border-line pt-3">
             <ResultView artifact={answer} />
@@ -295,7 +344,7 @@ export function KnowledgeTab() {
         )}
       </Card>
       <Card
-        title={`Documentos autorizados (${docs.length})`}
+        title={`Documentos de MindfulTech (${docs.length})`}
         action={<SmallButton onClick={() => setForm({ kind: "doc" })}>+ Documento</SmallButton>}
       >
         {docs.length === 0 ? (
@@ -376,212 +425,6 @@ export function KnowledgeTab() {
           </ul>
         )}
       </Card>
-      {form && <RecordForm target={form} onClose={() => setForm(null)} />}
-    </div>
-  );
-}
-
-// --- Coaching ------------------------------------------------------------------------
-
-export function CoachingTab() {
-  const nav = useSalesNav();
-  const me = useChat((s) => s.me);
-  const records = useSales((s) => s.state?.records ?? []);
-  const artifacts = useSales((s) => s.state?.artifacts ?? []);
-  const ask = useSales((s) => s.ask);
-  const running = useSales((s) => s.running);
-  const showToast = useChat((s) => s.showToast);
-  const calls = useMemo(() => records.filter((r): r is SalesCall => r.kind === "call"), [records]);
-  // Whose calls can be coached here: mine, the demo's rep, and anyone's for a lead.
-  const reps = useMemo(() => {
-    const all = new Map<string, string>();
-    if (me) all.set(me.userId, "Mis llamadas");
-    for (const c of calls) {
-      if (c.ownerId === me?.userId) continue;
-      if (c.demo || leadsSales(me?.role)) all.set(c.ownerId, c.ownerName);
-    }
-    return [...all.entries()];
-  }, [calls, me]);
-  const [picked, setPicked] = useState("");
-  const repId = reps.some(([id]) => id === picked)
-    ? picked
-    : reps.some(([id]) => id === nav.focus)
-      ? nav.focus
-      : (calls.find((c) => c.id === nav.focus)?.ownerId ??
-        (calls.some((c) => c.ownerId === me?.userId)
-          ? (me?.userId ?? "")
-          : (reps.find(([id]) => id === DEMO_REP_ID)?.[0] ?? me?.userId ?? "")));
-  const theirs = calls
-    .filter((c) => c.ownerId === repId)
-    .sort((a, b) => b.date.localeCompare(a.date));
-  const [since, setSince] = useState(() =>
-    new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10),
-  );
-  const trend = useMemo(() => coachingTrend(theirs, since), [theirs, since]);
-  const [form, setForm] = useState<RecordFormTarget | null>(null);
-  const result = (flow: "coaching" | "trends") =>
-    artifacts
-      .filter((a) => a.flow === flow && a.repId === repId)
-      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
-  const [shown, setShown] = useState<"coaching" | "trends">("coaching");
-  const artifact = result(shown);
-
-  async function run(flow: "coaching" | "trends") {
-    setShown(flow);
-    try {
-      await ask({ flow, repId, since: flow === "trends" ? since : "" }, flow);
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "El asistente no pudo responder.", "error");
-    }
-  }
-  const verdictTone = { mejora: "good", retroceso: "bad", estable: "neutral" } as const;
-
-  return (
-    <div className="space-y-3" data-sales-tab="coaching">
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          value={repId}
-          onChange={(e) => setPicked(e.target.value)}
-          aria-label="Vendedor"
-          className="input"
-        >
-          {reps.map(([id, name]) => (
-            <option key={id} value={id}>
-              {name}
-            </option>
-          ))}
-        </select>
-        <SmallButton onClick={() => setForm({ kind: "call" })}>
-          + Llamada (pegar transcripción)
-        </SmallButton>
-      </div>
-      <Card title={`Llamadas (${theirs.length})`}>
-        {theirs.length === 0 ? (
-          <Empty>Sin llamadas. Pega la transcripción de una llamada para recibir coaching.</Empty>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm" data-sales-calls>
-              <thead className="text-xs text-ink-secondary">
-                <tr>
-                  {["Llamada", "Fecha", "Habla (%)", "Preguntas", "Intervención más larga"].map(
-                    (h, i) => (
-                      <th
-                        key={h}
-                        className={`px-2 py-1.5 font-semibold ${i === 0 ? "text-left" : "text-right"}`}
-                      >
-                        {h}
-                      </th>
-                    ),
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {theirs.map((c) => {
-                  const m = callMetrics(c);
-                  const editable = c.demo || c.ownerId === me?.userId || leadsSales(me?.role);
-                  return (
-                    <tr key={c.id} className={nav.focus === c.id ? "bg-primary/5" : ""}>
-                      <td className="px-2 py-1.5">
-                        <button
-                          type="button"
-                          disabled={!editable}
-                          onClick={() => setForm({ kind: "call", record: c })}
-                          className="text-left font-medium text-ink hover:underline disabled:no-underline"
-                        >
-                          {c.title}
-                        </button>{" "}
-                        {c.demo && <DemoTag />}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-xs text-ink-secondary">
-                        {fmtDay(c.date)}
-                      </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-ink">{m.talkPct}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-ink">
-                        {m.questions}
-                      </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-ink">
-                        {m.longestTurn} palabras
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-      {theirs.length > 0 && (
-        <Card
-          title="Tendencia entre períodos (calculada)"
-          action={
-            <label className="flex items-center gap-1 text-xs text-ink-secondary">
-              comparar antes y desde
-              <input
-                type="date"
-                value={since}
-                onChange={(e) => setSince(e.target.value)}
-                className="input py-0.5 text-xs"
-              />
-            </label>
-          }
-        >
-          <table className="w-full text-sm" data-sales-trend>
-            <thead className="text-xs text-ink-secondary">
-              <tr>
-                <th className="px-2 py-1 text-left font-semibold">Métrica</th>
-                <th className="px-2 py-1 text-right font-semibold">
-                  Antes ({trend.before.calls} llamadas)
-                </th>
-                <th className="px-2 py-1 text-right font-semibold">
-                  Después ({trend.after.calls} llamadas)
-                </th>
-                <th className="px-2 py-1 text-right font-semibold">Resultado</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {trend.rows.map((r) => (
-                <tr key={r.metric}>
-                  <td className="px-2 py-1.5 text-ink">{r.metric}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-ink">{r.before}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-ink">{r.after}</td>
-                  <td className="px-2 py-1.5 text-right">
-                    <Badge tone={verdictTone[r.verdict]}>{r.verdict}</Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {(trend.before.calls < 2 || trend.after.calls < 2) && (
-            <p className="mt-2 text-xs text-warning">
-              Con menos de dos llamadas en un período la comparación no es concluyente.
-            </p>
-          )}
-        </Card>
-      )}
-      {theirs.length > 0 && (
-        <Card
-          title="Coaching del asistente"
-          action={
-            <div className="flex gap-1.5">
-              <SmallButton primary disabled={running !== null} onClick={() => void run("coaching")}>
-                {running === "coaching" ? "Analizando…" : "Coaching individual"}
-              </SmallButton>
-              <SmallButton disabled={running !== null} onClick={() => void run("trends")}>
-                {running === "trends" ? "Comparando…" : "Explicar la tendencia"}
-              </SmallButton>
-            </div>
-          }
-        >
-          {artifact ? (
-            <ResultView artifact={artifact} />
-          ) : (
-            <Empty>
-              Pide el coaching: señala momentos concretos de las llamadas y qué probar en la
-              próxima.
-            </Empty>
-          )}
-        </Card>
-      )}
       {form && <RecordForm target={form} onClose={() => setForm(null)} />}
     </div>
   );

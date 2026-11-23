@@ -11,7 +11,7 @@ los externos no entran.
 | Núcleo   | `packages/shared/src/sales.ts`, `salesDemo.ts`     | Modelo de datos, permisos (`visibleSales`, `canEditSales`), ROI, pronóstico, prioridades, citas textuales, métricas de llamadas, duplicados, datos demo |
 | Servidor | `backend/src/handlers/sales.ts`, `lib/salesAi.ts`  | API `/sales/*`, flujos de IA en Bedrock (el mismo modelo de AI Notes), verificación de fuentes y citas, CRM con confirmación e idempotencia           |
 | Datos    | tabla DynamoDB `slack-<stage>-sales`               | Una partición por organización: `rec#` registros, `art#` resultados generados, `chg#` historial de cambios, `applied#` cambios de CRM confirmados       |
-| Interfaz | `apps/web/src/components/sales/`                   | Pestañas: Mi panel, Cuentas, Pronóstico, Liderazgo, Prospección, Respuestas, Coaching, Demo guiada                                                     |
+| Interfaz | `apps/web/src/components/sales/`                   | Pestañas: Mi panel, Cuentas, Pronóstico, Liderazgo, Prospección, Respuestas a clientes, Demo guiada                                                     |
 
 Reglas que valen para todo el módulo:
 
@@ -65,8 +65,8 @@ integración externa; se pega o se carga el contenido), **Pendiente** (no hecho)
 | 5   | Preparación de reuniones        | Completa (una reunión y agenda de varias)                                                                 | Reunión → «Preparar»; Mi panel → «Agenda con preparación»                                      |
 | 6   | Seguimiento posterior           | Con datos pegados: notas o transcripción pegadas en la reunión                                            | Reunión → «Seguimiento»                                                                        |
 | 7   | Citas textuales                 | Completa: búsqueda exacta en código (funciona sin el modelo) + verificación                               | Cuenta → «Buscar citas textuales»                                                              |
-| 8   | Coaching individual             | Con datos pegados: transcripciones de llamadas                                                            | Coaching → «Coaching individual»                                                               |
-| 9   | Tendencias de coaching          | Completa: comparación calculada entre períodos + explicación                                              | Coaching → tabla de tendencia y «Explicar la tendencia»                                        |
+| 8   | Coaching individual | **Retirada de la interfaz** a pedido (Phase 76); la lógica del servidor queda sin uso | — |
+| 9   | Tendencias de coaching | **Retirada de la interfaz** a pedido (Phase 76) | — |
 | 10  | Señales de cuenta               | Completa: historial de cambios rastreable, lista de seguimiento, resumen                                  | Cuenta → «Señales: qué cambió»; Cuentas → filtro «Mi lista de seguimiento»                     |
 | 11  | Estrategia de oportunidad       | Completa                                                                                                  | Oportunidad → «Estrategia»                                                                     |
 | 12  | Caso de negocio y ROI           | Completa: supuestos editables, fórmulas, 3 escenarios, recuperación, presentación de 10 diapositivas      | Oportunidad → «Caso de negocio y ROI»                                                          |
@@ -82,7 +82,7 @@ El modelo es Claude en Amazon Bedrock con el rol de la Lambda (sin credenciales 
 
 ## Desde el chat
 
-`/ventas` abre el módulo. `/ventas pronóstico | demo | coaching | liderazgo | prospección |
+`/ventas` abre el módulo. `/ventas pronóstico | demo | liderazgo | prospección |
 respuestas` abre esa sección. `/ventas cliente <nombre>` abre el cliente; `/ventas preparar
 <nombre>`, `/ventas seguimiento <nombre>`, `/ventas estrategia <nombre>` y `/ventas senales
 <nombre>` inician ese flujo sobre la cuenta.

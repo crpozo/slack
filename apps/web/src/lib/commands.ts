@@ -49,7 +49,6 @@ const SALES_TABS_BY_WORD: Record<string, string> = {
   liderazgo: "liderazgo",
   prospeccion: "prospeccion",
   respuestas: "conocimiento",
-  coaching: "coaching",
   demo: "demo",
 };
 /** What `/ventas preparar Acme` starts, by its first word. */

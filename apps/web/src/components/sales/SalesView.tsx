@@ -16,7 +16,7 @@ import { MenuIcon } from "../icons";
 import { AccountsTab } from "./Accounts";
 import { DashboardTab, ForecastTab, LeadershipTab } from "./Panels";
 import { ResultModal } from "./Result";
-import { CoachingTab, DemoTab, KnowledgeTab, ProspectingTab } from "./Tools";
+import { DemoTab, KnowledgeTab, ProspectingTab } from "./Tools";
 import { SALES_TABS, useSalesNav } from "./ui";
 
 /**
@@ -219,8 +219,6 @@ export function SalesView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
                 <ProspectingTab />
               ) : nav.tab === "conocimiento" ? (
                 <KnowledgeTab />
-              ) : nav.tab === "coaching" ? (
-                <CoachingTab />
               ) : nav.tab === "demo" ? (
                 <DemoTab />
               ) : (

@@ -10,8 +10,7 @@ export const SALES_TABS = [
   ["pronostico", "Pronóstico"],
   ["liderazgo", "Liderazgo"],
   ["prospeccion", "Prospección"],
-  ["conocimiento", "Respuestas"],
-  ["coaching", "Coaching"],
+  ["conocimiento", "Respuestas a clientes"],
   ["demo", "Demo guiada"],
 ] as const;
 export type SalesTab = (typeof SALES_TABS)[number][0];
@@ -53,7 +52,6 @@ export function useSalesNav(): SalesNav {
   const open = useCallback<SalesNav["open"]>(
     (r) => {
       if (r.kind === "account") go({ tab: "cuentas", account: r.id, focus: "" });
-      else if (r.kind === "call") go({ tab: "coaching", focus: r.id });
       else if (r.kind === "doc" || r.kind === "competitor")
         go({ tab: "conocimiento", focus: r.id });
       else go({ tab: "cuentas", account: r.accountId ?? "", focus: r.id });

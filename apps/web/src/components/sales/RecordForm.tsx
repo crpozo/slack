@@ -124,7 +124,7 @@ const FIELDS: Record<Kind, Field[]> = {
     },
     {
       name: "shareable",
-      label: "Mis colegas pueden ver esta llamada como ejemplo en su coaching",
+      label: "Mis colegas pueden ver esta llamada",
       type: "check",
     },
   ],

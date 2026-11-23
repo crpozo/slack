@@ -1,5 +1,4 @@
 import {
-  callMetrics,
   FORECAST_LABEL,
   forecastOf,
   inForecast,
@@ -13,7 +12,6 @@ import {
   type ForecastFilter,
   type ForecastTotals,
   type SalesAccount,
-  type SalesCall,
   type SalesMeeting,
   type SalesOpportunity,
   type SalesRecord,
@@ -507,17 +505,10 @@ export function LeadershipTab() {
     (r): r is SalesAccount =>
       r.kind === "account" && r.strategic && (!filter.ownerId || r.ownerId === filter.ownerId),
   );
-  const calls = records.filter((r): r is SalesCall => r.kind === "call");
   const reps = [...new Map(opps.map((o) => [o.ownerId, o.ownerName])).entries()].map(
     ([id, name]) => {
       const theirs = scoped.filter((o) => o.ownerId === id);
       const theirOpen = theirs.filter((o) => isOpenStage(o.stage));
-      const theirCalls = calls.filter((c) => c.ownerId === id);
-      const metrics = theirCalls.map(callMetrics);
-      const avg = (pick: (m: (typeof metrics)[number]) => number) =>
-        metrics.length
-          ? Math.round(metrics.reduce((n, m) => n + pick(m), 0) / metrics.length)
-          : null;
       return {
         id,
         name,
@@ -526,9 +517,6 @@ export function LeadershipTab() {
         risky: theirOpen.filter((o) =>
           oppGaps(o, records, now).some((g) => g.severity === "riesgo"),
         ),
-        calls: theirCalls.length,
-        talk: avg((m) => m.talkPct),
-        questions: avg((m) => m.questions),
       };
     },
   );
@@ -644,23 +632,16 @@ export function LeadershipTab() {
           <table className="w-full text-sm" data-sales-team>
             <thead className="text-xs text-ink-secondary">
               <tr>
-                {[
-                  "Responsable",
-                  "Comprometido",
-                  "Adicional",
-                  "Abiertas",
-                  "En riesgo",
-                  "Llamadas",
-                  "Habla (%)",
-                  "Preguntas",
-                ].map((h, i) => (
-                  <th
-                    key={h}
-                    className={`px-2 py-1.5 font-semibold ${i === 0 ? "text-left" : "text-right"}`}
-                  >
-                    {h}
-                  </th>
-                ))}
+                {["Responsable", "Comprometido", "Adicional", "Abiertas", "En riesgo"].map(
+                  (h, i) => (
+                    <th
+                      key={h}
+                      className={`px-2 py-1.5 font-semibold ${i === 0 ? "text-left" : "text-right"}`}
+                    >
+                      {h}
+                    </th>
+                  ),
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -703,19 +684,6 @@ export function LeadershipTab() {
                     >
                       {r.risky.length}
                     </button>
-                  </td>
-                  <td className="px-2 py-1.5 text-right">
-                    <button
-                      type="button"
-                      className="tabular-nums text-ink hover:underline"
-                      onClick={() => nav.go({ tab: "coaching", focus: r.id })}
-                    >
-                      {r.calls}
-                    </button>
-                  </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-ink">{r.talk ?? "—"}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-ink">
-                    {r.questions ?? "—"}
                   </td>
                 </tr>
               ))}

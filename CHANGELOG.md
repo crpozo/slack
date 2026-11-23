@@ -7,12 +7,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Removed
 
+- **Sales: coaching** is gone from the app (its tab, the call metrics in the leadership panel
+  and `/ventas coaching`).
 - **AI Radar** is gone: its view, its sidebar and phone entries, its endpoints (`/radar/*`),
   the daily scan and discovery runs and their Lambdas. The `tech-radar` table stays, unused,
   so its data isn't lost.
 
 ### Changed
 
+- **Sales: "Respuestas a clientes" explains itself:** what the tab is for in three steps
+  (load MindfulTech's documents, ask the client's question, review the draft), example
+  questions, and a clear first step when there are no documents yet.
 - **AI News is about technology to adopt:** the sources are now mostly engineering ones
   (GitHub Blog, Simon Willison, The New Stack, Hugging Face, AWS, Cloudflare, Vercel, Docker,
   Stack Overflow, The Pragmatic Engineer, Latent Space, Engineering at Meta, Martin Fowler,
