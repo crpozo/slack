@@ -12,6 +12,8 @@ import {
 } from "@mindfultech/shared";
 import {
   applyCommand,
+  openAppPath,
+  salesCommandPath,
   commandQuery,
   matchCommands,
   parseCommand,
@@ -564,6 +566,12 @@ const ComposerInput = forwardRef<ComposerHandle, ComposerProps>(function Compose
     const command = !secret ? parseCommand(text) : null;
     let outgoing = text.trim();
     let asSecret = secret;
+    if (command?.command.effect === "ventas") {
+      // Phase 73: the sales assistant, where the words after `/ventas` say; nothing is sent.
+      setText("");
+      openAppPath(salesCommandPath(command.rest));
+      return;
+    }
     if (command) {
       outgoing = applyCommand(command.command, command.rest);
       if (!outgoing && uploads.length === 0) {

@@ -236,6 +236,20 @@ export const SKILLS_ROUTES: Array<{ method: HttpMethod; path: string }> = [
  * secret (admins all; staff theirs and those shared with them), and the
  * 4-digit PIN that unlocks the Vault and every reveal.
  */
+/**
+ * Ventas (Phase 73): the sales assistant. One Lambda; what a person sees is
+ * decided in it (`visibleSales`) for every route.
+ */
+export const SALES_ROUTES: Array<{ method: HttpMethod; path: string }> = [
+  { method: HttpMethod.GET, path: "/sales" },
+  { method: HttpMethod.PUT, path: "/sales/records/{id}" },
+  { method: HttpMethod.DELETE, path: "/sales/records/{id}" },
+  { method: HttpMethod.POST, path: "/sales/ai" },
+  { method: HttpMethod.POST, path: "/sales/crm/apply" },
+  { method: HttpMethod.POST, path: "/sales/import" },
+  { method: HttpMethod.POST, path: "/sales/demo/reset" },
+];
+
 export const VAULT_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.GET, path: "/vault" },
   { method: HttpMethod.POST, path: "/vault" },
@@ -329,6 +343,8 @@ export class TasksApi extends Construct {
   readonly skillsHandler: NodejsFunction;
   /** `vault`: the team's passwords (Phase 45), the only code that can use the Vault key. */
   readonly vaultHandler: NodejsFunction;
+  /** `sales`: Ventas (Phase 73), the sales assistant. */
+  readonly salesHandler: NodejsFunction;
   /** Phase 62: the team panel (admins invite staff and admins, change roles). */
   readonly adminUsersHandler: NodejsFunction;
   /** Phase 56: the AI Tech Radar's endpoints, and the daily scan of the news for updates. */
@@ -443,6 +459,13 @@ export class TasksApi extends Construct {
       CONNECTIONS_TABLE: data.connections.tableName,
       WS_ENDPOINT: wsApi.webSocketStage.callbackUrl,
     });
+    // Ventas (Phase 73): its table, the team's names, and the model (under the API's 29 s).
+    this.salesHandler = lambda(
+      "SalesFn",
+      "sales",
+      { SALES_TABLE: data.sales.tableName, USERS_TABLE: data.users.tableName },
+      Duration.seconds(29),
+    );
     // AI Tech Radar (Phase 56): the worker reads the feeds and asks the model;
     // the endpoint reads and writes the table and, for admins, starts the worker.
     this.radarScanWorker = lambda(
@@ -779,6 +802,10 @@ export class TasksApi extends Construct {
     for (const { method, path } of VAULT_ROUTES) {
       this.httpApi.addRoutes({ path, methods: [method], integration: vaultIntegration });
     }
+    const salesIntegration = new HttpLambdaIntegration("SalesIntegration", this.salesHandler);
+    for (const { method, path } of SALES_ROUTES) {
+      this.httpApi.addRoutes({ path, methods: [method], integration: salesIntegration });
+    }
     this.url = this.httpApi.apiEndpoint;
 
     // --- Permissions: only what the handler calls ---
@@ -1103,6 +1130,19 @@ export class TasksApi extends Construct {
     data.users.grant(this.skillsHandler, "dynamodb:GetItem");
     grantReadParameter(this.skillsHandler, githubTokenParameterName(stage));
     this.skillsHandler.addToRolePolicy(notesModelPolicy());
+
+    // sales (Phase 73): its own table only (the organization's partition is read
+    // whole and filtered to the caller in code; rows written one or a batch at a
+    // time); the team's names and roles; the model on Bedrock.
+    data.sales.grant(
+      this.salesHandler,
+      "dynamodb:Query",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:BatchWriteItem",
+    );
+    data.users.grant(this.salesHandler, "dynamodb:Scan", "dynamodb:GetItem");
+    this.salesHandler.addToRolePolicy(notesModelPolicy());
 
     // vault: one row at a time (Get/Put/Delete), and Scans that ask for the
     // metadata only (IAM checks the attributes requested: a Scan can never

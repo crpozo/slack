@@ -21,3 +21,5 @@ export * from "./linkPreview";
 export * from "./platformInsights";
 export * from "./discovery";
 export * from "./text";
+export * from "./sales";
+export * from "./salesDemo";

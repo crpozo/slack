@@ -19,6 +19,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Ventas, a sales assistant (in Spanish):** a new app for the team (`/app/sales`, **Ventas**
+  in the sidebar and the phone's Apps; `/ventas` in the chat). Accounts, contacts,
+  opportunities, meetings, calls, documents and competitors with a change log; a rep's panel
+  with the week's priorities and why; the forecast by period, owner and currency where every
+  total opens its opportunities; a leadership panel for admins; and the assistant's flows where
+  the work is: prospecting from pasted sources (duplicates, segments, CSV), first contact,
+  competitive notes, answers from authorized documents, meeting prep and agenda, follow-up with
+  an editable email and a proposed CRM update applied only on confirmation, exact quotes,
+  coaching and its trends, account signals, opportunity strategy, a business case with editable
+  assumptions whose figures are computed in code and reused in a 10-slide decision deck, and
+  buyer decks exported to PowerPoint. Every generated point links to the records behind it, and
+  a quote that isn't word for word in its source is shown as a paraphrase. A guided demo with
+  fictitious data (marked DEMO) walks one account from a forecast risk to the confirmed CRM
+  update, and can be reset. See `docs/ventas.md`.
 - **A password shared in a chat is kept in the Vault:** when a message goes out as a secret
   (typed in secret mode, or detected as a password), its password is also saved to the Vault
   for who sent it and who received it (the conversation's team members), with the message's

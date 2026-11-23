@@ -63,6 +63,10 @@ export const tables = {
   get messageSearch() {
     return requireEnv("MESSAGE_SEARCH_TABLE");
   },
+  /** Phase 73: Ventas (accounts, opportunities, meetings, results, changes). */
+  get sales() {
+    return requireEnv("SALES_TABLE");
+  },
   /** Phase 60: per channel, its time entries and hourly rates. */
   get timeLog() {
     return requireEnv("TIME_LOG_TABLE");

@@ -44,6 +44,7 @@ import {
 } from "./MobileScreens";
 import { useCalendar } from "../store/calendar";
 import { useNews } from "../store/news";
+import { useSales } from "../store/sales";
 import { useNotesHub } from "../store/notesHub";
 import { CreateChannelModal, NewDmModal } from "./ChannelModals";
 import { CallLayer } from "./CallLayer";
@@ -67,6 +68,7 @@ const NewsView = lazy(() => import("./NewsView").then((m) => ({ default: m.NewsV
 const SkillsView = lazy(() => import("./SkillsView").then((m) => ({ default: m.SkillsView })));
 const VaultView = lazy(() => import("./VaultView").then((m) => ({ default: m.VaultView })));
 const RadarView = lazy(() => import("./RadarView").then((m) => ({ default: m.RadarView })));
+const SalesView = lazy(() => import("./sales/SalesView").then((m) => ({ default: m.SalesView })));
 const PlatformInsightsView = lazy(() =>
   import("./PlatformInsightsView").then((m) => ({ default: m.PlatformInsightsView })),
 );
@@ -99,6 +101,8 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
   const vaultMatch = useMatch("/app/vault");
   // `/app/radar`: the AI Tech Radar (Phase 56).
   const radarMatch = useMatch("/app/radar");
+  // `/app/sales`: Ventas, the sales assistant (Phase 73).
+  const salesMatch = useMatch("/app/sales");
   // `/app/insights`: Platform Insights (Phase 64), for its owners.
   const insightsMatch = useMatch("/app/insights");
   const navigate = useNavigate();
@@ -125,6 +129,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     skillsMatch ||
     vaultMatch ||
     radarMatch ||
+    salesMatch ||
     insightsMatch ||
     tab
       ? null
@@ -232,6 +237,7 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
     useCalendar.getState().reset();
     useNotesHub.getState().reset();
     useNews.getState().reset();
+    useSales.getState().reset();
     const userId = useChat.getState().me?.userId;
     if (userId) {
       await forgetPersisted(userId);
@@ -477,6 +483,14 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
           <PlatformInsightsView />
         </Suspense>
       );
+    } else if (salesMatch) {
+      screen = (
+        <Suspense
+          fallback={<div className="flex-1" aria-busy="true" aria-label="Cargando Ventas" />}
+        >
+          <SalesView />
+        </Suspense>
+      );
     } else if (radarMatch) {
       screen = (
         <Suspense
@@ -654,11 +668,13 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
                     ? "skills"
                     : vaultMatch
                       ? "vault"
-                      : radarMatch
-                        ? "radar"
-                        : insightsMatch
-                          ? "insights"
-                          : "tasks")
+                      : salesMatch
+                        ? "sales"
+                        : radarMatch
+                          ? "radar"
+                          : insightsMatch
+                            ? "insights"
+                            : "tasks")
           }
           collapsed={collapsed}
           onToggleCollapsed={isDesktop ? toggleCollapsed : undefined}
@@ -708,6 +724,12 @@ export function ChatLayout({ wsUrl }: Readonly<{ wsUrl: string }>) {
               fallback={<div className="flex-1" aria-busy="true" aria-label="Loading insights" />}
             >
               <PlatformInsightsView onOpenSidebar={() => setSidebarOpen(true)} />
+            </Suspense>
+          ) : salesMatch ? (
+            <Suspense
+              fallback={<div className="flex-1" aria-busy="true" aria-label="Cargando Ventas" />}
+            >
+              <SalesView onOpenSidebar={() => setSidebarOpen(true)} />
             </Suspense>
           ) : radarMatch ? (
             <Suspense

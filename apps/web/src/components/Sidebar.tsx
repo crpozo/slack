@@ -14,6 +14,7 @@ import {
   Compass as CompassIcon,
   ExternalLink as ExternalLinkIcon,
   Radar as RadarIcon,
+  TrendingUp as SalesIcon,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
@@ -686,6 +687,14 @@ const PHONE_APPS: PhoneApp[] = [
   },
 ];
 
+/** Phase 73: Ventas, for the team (never externals). */
+const SALES_APP: PhoneApp = {
+  path: "/app/sales",
+  label: "Ventas",
+  tile: "bg-gradient-to-br from-[#36C5F0] to-[#1F6E47] text-white",
+  icon: <SalesIcon size={20} />,
+};
+
 /** Phase 64: only for the owners of Platform Insights. */
 const INSIGHTS_APP: PhoneApp = {
   path: "/app/insights",
@@ -1145,7 +1154,11 @@ export function Sidebar({
             folded={folded.apps}
             onToggle={() => toggleSection("apps")}
           >
-            {[...PHONE_APPS, ...(insightsAllowed ? [INSIGHTS_APP] : [])].map((app) => (
+            {[
+              ...PHONE_APPS,
+              ...(me && me.role !== "guest" ? [SALES_APP] : []),
+              ...(insightsAllowed ? [INSIGHTS_APP] : []),
+            ].map((app) => (
               <PhoneRow
                 key={app.path}
                 label={app.label}
@@ -1486,6 +1499,16 @@ export function Sidebar({
                 unread={0}
                 onClick={() => navigate("/app/radar")}
               />
+              {me && me.role !== "guest" && (
+                <NavItem
+                  compact={compact}
+                  label="Ventas"
+                  icon={<SalesIcon size={16} className="text-ink-secondary" aria-hidden="true" />}
+                  active={activeChannelId === "sales"}
+                  unread={0}
+                  onClick={() => navigate("/app/sales")}
+                />
+              )}
               {insightsAllowed && (
                 <NavItem
                   compact={compact}

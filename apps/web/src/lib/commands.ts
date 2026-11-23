@@ -13,8 +13,9 @@ export interface SlashCommand {
    * `secret` (Phase 45): `/secret <title> <password>` saves to the Vault and
    * posts a 🔒 card; `/secret` alone turns on secret mode (masked, 24-hour TTL).
    * `shrug`: appends ¯\_(ツ)_/¯ to the text. `clear`: empties the composer.
+   * `ventas` (Phase 73): opens the sales assistant where the words after it say.
    */
-  effect: "secret" | "shrug" | "clear";
+  effect: "secret" | "shrug" | "clear" | "ventas";
 }
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
@@ -31,7 +32,56 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     effect: "shrug",
   },
   { name: "clear", description: "Clear what you've typed", effect: "clear" },
+  {
+    name: "ventas",
+    description: "Asistente de ventas: pronóstico, cuenta, preparar, seguimiento, estrategia, demo",
+    usage: "[acción] [cuenta]",
+    effect: "ventas",
+  },
 ];
+
+const SALES_TABS_BY_WORD: Record<string, string> = {
+  panel: "panel",
+  cuentas: "cuentas",
+  pronostico: "pronostico",
+  liderazgo: "liderazgo",
+  prospeccion: "prospeccion",
+  respuestas: "conocimiento",
+  coaching: "coaching",
+  demo: "demo",
+};
+/** What `/ventas preparar Acme` starts, by its first word. */
+export const SALES_ACTIONS = [
+  "cuenta",
+  "preparar",
+  "seguimiento",
+  "estrategia",
+  "senales",
+] as const;
+export type SalesAction = (typeof SALES_ACTIONS)[number];
+
+/**
+ * Where `/ventas <words>` goes (Phase 73): a section ("pronóstico", "demo"),
+ * or an action on an account by name ("preparar Farmacias Andina": the view
+ * finds the account and starts that flow). Anything else: the panel.
+ */
+export function salesCommandPath(rest: string): string {
+  const words = rest.trim().split(/\s+/).filter(Boolean);
+  const first = (words[0] ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const tab = SALES_TABS_BY_WORD[first];
+  if (tab) return `/app/sales?tab=${tab}`;
+  if ((SALES_ACTIONS as readonly string[]).includes(first) && words.length > 1) {
+    const params = new URLSearchParams({ tab: "cuentas", q: words.slice(1).join(" ") });
+    if (first !== "cuenta") params.set("do", first);
+    return `/app/sales?${params.toString()}`;
+  }
+  return words.length
+    ? `/app/sales?${new URLSearchParams({ tab: "cuentas", q: words.join(" ") }).toString()}`
+    : "/app/sales";
+}
 
 /**
  * The command being typed: `text` starts with `/` and has no space yet (the
@@ -64,5 +114,17 @@ export function applyCommand(command: SlashCommand, rest: string): string {
       return "";
     case "secret":
       return rest;
+    case "ventas":
+      return "";
   }
+}
+
+/**
+ * Goes to a path of the app from outside a route component (the composer is
+ * also rendered on its own): the address changes and the router, which
+ * listens for it, follows.
+ */
+export function openAppPath(path: string): void {
+  window.history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
 }

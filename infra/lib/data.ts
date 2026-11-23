@@ -50,6 +50,12 @@ export class Data extends Construct {
   /** Phase 60: per channel, its time entries and hourly rates. */
   readonly timeLog: Table;
   /**
+   * Ventas (Phase 73): accounts, contacts, opportunities, meetings, calls,
+   * documents, generated results and the change log, one partition per
+   * organization (`pk`), a row per item (`sk`).
+   */
+  readonly sales: Table;
+  /**
    * Message search (Phase 42): an inverted index. Per conversation, one tiny
    * row per term of each message (`<term>#<message sk>`), kept in step with
    * `messages` by its stream (`search-indexer`). See @mindfultech/shared search.ts.
@@ -232,6 +238,13 @@ export class Data extends Construct {
       ...common,
       tableName: `slack-${props.stage}-time-log`,
       partitionKey: { name: "channelId", type: AttributeType.STRING },
+      sortKey: { name: "sk", type: AttributeType.STRING },
+    });
+
+    this.sales = new Table(this, "Sales", {
+      ...common,
+      tableName: `slack-${props.stage}-sales`,
+      partitionKey: { name: "pk", type: AttributeType.STRING },
       sortKey: { name: "sk", type: AttributeType.STRING },
     });
 
