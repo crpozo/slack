@@ -621,6 +621,7 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
     isProject: "isProject" in action ? action.isProject : undefined,
     board: "board" in action ? action.board : undefined,
     informational: "informational" in action ? action.informational : undefined,
+    marketing: "marketing" in action ? action.marketing : undefined,
   };
   const renaming = fields.name !== undefined && fields.name !== channel.name;
   const allowed = renaming
@@ -666,6 +667,10 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
   // Phase 53: stored even when it matches the guess, so a choice sticks.
   if (fields.informational !== undefined && fields.informational !== channel.informational) {
     assign("informational", fields.informational);
+  }
+  // Phase 80: in or out of the Marketing section.
+  if (fields.marketing !== undefined && fields.marketing !== !!channel.marketing) {
+    assign("marketing", fields.marketing);
   }
 
   // Project settings: a board to link or create, or turning the project off.

@@ -240,6 +240,11 @@ export interface Channel {
    */
   informational?: boolean;
   /**
+   * A marketing channel (Phase 80): the sidebar lists it under Marketing
+   * (campaigns, content, leads), apart from the project channels.
+   */
+  marketing?: boolean;
+  /**
    * Read watermarks: per user, the newest message `sk` they have seen (and
    * when). One row per channel, however many messages: a message is read by
    * someone iff their watermark is >= its `sk` (sort keys order by time).
@@ -747,6 +752,8 @@ export const ChannelUpdateActionSchema = z
     archived: z.boolean().optional(),
     /** Informational (its own sidebar section) or a regular channel again. */
     informational: z.boolean().optional(),
+    /** In the Marketing section, or a regular channel again. */
+    marketing: z.boolean().optional(),
   })
   .refine(
     (a) =>
@@ -756,7 +763,8 @@ export const ChannelUpdateActionSchema = z
       a.isProject !== undefined ||
       a.board !== undefined ||
       a.archived !== undefined ||
-      a.informational !== undefined,
+      a.informational !== undefined ||
+      a.marketing !== undefined,
     "nothing to update",
   );
 

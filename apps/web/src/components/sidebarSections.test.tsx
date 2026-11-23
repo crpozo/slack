@@ -73,6 +73,51 @@ const names = (list: HTMLElement) =>
     .getAllByRole("listitem")
     .map((li) => li.textContent?.trim());
 
+describe("the sidebar's Marketing section and the Tools group (Phase 80)", () => {
+  it("has a Marketing section to move channels into, and lists the ones marked", () => {
+    const update = vi.spyOn(chat, "updateChannel").mockImplementation(() => {});
+    renderSidebar();
+    const marketing = screen.getByRole("list", { name: "Marketing" });
+    expect(marketing.textContent).toContain("Move to Marketing");
+    fireEvent.click(screen.getByRole("button", { name: "More options for ClinicAI" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Move to Marketing/ }));
+    expect(update).toHaveBeenCalledWith("ch_clinic", { marketing: true });
+    cleanup();
+    useChat.setState((s) => ({
+      channels: s.channels.map((c) =>
+        c.channelId === "ch_clinic" ? { ...c, marketing: true } : c,
+      ),
+    }));
+    renderSidebar();
+    expect(names(screen.getByRole("list", { name: "Marketing" }))).toEqual([
+      expect.stringContaining("ClinicAI"),
+    ]);
+    const channels = screen.getByRole("heading", { name: "Channels" }).closest("section")!;
+    expect(within(channels).queryByText("ClinicAI")).toBeNull();
+    // And back out.
+    fireEvent.click(screen.getByRole("button", { name: "More options for ClinicAI" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Move to Channels/ }));
+    expect(update).toHaveBeenCalledWith("ch_clinic", { marketing: false });
+  });
+
+  it("folds the everyday tools into a Tools group inside Apps, remembered", () => {
+    localStorage.removeItem("slack.sidebar.tools");
+    renderSidebar();
+    const group = screen.getByRole("button", { name: "Tools" });
+    expect(group.getAttribute("aria-expanded")).toBe("true");
+    const tools = group.closest("li")!;
+    for (const label of ["Task Manager", "Calendar", "AI Notes", "AI Skills"]) {
+      expect(within(tools).getByText(label)).toBeTruthy();
+    }
+    // The rest of the apps stay outside the group.
+    expect(within(tools).queryByText("Vault")).toBeNull();
+    expect(screen.getByText("Vault")).toBeTruthy();
+    fireEvent.click(group);
+    expect(within(tools).queryByText("Calendar")).toBeNull();
+    expect(localStorage.getItem("slack.sidebar.tools")).toBe("folded");
+  });
+});
+
 describe("the sidebar's Knowledge section (Phase 53)", () => {
   it("lists News/Tools apart from the project channels", () => {
     renderSidebar();

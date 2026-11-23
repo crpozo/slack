@@ -14,6 +14,8 @@ import {
   Compass as CompassIcon,
   ExternalLink as ExternalLinkIcon,
   Music as MusicIcon,
+  Megaphone as MarketingIcon,
+  Wrench as ToolsIcon,
   TrendingUp as SalesIcon,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -770,6 +772,28 @@ export function Sidebar({
     void checkInsightsAccess();
   }, [checkInsightsAccess]);
   const navigate = useNavigate();
+  // Phase 80: the Tools group of Apps: open or folded, remembered; always open
+  // while one of its tools is on screen.
+  const [toolsFolded, setToolsFolded] = useState(() => {
+    try {
+      return localStorage.getItem("slack.sidebar.tools") === "folded";
+    } catch {
+      return false;
+    }
+  });
+  const toolActive = ["tasks", "calendar", "notes", "skills", "insights"].includes(
+    activeChannelId ?? "",
+  );
+  const toolsOpen = !toolsFolded || toolActive;
+  const toggleTools = () => {
+    const next = toolsOpen;
+    setToolsFolded(next);
+    try {
+      localStorage.setItem("slack.sidebar.tools", next ? "folded" : "open");
+    } catch {
+      // A nicety.
+    }
+  };
   const nameOf = useNameOf();
   // Phase 49: AI News spins while an analysis is being written, wherever you are.
   const analyzingNews = useNewsInsights((s) => s.generating);
@@ -830,6 +854,7 @@ export function Sidebar({
   );
   const [showArchived, setShowArchived] = useState(false);
   const [folded, setFolded] = useState<PhoneSections>(loadPhoneSections);
+  const [marketingFolded, setMarketingFolded] = useState(false);
   const toggleSection = useCallback((section: PhoneSection) => {
     setFolded((prev) => {
       const next = { ...prev, [section]: !prev[section] };
@@ -873,11 +898,19 @@ export function Sidebar({
   // Phase 53: informational channels (news, tools) get their own section,
   // away from the project channels. Phase 55: so do channels with people from
   // outside MindfulTech (Externals), whatever else they are: you always know.
-  const sectionOf = (c: Channel): "externals" | "info" | "channels" =>
-    hasExternals(c, users) ? "externals" : isInformational(c) ? "info" : "channels";
+  // Phase 80: marketing channels (campaigns, content, leads) too, when marked.
+  const sectionOf = (c: Channel): "externals" | "marketing" | "info" | "channels" =>
+    hasExternals(c, users)
+      ? "externals"
+      : c.marketing
+        ? "marketing"
+        : isInformational(c)
+          ? "info"
+          : "channels";
   const unpinned = namedChannels.filter((c) => !pinnedSet.has(c.channelId));
   const shownExternals = unpinned.filter((c) => sectionOf(c) === "externals");
   const shownInfo = unpinned.filter((c) => sectionOf(c) === "info");
+  const shownMarketing = unpinned.filter((c) => sectionOf(c) === "marketing");
   const shownChannels = unpinned.filter((c) => sectionOf(c) === "channels");
   const shownDms = dms.filter((d) => !d.channelId || !pinnedSet.has(d.channelId));
   const myName = nameOf(me.userId, me.email);
@@ -918,7 +951,12 @@ export function Sidebar({
   const orderedList = (c: Channel) =>
     pinnedSet.has(c.channelId)
       ? []
-      : { externals: shownExternals, info: shownInfo, channels: shownChannels }[sectionOf(c)];
+      : {
+          externals: shownExternals,
+          marketing: shownMarketing,
+          info: shownInfo,
+          channels: shownChannels,
+        }[sectionOf(c)];
 
   function channelMenu(c: Channel): RowMenuItem[] {
     const items: RowMenuItem[] = [];
@@ -951,10 +989,19 @@ export function Sidebar({
       // A channel with externals stays under Externals whatever it's marked.
       if (!c.archived && c.channelId !== GENERAL_CHANNEL_ID && sectionOf(c) !== "externals") {
         const info = isInformational(c);
+        const marketing = !!c.marketing;
+        if (!marketing) {
+          items.push({
+            label: info ? "Move to Channels" : "Move to Knowledge",
+            icon: info ? <HashIcon /> : <NewspaperIcon />,
+            onSelect: () => chat.updateChannel(c.channelId, { informational: !info }),
+          });
+        }
+        // Phase 80: in or out of the Marketing section.
         items.push({
-          label: info ? "Move to Channels" : "Move to Knowledge",
-          icon: info ? <HashIcon /> : <NewspaperIcon />,
-          onSelect: () => chat.updateChannel(c.channelId, { informational: !info }),
+          label: marketing ? "Move to Channels" : "Move to Marketing",
+          icon: marketing ? <HashIcon /> : <MarketingIcon size={16} aria-hidden="true" />,
+          onSelect: () => chat.updateChannel(c.channelId, { marketing: !marketing }),
         });
       }
     }
@@ -1090,6 +1137,16 @@ export function Sidebar({
               onToggle={() => toggleSection("info")}
             >
               {shownInfo.map(phoneChannelRow)}
+            </PhoneSectionBlock>
+          )}
+          {shownMarketing.length > 0 && (
+            <PhoneSectionBlock
+              title="Marketing"
+              icon={<MarketingIcon size={18} aria-hidden="true" />}
+              folded={marketingFolded}
+              onToggle={() => setMarketingFolded((f) => !f)}
+            >
+              {shownMarketing.map(phoneChannelRow)}
             </PhoneSectionBlock>
           )}
           {shownExternals.length > 0 && (
@@ -1337,6 +1394,20 @@ export function Sidebar({
           </Section>
         )}
 
+        {/* Phase 80: Marketing is always there on the desktop, so there's a place to move channels to. */}
+        {only !== "dms" && (
+          <Section title="Marketing" compact={compact}>
+            <ul className="space-y-0.5 px-2" aria-label="Marketing">
+              {shownMarketing.map(channelNavItem)}
+              {shownMarketing.length === 0 && !compact && (
+                <li className="px-2 py-1 text-xs text-ink-secondary">
+                  No channels yet. Open a channel&apos;s menu (⋯) and choose “Move to Marketing”.
+                </li>
+              )}
+            </ul>
+          </Section>
+        )}
+
         {only !== "dms" && (
           <Section
             title="Channels"
@@ -1441,30 +1512,6 @@ export function Sidebar({
             <ul className="space-y-0.5 px-2">
               <NavItem
                 compact={compact}
-                label="Task Manager"
-                icon={<KanbanIcon className="text-ink-secondary" />}
-                active={activeChannelId === "tasks"}
-                unread={0}
-                onClick={() => navigate("/app/tasks")}
-              />
-              <NavItem
-                compact={compact}
-                label="Calendar"
-                icon={<CalendarIcon className="text-ink-secondary" />}
-                active={activeChannelId === "calendar"}
-                unread={0}
-                onClick={() => navigate("/app/calendar")}
-              />
-              <NavItem
-                compact={compact}
-                label="AI Notes"
-                icon={<SparklesIcon className="text-ink-secondary" />}
-                active={activeChannelId === "notes"}
-                unread={0}
-                onClick={() => navigate("/app/notes")}
-              />
-              <NavItem
-                compact={compact}
                 label="AI News"
                 icon={
                   analyzingNews ? (
@@ -1477,14 +1524,6 @@ export function Sidebar({
                 active={activeChannelId === "news"}
                 unread={0}
                 onClick={() => navigate("/app/news")}
-              />
-              <NavItem
-                compact={compact}
-                label="AI Skills"
-                icon={<PuzzleIcon className="text-ink-secondary" />}
-                active={activeChannelId === "skills"}
-                unread={0}
-                onClick={() => navigate("/app/skills")}
               />
               <NavItem
                 compact={compact}
@@ -1514,16 +1553,6 @@ export function Sidebar({
                   onClick={() => navigate("/app/sales")}
                 />
               )}
-              {insightsAllowed && (
-                <NavItem
-                  compact={compact}
-                  label="Insights"
-                  icon={<ChartIcon size={16} className="text-ink-secondary" aria-hidden="true" />}
-                  active={activeChannelId === "insights"}
-                  unread={0}
-                  onClick={() => navigate("/app/insights")}
-                />
-              )}
               {/* Phase 68: Discovery, for the team only (members and admins, never guests). */}
               {me && me.role !== "guest" && (
                 <ExternalNavItem
@@ -1532,6 +1561,124 @@ export function Sidebar({
                   href={DISCOVERY_URL}
                   icon={<CompassIcon size={16} className="text-ink-secondary" aria-hidden="true" />}
                 />
+              )}
+              {/* Phase 80: the everyday tools, folded into one group (flat in the icon rail). */}
+              {compact ? (
+                <>
+                  <NavItem
+                    compact={compact}
+                    label="Task Manager"
+                    icon={<KanbanIcon className="text-ink-secondary" />}
+                    active={activeChannelId === "tasks"}
+                    unread={0}
+                    onClick={() => navigate("/app/tasks")}
+                  />
+                  <NavItem
+                    compact={compact}
+                    label="Calendar"
+                    icon={<CalendarIcon className="text-ink-secondary" />}
+                    active={activeChannelId === "calendar"}
+                    unread={0}
+                    onClick={() => navigate("/app/calendar")}
+                  />
+                  <NavItem
+                    compact={compact}
+                    label="AI Notes"
+                    icon={<SparklesIcon className="text-ink-secondary" />}
+                    active={activeChannelId === "notes"}
+                    unread={0}
+                    onClick={() => navigate("/app/notes")}
+                  />
+                  <NavItem
+                    compact={compact}
+                    label="AI Skills"
+                    icon={<PuzzleIcon className="text-ink-secondary" />}
+                    active={activeChannelId === "skills"}
+                    unread={0}
+                    onClick={() => navigate("/app/skills")}
+                  />
+                  {insightsAllowed && (
+                    <NavItem
+                      compact={compact}
+                      label="Insights"
+                      icon={
+                        <ChartIcon size={16} className="text-ink-secondary" aria-hidden="true" />
+                      }
+                      active={activeChannelId === "insights"}
+                      unread={0}
+                      onClick={() => navigate("/app/insights")}
+                    />
+                  )}
+                </>
+              ) : (
+                <li>
+                  <button
+                    type="button"
+                    onClick={toggleTools}
+                    aria-expanded={toolsOpen}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    data-tools-group
+                  >
+                    <ToolsIcon size={16} className="shrink-0" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate">Tools</span>
+                    <ChevronDownIcon
+                      className={`transition-transform ${toolsOpen ? "rotate-180" : ""}`}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  {toolsOpen && (
+                    <ul className="ml-3 mt-0.5 space-y-0.5 border-l border-white/10 pl-1">
+                      <NavItem
+                        compact={compact}
+                        label="Task Manager"
+                        icon={<KanbanIcon className="text-ink-secondary" />}
+                        active={activeChannelId === "tasks"}
+                        unread={0}
+                        onClick={() => navigate("/app/tasks")}
+                      />
+                      <NavItem
+                        compact={compact}
+                        label="Calendar"
+                        icon={<CalendarIcon className="text-ink-secondary" />}
+                        active={activeChannelId === "calendar"}
+                        unread={0}
+                        onClick={() => navigate("/app/calendar")}
+                      />
+                      <NavItem
+                        compact={compact}
+                        label="AI Notes"
+                        icon={<SparklesIcon className="text-ink-secondary" />}
+                        active={activeChannelId === "notes"}
+                        unread={0}
+                        onClick={() => navigate("/app/notes")}
+                      />
+                      <NavItem
+                        compact={compact}
+                        label="AI Skills"
+                        icon={<PuzzleIcon className="text-ink-secondary" />}
+                        active={activeChannelId === "skills"}
+                        unread={0}
+                        onClick={() => navigate("/app/skills")}
+                      />
+                      {insightsAllowed && (
+                        <NavItem
+                          compact={compact}
+                          label="Insights"
+                          icon={
+                            <ChartIcon
+                              size={16}
+                              className="text-ink-secondary"
+                              aria-hidden="true"
+                            />
+                          }
+                          active={activeChannelId === "insights"}
+                          unread={0}
+                          onClick={() => navigate("/app/insights")}
+                        />
+                      )}
+                    </ul>
+                  )}
+                </li>
               )}
             </ul>
           </Section>

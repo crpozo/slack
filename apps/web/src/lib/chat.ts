@@ -111,6 +111,8 @@ export interface ChannelEdit {
   isProject?: boolean;
   /** Informational (its own sidebar section), or a regular channel again. */
   informational?: boolean;
+  /** In the Marketing section, or a regular channel again. */
+  marketing?: boolean;
   board?: ProjectBoard;
 }
 

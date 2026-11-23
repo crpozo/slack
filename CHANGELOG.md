@@ -47,6 +47,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **A Marketing section in the sidebar:** channels for campaigns, content and leads get their
+  own section. Open a channel's ⋯ menu and choose **Move to Marketing** (or **Move to
+  Channels** to take it back); it's stored on the channel, so everyone sees it there.
+- **Tools, a group inside Apps:** Task Manager, Calendar, AI Notes, AI Skills and Insights now
+  sit under a collapsible **Tools** item, leaving AI News, Vault, Música, Sales and Discovery
+  at the top level. It stays open or folded as you leave it, and opens by itself while one of
+  its tools is on screen.
 - **Música: listen together.** A new app for the team (**Música** in the sidebar and the
   phone's Apps): anyone opens a room and is its DJ, pastes YouTube links into its queue and
   controls what plays (play, pause, seek, next, pick or remove a song, delete the room);

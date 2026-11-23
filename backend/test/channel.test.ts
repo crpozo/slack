@@ -854,6 +854,19 @@ describe("channel rename", () => {
     expect(input?.ExpressionAttributeValues).toEqual({ ":topic": "" });
   });
 
+  it("moves a channel into or out of Marketing (Phase 80), for whoever may edit it", async () => {
+    await update({ marketing: true }, BOB);
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+    await update({ marketing: true });
+    const input = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(input?.UpdateExpression).toBe("SET #marketing = :marketing");
+    expect(input?.ExpressionAttributeValues).toEqual({ ":marketing": true });
+    // Already a regular channel: nothing to write.
+    ddbMock.resetHistory();
+    await update({ marketing: false });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
   it("marks a channel informational (its own sidebar section), or not, for whoever may edit it", async () => {
     await update({ informational: true }, BOB);
     expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
