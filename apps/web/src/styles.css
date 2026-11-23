@@ -4,16 +4,17 @@
 
 @layer base {
   /* MindfulTech tokens as "R G B" (see tailwind.config.js). Phase 37b: one dark
-     theme everywhere. The accent is the brand green #40B375 (since Phase 38's
-     polish, replacing Slack's purple): fills (`bg-primary`, with black
-     `on-primary` text: 7.9:1, where white was 2.65:1) and active icons, text, borders and rings
-     (`text-primary`…, `--c-primary-fg`, readable on #1A1D21 at 6.4:1). Sky blue
+     theme everywhere. The accent is the brand teal #81C5B9 (it replaced
+     Phase 38's green #40B375, which replaced Slack's purple): fills (`bg-primary`, with black
+     `on-primary` text: 10.6:1, where white is 2:1) and active icons, text, borders and rings
+     (`text-primary`…, `--c-primary-fg`, readable on #1A1D21 at 8.6:1). Sky blue
      stays as the second accent (others' avatars, unread counts). */
   :root {
-    --c-primary: 64 179 117; /* #40B375 */
-    --c-primary-hover: 54 156 101; /* #369C65 */
-    --c-primary-fg: 64 179 117; /* #40B375 */
-    --c-on-primary: 0 0 0; /* #000000 on #40B375 */
+    --c-primary: 129 197 185; /* #81C5B9 */
+    --c-primary-hover: 109 178 166; /* #6DB2A6 */
+    --c-primary-fg: 129 197 185; /* #81C5B9 */
+    --c-on-primary: 0 0 0; /* #000000 on #81C5B9 */
+    --c-primary-soft: 166 216 207; /* #A6D8CF: teal text on teal tints (selected chips, highlights) */
     --c-sky: 133 191 233; /* #85BFE9 */
     --c-ink: 248 248 248; /* #F8F8F8 */
     --c-ink-secondary: 171 171 173; /* #ABABAD */
@@ -64,7 +65,7 @@
     z-index: -1;
     pointer-events: none;
     background:
-      radial-gradient(60vmax 45vmax at 0% 0%, rgb(64 179 117 / 0.16), transparent 70%),
+      radial-gradient(60vmax 45vmax at 0% 0%, rgb(129 197 185 / 0.16), transparent 70%),
       radial-gradient(55vmax 45vmax at 100% 100%, rgb(18 100 163 / 0.26), transparent 70%),
       radial-gradient(40vmax 32vmax at 100% 0%, rgb(20 83 60 / 0.3), transparent 70%),
       radial-gradient(38vmax 30vmax at 0% 100%, rgb(54 197 240 / 0.08), transparent 70%);
@@ -409,18 +410,19 @@
 
 /* "Pregunta a la IA" (Phase 50): a cited story, as a small numbered pill. */
 .news-cite {
-  @apply mx-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-primary/40 bg-primary/15 px-1 align-[1px] font-mono text-[10px] font-semibold text-[#8fe0b0] no-underline hover:bg-primary/30;
+  @apply mx-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-primary/40 bg-primary/15 px-1 align-[1px] font-mono text-[10px] font-semibold text-primary-soft no-underline hover:bg-primary/30;
 }
 
 /* AI News as a newspaper (Phase 51), on the app's dark background (51b): the
    editorial layout (serif headlines, rules, mono meta) with warm off-white ink
-   and the brand green. The tokens are redefined here, so everything inside
+   and the brand teal. The tokens are redefined here, so everything inside
    that uses `text-ink`, `bg-surface`, `border-line`… follows. `.news-dark`
    is a raised band on it (the MindfulTech actions, the chat beside the news). */
 .news-paper {
-  --c-primary: 64 179 117; /* #40B375 fills */
-  --c-primary-hover: 54 156 101;
-  --c-primary-fg: 111 207 151; /* #6FCF97: green text, 9.6:1 on the page */
+  --c-primary: 129 197 185; /* #81C5B9 fills */
+  --c-primary-hover: 109 178 166;
+  --c-primary-fg: 166 216 207; /* #A6D8CF: teal text, 11.2:1 on the page */
+  --c-primary-soft: 166 216 207;
   --c-on-primary: 0 0 0;
   --c-ink: 240 237 230; /* #F0EDE6 warm off-white */
   --c-ink-secondary: 163 159 150; /* #A39F96, 7.2:1 */
@@ -435,9 +437,10 @@
 }
 .news-paper .news-dark,
 .news-dark {
-  --c-primary: 64 179 117;
-  --c-primary-hover: 54 156 101;
-  --c-primary-fg: 111 207 151;
+  --c-primary: 129 197 185;
+  --c-primary-hover: 109 178 166;
+  --c-primary-fg: 166 216 207;
+  --c-primary-soft: 166 216 207;
   --c-on-primary: 0 0 0;
   --c-ink: 248 248 248;
   --c-ink-secondary: 171 171 173;
@@ -461,9 +464,10 @@
    become black tints everywhere else.
    --------------------------------------------------------------------------- */
 html.light {
-  --c-primary: 64 179 117;
-  --c-primary-hover: 54 156 101;
-  --c-primary-fg: 24 122 76; /* #187A4C on white: 5.3:1 */
+  --c-primary: 129 197 185;
+  --c-primary-hover: 109 178 166;
+  --c-primary-fg: 46 116 104; /* #2E7468 on white: 5.5:1 */
+  --c-primary-soft: 31 92 82; /* #1F5C52: 6.6:1 on a 25% teal tint over white */
   --c-on-primary: 0 0 0;
   --c-sky: 18 100 163; /* #1264A3 */
   --c-ink: 29 28 29; /* #1D1C1D */
@@ -481,7 +485,8 @@ html.light {
   color-scheme: light;
 }
 html.light :is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) {
-  --c-primary-fg: 64 179 117;
+  --c-primary-fg: 129 197 185;
+  --c-primary-soft: 166 216 207;
   --c-sky: 133 191 233;
   --c-ink: 248 248 248;
   --c-ink-secondary: 171 171 173;
@@ -498,9 +503,9 @@ html.light :is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) {
 }
 html.light body::before {
   background:
-    radial-gradient(60vmax 45vmax at 0% 0%, rgb(64 179 117 / 0.1), transparent 70%),
+    radial-gradient(60vmax 45vmax at 0% 0%, rgb(129 197 185 / 0.1), transparent 70%),
     radial-gradient(55vmax 45vmax at 100% 100%, rgb(18 100 163 / 0.1), transparent 70%),
-    radial-gradient(40vmax 32vmax at 100% 0%, rgb(64 179 117 / 0.06), transparent 70%);
+    radial-gradient(40vmax 32vmax at 100% 0%, rgb(129 197 185 / 0.06), transparent 70%);
 }
 html.light .glass {
   background-color: rgb(246 247 249 / 0.78);

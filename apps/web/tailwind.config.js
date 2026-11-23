@@ -20,11 +20,11 @@ const token = (name) => `rgb(var(--c-${name}) / <alpha-value>)`;
 
 /**
  * MindfulTech design system. Values live in src/styles.css as CSS variables:
- * one dark theme everywhere (Phase 37b), with the brand green #40B375 as accent.
+ * one dark theme everywhere (Phase 37b), with the brand teal #81C5B9 as accent.
  *
  * `primary` is split: fills (`bg-primary`) use `--c-primary`, with
  * `on-primary` (black) text on them; text, borders, rings, underlines and
- * icon strokes use `--c-primary-fg`. Both are #40B375 today; they stay
+ * icon strokes use `--c-primary-fg`. Both are #81C5B9 today; they stay
  * separate tokens so a fill and a foreground can differ again if the
  * palette needs it (Phase 37's purple did). Text on sky, green, amber and
  * red uses `on-accent` (the dark ink).
@@ -66,7 +66,14 @@ export default {
         scrim: token("scrim"),
       },
       // Primary as a foreground (see above).
-      textColor: { primary: { DEFAULT: token("primary-fg"), hover: token("primary-fg") } },
+      textColor: {
+        primary: {
+          DEFAULT: token("primary-fg"),
+          hover: token("primary-fg"),
+          /** Teal text on teal tints: #A6D8CF dark, #1F5C52 light. */
+          soft: token("primary-soft"),
+        },
+      },
       borderColor: { primary: { DEFAULT: token("primary-fg"), hover: token("primary-fg") } },
       ringColor: { primary: { DEFAULT: token("primary-fg"), hover: token("primary-fg") } },
       outlineColor: { primary: token("primary-fg") },

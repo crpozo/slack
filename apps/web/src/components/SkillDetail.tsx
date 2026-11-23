@@ -47,7 +47,7 @@ const errorText = (err: unknown) =>
   err instanceof TasksApiError || err instanceof Error ? err.message : "inténtalo de nuevo";
 
 const SEGMENT =
-  "h-8 rounded-lg px-3 text-xs font-semibold transition aria-pressed:bg-primary/20 aria-pressed:text-[#8fe0b0] text-ink-secondary hover:text-ink";
+  "h-8 rounded-lg px-3 text-xs font-semibold transition aria-pressed:bg-primary/20 aria-pressed:text-primary-soft text-ink-secondary hover:text-ink";
 
 /**
  * One skill, in a drawer: its SKILL.md rendered, every file to read, and
@@ -209,7 +209,7 @@ export function SkillDetail({
                 onClick={() => setTab(t.id)}
                 className={`h-9 rounded-lg px-3 text-sm font-semibold transition ${
                   tab === t.id
-                    ? "bg-primary/20 text-[#8fe0b0]"
+                    ? "bg-primary/20 text-primary-soft"
                     : "text-ink-secondary hover:text-ink"
                 }`}
               >
