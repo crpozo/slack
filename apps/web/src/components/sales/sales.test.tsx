@@ -54,6 +54,7 @@ beforeEach(() => {
   state = { ...demoSalesSeed(Date.now()), people: [{ userId: "u-rep", name: "Rep" }] };
   vi.spyOn(salesApi, "state").mockImplementation(() => Promise.resolve(state));
   useSales.getState().reset();
+  useSales.setState({ showDemo: true });
   useChat.setState({ me: { userId: "u-rep", email: "r@x.test", role: "member" } });
 });
 afterEach(() => {
@@ -140,6 +141,39 @@ describe("the guided demo, on the page", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Demo guiada" }));
     fireEvent.click(await screen.findByRole("button", { name: "Reiniciar demo" }));
     await waitFor(() => expect(reset).toHaveBeenCalled());
+  });
+});
+
+describe("the demo data switch", () => {
+  it("hides the fictitious rows for this person, and brings them back", async () => {
+    localStorage.removeItem("slack.sales.demo");
+    useSales.setState({ showDemo: true });
+    open("/app/sales?tab=cuentas");
+    await screen.findByText("Farmacias Andina (DEMO · ficticia)");
+    const toggle = screen.getByRole("switch", { name: "Datos demo" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(screen.queryByText("Farmacias Andina (DEMO · ficticia)")).toBeNull(),
+    );
+    expect(localStorage.getItem("slack.sales.demo")).toBe("off");
+    expect(screen.queryAllByText("DEMO")).toHaveLength(0);
+    // Nothing was deleted on the server: on again, they're back without a reload.
+    const reset = vi.spyOn(salesApi, "resetDemo");
+    fireEvent.click(toggle);
+    await screen.findByText("Farmacias Andina (DEMO · ficticia)");
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it("turned on with no demo on the server, loads it", async () => {
+    const seeded = state;
+    state = { ...state, records: [], artifacts: [], changes: [] };
+    useSales.setState({ showDemo: false });
+    const reset = vi.spyOn(salesApi, "resetDemo").mockImplementation(() => Promise.resolve(seeded));
+    open("/app/sales?tab=cuentas");
+    fireEvent.click(await screen.findByRole("switch", { name: "Datos demo" }));
+    await waitFor(() => expect(reset).toHaveBeenCalledTimes(1));
+    await screen.findByText("Farmacias Andina (DEMO · ficticia)");
   });
 });
 

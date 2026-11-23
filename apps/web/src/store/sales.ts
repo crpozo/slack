@@ -13,7 +13,13 @@ import { salesApi } from "../lib/salesApi";
 // Ventas (Phase 73): what the server lets this person see, and the calls that change it.
 
 interface SalesStore {
+  /** What the tabs show: `raw` without the demo's rows when the switch is off. */
   state: SalesState | null;
+  /** What the server sent. */
+  raw: SalesState | null;
+  /** The "Datos demo" switch (this person's, kept in the browser). */
+  showDemo: boolean;
+  setShowDemo: (on: boolean) => Promise<void>;
   loading: boolean;
   error: string | null;
   /** The flow being generated (one at a time), by its key. */
@@ -34,15 +40,48 @@ interface SalesStore {
 
 const message = (err: unknown) => (err instanceof Error ? err.message : "No se pudo completar.");
 
+const DEMO_KEY = "slack.sales.demo";
+function storedDemo(): boolean {
+  try {
+    return localStorage.getItem(DEMO_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+/** The state as shown: everything, or without the fictitious rows. */
+const shown = (raw: SalesState, showDemo: boolean): SalesState =>
+  showDemo
+    ? raw
+    : {
+        ...raw,
+        records: raw.records.filter((r) => !r.demo),
+        artifacts: raw.artifacts.filter((a) => !a.demo),
+        changes: raw.changes.filter((c) => !c.demo),
+      };
+
 export const useSales = create<SalesStore>((set, get) => ({
   state: null,
+  raw: null,
+  showDemo: storedDemo(),
+  setShowDemo: async (on) => {
+    try {
+      localStorage.setItem(DEMO_KEY, on ? "on" : "off");
+    } catch {
+      // Private mode: the choice lasts for this visit.
+    }
+    const { raw } = get();
+    set({ showDemo: on, ...(raw && { state: shown(raw, on) }) });
+    // Turned on with no demo on the server yet: load it.
+    if (on && raw && !raw.records.some((r) => r.demo)) await get().resetDemo();
+  },
   loading: false,
   error: null,
   running: null,
   load: async () => {
     set({ loading: true });
     try {
-      set({ state: await salesApi.state(), error: null, loading: false });
+      const raw = await salesApi.state();
+      set({ raw, state: shown(raw, get().showDemo), error: null, loading: false });
     } catch (err) {
       set({ error: message(err), loading: false });
     }
@@ -60,14 +99,13 @@ export const useSales = create<SalesStore>((set, get) => ({
     set({ running: key });
     try {
       const artifact = await salesApi.ask(input);
-      const state = get().state;
-      if (state) {
-        set({
-          state: {
-            ...state,
-            artifacts: [artifact, ...state.artifacts.filter((a) => a.id !== artifact.id)],
-          },
-        });
+      const { raw, showDemo } = get();
+      if (raw) {
+        const next = {
+          ...raw,
+          artifacts: [artifact, ...raw.artifacts.filter((a) => a.id !== artifact.id)],
+        };
+        set({ raw: next, state: shown(next, showDemo) });
       }
       return artifact;
     } finally {
@@ -87,7 +125,14 @@ export const useSales = create<SalesStore>((set, get) => ({
   resetDemo: async () => {
     set({ loading: true });
     try {
-      set({ state: await salesApi.resetDemo(), error: null, loading: false });
+      // Loading the demo is asking to see it.
+      const raw = await salesApi.resetDemo();
+      set({ raw, state: raw, showDemo: true, error: null, loading: false });
+      try {
+        localStorage.setItem(DEMO_KEY, "on");
+      } catch {
+        // Private mode.
+      }
     } catch (err) {
       set({ error: message(err), loading: false });
       throw err;
@@ -96,13 +141,14 @@ export const useSales = create<SalesStore>((set, get) => ({
   clearDemo: async () => {
     set({ loading: true });
     try {
-      set({ state: await salesApi.clearDemo(), error: null, loading: false });
+      const raw = await salesApi.clearDemo();
+      set({ raw, state: shown(raw, get().showDemo), error: null, loading: false });
     } catch (err) {
       set({ error: message(err), loading: false });
       throw err;
     }
   },
-  reset: () => set({ state: null, error: null, loading: false, running: null }),
+  reset: () => set({ state: null, raw: null, error: null, loading: false, running: null }),
 }));
 
 /** The latest result of `flow` about these records, if one was generated. */

@@ -115,6 +115,8 @@ export function SalesView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
   const error = useSales((s) => s.error);
   const loading = useSales((s) => s.loading);
   const load = useSales((s) => s.load);
+  const showDemo = useSales((s) => s.showDemo);
+  const setShowDemo = useSales((s) => s.setShowDemo);
   const allowed = canUseSales(me?.role) && tasksApiConfigured();
   useEffect(() => {
     if (allowed) void load();
@@ -138,9 +140,30 @@ export function SalesView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
         <h1 className="text-base font-bold text-ink">Sales</h1>
         <span className="hidden text-xs text-ink-secondary sm:inline">Asistente comercial</span>
         {loading && state && (
-          <span className="ml-auto text-xs text-ink-secondary" aria-live="polite">
+          <span className="text-xs text-ink-secondary" aria-live="polite">
             Actualizando…
           </span>
+        )}
+        {allowed && (
+          <label
+            className="ml-auto flex cursor-pointer items-center gap-2 text-xs font-semibold text-ink-secondary"
+            title="Muestra u oculta los datos ficticios de la demo (solo para ti)"
+          >
+            Datos demo
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showDemo}
+              aria-label="Datos demo"
+              disabled={loading}
+              onClick={() => void setShowDemo(!showDemo).catch(() => {})}
+              className={`relative h-5 w-9 rounded-full transition-colors disabled:opacity-60 ${showDemo ? "bg-primary" : "bg-surface-hover"}`}
+            >
+              <span
+                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${showDemo ? "translate-x-4" : ""}`}
+              />
+            </button>
+          </label>
         )}
       </header>
       {!allowed ? (

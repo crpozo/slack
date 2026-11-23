@@ -700,9 +700,9 @@ export function DemoTab() {
         <p className="text-sm text-ink-secondary">
           Un recorrido con un solo cliente y una sola oportunidad, de principio a fin. Todos los
           datos son <strong className="text-warning">ficticios</strong> y llevan la marca{" "}
-          <DemoTag />: no se mezclan con tus clientes y funcionan sin credenciales externas.
-          «Reiniciar demo» los devuelve a su estado original y «Quitar la demo» los borra (tus datos
-          reales no se tocan).
+          <DemoTag />: no se mezclan con tus clientes y funcionan sin credenciales externas. El
+          interruptor «Datos demo» de arriba los muestra u oculta solo para ti; «Reiniciar demo» los
+          devuelve a su estado original y «Quitar la demo» los borra (tus datos reales no se tocan).
         </p>
       </Card>
       {loaded ? (
