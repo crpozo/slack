@@ -224,7 +224,7 @@ export function LaunchButton({
         e.preventDefault();
         void openExternal(href);
       }}
-      className={`inline-flex shrink-0 items-center rounded-lg border border-primary/40 bg-primary/[0.1] font-semibold text-[#6fcf97] transition hover:border-primary hover:bg-primary/20 hover:text-[#8fe0b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+      className={`inline-flex shrink-0 items-center rounded-lg border border-primary/40 bg-primary/[0.1] font-semibold text-[#81c5b9] transition hover:border-primary hover:bg-primary/20 hover:text-[#a6d8cf] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
         compact ? "h-6 gap-1 rounded-md px-2 text-[11px]" : "h-8 gap-1.5 px-2.5 text-xs"
       }`}
       title={`Open ${href}`}
