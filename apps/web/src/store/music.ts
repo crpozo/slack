@@ -1,4 +1,9 @@
-import type { MusicControl, MusicRoom, MusicUpdatedEvent } from "@mindfultech/shared";
+import type {
+  MusicControl,
+  MusicReaction,
+  MusicRoom,
+  MusicUpdatedEvent,
+} from "@mindfultech/shared";
 import { create } from "zustand";
 import { musicApi } from "../lib/musicApi";
 
@@ -29,6 +34,11 @@ interface MusicStore {
   offset: number;
   volume: number;
   busy: boolean;
+  /** Reactions flying over the player right now (each for a few seconds). */
+  reactions: Array<MusicReaction & { id: number }>;
+  /** Who just came into or left this person's room, to say so once. */
+  notice: { id: number; text: string } | null;
+  dropReaction: (id: number) => void;
   load: () => Promise<void>;
   create: (name: string) => Promise<void>;
   remove: (roomId: string) => Promise<void>;
@@ -43,6 +53,7 @@ interface MusicStore {
   reset: () => void;
 }
 
+let counter = 0;
 const message = (err: unknown) => (err instanceof Error ? err.message : "No se pudo completar.");
 const upsert = (rooms: MusicRoom[], room: MusicRoom) =>
   rooms.some((r) => r.roomId === room.roomId)
@@ -64,6 +75,9 @@ export const useMusic = create<MusicStore>((set, get) => {
     offset: 0,
     volume: storedVolume(),
     busy: false,
+    reactions: [],
+    notice: null,
+    dropReaction: (id) => set((s) => ({ reactions: s.reactions.filter((r) => r.id !== id) })),
     load: async () => {
       try {
         const res = await musicApi.rooms();
@@ -137,15 +151,50 @@ export const useMusic = create<MusicStore>((set, get) => {
       set({ volume });
     },
     apply: (event) =>
-      set((s) => ({
-        offset: event.serverNow - Date.now(),
-        rooms: event.removed
-          ? s.rooms.filter((r) => r.roomId !== event.removed)
-          : event.room
-            ? upsert(s.rooms, event.room)
-            : s.rooms,
-        joinedId: event.removed && s.joinedId === event.removed ? null : s.joinedId,
-      })),
-    reset: () => set({ rooms: [], loaded: false, error: null, joinedId: null, busy: false }),
+      set((s) => {
+        if (event.reaction) {
+          // Only the room this person is in, and never a pile-up.
+          if (event.reaction.roomId !== s.joinedId) return {};
+          return {
+            reactions: [...s.reactions.slice(-11), { ...event.reaction, id: ++counter }],
+          };
+        }
+        // Who came in or left the room this person is listening in.
+        let notice = s.notice;
+        if (event.room && event.room.roomId === s.joinedId) {
+          const before = s.rooms.find((r) => r.roomId === s.joinedId)?.listeners ?? [];
+          const was = new Set(before.map((l) => l.userId));
+          const is = new Set(event.room.listeners.map((l) => l.userId));
+          const came = event.room.listeners.filter((l) => !was.has(l.userId)).map((l) => l.name);
+          const went = before.filter((l) => !is.has(l.userId)).map((l) => l.name);
+          const text = [
+            came.length && `${came.join(", ")} ${came.length === 1 ? "se unió" : "se unieron"}`,
+            went.length && `${went.join(", ")} ${went.length === 1 ? "salió" : "salieron"}`,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          if (text) notice = { id: ++counter, text };
+        }
+        return {
+          notice,
+          offset: event.serverNow - Date.now(),
+          rooms: event.removed
+            ? s.rooms.filter((r) => r.roomId !== event.removed)
+            : event.room
+              ? upsert(s.rooms, event.room)
+              : s.rooms,
+          joinedId: event.removed && s.joinedId === event.removed ? null : s.joinedId,
+        };
+      }),
+    reset: () =>
+      set({
+        rooms: [],
+        loaded: false,
+        error: null,
+        joinedId: null,
+        busy: false,
+        reactions: [],
+        notice: null,
+      }),
   };
 });

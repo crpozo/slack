@@ -9,6 +9,7 @@ import {
   MusicControlSchema,
   musicPositionMs,
   youTubeIdOf,
+  type MusicReaction,
   type MusicResponse,
   type MusicRoom,
   type MusicRoomResponse,
@@ -72,7 +73,10 @@ const save = (room: StoredRoom) =>
   ddb.send(new PutCommand({ TableName: tables.music, Item: room }));
 
 /** Tells the team (never an external: `music.updated` isn't theirs to receive). */
-async function announce(change: { room?: MusicRoom; removed?: string }, now: number) {
+async function announce(
+  change: { room?: MusicRoom; removed?: string; reaction?: MusicReaction },
+  now: number,
+) {
   try {
     await deliver(await listConnections(), (c) =>
       c.role === "guest" ? null : { type: "music.updated", ...change, serverNow: now },
@@ -213,6 +217,23 @@ async function control(event: HttpEvent, caller: HttpCaller): Promise<HttpResult
     }
     startTrack(room, nextTrackId(room), now);
     return answer(room, now);
+  }
+  if (input.action === "react") {
+    // A moment shared with the room: sent to everyone, stored nowhere.
+    if (!listening(caller.userId)) throw forbidden("Únete a la sala primero");
+    await announce(
+      {
+        reaction: {
+          roomId: room.roomId,
+          userId: caller.userId,
+          name: room.listeners[caller.userId]!.name,
+          emoji: input.emoji,
+        },
+      },
+      now,
+    );
+    const body: MusicRoomResponse = { room: toRoom(room, now), serverNow: now };
+    return json(200, body);
   }
   if (input.action === "claim") {
     if (!listening(caller.userId)) throw forbidden("Únete a la sala primero");

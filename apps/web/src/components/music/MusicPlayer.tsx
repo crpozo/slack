@@ -4,6 +4,7 @@ import {
   MUSIC_DRIFT_SECONDS,
   MUSIC_HEARTBEAT_MS,
   musicPositionMs,
+  MUSIC_REACTIONS,
   type MusicRoom,
 } from "@mindfultech/shared";
 import {
@@ -16,7 +17,13 @@ import {
   SkipForward,
   Volume2,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { useChat } from "../../store";
 import { useMusic } from "../../store/music";
@@ -30,6 +37,7 @@ import { useMusic } from "../../store/music";
 // and only the DJ's buttons change it.
 // ---------------------------------------------------------------------------
 
+const PLACE_KEY = "slack.music.place";
 const PLAYER_ORIGIN = "https://www.youtube-nocookie.com";
 /** YouTube's player states. */
 const ENDED = 0;
@@ -179,6 +187,82 @@ export function MusicPlayer() {
     return () => clearInterval(timer);
   }, [joined, heartbeat]);
 
+  // Movable (Phase 79): dragged by its header, kept on screen, remembered.
+  const box = useRef<HTMLElement>(null);
+  const [place, setPlace] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PLACE_KEY) ?? "null") as unknown;
+      const p = saved as { x?: unknown; y?: unknown } | null;
+      return p && typeof p.x === "number" && typeof p.y === "number" ? { x: p.x, y: p.y } : null;
+    } catch {
+      return null;
+    }
+  });
+  const drag = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
+  const clamp = useCallback((x: number, y: number) => {
+    const el = box.current;
+    const w = el?.offsetWidth ?? 320;
+    const h = el?.offsetHeight ?? 100;
+    return {
+      x: Math.min(Math.max(8, x), Math.max(8, window.innerWidth - w - 8)),
+      y: Math.min(Math.max(8, y), Math.max(8, window.innerHeight - Math.min(h, 60) - 8)),
+    };
+  }, []);
+  const onDragStart = (e: ReactPointerEvent<HTMLElement>) => {
+    if (e.button !== 0 || !box.current) return;
+    const rect = box.current.getBoundingClientRect();
+    drag.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top, moved: false };
+  };
+  const onDragMove = (e: ReactPointerEvent<HTMLElement>) => {
+    const d = drag.current;
+    if (!d) return;
+    const next = clamp(e.clientX - d.dx, e.clientY - d.dy);
+    if (!d.moved) {
+      const rect = box.current!.getBoundingClientRect();
+      // A few pixels of slack: a click on a button isn't a drag.
+      if (Math.abs(next.x - rect.left) + Math.abs(next.y - rect.top) < 5) return;
+      d.moved = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    setPlace(next);
+  };
+  const onDragEnd = (e: ReactPointerEvent<HTMLElement>) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d?.moved) return;
+    if (e.currentTarget.hasPointerCapture(e.pointerId))
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    const el = box.current;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      try {
+        localStorage.setItem(PLACE_KEY, JSON.stringify({ x: rect.left, y: rect.top }));
+      } catch {
+        // A nicety.
+      }
+    }
+    // The click that ends a drag isn't a press of what's under it.
+    window.addEventListener("click", (c) => c.stopPropagation(), { capture: true, once: true });
+  };
+  // A smaller window: back inside it.
+  useEffect(() => {
+    const onResize = () => setPlace((p) => (p ? clamp(p.x, p.y) : p));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [clamp]);
+
+  // Who came in or left: said once, in a toast.
+  const notice = useMusic((s) => s.notice);
+  const said = useRef(0);
+  useEffect(() => {
+    if (notice && notice.id !== said.current) {
+      said.current = notice.id;
+      showToast(`🎵 ${notice.text}`, "info");
+    }
+  }, [notice, showToast]);
+  const reactions = useMusic((s) => s.reactions);
+  const dropReaction = useMusic((s) => s.dropReaction);
+
   if (!room) return null;
   const act = (input: Parameters<typeof control>[1]) =>
     void control(room.roomId, input).catch((err: unknown) =>
@@ -190,11 +274,23 @@ export function MusicPlayer() {
 
   return (
     <aside
-      className="glass-strong fixed bottom-24 right-3 z-40 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-white/10 text-ink shadow-2xl md:bottom-4 md:right-4"
+      ref={box}
+      style={place ? { left: place.x, top: place.y } : undefined}
+      className={`glass-strong fixed z-40 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-white/10 text-ink shadow-2xl ${
+        place ? "" : "bottom-24 right-3 md:bottom-4 md:right-4"
+      }`}
       aria-label={`Música: ${room.name}`}
       data-music-player={room.roomId}
     >
-      <header className="flex items-center gap-2 px-3 py-2">
+      <header
+        className="flex cursor-grab touch-none select-none items-center gap-2 px-3 py-2 active:cursor-grabbing"
+        onPointerDown={onDragStart}
+        onPointerMove={onDragMove}
+        onPointerUp={onDragEnd}
+        onPointerCancel={onDragEnd}
+        title="Arrastra para mover"
+        data-music-drag
+      >
         <Music size={16} className="shrink-0 text-primary" aria-hidden="true" />
         <button
           type="button"
@@ -247,6 +343,22 @@ export function MusicPlayer() {
                 : "El DJ aún no ha puesto música."}
             </p>
           )}
+          {/* Reactions float up over the picture and go. */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-live="polite">
+            {reactions.map((r, i) => (
+              <span
+                key={r.id}
+                onAnimationEnd={() => dropReaction(r.id)}
+                style={{ left: `${10 + ((r.id * 37 + i * 11) % 70)}%` }}
+                className="music-reaction absolute bottom-1 flex flex-col items-center text-2xl"
+              >
+                {r.emoji}
+                <span className="rounded bg-black/55 px-1 text-[10px] font-semibold text-white">
+                  {r.name}
+                </span>
+              </span>
+            ))}
+          </div>
           {blocked && (
             <button
               type="button"
@@ -309,9 +421,28 @@ export function MusicPlayer() {
               className="h-1 w-24 accent-primary"
             />
           </div>
-          <p className="truncate text-xs text-ink-secondary">
+          <div
+            className="flex items-center justify-between gap-1"
+            role="group"
+            aria-label="Reaccionar"
+          >
+            {MUSIC_REACTIONS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => act({ action: "react", emoji })}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-lg transition hover:scale-125 hover:bg-surface-hover"
+                aria-label={`Reaccionar con ${emoji}`}
+                title="Que todos lo vean"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-ink-secondary" data-music-listeners>
             DJ: {room.djName} · {room.listeners.length}{" "}
             {room.listeners.length === 1 ? "persona escuchando" : "personas escuchando"}
+            {room.listeners.length > 0 && `: ${room.listeners.map((l) => l.name).join(", ")}`}
           </p>
         </div>
       </div>

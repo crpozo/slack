@@ -153,4 +153,77 @@ describe("music rooms", () => {
     view();
     expect(screen.getByText("La música es para el equipo de MindfulTech.")).toBeTruthy();
   });
+
+  it("shows who comes in, lets anyone react, and floats everyone's reactions over the player", async () => {
+    vi.spyOn(musicApi, "join").mockImplementation(() => answer(room()));
+    const control = vi.spyOn(musicApi, "control").mockImplementation(() => answer(room()));
+    view();
+    fireEvent.click(await screen.findByRole("button", { name: "Unirme" }));
+    await waitFor(() => expect(document.querySelector("[data-music-player]")).not.toBeNull());
+    // Bob joins: said once, and listed.
+    act(() =>
+      useMusic.getState().apply({
+        type: "music.updated",
+        room: room({
+          listeners: [
+            { userId: "u-dj", name: "Carlos" },
+            { userId: "u-bob", name: "Bob" },
+          ],
+        }),
+        serverNow: Date.now(),
+      }),
+    );
+    await waitFor(() => expect(useChat.getState().toast?.message).toBe("🎵 Bob se unió"));
+    expect(document.querySelector("[data-music-listeners]")!.textContent).toContain("Carlos, Bob");
+    // A reaction of mine goes to the room; one from the room shows with who sent it.
+    fireEvent.click(screen.getByRole("button", { name: "Reaccionar con 🔥" }));
+    await waitFor(() =>
+      expect(control).toHaveBeenCalledWith("mr_1", { action: "react", emoji: "🔥" }),
+    );
+    act(() =>
+      useMusic.getState().apply({
+        type: "music.updated",
+        reaction: { roomId: "mr_1", userId: "u-bob", name: "Bob", emoji: "💃" },
+        serverNow: Date.now(),
+      }),
+    );
+    const flying = document.querySelector(".music-reaction")!;
+    expect(flying.textContent).toBe("💃Bob");
+    // Another room's reactions aren't mine to see.
+    act(() =>
+      useMusic.getState().apply({
+        type: "music.updated",
+        reaction: { roomId: "mr_other", userId: "u-x", name: "X", emoji: "😴" },
+        serverNow: Date.now(),
+      }),
+    );
+    expect(document.querySelectorAll(".music-reaction")).toHaveLength(1);
+  });
+
+  it("is moved by dragging its header, and stays where it was left", async () => {
+    localStorage.removeItem("slack.music.place");
+    Element.prototype.setPointerCapture ??= () => {};
+    Element.prototype.releasePointerCapture ??= () => {};
+    Element.prototype.hasPointerCapture ??= () => false;
+    vi.spyOn(musicApi, "join").mockImplementation(() => answer(room()));
+    view();
+    fireEvent.click(await screen.findByRole("button", { name: "Unirme" }));
+    const player = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-music-player]");
+      if (!el) throw new Error("no player yet");
+      return el;
+    });
+    const handle = player.querySelector("[data-music-drag]")!;
+    // jsdom's PointerEvent carries no coordinates: mouse events under the pointer names do.
+    const pointer = (type: string, clientX: number, clientY: number) =>
+      act(() => {
+        handle.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX, clientY }));
+      });
+    pointer("pointerdown", 10, 10);
+    pointer("pointermove", 210, 160);
+    expect(player.style.left).toBe("200px");
+    expect(player.style.top).toBe("150px");
+    pointer("pointerup", 210, 160);
+    expect(localStorage.getItem("slack.music.place")).not.toBeNull();
+  });
 });

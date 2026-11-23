@@ -194,4 +194,18 @@ describe("music rooms", () => {
     const left = (await call("POST /music/{id}/leave", BOB, { id: room.roomId })).json.room;
     expect(left.listeners).toEqual([]);
   });
+
+  it("a listener's reaction reaches the team for a moment and is never stored", async () => {
+    const room = await create();
+    expect((await control(BOB, room.roomId, { action: "react", emoji: "🔥" })).status).toBe(403);
+    await call("POST /music/{id}/join", BOB, { id: room.roomId });
+    expect((await control(BOB, room.roomId, { action: "react", emoji: "💩" })).status).toBe(400);
+    const stored = structuredClone(rows.get(room.roomId));
+    expect((await control(BOB, room.roomId, { action: "react", emoji: "🔥" })).status).toBe(200);
+    expect(sentEvents().at(-1)![1]).toMatchObject({
+      type: "music.updated",
+      reaction: { roomId: room.roomId, userId: BOB.userId, emoji: "🔥" },
+    });
+    expect(rows.get(room.roomId)).toEqual(stored);
+  });
 });

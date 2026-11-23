@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **Música:** the player can be dragged anywhere (by its header) and stays where you leave
+  it; a toast says who joined or left your room and the player lists who's listening; and
+  eight reactions (🔥 ❤️ 🙌 💃 🤘 😂 😴 👎) float over the player for everyone in the room, with
+  who sent them.
 - **Teal labels readable in the light theme:** search highlights, the AI Skills buttons and
   chips and the Vault card's button used a fixed pale teal that was hard to
   read on white. They now follow the theme: pale teal on dark, a deep #1F5C52 / #2E7468 on
