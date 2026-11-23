@@ -7,6 +7,7 @@ import {
   duplicateOf,
   isDemoId,
   leadsSales,
+  projectSignals,
   SalesAiSchema,
   SalesCrmApplySchema,
   salesDiff,
@@ -17,6 +18,7 @@ import {
   type SalesAccount,
   type SalesArtifact,
   type SalesChange,
+  type SalesProject,
   type SalesRecord,
   type SalesResult,
   type SalesState,
@@ -57,6 +59,8 @@ import {
   recordItem,
   recordKey,
   resetDemo,
+  loadProjects,
+  salesDirectory,
   salesPeople,
   type SalesRows,
 } from "../lib/salesStore";
@@ -85,7 +89,12 @@ async function seenBy(caller: HttpCaller): Promise<Seen> {
   return { ...rows, visible: visibleSales(rows.records, caller.userId, caller.role) };
 }
 
-function stateFor(seen: Seen, caller: HttpCaller, people: SalesState["people"]): SalesState {
+function stateFor(
+  seen: Seen,
+  caller: HttpCaller,
+  people: SalesState["people"],
+  projects: SalesProject[] = [],
+): SalesState {
   const ids = new Set(seen.visible.map((r) => r.id));
   const mine = (ref: string) => !ref || ids.has(ref);
   return {
@@ -100,12 +109,25 @@ function stateFor(seen: Seen, caller: HttpCaller, people: SalesState["people"]):
     ),
     changes: seen.changes.filter((c) => ids.has(c.recordId)),
     people,
+    projects,
   };
 }
 
 async function getState(_event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
-  const [seen, people] = await Promise.all([seenBy(caller), salesPeople()]);
-  return json(200, stateFor(seen, caller, people));
+  return json(200, await fullState(caller));
+}
+
+/** Everything the page shows: the caller's records, the team, and their project channels. */
+async function fullState(caller: HttpCaller): Promise<SalesState> {
+  const [seen, dir] = await Promise.all([seenBy(caller), salesDirectory()]);
+  let projects: SalesProject[] = [];
+  try {
+    projects = await loadProjects(caller, dir);
+  } catch (err) {
+    // The projects are an extra: Ventas still opens without them.
+    log.error("sales projects not read", errorFields(err));
+  }
+  return stateFor(seen, caller, dir.people, projects);
 }
 
 const changesOf = (
@@ -152,6 +174,16 @@ async function putRecord(event: HttpEvent, caller: HttpCaller): Promise<HttpResu
     const value = (input as Record<string, unknown>)[ref];
     if (typeof value === "string" && value && !seen.visible.some((r) => r.id === value)) {
       throw new HttpError(400, "La cuenta u oportunidad no existe");
+    }
+  }
+  if (
+    input.kind === "account" &&
+    input.channelId &&
+    input.channelId !== (existing as { channelId?: string } | null)?.channelId
+  ) {
+    const projects = await loadProjects(caller, await salesDirectory());
+    if (!projects.some((p) => p.channelId === input.channelId)) {
+      throw new HttpError(400, "Ese proyecto no existe o no lo ves");
     }
   }
   const now = Date.now();
@@ -214,6 +246,35 @@ async function deleteRecord(event: HttpEvent, caller: HttpCaller): Promise<HttpR
   return json(200, { deleted: [...ids] });
 }
 
+/** The hours of the client's project channel, computed, for the model to use as given. */
+async function projectFacts(caller: HttpCaller, context: SalesRecord[]): Promise<string> {
+  const linked = context.filter((r): r is SalesAccount => r.kind === "account" && !!r.channelId);
+  if (linked.length === 0) return "";
+  try {
+    const projects = await loadProjects(caller, await salesDirectory());
+    return linked
+      .map((a) => {
+        const p = projects.find((x) => x.channelId === a.channelId);
+        if (!p) return "";
+        const signals = projectSignals(p).map((x) => x.text);
+        return (
+          `Proyecto en curso con ${a.name} (registro ${a.id}, canal #${p.name}), calculado de las horas registradas: ` +
+          `${p.hours30} h en los últimos 30 días (${p.hoursPrev30} h en los 30 anteriores), ${p.hoursTotal} h en total, ` +
+          `${p.people} personas, último registro ${p.lastEntry || "ninguno"}` +
+          (p.billedTotal !== undefined
+            ? `, facturable USD ${p.billed30} en 30 días y USD ${p.billedTotal} en total`
+            : "") +
+          (signals.length ? `. Señales: ${signals.join("; ")}` : "") +
+          "."
+        );
+      })
+      .filter(Boolean)
+      .join("\n");
+  } catch {
+    return "";
+  }
+}
+
 const artifactId = (flow: string, parts: string[]) =>
   `art_${flow}_${createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 20)}`;
 
@@ -244,7 +305,7 @@ async function runFlow(event: HttpEvent, caller: HttpCaller): Promise<HttpResult
   let response: Anthropic.Message | null = null;
   try {
     response = await (model ??= bedrockModel(SALES_TIMEOUT_MS, 0)).create(
-      salesRequest(ask, context, seen.changes, now),
+      salesRequest(ask, context, seen.changes, now, await projectFacts(caller, context)),
     );
     result = salesResultFrom(response, context, ask.input);
   } catch (err) {
@@ -448,8 +509,7 @@ async function demoReset(event: HttpEvent, caller: HttpCaller): Promise<HttpResu
   }
   await resetDemo(await loadSales(), Date.now(), !clear);
   log.info(clear ? "sales demo cleared" : "sales demo reset", { userId: caller.userId });
-  const [seen, people] = await Promise.all([seenBy(caller), salesPeople()]);
-  return json(200, stateFor(seen, caller, people));
+  return json(200, await fullState(caller));
 }
 
 const ROUTES: Record<string, (event: HttpEvent, caller: HttpCaller) => Promise<HttpResult>> = {

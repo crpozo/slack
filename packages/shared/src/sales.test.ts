@@ -9,6 +9,8 @@ import {
   forecastOf,
   isVerbatim,
   oppGaps,
+  projectSignals,
+  projectSummary,
   roiDeck,
   roiModel,
   salesCsv,
@@ -257,5 +259,49 @@ describe("duplicates, changes and export", () => {
   });
   it("exports a CSV that can't start a formula", () => {
     expect(salesCsv(["a", "b"], [["=1+1", 'x, "y"']])).toBe(`a,b\n'=1+1,"x, ""y"""`);
+  });
+});
+
+describe("a client's project in the platform (Phase 75)", () => {
+  const day = (n: number) => new Date(NOW - n * 86_400_000).toISOString().slice(0, 10);
+  const entries = [
+    { userId: "dev", date: day(2), minutes: 600 },
+    { userId: "qa", date: day(10), minutes: 300 },
+    { userId: "dev", date: day(40), minutes: 240 },
+    { userId: "dev", date: day(200), minutes: 6000 },
+  ];
+  const channel = { channelId: "ch_x", name: "Cambridge" };
+  it("adds up its hours by period and what was billed, for an admin only", () => {
+    const admin = projectSummary(channel, entries, { dev: 50 }, NOW, {
+      hasExternals: true,
+      clientNames: ["Ana"],
+      withMoney: true,
+    });
+    expect(admin).toMatchObject({
+      hours30: 15,
+      hoursPrev30: 4,
+      hoursTotal: 119,
+      people: 2,
+      lastEntry: day(2),
+      billed30: 500,
+      billedTotal: 5700,
+      unpricedHours30: 5,
+    });
+    const rep = projectSummary(channel, entries, { dev: 50 }, NOW, {
+      hasExternals: true,
+      clientNames: [],
+      withMoney: false,
+    });
+    expect(rep.hours30).toBe(15);
+    expect(JSON.stringify(rep)).not.toMatch(/billed|unpriced/);
+    expect(projectSignals(admin).map((x) => x.tone)).toEqual(["good", "warn"]);
+  });
+  it("says when a project went quiet", () => {
+    const quiet = projectSummary(channel, entries.slice(3), {}, NOW, {
+      hasExternals: false,
+      clientNames: [],
+      withMoney: false,
+    });
+    expect(projectSignals(quiet)[0]).toMatchObject({ tone: "bad" });
   });
 });

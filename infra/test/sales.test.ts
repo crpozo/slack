@@ -71,6 +71,9 @@ describe("Ventas (Phase 73)", () => {
       .flatMap((st) => [st.Action].flat())
       .filter((a) => !a.startsWith("dynamodb:"));
     expect(others).toEqual(["bedrock:InvokeModel"]);
-    expect(JSON.stringify(statements)).not.toMatch(/DataMessages|DataVault|DataChannels/);
+    // Phase 75: the project channels and their hours, read-only.
+    expect(actionsOn(statements, "DataChannels")).toEqual(["dynamodb:Scan"]);
+    expect(actionsOn(statements, "DataTimeLog")).toEqual(["dynamodb:Scan"]);
+    expect(JSON.stringify(statements)).not.toMatch(/DataMessages|DataVault/);
   });
 });

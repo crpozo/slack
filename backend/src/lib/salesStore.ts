@@ -1,5 +1,10 @@
 import { BatchWriteCommand, paginateQuery, paginateScan, PutCommand } from "@aws-sdk/lib-dynamodb";
 import {
+  canSeeChannel,
+  projectSummary,
+  type Channel,
+  type Role,
+  type SalesProject,
   demoSalesSeed,
   isDemoId,
   type SalesArtifact,
@@ -122,9 +127,16 @@ export async function resetDemo(rows: SalesRows, now = Date.now(), seed = true):
   ]);
 }
 
-/** The team: who a record can belong to (never externals). */
-export async function salesPeople(): Promise<Array<{ userId: string; name: string }>> {
-  const people: Array<{ userId: string; name: string }> = [];
+export interface SalesDirectory {
+  /** The team: who a record can belong to (never externals). */
+  people: Array<{ userId: string; name: string }>;
+  /** Everyone's name, externals included (a project's clients). */
+  names: Map<string, string>;
+  guests: Set<string>;
+}
+
+export async function salesDirectory(): Promise<SalesDirectory> {
+  const dir: SalesDirectory = { people: [], names: new Map(), guests: new Set() };
   const pages = paginateScan(
     { client: ddb },
     {
@@ -135,12 +147,77 @@ export async function salesPeople(): Promise<Array<{ userId: string; name: strin
   );
   for await (const page of pages) {
     for (const u of page.Items ?? []) {
-      if (u.role === "guest") continue;
-      people.push({
-        userId: String(u.userId),
-        name: String(u.displayName || String(u.email ?? "").split("@")[0] || u.userId),
-      });
+      const userId = String(u.userId);
+      const name = String(u.displayName || String(u.email ?? "").split("@")[0] || u.userId);
+      dir.names.set(userId, name);
+      if (u.role === "guest") dir.guests.add(userId);
+      else dir.people.push({ userId, name });
     }
   }
-  return people.sort((a, b) => a.name.localeCompare(b.name));
+  dir.people.sort((a, b) => a.name.localeCompare(b.name));
+  return dir;
+}
+
+/** The team: who a record can belong to (never externals). */
+export async function salesPeople(): Promise<Array<{ userId: string; name: string }>> {
+  return (await salesDirectory()).people;
+}
+
+/**
+ * Phase 75: the project channels `viewer` may see (their own channels; an
+ * admin, all), each with its hours from the time log. A channel counts as a
+ * project when hours were logged in it or the client's people are in it.
+ * Billed amounts only for an admin (bill rates are theirs to see).
+ */
+export async function loadProjects(
+  viewer: { userId: string; role: Role },
+  dir: SalesDirectory,
+  now = Date.now(),
+): Promise<SalesProject[]> {
+  const channels: Channel[] = [];
+  for await (const page of paginateScan({ client: ddb }, { TableName: tables.channels })) {
+    for (const item of page.Items ?? []) {
+      const c = item as Channel;
+      if (c.type === "dm" || c.archived) continue;
+      if (canSeeChannel(c, viewer.userId, viewer.role)) channels.push(c);
+    }
+  }
+  const ids = new Set(channels.map((c) => c.channelId));
+  const entries = new Map<string, Array<{ userId: string; date: string; minutes: number }>>();
+  const bill = new Map<string, Record<string, number>>();
+  const clients = new Map<string, string[]>();
+  for await (const page of paginateScan({ client: ddb }, { TableName: tables.timeLog })) {
+    for (const row of page.Items ?? []) {
+      const channelId = String(row.channelId);
+      if (!ids.has(channelId)) continue;
+      const sk = String(row.sk);
+      if (sk.startsWith("entry#")) {
+        const list = entries.get(channelId) ?? [];
+        list.push({
+          userId: String(row.userId),
+          date: String(row.date),
+          minutes: Number(row.minutes) || 0,
+        });
+        entries.set(channelId, list);
+      } else if (sk.startsWith("bill#") && typeof row.hourlyRate === "number") {
+        bill.set(channelId, { ...bill.get(channelId), [sk.slice(5)]: row.hourlyRate });
+      } else if (sk === "clients" && Array.isArray(row.clientIds)) {
+        clients.set(channelId, row.clientIds.map(String));
+      }
+    }
+  }
+  const withMoney = viewer.role === "admin";
+  return channels
+    .map((c) => {
+      const hasExternals = (c.members ?? []).some((m) => dir.guests.has(m));
+      const logged = entries.get(c.channelId) ?? [];
+      if (logged.length === 0 && !hasExternals) return null;
+      return projectSummary(c, logged, bill.get(c.channelId) ?? {}, now, {
+        hasExternals,
+        clientNames: (clients.get(c.channelId) ?? []).map((id) => dir.names.get(id) ?? id),
+        withMoney,
+      });
+    })
+    .filter((p): p is SalesProject => p !== null)
+    .sort((a, b) => b.hours30 - a.hours30 || a.name.localeCompare(b.name));
 }

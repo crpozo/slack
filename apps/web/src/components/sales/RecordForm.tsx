@@ -3,6 +3,7 @@ import {
   CONTACT_ROLE_LABEL,
   FORECAST_LABEL,
   leadsSales,
+  SALES_SERVICE_LABEL,
   SALES_STAGE_LABEL,
   SalesRecordSchema,
   type SalesInput,
@@ -66,7 +67,13 @@ const FIELDS: Record<Kind, Field[]> = {
       name: "type",
       label: "Tipo",
       type: "select",
-      options: { nueva: "Venta nueva", renovacion: "Renovación", expansion: "Expansión" },
+      options: { nueva: "Proyecto nuevo", renovacion: "Renovación", expansion: "Ampliación" },
+    },
+    {
+      name: "service",
+      label: "Servicio",
+      type: "select",
+      options: { "": "Sin definir", ...SALES_SERVICE_LABEL },
     },
     { name: "amount", label: "Monto", type: "number" },
     { name: "currency", label: "Moneda (USD, EUR…)" },
@@ -182,6 +189,7 @@ export function RecordForm({
   const save = useSales((s) => s.save);
   const remove = useSales((s) => s.remove);
   const people = useSales((s) => s.state?.people ?? []);
+  const projects = useSales((s) => s.state?.projects ?? []);
   const me = useChat((s) => s.me);
   const showToast = useChat((s) => s.showToast);
   const [values, setValues] = useState<Record<string, unknown>>(() => ({
@@ -340,6 +348,31 @@ export function RecordForm({
             </label>
           );
         })}
+        {kind === "account" && (
+          <label className="block text-sm font-medium text-ink">
+            Proyecto en la plataforma
+            <select
+              value={String(values.channelId ?? "")}
+              onChange={(e) => set("channelId", e.target.value)}
+              className="input mt-1 w-full"
+            >
+              <option value="">Sin proyecto</option>
+              {typeof values.channelId === "string" &&
+                values.channelId &&
+                !projects.some((p) => p.channelId === values.channelId) && (
+                  <option value={values.channelId}>Proyecto vinculado</option>
+                )}
+              {projects.map((p) => (
+                <option key={p.channelId} value={p.channelId}>
+                  #{p.name}
+                </option>
+              ))}
+            </select>
+            <span className="mt-0.5 block text-xs font-normal text-ink-secondary">
+              El canal donde se trabaja para este cliente: trae sus horas registradas.
+            </span>
+          </label>
+        )}
         {leadsSales(me?.role) && (
           <label className="block text-sm font-medium text-ink">
             Responsable

@@ -441,7 +441,13 @@ export class TasksApi extends Construct {
     this.salesHandler = lambda(
       "SalesFn",
       "sales",
-      { SALES_TABLE: data.sales.tableName, USERS_TABLE: data.users.tableName },
+      {
+        SALES_TABLE: data.sales.tableName,
+        USERS_TABLE: data.users.tableName,
+        // Phase 75: the clients' project channels and the hours logged in them.
+        CHANNELS_TABLE: data.channels.tableName,
+        TIME_LOG_TABLE: data.timeLog.tableName,
+      },
       Duration.seconds(29),
     );
     this.platformInsightsHandler = lambda(
@@ -1049,6 +1055,9 @@ export class TasksApi extends Construct {
       "dynamodb:BatchWriteItem",
     );
     data.users.grant(this.salesHandler, "dynamodb:Scan", "dynamodb:GetItem");
+    // Phase 75: read-only on the project channels and their time log.
+    data.channels.grant(this.salesHandler, "dynamodb:Scan");
+    data.timeLog.grant(this.salesHandler, "dynamodb:Scan");
     this.salesHandler.addToRolePolicy(notesModelPolicy());
 
     // vault: one row at a time (Get/Put/Delete), and Scans that ask for the

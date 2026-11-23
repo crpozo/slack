@@ -99,7 +99,8 @@ beforeEach(() => {
     }
     return {};
   });
-  ddbMock.on(ScanCommand).resolves({
+  ddbMock.on(ScanCommand).resolves({ Items: [] });
+  ddbMock.on(ScanCommand, { TableName: "slack-test-users" }).resolves({
     Items: [
       { userId: ALICE.userId, displayName: "Alice", email: ALICE.email },
       { userId: BOB.userId, displayName: "Bob", email: BOB.email },
@@ -423,5 +424,74 @@ describe("prospecting import", () => {
     expect(res.json.added[1]).toMatchObject({ name: "", title: "Gerente de Operaciones" });
     const again = await call("POST /sales/import", BOB, { body: { leads } });
     expect(again.json.added).toEqual([]);
+  });
+});
+
+describe("the client's project in the platform (Phase 75)", () => {
+  const day = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+  beforeEach(() => {
+    ddbMock.on(ScanCommand, { TableName: "slack-test-channels" }).resolves({
+      Items: [
+        {
+          channelId: "ch_cam",
+          name: "Cambridge",
+          type: "private",
+          members: [ALICE.userId, "user-guest"],
+        },
+        { channelId: "ch_other", name: "Otro", type: "private", members: [ADMIN.userId] },
+        { channelId: "dm_x", name: "dm", type: "dm", members: [ALICE.userId, BOB.userId] },
+        {
+          channelId: "ch_old",
+          name: "Viejo",
+          type: "private",
+          members: [ALICE.userId],
+          archived: true,
+        },
+      ],
+    });
+    ddbMock.on(ScanCommand, { TableName: "slack-test-time-log" }).resolves({
+      Items: [
+        { channelId: "ch_cam", sk: "entry#a", userId: ALICE.userId, date: day(3), minutes: 300 },
+        { channelId: "ch_cam", sk: "bill#" + ALICE.userId, hourlyRate: 60 },
+        { channelId: "ch_cam", sk: "clients", clientIds: ["user-guest"] },
+        { channelId: "ch_other", sk: "entry#b", userId: ADMIN.userId, date: day(3), minutes: 60 },
+        { channelId: "ch_other", sk: "bill#" + ADMIN.userId, hourlyRate: 45 },
+      ],
+    });
+  });
+
+  it("shows a rep the projects of their channels with hours; money only to an admin", async () => {
+    const alice = await state(ALICE);
+    expect(alice.projects).toEqual([
+      expect.objectContaining({
+        channelId: "ch_cam",
+        name: "Cambridge",
+        hours30: 5,
+        hasExternals: true,
+        clientNames: ["Guest"],
+      }),
+    ]);
+    expect(JSON.stringify(alice.projects)).not.toMatch(/billed/);
+    expect((await state(BOB)).projects).toEqual([]);
+    // An admin's projects are the channels they can open in the chat, like anyone's; with money.
+    const admin = await state(ADMIN, "[admins]");
+    expect(admin.projects.map((p) => p.channelId)).toEqual(["ch_other"]);
+    expect(admin.projects[0]).toMatchObject({ hours30: 1, billed30: 45 });
+  });
+
+  it("links a client to a project the rep sees, and hands its hours to the assistant", async () => {
+    const put = (user: Who, channelId: string) =>
+      call("PUT /sales/records/{id}", user, {
+        id: "acct_cam_" + user.userId.slice(-3),
+        body: { ...account("acct_cam_" + user.userId.slice(-3), "Cambridge"), channelId },
+      });
+    expect((await put(BOB, "ch_cam")).status).toBe(400);
+    expect((await put(ALICE, "ch_cam")).status).toBe(200);
+    modelAnswers({ title: "x", sections: [] });
+    await call("POST /sales/ai", ALICE, { body: { flow: "signals", accountId: "acct_cam_ice" } });
+    expect(asked[0]!.content).toContain("canal #Cambridge");
+    expect(asked[0]!.content).toContain("5 h en los últimos 30 días");
+    expect(asked[0]!.content).not.toContain("facturable");
+    expect(String(asked[0]!.system)).toContain("vende servicios");
   });
 });

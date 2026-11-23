@@ -5,6 +5,8 @@ import {
   FORECAST_LABEL,
   isOpenStage,
   oppGaps,
+  projectSignals,
+  SALES_SERVICE_LABEL,
   SALES_STAGE_LABEL,
   salesCsv,
   salesMoney,
@@ -14,16 +16,28 @@ import {
   type SalesInput,
   type SalesMeeting,
   type SalesOpportunity,
+  type SalesProject,
   type SalesRecord,
 } from "@mindfultech/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { downloadBytes } from "../../lib/pptx";
 import { useChat } from "../../store";
-import { useSales } from "../../store/sales";
+import { newSalesId, useSales } from "../../store/sales";
 import { RecordForm, type RecordFormTarget } from "./RecordForm";
 import { crmValue, FlowButton } from "./Result";
 import { RoiModal } from "./Roi";
-import { Badge, Card, DemoTag, Empty, fmtDateTime, fmtDay, SmallButton, useSalesNav } from "./ui";
+import {
+  Badge,
+  Card,
+  DemoTag,
+  Empty,
+  fmtDateTime,
+  fmtDay,
+  SmallButton,
+  Stat,
+  useSalesNav,
+} from "./ui";
 
 // ---------------------------------------------------------------------------
 // Ventas (Phase 73): the accounts and, inside one, everything that hangs from
@@ -31,6 +45,60 @@ import { Badge, Card, DemoTag, Empty, fmtDateTime, fmtDay, SmallButton, useSales
 // the meeting, its follow-up from its notes, the business case and the
 // strategy from the opportunity, signals and first contact from the account.
 // ---------------------------------------------------------------------------
+
+/** A client's project channel: the hours logged there and what they signal. */
+export function ProjectCard({ project }: Readonly<{ project: SalesProject }>) {
+  const navigate = useNavigate();
+  const signals = projectSignals(project);
+  return (
+    <Card
+      title={`Proyecto en la plataforma · #${project.name}`}
+      action={
+        <SmallButton onClick={() => void navigate(`/app/${project.channelId}`)}>
+          Abrir el canal
+        </SmallButton>
+      }
+    >
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-sales-project={project.channelId}>
+        <Stat
+          label="Horas, últimos 30 días"
+          value={`${project.hours30} h`}
+          hint={`${project.hoursPrev30} h los 30 anteriores`}
+        />
+        <Stat
+          label="Horas en total"
+          value={`${project.hoursTotal} h`}
+          hint={`${project.people} personas`}
+        />
+        {project.billed30 !== undefined && (
+          <Stat label="Facturable, 30 días" value={salesMoney(project.billed30)} tone="good" />
+        )}
+        {project.billedTotal !== undefined && (
+          <Stat label="Facturable en total" value={salesMoney(project.billedTotal)} />
+        )}
+      </div>
+      <p className="mt-2 text-xs text-ink-secondary">
+        Último registro: {project.lastEntry ? fmtDay(project.lastEntry) : "ninguno"}
+        {project.clientNames.length
+          ? ` · Cliente en el canal: ${project.clientNames.join(", ")}`
+          : ""}
+        {project.billed30 === undefined ? "" : " · Los montos solo los ven los admins"}
+      </p>
+      {signals.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {signals.map((s) => (
+            <li key={s.text} className="flex items-start gap-2 text-sm text-ink">
+              <Badge tone={s.tone}>
+                {s.tone === "good" ? "Oportunidad" : s.tone === "bad" ? "Atención" : "Revisar"}
+              </Badge>
+              <span className="min-w-0 flex-1">{s.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
 
 const STATUS_TONE = {
   prospecto: "neutral",
@@ -119,6 +187,7 @@ function OpportunityCard({
               {SALES_STAGE_LABEL[opp.stage]}
             </Badge>
             {isOpenStage(opp.stage) && <Badge>{FORECAST_LABEL[opp.forecastCategory]}</Badge>}
+            {opp.service && <Badge tone="good">{SALES_SERVICE_LABEL[opp.service]}</Badge>}
           </p>
           <p className="text-xs text-ink-secondary">
             {opp.ownerName} · cierre {fmtDay(opp.closeDate)}
@@ -200,6 +269,11 @@ function AccountDetail({
   const showToast = useChat((s) => s.showToast);
   const save = useSales((s) => s.save);
   const changes = useSales((s) => s.state?.changes ?? []);
+  const project = useSales((s) =>
+    account.channelId
+      ? s.state?.projects.find((p) => p.channelId === account.channelId)
+      : undefined,
+  );
   const [form, setForm] = useState<RecordFormTarget | null>(null);
   const [since, setSince] = useState(() =>
     new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10),
@@ -277,6 +351,7 @@ function AccountDetail({
         </div>
       </div>
       {account.notes && <p className="text-sm text-ink-secondary">{account.notes}</p>}
+      {project && <ProjectCard project={project} />}
       <div className="flex flex-wrap gap-1.5">
         <FlowButton
           flow="outreach"
@@ -481,6 +556,29 @@ export function AccountsTab() {
   const [filter, setFilter] = useState<"todas" | "mias" | "seguimiento" | "estrategicas">("todas");
   const [segment, setSegment] = useState("");
   const [creating, setCreating] = useState(false);
+  const projects = useSales((s) => s.state?.projects ?? []);
+  const save = useSales((s) => s.save);
+  const showToast = useChat((s) => s.showToast);
+  const [busyProject, setBusyProject] = useState("");
+  /** A project channel becomes a client: named after it, linked to it, with where it came from. */
+  async function adopt(p: SalesProject) {
+    setBusyProject(p.channelId);
+    try {
+      const record = await save({
+        id: newSalesId("acct"),
+        kind: "account",
+        name: p.name,
+        status: "cliente",
+        channelId: p.channelId,
+        source: `Canal #${p.name} de la plataforma`,
+        sourceDate: new Date().toISOString().slice(0, 10),
+      });
+      nav.go({ account: record.id });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "No se pudo crear el cliente.", "error");
+    }
+    setBusyProject("");
+  }
   const accounts = useMemo(
     () => records.filter((r): r is SalesAccount => r.kind === "account"),
     [records],
@@ -503,6 +601,8 @@ export function AccountsTab() {
     .sort((a, b) => a.name.localeCompare(b.name));
 
   if (account) return <AccountDetail account={account} records={records} />;
+  const linked = new Set(accounts.map((a) => a.channelId).filter(Boolean));
+  const unlinked = projects.filter((p) => !linked.has(p.channelId));
 
   const openOf = (id: string) =>
     records.filter(
@@ -585,6 +685,33 @@ export function AccountsTab() {
           + Cliente
         </SmallButton>
       </div>
+      {unlinked.length > 0 && (
+        <Card title={`Proyectos de la plataforma sin cliente en Sales (${unlinked.length})`}>
+          <p className="mb-2 text-xs text-ink-secondary">
+            Canales donde ya se trabaja para un cliente (hay horas registradas o personas externas).
+            Crea el cliente con un clic para llevar su relación, renovaciones y ampliaciones.
+          </p>
+          <ul className="divide-y divide-line" data-sales-unlinked>
+            {unlinked.map((p) => (
+              <li
+                key={p.channelId}
+                className="flex flex-wrap items-center justify-between gap-2 py-1.5"
+              >
+                <span className="min-w-0 text-sm text-ink">
+                  <span className="font-medium">#{p.name}</span>
+                  <span className="block text-xs text-ink-secondary">
+                    {p.hours30} h en 30 días · {p.hoursTotal} h en total
+                    {p.clientNames.length ? ` · ${p.clientNames.join(", ")}` : ""}
+                  </span>
+                </span>
+                <SmallButton primary disabled={busyProject !== ""} onClick={() => void adopt(p)}>
+                  {busyProject === p.channelId ? "Creando…" : "Crear cliente"}
+                </SmallButton>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       {shown.length === 0 ? (
         <Empty>
           No hay clientes aquí. Crea uno, impórtalos desde Prospección o carga la demo guiada.

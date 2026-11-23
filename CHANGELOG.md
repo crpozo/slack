@@ -25,6 +25,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Sales, built around MindfulTech's own projects:** a client can be linked to its project
+  channel, and its page then shows the work being done for it: hours logged in the last 30
+  days against the 30 before, hours in total, people, and (for admins) what's billable, with
+  what that signals (a project gone quiet: propose the next phase or a support plan; hours
+  growing: propose a dedicated team). Project channels with no client in Sales are listed in
+  **Clientes** and become one in a click. An opportunity says which service it is (custom
+  development, AI and automation, discovery and consulting, maintenance and support, a
+  dedicated team by the hour), leadership sees the open pipeline by service line, and the
+  assistant knows MindfulTech sells services by phases and hours and reads a client's project
+  hours when it writes a strategy, signals or a first message.
 - **Ventas, a sales assistant (in Spanish):** a new app for the team (`/app/sales`, **Ventas**
   in the sidebar and the phone's Apps; `/ventas` in the chat). Accounts, contacts,
   opportunities, meetings, calls, documents and competitors with a change log; a rep's panel

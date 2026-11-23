@@ -78,6 +78,17 @@ export const CONTACT_ROLE_LABEL: Record<(typeof CONTACT_ROLES)[number], string> 
   bloqueador: "Bloqueador",
 };
 
+/** Phase 75: what MindfulTech sells, as a software services company. */
+export const SALES_SERVICES = ["desarrollo", "ia", "discovery", "soporte", "equipo"] as const;
+export type SalesService = (typeof SALES_SERVICES)[number];
+export const SALES_SERVICE_LABEL: Record<SalesService, string> = {
+  desarrollo: "Desarrollo a medida",
+  ia: "IA y automatización",
+  discovery: "Discovery y consultoría",
+  soporte: "Mantenimiento y soporte",
+  equipo: "Equipo dedicado (horas)",
+};
+
 // --- ROI inputs (stored on the opportunity; the numbers are computed below) ---------
 
 export const RoiInputsSchema = z.object({
@@ -142,6 +153,8 @@ export const SalesRecordSchema = z.discriminatedUnion("kind", [
     /** Who follows it on their watchlist. */
     watchers: z.array(z.string().max(128)).max(100).default([]),
     notes: text(6000),
+    /** Phase 75: the client's project channel in this app (its hours and people). */
+    channelId: text(256),
   }),
   z.object({
     ...base,
@@ -161,6 +174,8 @@ export const SalesRecordSchema = z.discriminatedUnion("kind", [
     accountId: id,
     name: z.string().trim().min(1).max(160),
     type: z.enum(["nueva", "renovacion", "expansion"]).default("nueva"),
+    /** Phase 75: what MindfulTech would deliver. */
+    service: z.enum(SALES_SERVICES).or(z.literal("")).default(""),
     amount: z.number().min(0).max(1e12).default(0),
     currency: z.string().trim().min(3).max(3).default("USD"),
     stage: z.enum(SALES_STAGES).default("prospeccion"),
@@ -470,6 +485,122 @@ export interface SalesState {
   changes: SalesChange[];
   /** The team (never externals), to assign and to filter by owner. */
   people: Array<{ userId: string; name: string }>;
+  /** Phase 75: the project channels the person may see, with their hours. */
+  projects: SalesProject[];
+}
+
+// --- Projects of the platform (Phase 75) -----------------------------------------------
+//
+// MindfulTech delivers its projects in this app: a channel per client project,
+// its people, and the hours logged there (Phase 60) with what each is billed
+// (Phase 70). Sales reads that, so a client's page shows the work actually
+// being done for them and what it signals: a project gone quiet, one growing.
+
+export interface SalesProject {
+  channelId: string;
+  name: string;
+  /** People from outside MindfulTech are in the channel (the client's). */
+  hasExternals: boolean;
+  /** The externals marked as the hours' clients, by name. */
+  clientNames: string[];
+  /** People who logged hours. */
+  people: number;
+  hours30: number;
+  /** The 30 days before those. */
+  hoursPrev30: number;
+  hoursTotal: number;
+  /** `YYYY-MM-DD` of the last entry, or "". */
+  lastEntry: string;
+  /** Billed amounts in USD (bill rates × hours): admins only, else absent. */
+  billed30?: number;
+  billedTotal?: number;
+  /** Hours of the last 30 days with no bill rate (admins only). */
+  unpricedHours30?: number;
+}
+
+const hours = (minutes: number) => Math.round((minutes / 60) * 10) / 10;
+
+/** A project channel's summary from its time entries (and bill rates, when `withMoney`). */
+export function projectSummary(
+  channel: { channelId: string; name: string },
+  entries: Array<{ userId: string; date: string; minutes: number }>,
+  billRates: Record<string, number>,
+  now: number,
+  extra: { hasExternals: boolean; clientNames: string[]; withMoney: boolean },
+): SalesProject {
+  const dayOfMs = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  const from30 = dayOfMs(now - 30 * 86_400_000);
+  const from60 = dayOfMs(now - 60 * 86_400_000);
+  let m30 = 0;
+  let mPrev = 0;
+  let mAll = 0;
+  let b30 = 0;
+  let bAll = 0;
+  let unpriced = 0;
+  let last = "";
+  const who = new Set<string>();
+  for (const e of entries) {
+    who.add(e.userId);
+    mAll += e.minutes;
+    if (e.date > last) last = e.date;
+    const rate = billRates[e.userId] ?? 0;
+    bAll += (e.minutes / 60) * rate;
+    if (e.date > from30) {
+      m30 += e.minutes;
+      b30 += (e.minutes / 60) * rate;
+      if (!rate) unpriced += e.minutes;
+    } else if (e.date > from60) mPrev += e.minutes;
+  }
+  return {
+    channelId: channel.channelId,
+    name: channel.name,
+    hasExternals: extra.hasExternals,
+    clientNames: extra.clientNames,
+    people: who.size,
+    hours30: hours(m30),
+    hoursPrev30: hours(mPrev),
+    hoursTotal: hours(mAll),
+    lastEntry: last,
+    ...(extra.withMoney && {
+      billed30: Math.round(b30 * 100) / 100,
+      billedTotal: Math.round(bAll * 100) / 100,
+      unpricedHours30: hours(unpriced),
+    }),
+  };
+}
+
+/** What a project's hours say to whoever sells to that client. */
+export function projectSignals(
+  p: SalesProject,
+): Array<{ text: string; tone: "good" | "warn" | "bad" }> {
+  const out: Array<{ text: string; tone: "good" | "warn" | "bad" }> = [];
+  if (p.hoursTotal === 0) {
+    out.push({ text: "Sin horas registradas todavía", tone: "warn" });
+    return out;
+  }
+  if (p.hours30 === 0) {
+    out.push({
+      text: "Sin horas en los últimos 30 días: el proyecto está en pausa o terminó; buen momento para proponer la siguiente fase o un plan de soporte",
+      tone: "bad",
+    });
+  } else if (p.hoursPrev30 > 0 && p.hours30 >= p.hoursPrev30 * 1.3) {
+    out.push({
+      text: `Las horas subieron de ${p.hoursPrev30} a ${p.hours30} en 30 días: señal para proponer un equipo dedicado o ampliar el alcance`,
+      tone: "good",
+    });
+  } else if (p.hoursPrev30 > 0 && p.hours30 <= p.hoursPrev30 * 0.6) {
+    out.push({
+      text: `Las horas bajaron de ${p.hoursPrev30} a ${p.hours30} en 30 días: confirma con el cliente qué sigue antes de que el proyecto se enfríe`,
+      tone: "warn",
+    });
+  }
+  if (p.unpricedHours30) {
+    out.push({
+      text: `${p.unpricedHours30} h de los últimos 30 días sin tarifa de cobro: defínela en Horas → Cliente`,
+      tone: "warn",
+    });
+  }
+  return out;
 }
 
 // --- Permissions -----------------------------------------------------------------------

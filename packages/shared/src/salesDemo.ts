@@ -130,6 +130,7 @@ export function demoSalesSeed(now: number): {
     strategic: false,
     watchers: [],
     notes: "",
+    channelId: "",
     ...extra,
   });
   const opp = (
@@ -146,6 +147,7 @@ export function demoSalesSeed(now: number): {
     accountId,
     name,
     type: "nueva",
+    service: "desarrollo",
     amount,
     currency: "USD",
     stage: "propuesta",
@@ -206,6 +208,7 @@ export function demoSalesSeed(now: number): {
     }),
     opp("demo_opp_litoral", "demo_acct_litoral", "Renovación anual (DEMO)", 36_000, {
       type: "renovacion",
+      service: "soporte",
       stage: "negociacion",
       forecastCategory: "commit",
       closeDate: day(now + 15 * DAY),

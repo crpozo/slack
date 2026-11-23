@@ -6,6 +6,7 @@ import {
   isOpenStage,
   leadsSales,
   oppGaps,
+  SALES_SERVICE_LABEL,
   SALES_STAGE_LABEL,
   salesMoney,
   salesPriorities,
@@ -16,6 +17,7 @@ import {
   type SalesMeeting,
   type SalesOpportunity,
   type SalesRecord,
+  type SalesService,
 } from "@mindfultech/shared";
 import { useMemo, useState } from "react";
 import { useChat } from "../../store";
@@ -530,6 +532,23 @@ export function LeadershipTab() {
       };
     },
   );
+  const byService = ["desarrollo", "ia", "discovery", "soporte", "equipo", ""]
+    .map((service) => {
+      const theirs = open.filter((o) => o.service === service);
+      return {
+        label: service ? SALES_SERVICE_LABEL[service as SalesService] : "Sin servicio definido",
+        ids: theirs.map((o) => o.id),
+        amount: [...new Set(theirs.map((o) => o.currency))]
+          .map((cur) =>
+            salesMoney(
+              theirs.filter((o) => o.currency === cur).reduce((n, o) => n + o.amount, 0),
+              cur,
+            ),
+          )
+          .join(" + "),
+      };
+    })
+    .filter((row) => row.ids.length > 0);
   const sum = (list: ForecastTotals[], b: Bucket) =>
     list.map((t) => salesMoney(t[b].amount, t.currency)).join(" + ") || "—";
 
@@ -597,6 +616,28 @@ export function LeadershipTab() {
             })}
           </ul>
         )}
+      </Card>
+      <Card title="Por línea de servicio (oportunidades abiertas)">
+        <ul className="divide-y divide-line" data-sales-services>
+          {byService.map((row) => (
+            <li key={row.label}>
+              <button
+                type="button"
+                onClick={() => setDrill({ title: row.label, ids: row.ids })}
+                className="flex w-full items-center justify-between gap-2 py-1.5 text-left text-sm hover:bg-surface-hover"
+              >
+                <span className="text-ink">
+                  {row.label}{" "}
+                  <span className="text-xs text-ink-secondary">
+                    · {row.ids.length} {row.ids.length === 1 ? "oportunidad" : "oportunidades"}
+                  </span>
+                </span>
+                <span className="font-semibold tabular-nums text-ink">{row.amount}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {byService.length === 0 && <Empty>Sin oportunidades abiertas en el periodo.</Empty>}
       </Card>
       <Card title="Desempeño del equipo">
         <div className="overflow-x-auto">

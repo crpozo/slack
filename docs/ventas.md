@@ -30,6 +30,27 @@ Reglas que valen para todo el módulo:
 - **Contenido de referencia.** Notas, transcripciones, documentos y texto pegado se pasan al
   modelo como contenido, nunca como instrucciones.
 
+## Enfocado en MindfulTech (Phase 75)
+
+MindfulTech vende servicios de software por fases y por horas, y entrega sus proyectos en esta
+misma app. Sales lo aprovecha sin integraciones externas:
+
+- **Proyecto del cliente.** Un cliente se vincula a su canal de proyecto. Su página muestra las
+  horas registradas (últimos 30 días frente a los 30 anteriores, total, personas) y, para
+  admins, lo facturable según las tarifas de cobro de Horas. De ahí salen señales: proyecto sin
+  horas en 30 días (proponer la siguiente fase o soporte), horas en aumento (proponer equipo
+  dedicado), horas sin tarifa de cobro.
+- **Proyectos sin cliente.** En Clientes aparecen los canales con horas o con personas externas
+  que aún no son un cliente en Sales; «Crear cliente» lo crea vinculado.
+- **Línea de servicio.** Cada oportunidad indica el servicio (desarrollo a medida, IA y
+  automatización, discovery y consultoría, mantenimiento y soporte, equipo dedicado) y
+  Liderazgo muestra el pipeline abierto por línea.
+- **Asistente.** Sabe qué vende MindfulTech y recibe las horas del proyecto (calculadas en
+  código) al escribir estrategia, señales o un primer mensaje.
+
+Permisos: cada persona ve los proyectos de los canales que puede abrir en el chat (un admin
+también); los montos facturables solo los ven los admins.
+
 ## Las 17 capacidades
 
 Estado: **Completa** (funciona con los datos del módulo), **Con datos pegados** (no hay

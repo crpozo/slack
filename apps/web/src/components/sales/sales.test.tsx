@@ -51,7 +51,11 @@ beforeEach(() => {
   };
   Element.prototype.scrollIntoView ??= () => {};
   configureTasksApi("https://api.fake.example");
-  state = { ...demoSalesSeed(Date.now()), people: [{ userId: "u-rep", name: "Rep" }] };
+  state = {
+    ...demoSalesSeed(Date.now()),
+    people: [{ userId: "u-rep", name: "Rep" }],
+    projects: [],
+  };
   vi.spyOn(salesApi, "state").mockImplementation(() => Promise.resolve(state));
   useSales.getState().reset();
   useSales.setState({ showDemo: true });
@@ -141,6 +145,46 @@ describe("the guided demo, on the page", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Demo guiada" }));
     fireEvent.click(await screen.findByRole("button", { name: "Reiniciar demo" }));
     await waitFor(() => expect(reset).toHaveBeenCalled());
+  });
+});
+
+describe("the client's project in the platform (Phase 75)", () => {
+  const project = {
+    channelId: "ch_cam",
+    name: "Cambridge",
+    hasExternals: true,
+    clientNames: ["Ana"],
+    people: 2,
+    hours30: 40,
+    hoursPrev30: 20,
+    hoursTotal: 300,
+    lastEntry: new Date().toISOString().slice(0, 10),
+  };
+  it("a project channel becomes a client in one click, linked to its hours", async () => {
+    state = { ...state, projects: [project] };
+    const save = vi.spyOn(salesApi, "save").mockImplementation((record) => {
+      const saved = { ...state.records[0]!, ...record, demo: undefined } as never;
+      state = { ...state, records: [...state.records, saved] };
+      return Promise.resolve({ record: saved, changes: [] });
+    });
+    open("/app/sales?tab=cuentas");
+    const list = await found("[data-sales-unlinked]");
+    expect(list.textContent).toContain("#Cambridge");
+    expect(list.textContent).toContain("40 h en 30 días");
+    fireEvent.click(within(list).getByRole("button", { name: "Crear cliente" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]![0]).toMatchObject({
+      kind: "account",
+      name: "Cambridge",
+      status: "cliente",
+      channelId: "ch_cam",
+      source: "Canal #Cambridge de la plataforma",
+    });
+    // Its page shows the project's hours and what they signal; no money for a rep.
+    const card = await found('[data-sales-project="ch_cam"]');
+    expect(card.textContent).toContain("40 h");
+    expect(card.textContent).not.toContain("Facturable");
+    expect(screen.getByText(/Las horas subieron de 20 a 40/)).toBeTruthy();
   });
 });
 
