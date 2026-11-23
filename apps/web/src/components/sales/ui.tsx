@@ -6,7 +6,7 @@ import { useSearchParams } from "react-router-dom";
 
 export const SALES_TABS = [
   ["panel", "Mi panel"],
-  ["cuentas", "Cuentas"],
+  ["cuentas", "Clientes"],
   ["pronostico", "Pronóstico"],
   ["liderazgo", "Liderazgo"],
   ["prospeccion", "Prospección"],

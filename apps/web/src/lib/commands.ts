@@ -34,8 +34,9 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: "clear", description: "Clear what you've typed", effect: "clear" },
   {
     name: "ventas",
-    description: "Asistente de ventas: pronóstico, cuenta, preparar, seguimiento, estrategia, demo",
-    usage: "[acción] [cuenta]",
+    description:
+      "Asistente de ventas: pronóstico, cliente, preparar, seguimiento, estrategia, demo",
+    usage: "[acción] [cliente]",
     effect: "ventas",
   },
 ];
@@ -43,6 +44,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 const SALES_TABS_BY_WORD: Record<string, string> = {
   panel: "panel",
   cuentas: "cuentas",
+  clientes: "cuentas",
   pronostico: "pronostico",
   liderazgo: "liderazgo",
   prospeccion: "prospeccion",
@@ -53,6 +55,7 @@ const SALES_TABS_BY_WORD: Record<string, string> = {
 /** What `/ventas preparar Acme` starts, by its first word. */
 export const SALES_ACTIONS = [
   "cuenta",
+  "cliente",
   "preparar",
   "seguimiento",
   "estrategia",
@@ -75,7 +78,7 @@ export function salesCommandPath(rest: string): string {
   if (tab) return `/app/sales?tab=${tab}`;
   if ((SALES_ACTIONS as readonly string[]).includes(first) && words.length > 1) {
     const params = new URLSearchParams({ tab: "cuentas", q: words.slice(1).join(" ") });
-    if (first !== "cuenta") params.set("do", first);
+    if (first !== "cuenta" && first !== "cliente") params.set("do", first);
     return `/app/sales?${params.toString()}`;
   }
   return words.length

@@ -247,7 +247,7 @@ function AccountDetail({
             className="text-xs text-ink-secondary hover:text-ink"
             onClick={() => nav.go({ account: "", focus: "" })}
           >
-            ← Todas las cuentas
+            ← Todos los clientes
           </button>
           <h2 className="flex flex-wrap items-center gap-2 text-lg font-bold text-ink">
             {account.name}
@@ -511,7 +511,7 @@ export function AccountsTab() {
     );
   const exportCsv = () =>
     downloadBytes(
-      "cuentas.csv",
+      "clientes.csv",
       `\uFEFF${salesCsv(
         [
           "Empresa",
@@ -543,12 +543,17 @@ export function AccountsTab() {
 
   return (
     <div className="space-y-3">
+      <p className="text-xs text-ink-secondary">
+        Las empresas a las que vendes (clientes y prospectos), con sus contactos, oportunidades y
+        reuniones. No son usuarios de la app: todo el equipo de MindfulTech ya tiene acceso a Ventas
+        con su usuario de siempre.
+      </p>
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Buscar cuenta…"
-          aria-label="Buscar cuenta"
+          placeholder="Buscar cliente…"
+          aria-label="Buscar cliente"
           className="input min-w-0 flex-1"
         />
         <select
@@ -557,8 +562,8 @@ export function AccountsTab() {
           aria-label="Filtro"
           className="input w-auto"
         >
-          <option value="todas">Todas las que veo</option>
-          <option value="mias">Mis cuentas</option>
+          <option value="todas">Todos los que veo</option>
+          <option value="mias">Mis clientes</option>
           <option value="seguimiento">Mi lista de seguimiento</option>
           <option value="estrategicas">Estratégicas</option>
         </select>
@@ -577,12 +582,12 @@ export function AccountsTab() {
           Exportar CSV
         </SmallButton>
         <SmallButton primary onClick={() => setCreating(true)}>
-          + Cuenta
+          + Cliente
         </SmallButton>
       </div>
       {shown.length === 0 ? (
         <Empty>
-          No hay cuentas aquí. Crea una, impórtalas desde Prospección o carga la demo guiada.
+          No hay clientes aquí. Crea uno, impórtalos desde Prospección o carga la demo guiada.
         </Empty>
       ) : (
         <ul className="grid gap-2 sm:grid-cols-2" data-sales-accounts>

@@ -169,7 +169,7 @@ export function ProspectingTab() {
                 Exportar CSV
               </SmallButton>
               <SmallButton primary disabled={busy || picked.size === 0} onClick={() => void add()}>
-                Agregar {picked.size || ""} a Cuentas
+                Agregar {picked.size || ""} a Clientes
               </SmallButton>
             </div>
           }
@@ -200,7 +200,7 @@ export function ProspectingTab() {
                   <div className="min-w-0 flex-1">
                     <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-ink">
                       {lead.company}
-                      {dup && <Badge tone="warn">Duplicado: ya es una cuenta</Badge>}
+                      {dup && <Badge tone="warn">Duplicado: ya es un cliente</Badge>}
                       {!lead.contactName && (
                         <Badge tone="neutral">Falta identificar al contacto</Badge>
                       )}
@@ -619,9 +619,9 @@ export function DemoTab() {
       },
       {
         who: "Vendedor",
-        title: "Revisa la cuenta",
+        title: "Revisa el cliente",
         text: "Farmacias Andina: la oportunidad, sus riesgos, los contactos y qué cambió (se movió a comprometida y subió de monto).",
-        action: "Abrir la cuenta",
+        action: "Abrir el cliente",
         go: () => nav.go({ tab: "cuentas", account: DEMO_ACCOUNT_ID, focus: DEMO_OPP_ID }),
       },
       {
@@ -682,9 +682,9 @@ export function DemoTab() {
         }
       >
         <p className="text-sm text-ink-secondary">
-          Un recorrido con una sola cuenta y una sola oportunidad, de principio a fin. Todos los
+          Un recorrido con un solo cliente y una sola oportunidad, de principio a fin. Todos los
           datos son <strong className="text-warning">ficticios</strong> y llevan la marca{" "}
-          <DemoTag />: no se mezclan con tus cuentas y funcionan sin credenciales externas.
+          <DemoTag />: no se mezclan con tus clientes y funcionan sin credenciales externas.
           «Reiniciar demo» los devuelve a su estado original.
         </p>
       </Card>

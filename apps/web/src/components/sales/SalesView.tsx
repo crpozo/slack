@@ -44,7 +44,7 @@ function useSalesCommand() {
     next.delete("do");
     if (!account) {
       setParams(next, { replace: true });
-      showToast(`No encontré una cuenta llamada «${q}» entre las que ves.`, "info");
+      showToast(`No encontré un cliente llamado «${q}» entre las que ves.`, "info");
       return;
     }
     next.set("tab", "cuentas");
@@ -75,14 +75,14 @@ function useSalesCommand() {
     if ((flow === "prep" || flow === "followup") && !meeting) {
       showToast(
         flow === "prep"
-          ? "Esa cuenta no tiene una reunión próxima."
-          : "Esa cuenta no tiene una reunión con notas.",
+          ? "Ese cliente no tiene una reunión próxima."
+          : "Ese cliente no tiene una reunión con notas.",
         "info",
       );
       return;
     }
     if (flow === "strategy" && !opp) {
-      showToast("Esa cuenta no tiene una oportunidad abierta.", "info");
+      showToast("Ese cliente no tiene una oportunidad abierta.", "info");
       return;
     }
     void ask({

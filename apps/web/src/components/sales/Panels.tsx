@@ -156,7 +156,7 @@ function OppTable({
                   type="button"
                   onClick={() => nav.open(o)}
                   className="flex w-full flex-wrap items-center justify-between gap-2 py-2 text-left hover:bg-surface-hover"
-                  title="Abrir la oportunidad en su cuenta"
+                  title="Abrir la oportunidad en su cliente"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-ink">
@@ -317,7 +317,7 @@ export function DashboardTab() {
   if (accounts.length === 0) {
     return (
       <Empty>
-        Aún no tienes cuentas.{" "}
+        Aún no tienes clientes ni prospectos cargados.{" "}
         <button
           type="button"
           className="font-semibold text-primary"
@@ -325,7 +325,7 @@ export function DashboardTab() {
         >
           Carga la demo guiada
         </button>{" "}
-        o crea tu primera cuenta en Cuentas.
+        o agrega tu primer cliente en Clientes.
       </Empty>
     );
   }
@@ -333,7 +333,7 @@ export function DashboardTab() {
     <div className="space-y-3" data-sales-tab="panel">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat
-          label="Cuentas en mi cartera"
+          label="Clientes en mi cartera"
           value={accounts.length}
           onClick={() => nav.go({ tab: "cuentas" })}
         />
@@ -552,7 +552,7 @@ export function LeadershipTab() {
           tone={risky.length ? "bad" : "good"}
           onClick={() => setDrill({ title: "En riesgo", ids: risky.map((o) => o.id) })}
         />
-        <Stat label="Cuentas estratégicas" value={strategic.length} />
+        <Stat label="Clientes estratégicos" value={strategic.length} />
       </div>
       {drill && (
         <OppTable
@@ -562,9 +562,9 @@ export function LeadershipTab() {
           onClose={() => setDrill(null)}
         />
       )}
-      <Card title="Cuentas estratégicas">
+      <Card title="Clientes estratégicos">
         {strategic.length === 0 ? (
-          <Empty>Ninguna cuenta marcada como estratégica.</Empty>
+          <Empty>Ningún cliente marcado como estratégico.</Empty>
         ) : (
           <ul className="divide-y divide-line">
             {strategic.map((a) => {

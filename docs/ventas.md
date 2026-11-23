@@ -62,7 +62,7 @@ El modelo es Claude en Amazon Bedrock con el rol de la Lambda (sin credenciales 
 ## Desde el chat
 
 `/ventas` abre el módulo. `/ventas pronóstico | demo | coaching | liderazgo | prospección |
-respuestas` abre esa sección. `/ventas cuenta <nombre>` abre la cuenta; `/ventas preparar
+respuestas` abre esa sección. `/ventas cliente <nombre>` abre el cliente; `/ventas preparar
 <nombre>`, `/ventas seguimiento <nombre>`, `/ventas estrategia <nombre>` y `/ventas senales
 <nombre>` inician ese flujo sobre la cuenta.
 

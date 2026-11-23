@@ -42,7 +42,7 @@ const FIELDS: Record<Kind, Field[]> = {
     { name: "country", label: "País" },
     { name: "segment", label: "Segmento" },
     { name: "status", label: "Estado", type: "select", options: ACCOUNT_STATUS_LABEL },
-    { name: "strategic", label: "Cuenta estratégica", type: "check" },
+    { name: "strategic", label: "Cliente estratégico", type: "check" },
     { name: "notes", label: "Notas", type: "area" },
     ...SOURCE,
   ],
@@ -141,7 +141,7 @@ const FIELDS: Record<Kind, Field[]> = {
 };
 
 const KIND_LABEL: Record<Kind, string> = {
-  account: "cuenta",
+  account: "cliente",
   contact: "contacto",
   opportunity: "oportunidad",
   meeting: "reunión",
@@ -222,6 +222,7 @@ export function RecordForm({
   return (
     <Modal
       title={`${record ? "Editar" : "Nueva"} ${KIND_LABEL[kind]}`
+        .replace("Nueva cliente", "Nuevo cliente")
         .replace("Nueva contacto", "Nuevo contacto")
         .replace("Nueva documento", "Nuevo documento")
         .replace("Nueva competidor", "Nuevo competidor")}
@@ -237,7 +238,7 @@ export function RecordForm({
                 disabled={busy}
                 onClick={() => void destroy()}
               >
-                Sí, eliminar{kind === "account" ? " la cuenta y todo lo suyo" : ""}
+                Sí, eliminar{kind === "account" ? " el cliente y todo lo suyo" : ""}
               </button>
             ) : (
               <button
