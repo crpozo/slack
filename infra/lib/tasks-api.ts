@@ -246,6 +246,11 @@ export const VAULT_ROUTES: Array<{ method: HttpMethod; path: string }> = [
   { method: HttpMethod.POST, path: "/vault/pin" },
   { method: HttpMethod.POST, path: "/vault/pin/verify" },
   { method: HttpMethod.DELETE, path: "/vault/pin/{userId}" },
+  // Phase 77: open the Vault with the device's fingerprint (WebAuthn).
+  { method: HttpMethod.POST, path: "/vault/passkey/challenge" },
+  { method: HttpMethod.POST, path: "/vault/passkey/verify" },
+  { method: HttpMethod.POST, path: "/vault/passkey" },
+  { method: HttpMethod.DELETE, path: "/vault/passkey" },
 ];
 
 /** Web Push subscriptions (Phase 8), served by their own small Lambda on the same API. */

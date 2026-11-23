@@ -4,6 +4,7 @@ import {
   type Message,
   type UpdateVaultSecretInput,
   type VaultPage,
+  type VaultPasskeyChallenge,
   type VaultPinRefusal,
   type VaultPinStatus,
   type VaultReveal,
@@ -31,6 +32,20 @@ export const vaultApi = {
   /** The first PIN; it also unlocks the Vault. */
   setPin: (pin: string) => request<VaultUnlock>("POST", "/vault/pin", { pin }),
   unlock: (pin: string) => request<VaultUnlock>("POST", "/vault/pin/verify", { pin }),
+  // Phase 77: the Vault with the device's fingerprint (lib/passkey.ts).
+  passkeyChallenge: () => request<VaultPasskeyChallenge>("POST", "/vault/passkey/challenge"),
+  registerPasskey: (
+    body: { id: string; publicKey: string; alg: number; clientDataJSON: string; name: string },
+    token: string,
+  ) => request<{ id: string }>("POST", "/vault/passkey", body, session(token)),
+  verifyPasskey: (body: {
+    id: string;
+    clientDataJSON: string;
+    authenticatorData: string;
+    signature: string;
+  }) => request<VaultUnlock>("POST", "/vault/passkey/verify", body),
+  removePasskeys: (token: string) =>
+    request<{ removed: boolean }>("DELETE", "/vault/passkey", undefined, session(token)),
   /** Admins: clear someone's PIN (they set a new one on their next visit). */
   resetPin: (userId: string) =>
     request<{ reset: string }>("DELETE", `/vault/pin/${encodeURIComponent(userId)}`),

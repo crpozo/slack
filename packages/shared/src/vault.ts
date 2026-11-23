@@ -72,7 +72,47 @@ export const VAULT_PIN_ATTRIBUTES = [
   "vaultPinSetAt",
   "vaultSessionHash",
   "vaultSessionExpiresAt",
+  // Phase 77: the devices enrolled to open the Vault with a fingerprint.
+  "vaultPasskeys",
+  "vaultPasskeyChallenge",
+  "vaultPasskeyChallengeExpiresAt",
 ] as const;
+
+/** Phase 77: how long a fingerprint request may take, and how many devices a person enrolls. */
+export const VAULT_PASSKEY_CHALLENGE_MS = 2 * 60 * 1000;
+export const MAX_VAULT_PASSKEYS = 8;
+
+/** `POST /vault/passkey/challenge`. */
+export interface VaultPasskeyChallenge {
+  /** base64url; signed by the device. */
+  challenge: string;
+  /** The enrolled devices' credential ids (base64url). */
+  credentialIds: string[];
+}
+
+const b64url = (max: number) =>
+  z
+    .string()
+    .min(1)
+    .max(max)
+    .regex(/^[A-Za-z0-9_-]+$/);
+
+/** `POST /vault/passkey`: this device, enrolled (the Vault is open with the PIN). */
+export const RegisterVaultPasskeySchema = z.object({
+  id: b64url(1400),
+  publicKey: b64url(2000),
+  alg: z.number().int(),
+  clientDataJSON: b64url(4000),
+  name: z.string().trim().max(80).default(""),
+});
+
+/** `POST /vault/passkey/verify`: the device's answer to the challenge. */
+export const VerifyVaultPasskeySchema = z.object({
+  id: b64url(1400),
+  clientDataJSON: b64url(4000),
+  authenticatorData: b64url(2000),
+  signature: b64url(2000),
+});
 
 /** Admins see every secret; anyone else only the ones they saved or are listed in. Guests none. */
 export function canAccessVaultSecret(
@@ -258,6 +298,8 @@ export const VaultPinSchema = z.object({ pin: pinField });
 /** `GET /vault/pin`. */
 export interface VaultPinStatus {
   hasPin: boolean;
+  /** Phase 77: the credential ids of the devices enrolled for a fingerprint. */
+  passkeys?: string[];
   /** Epoch ms; set while too many wrong PINs keep it locked. */
   lockedUntil?: number;
   attemptsLeft: number;

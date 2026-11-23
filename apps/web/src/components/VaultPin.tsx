@@ -5,7 +5,17 @@ import {
   type VaultUnlock,
 } from "@mindfultech/shared";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Fingerprint } from "lucide-react";
+import {
+  declinePasskey,
+  enrolledHere,
+  enrollPasskey,
+  passkeyDeclined,
+  passkeySupported,
+  unlockWithPasskey,
+} from "../lib/passkey";
 import { pinErrorText, pinRefusalOf, vaultApi } from "../lib/vaultApi";
+import { useChat } from "../store";
 import { LockIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
 import { GLASS_CARD, PRIMARY_BUTTON } from "./SkillsView";
@@ -102,6 +112,41 @@ export function VaultLockScreen({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  // Phase 77: the device's fingerprint (Touch ID), instead of the PIN.
+  const me = useChat((s) => s.me);
+  const [biometric, setBiometric] = useState(false);
+  /** The Vault just opened with the PIN on a device that could use its fingerprint next time. */
+  const [offer, setOffer] = useState<VaultUnlock | null>(null);
+  useEffect(() => {
+    void passkeySupported().then(setBiometric);
+  }, []);
+  const canUseFingerprint = biometric && !!enrolledHere(status?.passkeys);
+
+  async function fingerprint() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      onUnlocked(await unlockWithPasskey());
+    } catch (err) {
+      // Cancelled prompts say nothing; a refusal says to use the PIN.
+      const cancelled = err instanceof DOMException && err.name === "NotAllowedError";
+      if (!cancelled) setError(pinErrorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function enable() {
+    if (!offer || !me || busy) return;
+    setBusy(true);
+    try {
+      await enrollPasskey(offer.token, me);
+    } catch {
+      // Not set up (cancelled, or the device refused): the PIN keeps working.
+    }
+    setBusy(false);
+    onUnlocked(offer);
+  }
 
   useEffect(() => {
     let live = true;
@@ -148,7 +193,10 @@ export function VaultLockScreen({
     }
     setBusy(true);
     try {
-      onUnlocked(creating ? await vaultApi.setPin(value) : await vaultApi.unlock(value));
+      const opened = creating ? await vaultApi.setPin(value) : await vaultApi.unlock(value);
+      // Offer the fingerprint once on a device that has one and isn't enrolled.
+      if (biometric && !enrolledHere(status?.passkeys) && !passkeyDeclined()) setOffer(opened);
+      else onUnlocked(opened);
     } catch (err) {
       const refusal = pinRefusalOf(err);
       if (refusal?.lockedUntil) setLockedUntil(refusal.lockedUntil);
@@ -164,6 +212,46 @@ export function VaultLockScreen({
       ? "Create your Vault PIN"
       : "Confirm your Vault PIN"
     : "Enter your Vault PIN";
+  if (offer) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-4 py-10" data-vault-passkey-offer>
+        <div className={`${GLASS_CARD} flex w-full max-w-sm flex-col items-center gap-4 p-8`}>
+          <span
+            className="flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/40 bg-primary/15 text-primary"
+            aria-hidden="true"
+          >
+            <Fingerprint size={28} />
+          </span>
+          <div className="text-center">
+            <h1 className="text-xl font-bold text-ink">Open the Vault with your fingerprint?</h1>
+            <p className="mt-1 text-sm text-ink-secondary">
+              Next time, Touch ID (or this device&apos;s own unlock) opens the Vault here instead of
+              the PIN. Your PIN keeps working, and is what other devices ask for.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-primary w-full"
+            disabled={busy}
+            onClick={() => void enable()}
+          >
+            {busy ? "Waiting for your fingerprint…" : "Use fingerprint on this device"}
+          </button>
+          <button
+            type="button"
+            className="text-sm text-ink-secondary hover:text-ink"
+            disabled={busy}
+            onClick={() => {
+              declinePasskey();
+              onUnlocked(offer);
+            }}
+          >
+            Not now
+          </button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-1 items-center justify-center px-4 py-10" data-vault-lock>
       <div className={`${GLASS_CARD} flex w-full max-w-sm flex-col items-center gap-5 p-8`}>
@@ -207,6 +295,18 @@ export function VaultLockScreen({
         >
           {lockedUntil ? lockedText(lockedUntil) : error}
         </p>
+        {!creating && canUseFingerprint && (
+          <button
+            type="button"
+            className="btn-primary w-full"
+            disabled={busy}
+            onClick={() => void fingerprint()}
+            data-vault-fingerprint
+          >
+            <Fingerprint size={18} aria-hidden="true" />
+            Unlock with fingerprint
+          </button>
+        )}
         {!creating && status && (
           <p className="text-center text-xs text-ink-secondary">
             Forgot your PIN? An admin can reset it for you.

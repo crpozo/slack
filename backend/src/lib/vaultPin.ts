@@ -90,7 +90,7 @@ export async function pinStatus(userId: string, now = Date.now()): Promise<Vault
 }
 
 /** A new session token, stored hashed; it opens the Vault until `expiresAt`. */
-async function openSession(userId: string, now: number): Promise<VaultUnlock> {
+export async function openSession(userId: string, now: number): Promise<VaultUnlock> {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = now + VAULT_SESSION_MS;
   await ddb.send(
@@ -278,7 +278,8 @@ export async function resetPin(userId: string): Promise<void> {
       TableName: tables.users,
       Key: { userId },
       UpdateExpression:
-        "REMOVE vaultPin, vaultPinFailures, vaultPinLockouts, vaultPinLockedUntil, vaultPinSetAt, vaultSessionHash, vaultSessionExpiresAt",
+        // The enrolled devices go with the PIN: a reset starts over.
+        "REMOVE vaultPin, vaultPinFailures, vaultPinLockouts, vaultPinLockedUntil, vaultPinSetAt, vaultSessionHash, vaultSessionExpiresAt, vaultPasskeys, vaultPasskeyChallenge, vaultPasskeyChallengeExpiresAt",
       ConditionExpression: "attribute_exists(userId)",
     }),
   );

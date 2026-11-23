@@ -1,3 +1,4 @@
+import { createHash, generateKeyPairSync, randomBytes, sign as cryptoSign } from "node:crypto";
 import {
   DecryptCommand,
   EncryptCommand,
@@ -527,7 +528,11 @@ describe("tagging a saved secret in a conversation (Phase 68)", () => {
 
 describe("the Vault PIN", () => {
   it("is set once, refused when too easy, and stored only as a KMS-wrapped bcrypt hash", async () => {
-    expect((await call("GET /vault/pin")).json).toEqual({ hasPin: false, attemptsLeft: 5 });
+    expect((await call("GET /vault/pin")).json).toEqual({
+      hasPin: false,
+      attemptsLeft: 5,
+      passkeys: [],
+    });
     expect((await call("POST /vault/pin", { body: { pin: "1234" } })).status).toBe(400);
     expect((await call("POST /vault/pin", { body: { pin: "12345" } })).status).toBe(400);
     const token = await unlockAs(ALICE);
@@ -580,7 +585,7 @@ describe("the Vault PIN", () => {
     expect((await call("GET /vault/pin")).json).toMatchObject({ attemptsLeft: 0 });
 
     vi.setSystemTime(T0 + 15 * 60_000);
-    expect((await call("GET /vault/pin")).json).toEqual({ hasPin: true, attemptsLeft: 5 });
+    expect((await call("GET /vault/pin")).json).toMatchObject({ hasPin: true, attemptsLeft: 5 });
     for (let i = 0; i < 5; i++) await verify("0001");
     expect(users.get(ALICE.userId)!.vaultPinLockedUntil).toBe(T0 + 15 * 60_000 + 30 * 60_000);
 
@@ -649,6 +654,124 @@ describe("the Vault PIN", () => {
   });
 });
 
+describe("opening the Vault with a fingerprint (Phase 77)", () => {
+  const ORIGIN = "https://slack.example.test";
+  const b64 = (data: Buffer | string) => Buffer.from(data).toString("base64url");
+  const device = () => {
+    const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    return {
+      id: b64(randomBytes(16)),
+      publicKey: b64(publicKey.export({ format: "der", type: "spki" })),
+      privateKey,
+    };
+  };
+  const challenge = async (user: Caller = ALICE) =>
+    (await call("POST /vault/passkey/challenge", { user })).json.challenge as string;
+  const clientData = (type: string, value: string, origin = ORIGIN) =>
+    Buffer.from(JSON.stringify({ type, challenge: value, origin, crossOrigin: false }));
+  async function enroll(d: ReturnType<typeof device>, user: Caller = ALICE) {
+    return call("POST /vault/passkey", {
+      user,
+      body: {
+        id: d.id,
+        publicKey: d.publicKey,
+        alg: -7,
+        clientDataJSON: b64(clientData("webauthn.create", await challenge(user))),
+        name: "MacBook",
+      },
+    });
+  }
+  /** What the device answers: signed over authenticatorData + SHA-256(clientDataJSON). */
+  function assertion(
+    d: ReturnType<typeof device>,
+    value: string,
+    opts: { flags?: number; origin?: string; rpId?: string; counter?: number } = {},
+  ) {
+    const authData = Buffer.concat([
+      createHash("sha256")
+        .update(opts.rpId ?? "slack.example.test")
+        .digest(),
+      Buffer.from([opts.flags ?? 0x05]),
+      Buffer.from([0, 0, 0, opts.counter ?? 0]),
+    ]);
+    const json = clientData("webauthn.get", value, opts.origin);
+    const signature = cryptoSign(
+      "sha256",
+      Buffer.concat([authData, createHash("sha256").update(json).digest()]),
+      d.privateKey,
+    );
+    return {
+      id: d.id,
+      clientDataJSON: b64(json),
+      authenticatorData: b64(authData),
+      signature: b64(signature),
+    };
+  }
+  const open = (body: object, user: Caller = ALICE) =>
+    call("POST /vault/passkey/verify", { user, body, token: "none" });
+
+  it("enrolls a device only while the Vault is open with the PIN, then opens it with the device", async () => {
+    const mac = device();
+    // No PIN session: not enrolled.
+    expect((await enroll(mac)).status).toBe(401);
+    await unlockAs(ALICE);
+    expect((await enroll(mac)).status).toBe(201);
+    expect((await call("GET /vault/pin")).json.passkeys).toEqual([mac.id]);
+    // The stored row has the public key only; nothing secret.
+    const stored = users.get(ALICE.userId)!.vaultPasskeys as Array<Record<string, unknown>>;
+    expect(stored[0]).toMatchObject({ id: mac.id, origin: ORIGIN, rpId: "slack.example.test" });
+
+    sessions.clear();
+    expect((await list(ALICE)).status).toBe(401);
+    const answer = assertion(mac, await challenge(), { counter: 1 });
+    const res = await open(answer);
+    expect(res.status).toBe(200);
+    expect(res.json.token).toMatch(/^[\w-]{43}$/);
+    sessions.set(ALICE.userId, res.json.token);
+    expect((await list(ALICE)).status).toBe(200);
+    // The same answer again: its challenge is spent.
+    expect((await open(answer)).status).toBe(400);
+  });
+
+  it("refuses another site, an unverified touch, a forged or replayed signature, and someone else's device", async () => {
+    const mac = device();
+    await unlockAs(ALICE);
+    await enroll(mac);
+    await unlockAs(BOB);
+    const refused = async (make: (c: string) => object, user: Caller = ALICE) =>
+      (await open(make(await challenge(user)), user)).status;
+    expect(await refused((c) => assertion(mac, c, { origin: "https://evil.example" }))).toBe(401);
+    expect(await refused((c) => assertion(mac, c, { rpId: "evil.example" }))).toBe(401);
+    // Present but not verified (a tap without the fingerprint).
+    expect(await refused((c) => assertion(mac, c, { flags: 0x01 }))).toBe(401);
+    expect(await refused((c) => ({ ...assertion(mac, c), signature: b64(randomBytes(70)) }))).toBe(
+      401,
+    );
+    // Signed by another key, under the enrolled id.
+    expect(await refused((c) => ({ ...assertion(device(), c), id: mac.id }))).toBe(401);
+    // Signed for an older challenge.
+    const old = await challenge();
+    expect(await refused(() => assertion(mac, old))).toBe(401);
+    // Alice's device doesn't open Bob's Vault.
+    expect(await refused((c) => assertion(mac, c), BOB)).toBe(401);
+    // A counter that goes back is a copied key.
+    expect((await open(assertion(mac, await challenge(), { counter: 5 }))).status).toBe(200);
+    expect(await refused((c) => assertion(mac, c, { counter: 5 }))).toBe(401);
+  });
+
+  it("is forgotten on request, and with an admin's PIN reset", async () => {
+    const mac = device();
+    await unlockAs(ALICE);
+    await enroll(mac);
+    expect((await call("DELETE /vault/passkey")).status).toBe(200);
+    expect((await call("GET /vault/pin")).json.passkeys).toEqual([]);
+    expect((await open(assertion(mac, await challenge()))).status).toBe(401);
+    await enroll(mac);
+    await call("DELETE /vault/pin/{userId}", { params: { userId: ALICE.userId }, user: ADMIN });
+    expect(users.get(ALICE.userId)!.vaultPasskeys).toBeUndefined();
+  });
+});
+
 describe("staying inside the vault Lambda's IAM policy", () => {
   it("writes only the PIN's attributes on users rows, and Scans only metadata", async () => {
     await unlockAs(ALICE);
@@ -657,6 +780,8 @@ describe("staying inside the vault Lambda's IAM policy", () => {
     await verify(PIN);
     await save({ password: "pw", allowedUserIds: [BOB.userId], share: true });
     await list(ALICE);
+    await call("POST /vault/passkey/challenge");
+    await call("DELETE /vault/passkey");
     await call("DELETE /vault/pin/{userId}", { params: { userId: BOB.userId }, user: ADMIN });
 
     const attributesIn = (expr = "", names: Record<string, string> = {}) =>

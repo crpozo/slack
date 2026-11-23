@@ -32,6 +32,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **The Vault opens with your fingerprint:** on a device with its own unlock (Touch ID on a
+  Mac, Windows Hello, a phone's biometrics), the Vault offers it once after your PIN; from
+  then on **Unlock with fingerprint** opens it there instead of the PIN. It's WebAuthn: the key
+  never leaves the device and the server checks every signature (this site, this request, the
+  person verified, used once). The PIN keeps working and is what other devices ask for; an
+  admin's PIN reset forgets the enrolled devices.
 - **Light theme:** a sun/moon button next to Settings in the sidebar (on phones, in the
   **More** sheet) switches between the dark look and a new light one; the choice stays in that
   browser and is applied before the first paint. Calls and the image viewer stay dark.

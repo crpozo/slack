@@ -2,6 +2,8 @@ import {
   canAccessVaultSecret,
   canManageVaultSecret,
   CreateVaultSecretSchema,
+  RegisterVaultPasskeySchema,
+  VerifyVaultPasskeySchema,
   newMessageSk,
   normalizeWebsite,
   SetVaultPinSchema,
@@ -49,7 +51,22 @@ import {
   SECRET_ID,
   type VaultRow,
 } from "../lib/vault";
-import { checkPin, pinStatus, resetPin, sessionIsOpen, setPin, unlock } from "../lib/vaultPin";
+import {
+  newChallenge,
+  passkeyIds,
+  registerPasskey,
+  removePasskeys,
+  verifyPasskey,
+} from "../lib/vaultPasskey";
+import {
+  checkPin,
+  openSession,
+  pinStatus,
+  resetPin,
+  sessionIsOpen,
+  setPin,
+  unlock,
+} from "../lib/vaultPin";
 
 /** Never cached by a browser or a proxy. */
 const NO_STORE = { "cache-control": "no-store", pragma: "no-cache" };
@@ -387,7 +404,32 @@ export const handler = httpHandler(async (event, caller): Promise<HttpResult> =>
   if (caller.role === "guest") throw forbidden("Guests only have access to their boards");
   switch (event.routeKey) {
     case "GET /vault/pin":
-      return noStore(200, await pinStatus(caller.userId));
+      return noStore(200, {
+        ...(await pinStatus(caller.userId)),
+        passkeys: await passkeyIds(caller.userId),
+      });
+    // Phase 77: the Vault with the device's fingerprint (WebAuthn).
+    case "POST /vault/passkey/challenge":
+      return noStore(200, await newChallenge(caller.userId));
+    case "POST /vault/passkey/verify": {
+      await verifyPasskey(caller.userId, parseBody(VerifyVaultPasskeySchema, event));
+      return noStore(200, await openSession(caller.userId, Date.now()));
+    }
+    case "POST /vault/passkey": {
+      // Enrolling a device is for whoever just proved the PIN.
+      const locked = await requireSession(event, caller);
+      if (locked) return locked;
+      return noStore(
+        201,
+        await registerPasskey(caller.userId, parseBody(RegisterVaultPasskeySchema, event)),
+      );
+    }
+    case "DELETE /vault/passkey": {
+      const locked = await requireSession(event, caller);
+      if (locked) return locked;
+      await removePasskeys(caller.userId);
+      return noStore(200, { removed: true });
+    }
     case "POST /vault/pin": {
       const { pin } = parseBody(SetVaultPinSchema, event);
       return noStore(201, await setPin(caller.userId, pin));

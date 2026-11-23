@@ -65,6 +65,10 @@ describe("Vault (Phase 45)", () => {
       "POST /vault/pin",
       "POST /vault/pin/verify",
       "DELETE /vault/pin/{userId}",
+      "POST /vault/passkey/challenge",
+      "POST /vault/passkey/verify",
+      "POST /vault/passkey",
+      "DELETE /vault/passkey",
     ]) {
       const route = Object.values(
         template.findResources("AWS::ApiGatewayV2::Route", { Properties: { RouteKey: key } }),
