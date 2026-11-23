@@ -5,6 +5,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ## [Unreleased]
 
+### Changed
+
+- **New accent colour:** the app's green (#40B375) is now teal **#81C5B9**: buttons, links,
+  highlights, active icons, the AI News and AI Skills tiles and the background glow. Text on
+  teal buttons stays black (10.6:1); teal text in the light theme is a darker #2E7468 (5.5:1
+  on white).
+
 ### Removed
 
 - **Sales: coaching** is gone from the app (its tab, the call metrics in the leadership panel

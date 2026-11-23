@@ -664,13 +664,13 @@ const PHONE_APPS: PhoneApp[] = [
   {
     path: "/app/news",
     label: "AI News",
-    tile: "bg-gradient-to-br from-[#40B375] to-[#1F6E47] text-white",
+    tile: "bg-gradient-to-br from-[#81C5B9] to-[#2E7468] text-white",
     icon: <NewspaperIcon />,
   },
   {
     path: "/app/skills",
     label: "AI Skills",
-    tile: "bg-gradient-to-br from-[#40B375] to-[#0E3B26] text-white",
+    tile: "bg-gradient-to-br from-[#81C5B9] to-[#1F5C52] text-white",
     icon: <PuzzleIcon />,
   },
   {
@@ -685,7 +685,7 @@ const PHONE_APPS: PhoneApp[] = [
 const SALES_APP: PhoneApp = {
   path: "/app/sales",
   label: "Sales",
-  tile: "bg-gradient-to-br from-[#36C5F0] to-[#1F6E47] text-white",
+  tile: "bg-gradient-to-br from-[#36C5F0] to-[#2E7468] text-white",
   icon: <SalesIcon size={20} />,
 };
 
