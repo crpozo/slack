@@ -92,7 +92,7 @@ const TONES = {
   good: "bg-primary/15 text-primary",
   warn: "bg-warning/15 text-warning",
   bad: "bg-error/15 text-error",
-  info: "bg-sky-500/15 text-sky-300",
+  info: "bg-sky/15 text-sky",
 } as const;
 export function Badge({
   children,

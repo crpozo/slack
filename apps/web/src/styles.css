@@ -450,3 +450,187 @@
   --c-error: 229 115 115;
   color: rgb(var(--c-ink));
 }
+
+/* ---------------------------------------------------------------------------
+   The light theme (Phase 76): the same tokens with light values, chosen in
+   the app (lib/theme.ts puts `light` on <html>; dark stays the default).
+   Greens, ambers and reds get darker so they read on white; fills made of
+   them carry white text. Screens that are dark by nature (calls, the image
+   viewer: anything on `bg-black`, `bg-[#0E0D12]` or marked `data-dark`) keep
+   the dark tokens inside, and the white tints used as hairlines and hovers
+   become black tints everywhere else.
+   --------------------------------------------------------------------------- */
+html.light {
+  --c-primary: 64 179 117;
+  --c-primary-hover: 54 156 101;
+  --c-primary-fg: 24 122 76; /* #187A4C on white: 5.3:1 */
+  --c-on-primary: 0 0 0;
+  --c-sky: 18 100 163; /* #1264A3 */
+  --c-ink: 29 28 29; /* #1D1C1D */
+  --c-ink-secondary: 97 96 97; /* #616061 */
+  --c-surface: 255 255 255;
+  --c-surface-sidebar: 244 245 247;
+  --c-surface-hover: 235 237 240;
+  --c-surface-raised: 255 255 255;
+  --c-line: 221 223 226;
+  --c-success: 26 127 84;
+  --c-warning: 154 103 0;
+  --c-error: 198 40 40;
+  --c-on-accent: 255 255 255;
+  --c-scrim: 0 0 0;
+  color-scheme: light;
+}
+html.light :is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) {
+  --c-primary-fg: 64 179 117;
+  --c-sky: 133 191 233;
+  --c-ink: 248 248 248;
+  --c-ink-secondary: 171 171 173;
+  --c-surface: 26 29 33;
+  --c-surface-sidebar: 34 37 41;
+  --c-surface-hover: 44 47 52;
+  --c-surface-raised: 34 37 41;
+  --c-line: 53 55 59;
+  --c-success: 43 172 118;
+  --c-warning: 244 201 92;
+  --c-error: 229 115 115;
+  --c-on-accent: 14 13 18;
+  color-scheme: dark;
+}
+html.light body::before {
+  background:
+    radial-gradient(60vmax 45vmax at 0% 0%, rgb(64 179 117 / 0.1), transparent 70%),
+    radial-gradient(55vmax 45vmax at 100% 100%, rgb(18 100 163 / 0.1), transparent 70%),
+    radial-gradient(40vmax 32vmax at 100% 0%, rgb(64 179 117 / 0.06), transparent 70%);
+}
+html.light .glass {
+  background-color: rgb(246 247 249 / 0.78);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.6);
+}
+html.light .glass-strong {
+  background-color: rgb(255 255 255 / 0.94);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.8),
+    0 24px 48px -12px rgb(0 0 0 / 0.22);
+}
+@layer utilities {
+  html.light .bg-white\/\[0\.03\]:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:bg-white\/\[0\.03\]:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light
+    .active\:bg-white\/\[0\.03\]:active:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    background-color: rgb(0 0 0 / 0.03);
+  }
+  html.light .bg-white\/\[0\.035\]:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light
+    .hover\:bg-white\/\[0\.035\]:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light
+    .active\:bg-white\/\[0\.035\]:active:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    background-color: rgb(0 0 0 / 0.03);
+  }
+  html.light .bg-white\/\[0\.04\]:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:bg-white\/\[0\.04\]:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light
+    .active\:bg-white\/\[0\.04\]:active:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    background-color: rgb(0 0 0 / 0.04);
+  }
+  html.light .bg-white\/\[0\.05\]:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:bg-white\/\[0\.05\]:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light
+    .active\:bg-white\/\[0\.05\]:active:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    background-color: rgb(0 0 0 / 0.05);
+  }
+  html.light .bg-white\/\[0\.06\]:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:bg-white\/\[0\.06\]:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light
+    .active\:bg-white\/\[0\.06\]:active:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    background-color: rgb(0 0 0 / 0.055);
+  }
+  html.light .bg-white\/5:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:bg-white\/5:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .active\:bg-white\/5:active:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    background-color: rgb(0 0 0 / 0.04);
+  }
+  html.light .bg-white\/10:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:bg-white\/10:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .active\:bg-white\/10:active:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    background-color: rgb(0 0 0 / 0.06);
+  }
+  html.light .bg-white\/15:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:bg-white\/15:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .active\:bg-white\/15:active:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    background-color: rgb(0 0 0 / 0.09);
+  }
+  html.light .bg-white\/20:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:bg-white\/20:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .active\:bg-white\/20:active:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    background-color: rgb(0 0 0 / 0.12);
+  }
+  html.light .bg-white\/25:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:bg-white\/25:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .active\:bg-white\/25:active:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    background-color: rgb(0 0 0 / 0.15);
+  }
+  html.light .border-white\/\[0\.06\]:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light
+    .hover\:border-white\/\[0\.06\]:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .md\:border-white\/\[0\.06\]:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    border-color: rgb(0 0 0 / 0.08);
+  }
+  html.light .border-white\/10:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:border-white\/10:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .md\:border-white\/10:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    border-color: rgb(0 0 0 / 0.1);
+  }
+  html.light .border-white\/15:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:border-white\/15:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .md\:border-white\/15:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    border-color: rgb(0 0 0 / 0.14);
+  }
+  html.light .border-white\/20:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:border-white\/20:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .md\:border-white\/20:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    border-color: rgb(0 0 0 / 0.18);
+  }
+  html.light .border-white\/25:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:border-white\/25:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .md\:border-white\/25:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    border-color: rgb(0 0 0 / 0.2);
+  }
+  html.light .border-white\/30:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:border-white\/30:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .md\:border-white\/30:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    border-color: rgb(0 0 0 / 0.24);
+  }
+  html.light .ring-white\/15:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    --tw-ring-color: rgb(0 0 0 / 0.12);
+  }
+  html.light .ring-white\/20:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    --tw-ring-color: rgb(0 0 0 / 0.12);
+  }
+  html.light .text-white\/60:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:text-white\/60:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    color: rgb(var(--c-ink) / 0.6);
+  }
+  html.light .text-white\/70:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:text-white\/70:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    color: rgb(var(--c-ink) / 0.7);
+  }
+  html.light .text-white\/75:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:text-white\/75:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    color: rgb(var(--c-ink) / 0.75);
+  }
+  html.light .text-white\/80:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:text-white\/80:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    color: rgb(var(--c-ink) / 0.8);
+  }
+  html.light .text-white\/85:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:text-white\/85:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    color: rgb(var(--c-ink) / 0.85);
+  }
+  html.light .text-white\/90:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *),
+  html.light .hover\:text-white\/90:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    color: rgb(var(--c-ink) / 0.9);
+  }
+  html.light .hover\:text-white:hover:not(:is(.bg-black, .bg-\[\#0E0D12\], [data-dark]) *) {
+    color: rgb(var(--c-ink));
+  }
+}

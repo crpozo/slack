@@ -28,9 +28,20 @@
       // Start fetching the runtime config while the app bundle is still downloading
       // (main.tsx awaits this promise instead of starting its own request).
       window.__configRequest = fetch("/config.json", { cache: "no-store" });
-      // One dark look everywhere (Phase 37b): `dark` is on <html> above. The
+      // Dark by default (Phase 37b): `dark` is on <html> above. The
       // desktop app may report real OS glass before this runs (lib/theme.ts).
-      if (window.__MINDFULTECH_GLASS__ === "vibrancy" || window.__MINDFULTECH_GLASS__ === "mica") {
+      // Phase 76: the light look, if the person chose it, before the first paint.
+      var light = false;
+      try {
+        light = localStorage.getItem("slack.appearance") === "light";
+      } catch (e) {}
+      if (light) {
+        document.documentElement.classList.remove("dark");
+        document.documentElement.classList.add("light");
+      } else if (
+        window.__MINDFULTECH_GLASS__ === "vibrancy" ||
+        window.__MINDFULTECH_GLASS__ === "mica"
+      ) {
         document.documentElement.classList.add("native-glass");
       }
     </script>

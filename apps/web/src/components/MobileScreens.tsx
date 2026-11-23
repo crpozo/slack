@@ -38,6 +38,7 @@ import {
 } from "./icons";
 import { Logo } from "./LoginPage";
 import { Modal } from "./Modal";
+import { useThemeSwitch } from "./ThemeToggle";
 import { MessageRow, shownResults, useMessageSearch } from "./MessageSearchResults";
 import { useSwitcherItems } from "./QuickSwitcher";
 
@@ -589,6 +590,7 @@ export function MoreSheet({
   const me = useChat((s) => s.me);
   const connected = useChat((s) => s.status === "open");
   const nameOf = useNameOf();
+  const theme = useThemeSwitch();
   if (!me) return null;
   return (
     <Modal title="More" width="sm" onClose={onClose}>
@@ -645,6 +647,7 @@ export function MoreSheet({
           hint="Notifications, audio & video"
           onClick={onOpenSettings}
         />
+        <SheetRow icon={theme.icon} label={theme.label} onClick={theme.toggle} />
         {onOpenInstall && (
           <SheetRow
             icon={<SmartphoneIcon />}

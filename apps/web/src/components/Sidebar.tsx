@@ -16,6 +16,7 @@ import {
   TrendingUp as SalesIcon,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { ThemeToggle } from "./ThemeToggle";
 import { useShallow } from "zustand/react/shallow";
 import { chat } from "../lib/chat";
 import { DISCOVERY_URL } from "../lib/config";
@@ -1541,6 +1542,7 @@ export function Sidebar({
               </span>
             )}
           </button>
+          {!compact && <ThemeToggle className={iconButton} />}
           {!compact && (
             <button
               type="button"

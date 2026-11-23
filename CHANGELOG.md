@@ -30,6 +30,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Light theme:** a sun/moon button next to Settings in the sidebar (on phones, in the
+  **More** sheet) switches between the dark look and a new light one; the choice stays in that
+  browser and is applied before the first paint. Calls and the image viewer stay dark.
 - **Sales, built around MindfulTech's own projects:** a client can be linked to its project
   channel, and its page then shows the work being done for it: hours logged in the last 30
   days against the 30 before, hours in total, people, and (for admins) what's billable, with
