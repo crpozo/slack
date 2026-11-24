@@ -1,3 +1,4 @@
+import type { MusicUpdatedEvent } from "@mindfultech/shared";
 import {
   describeEventWhen,
   describeTaskActivity,
@@ -12,6 +13,25 @@ import { useTasks } from "../store/tasks";
 import { isAppActive } from "./activity";
 import { notifyDesktop } from "./desktop";
 import { playMessageSound } from "./sounds";
+
+/** Phase 81: a new music room, or a room's new DJ (said by the server, to everyone on the team). */
+export function musicActivity(event: MusicUpdatedEvent, myUserId: string): AlertInput | null {
+  const room = event.room;
+  if (!room || !event.news || room.djId === myUserId) return null;
+  return event.news === "created"
+    ? {
+        kind: "music",
+        title: `🎵 ${room.djName} abrió una sala de música`,
+        body: `«${room.name}»: únete para escuchar lo mismo.`,
+        url: "/app/music",
+      }
+    : {
+        kind: "music",
+        title: `🎧 ${room.djName} es el nuevo DJ`,
+        body: `Ahora controla la música de «${room.name}».`,
+        url: "/app/music",
+      };
+}
 
 export type AlertInput = Omit<AppAlert, "id" | "at" | "read">;
 
@@ -67,14 +87,13 @@ export async function notifyBrowser(alert: AlertInput): Promise<boolean> {
 }
 
 /**
- * The bell entry for a board event: a task someone else created, or moved to
- * another column. Other board changes only refresh the board.
+ * The bell entry for a board event: a task someone else created. Moving a
+ * task to another column, like every other board change, only refreshes the
+ * board (Phase 81: moves filled the bell and hid the messages).
  */
 export function boardActivity(event: BoardEvent, myUserId: string): AlertInput | null {
-  if (event.type !== "board.task_created" && event.type !== "board.task_updated") return null;
+  if (event.type !== "board.task_created") return null;
   if (!event.by || event.by === myUserId) return null;
-  const previousStatus = event.type === "board.task_updated" ? event.previousStatus : undefined;
-  if (event.type === "board.task_updated" && !previousStatus) return null;
   const s = useChat.getState();
   const boardName =
     event.boardName ??
@@ -96,7 +115,7 @@ export function boardActivity(event: BoardEvent, myUserId: string): AlertInput |
     actorName: selectName(s, event.by),
     boardName,
     task: event.task,
-    previousStatus,
+    previousStatus: undefined,
   });
   return { kind: "task", title, body, url };
 }

@@ -74,7 +74,12 @@ const save = (room: StoredRoom) =>
 
 /** Tells the team (never an external: `music.updated` isn't theirs to receive). */
 async function announce(
-  change: { room?: MusicRoom; removed?: string; reaction?: MusicReaction },
+  change: {
+    room?: MusicRoom;
+    removed?: string;
+    reaction?: MusicReaction;
+    news?: "created" | "dj";
+  },
   now: number,
 ) {
   try {
@@ -86,10 +91,15 @@ async function announce(
   }
 }
 
-async function answer(stored: StoredRoom, now: number, status = 200): Promise<HttpResult> {
+async function answer(
+  stored: StoredRoom,
+  now: number,
+  status = 200,
+  news?: "created" | "dj",
+): Promise<HttpResult> {
   await save(stored);
   const room = toRoom(stored, now);
-  await announce({ room }, now);
+  await announce({ room, ...(news && { news }) }, now);
   const body: MusicRoomResponse = { room, serverNow: now };
   return json(status, body);
 }
@@ -159,7 +169,7 @@ async function create(event: HttpEvent, caller: HttpCaller): Promise<HttpResult>
     listeners: { [caller.userId]: { name: djName, seenAt: now } },
   };
   log.info("music room created", { roomId: room.roomId, userId: caller.userId });
-  return answer(room, now, 201);
+  return answer(room, now, 201, "created");
 }
 
 async function remove(event: HttpEvent, caller: HttpCaller): Promise<HttpResult> {
@@ -240,9 +250,10 @@ async function control(event: HttpEvent, caller: HttpCaller): Promise<HttpResult
     if (room.djId !== caller.userId && listening(room.djId) && caller.role !== "admin") {
       throw forbidden("El DJ sigue en la sala");
     }
+    const changed = room.djId !== caller.userId;
     room.djId = caller.userId;
     room.djName = room.listeners[caller.userId]!.name;
-    return answer(room, now);
+    return answer(room, now, 200, changed ? "dj" : undefined);
   }
   if (!controlsMusic(room, caller.userId, caller.role)) {
     throw forbidden("Solo el DJ controla la música de esta sala");

@@ -636,7 +636,7 @@ describe("board activity notifications", () => {
     });
   });
 
-  it("moving a task to another column pushes the move; other edits don't", async () => {
+  it("moving a task to another column refreshes open boards but notifies no one; nor do other edits", async () => {
     ddbMock.on(UpdateCommand).resolves({ Attributes: { ...task, status: "IN_PROGRESS" } });
     await call("PUT /tasks/{taskId}", {
       params: { taskId: "t_1" },
@@ -647,13 +647,8 @@ describe("board activity notifications", () => {
       by: ALICE.userId,
       previousStatus: "TODO",
     });
-    expect(sendPush).toHaveBeenCalledWith([BOB.userId], {
-      title: "Launch",
-      body: "alice moved “Write docs” from To Do to In Progress",
-      url: `/app/tasks/${BOARD_ID}`,
-      tag: "t_1",
-      sound: "default",
-    });
+    // Phase 81: no push for a move (they buried the notifications that matter).
+    expect(sendPush).not.toHaveBeenCalled();
 
     sendPush.mockClear();
     resetMocks();

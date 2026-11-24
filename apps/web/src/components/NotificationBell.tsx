@@ -10,6 +10,7 @@ const KIND_ICON: Record<AppAlert["kind"], typeof BellIcon> = {
   mention: MessageIcon,
   task: KanbanIcon,
   calendar: CalendarIcon,
+  music: BellIcon,
 };
 
 /** Red dot for "you have unread alerts", e.g. on the phone's menu button. */

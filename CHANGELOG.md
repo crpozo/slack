@@ -7,6 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **No more notifications for moved tasks:** moving a card to another column in Task Manager
+  still updates everyone's board live, but no longer lands in the bell or sends a push. A new
+  task still does.
+- **Música tells the team:** a new room, or a room's new DJ, shows in the bell (with the sound
+  and, when the app isn't in front, a system notification) for everyone on the team who has
+  the app open; it opens Música.
 - **Música:** the player can be dragged anywhere (by its header) and stays where you leave
   it; a toast says who joined or left your room and the player lists who's listening; and
   eight reactions (🔥 ❤️ 🙌 💃 🤘 😂 😴 👎) float over the player for everyone in the room, with

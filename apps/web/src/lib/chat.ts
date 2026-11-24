@@ -23,7 +23,7 @@ import { getIdToken, SessionExpiredError } from "./auth";
 import { calls } from "./call";
 import { groupCalls } from "./groupCall";
 import { isAppActive, watchActivity } from "./activity";
-import { boardActivity, calendarActivity, raiseAlert } from "./alerts";
+import { boardActivity, calendarActivity, musicActivity, raiseAlert } from "./alerts";
 import { notificationBody, prepareDesktopNotifications, shouldNotify } from "./desktop";
 import { startHeartbeat } from "./heartbeat";
 import { messagesApi } from "./messagesApi";
@@ -439,7 +439,13 @@ class ChatController {
       // Phase 60: a channel's time log changed: an open one reads it again.
       client.on("time.updated", ({ channelId }) => useTimeLog.getState().changed(channelId)),
       // Phase 78: a music room changed (what plays, who listens) or was deleted.
-      client.on("music.updated", (event) => useMusic.getState().apply(event)),
+      client.on("music.updated", (event) => {
+        useMusic.getState().apply(event);
+        // Phase 81: a new room or a new DJ is worth telling everyone.
+        const me = useChat.getState().me;
+        const alert = me ? musicActivity(event, me.userId) : null;
+        if (alert) raiseAlert(alert);
+      }),
     );
 
     // Back online: a dead socket reconnects now, an "open" one must prove it's alive.

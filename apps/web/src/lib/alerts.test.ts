@@ -43,7 +43,7 @@ describe("boardActivity", async () => {
     users: { u_ana: { userId: "u_ana", email: "ana@x.ec", displayName: "Ana", updatedAt: 0 } },
   });
 
-  it("announces a task someone else created or moved to another column", () => {
+  it("announces a task someone else created; a move to another column isn't a notification", () => {
     const created: BoardEvent = {
       type: "board.task_created",
       boardId: "b_1",
@@ -65,9 +65,7 @@ describe("boardActivity", async () => {
       boardName: "Website",
       previousStatus: "IN_PROGRESS",
     };
-    expect(boardActivity(moved, "u_me")?.body).toBe(
-      "Ana moved “Fix login” from In Progress to Done",
-    );
+    expect(boardActivity(moved, "u_me")).toBeNull();
   });
 
   it("tasks added together from AI notes raise one alert for the batch", () => {
@@ -128,5 +126,45 @@ describe("raiseAlert", async () => {
     raiseAlert(alert);
     expect(useNotifications.getState().alerts[0]?.read).toBe(true);
     expect(sounds.playMessageSound).not.toHaveBeenCalled();
+  });
+});
+
+describe("musicActivity (Phase 81)", async () => {
+  const { musicActivity } = await import("./alerts");
+  const room = {
+    roomId: "mr_1",
+    name: "Monday House",
+    djId: "u_ana",
+    djName: "Ana",
+    createdAt: 1,
+    queue: [],
+    trackId: null,
+    playing: false,
+    positionMs: 0,
+    at: 1,
+    listeners: [],
+  };
+  const event = (news?: "created" | "dj") =>
+    ({ type: "music.updated", room, serverNow: 1, ...(news && { news }) }) as const;
+
+  it("tells the team about a new room and a new DJ, never the person who did it", () => {
+    expect(musicActivity(event("created"), "u_me")).toEqual({
+      kind: "music",
+      title: "🎵 Ana abrió una sala de música",
+      body: "«Monday House»: únete para escuchar lo mismo.",
+      url: "/app/music",
+    });
+    expect(musicActivity(event("dj"), "u_me")).toMatchObject({
+      title: "🎧 Ana es el nuevo DJ",
+      url: "/app/music",
+    });
+    expect(musicActivity(event("created"), "u_ana")).toBeNull();
+  });
+
+  it("says nothing for the room's everyday changes (a song, someone joining, a reaction)", () => {
+    expect(musicActivity(event(), "u_me")).toBeNull();
+    expect(
+      musicActivity({ type: "music.updated", removed: "mr_1", serverNow: 1 }, "u_me"),
+    ).toBeNull();
   });
 });

@@ -138,6 +138,8 @@ export interface MusicUpdatedEvent {
   room?: MusicRoom;
   /** The room that was deleted. */
   removed?: string;
+  /** Worth a notification to the team: the room was just opened, or has a new DJ. */
+  news?: "created" | "dj";
   /** Someone in a room reacted to what's playing. */
   reaction?: MusicReaction;
   serverNow: number;

@@ -723,9 +723,10 @@ async function updateTask(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
   );
   const task = toTask(Attributes ?? {});
   log.info("task updated", { taskId, userId: caller.userId, fields: Object.keys(patch) });
-  // A move to another column is announced; other edits only refresh open boards.
+  // A move to another column refreshes open boards (with where it came from); it
+  // isn't a notification (Phase 81: moving cards all day buried the real ones).
   const previousStatus = task.status !== before.status ? before.status : undefined;
-  const connections = await notifyBoard(board, {
+  await notifyBoard(board, {
     type: "board.task_updated",
     boardId: board.boardId,
     task,
@@ -733,9 +734,6 @@ async function updateTask(event: HttpEvent, caller: HttpCaller): Promise<HttpRes
     boardName: board.name,
     ...(previousStatus && { previousStatus }),
   });
-  if (previousStatus) {
-    await notifyTaskActivity(board, caller, task, previousStatus, activeUserIds(connections));
-  }
   return json(200, { task });
 }
 

@@ -191,6 +191,10 @@ describe("music rooms", () => {
     expect(rooms[0]!.listeners.map((l) => l.userId)).toEqual([BOB.userId]);
     const claimed = (await control(BOB, room.roomId, { action: "claim" })).json.room as MusicRoom;
     expect(claimed.djId).toBe(BOB.userId);
+    // A new DJ is news for the team; so was the room being opened. A song or a join isn't.
+    expect(sentEvents().at(-1)![1]).toMatchObject({ type: "music.updated", news: "dj" });
+    expect(sentEvents()[0]![1]).toMatchObject({ type: "music.updated", news: "created" });
+    expect(sentEvents().filter(([, e]) => "news" in e)).toHaveLength(4); // 2 events × 2 connections
     const left = (await call("POST /music/{id}/leave", BOB, { id: room.roomId })).json.room;
     expect(left.listeners).toEqual([]);
   });

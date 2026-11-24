@@ -7,7 +7,7 @@ import { create } from "zustand";
  * localStorage so a reload doesn't empty the list; what happened while the app
  * was closed arrives as Web Push instead.
  */
-export type AlertKind = "message" | "mention" | "task" | "calendar";
+export type AlertKind = "message" | "mention" | "task" | "calendar" | "music";
 
 export interface AppAlert {
   id: string;
