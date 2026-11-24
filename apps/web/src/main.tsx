@@ -10,12 +10,15 @@ import { registerServiceWorker } from "./lib/push";
 import { loadConfig } from "./lib/config";
 import { installAudioUnlock } from "./lib/sounds";
 import { configureTasksApi } from "./lib/tasksApi";
+import { installCleanCopy } from "./lib/cleanCopy";
 import { applyTheme } from "./lib/theme";
 import { installExternalLinks } from "./lib/external";
 import "./styles.css";
 
 // The one dark look, and native glass in the desktop app (index.html set `dark` before paint).
 applyTheme();
+// Phase 82: what is copied from the app pastes clean elsewhere (no dark-theme colours).
+installCleanCopy();
 // Browsers block audio until a user gesture: arm notification sounds on the first one.
 installAudioUnlock();
 // Desktop app: links to other sites open in the OS's browser, never inside the app.

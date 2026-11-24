@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Changed
 
+- **Copied text pastes clean:** text selected and copied anywhere in the app no longer carries
+  the app's look (the dark theme's colours, grey bubbles and code chips) into mails, docs or
+  other chats. The copy keeps the words and their structure (paragraphs, numbered lists, bold,
+  links, code) and nothing else; as plain text, lists keep their numbers and bullets.
 - **No more notifications for moved tasks:** moving a card to another column in Task Manager
   still updates everyone's board live, but no longer lands in the bell or sends a push. A new
   task still does.
