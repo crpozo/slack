@@ -867,6 +867,22 @@ describe("channel rename", () => {
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
   });
 
+  it("sets a channel's project status (Phase 81), for whoever may edit it", async () => {
+    await update({ projectStatus: "standby" }, BOB);
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+    await update({ projectStatus: "paused" });
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "BAD_REQUEST" });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+    await update({ projectStatus: "standby" });
+    const input = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+    expect(input?.UpdateExpression).toBe("SET #projectStatus = :projectStatus");
+    expect(input?.ExpressionAttributeValues).toEqual({ ":projectStatus": "standby" });
+    // A channel with no status stored is active already: nothing to write.
+    ddbMock.resetHistory();
+    await update({ projectStatus: "active" });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+  });
+
   it("marks a channel informational (its own sidebar section), or not, for whoever may edit it", async () => {
     await update({ informational: true }, BOB);
     expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });

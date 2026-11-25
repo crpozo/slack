@@ -57,6 +57,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Added
 
+- **Project status on channels:** a channel is **Active**, **Standby** or **Completed**. Standby
+  shows an amber dot and Completed a green one right after its name in the sidebar, wherever
+  the channel is already listed (no new section); active channels show none. Its creator or an
+  admin changes it from the channel's ⋯ menu (**Mark as…**) or from **Edit channel** (**Project
+  status**), and the dot changes at once, for everyone.
 - **A Marketing section in the sidebar:** channels for campaigns, content and leads get their
   own section. Open a channel's ⋯ menu and choose **Move to Marketing** (or **Move to
   Channels** to take it back); it's stored on the channel, so everyone sees it there.

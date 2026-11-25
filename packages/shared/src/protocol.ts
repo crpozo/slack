@@ -201,6 +201,18 @@ export interface ReplySnapshot {
 export type ChannelType = "public" | "private" | "dm";
 export type ChannelVisibility = Extract<ChannelType, "public" | "private">;
 
+/**
+ * Where a channel's project stands (Phase 81): the sidebar shows it as a
+ * colored dot after the channel's name, in whatever section it's listed.
+ */
+export const PROJECT_STATUSES = ["active", "standby", "completed"] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+export const DEFAULT_PROJECT_STATUS: ProjectStatus = "active";
+/** A channel's status: `active` until someone says otherwise (older rows have none). */
+export function projectStatusOf(channel: Pick<Channel, "projectStatus">): ProjectStatus {
+  return channel.projectStatus ?? DEFAULT_PROJECT_STATUS;
+}
+
 export interface Channel {
   channelId: string;
   /** Human-readable name as typed ("Web Design"); for DMs, the channel id. */
@@ -244,6 +256,11 @@ export interface Channel {
    * (campaigns, content, leads), apart from the project channels.
    */
   marketing?: boolean;
+  /**
+   * Where its project stands (Phase 81); absent means `active`. Read it with
+   * `projectStatusOf`.
+   */
+  projectStatus?: ProjectStatus;
   /**
    * Read watermarks: per user, the newest message `sk` they have seen (and
    * when). One row per channel, however many messages: a message is read by
@@ -754,6 +771,8 @@ export const ChannelUpdateActionSchema = z
     informational: z.boolean().optional(),
     /** In the Marketing section, or a regular channel again. */
     marketing: z.boolean().optional(),
+    /** Where its project stands: the colored dot after its name in the sidebar. */
+    projectStatus: z.enum(PROJECT_STATUSES).optional(),
   })
   .refine(
     (a) =>
@@ -764,7 +783,8 @@ export const ChannelUpdateActionSchema = z
       a.board !== undefined ||
       a.archived !== undefined ||
       a.informational !== undefined ||
-      a.marketing !== undefined,
+      a.marketing !== undefined ||
+      a.projectStatus !== undefined,
     "nothing to update",
   );
 

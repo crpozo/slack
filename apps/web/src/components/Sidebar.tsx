@@ -6,7 +6,10 @@ import {
   canEditChannel,
   dmChannelId,
   MAX_UNREAD_COUNT,
+  PROJECT_STATUSES,
+  projectStatusOf,
   type Channel,
+  type ProjectStatus,
 } from "@mindfultech/shared";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -45,6 +48,7 @@ import { selectUnread, useChat, useNameOf } from "../store";
 import { useNewsInsights } from "../store/newsInsights";
 import { Avatar, PresenceDot, StatusBadge } from "./Avatar";
 import { ChannelIcon } from "./ChannelIcon";
+import { PROJECT_STATUS_LABELS, ProjectStatusDot } from "./ProjectStatusDot";
 import { ArchiveChannelModal, DeleteChannelModal, EditChannelModal } from "./ChannelModals";
 import { Modal } from "./Modal";
 import { NotificationBell } from "./NotificationBell";
@@ -137,6 +141,8 @@ interface NavItemProps {
   menu?: RowMenuItem[];
   /** Pinned to the top of its list (a pin next to the name). */
   pinned?: boolean;
+  /** A channel's project status: a colored dot right after its name. */
+  status?: ProjectStatus;
   /** Drag to reorder (Phase 53, channels on desktop); `over`: a row is being dropped here. */
   drag?: {
     onDragStart: () => void;
@@ -225,6 +231,7 @@ function NavItem({
   onClick,
   menu,
   pinned = false,
+  status,
   drag,
 }: Readonly<NavItemProps>) {
   let tone = "text-ink-secondary hover:bg-surface-hover hover:text-ink";
@@ -279,6 +286,7 @@ function NavItem({
       >
         <span className="flex shrink-0 items-center justify-center">{icon}</span>
         {!compact && <span className="truncate">{label}</span>}
+        {status && !compact && <ProjectStatusDot status={status} />}
         {pinned && !compact && (
           <PinIcon className="shrink-0 text-xs text-ink-secondary" aria-label="Pinned" />
         )}
@@ -467,6 +475,7 @@ function PhoneRow({
   faded = false,
   chip,
   pinned = false,
+  status,
   onClick,
   menu,
 }: Readonly<{
@@ -480,6 +489,8 @@ function PhoneRow({
   /** A small label after the name (Apps: "APP"). */
   chip?: string;
   pinned?: boolean;
+  /** A channel's project status: a colored dot right after its name. */
+  status?: ProjectStatus;
   onClick: () => void;
   menu?: RowMenuItem[];
 }>) {
@@ -499,6 +510,7 @@ function PhoneRow({
       >
         <span className="flex h-9 w-9 shrink-0 items-center justify-center">{icon}</span>
         <span className="truncate">{label}</span>
+        {status && <ProjectStatusDot status={status} className="h-2.5 w-2.5" />}
         {chip && (
           <span className="shrink-0 rounded-md bg-surface-hover px-1.5 py-0.5 text-xs font-semibold tracking-wide text-ink-secondary">
             {chip}
@@ -1004,6 +1016,22 @@ export function Sidebar({
           onSelect: () => chat.updateChannel(c.channelId, { marketing: !marketing }),
         });
       }
+      // Phase 81: where its project stands (the dot after its name), without leaving the list.
+      if (!c.archived) {
+        const current = projectStatusOf(c);
+        for (const status of PROJECT_STATUSES) {
+          if (status === current) continue;
+          items.push({
+            label: `Mark as ${PROJECT_STATUS_LABELS[status]}`,
+            icon: (
+              <span className="flex w-4 justify-center">
+                <ProjectStatusDot status={status} always />
+              </span>
+            ),
+            onSelect: () => chat.setProjectStatus(c.channelId, status),
+          });
+        }
+      }
     }
     // Its creator or an admin; archived channels live under Archived already.
     if (me && !c.archived && canArchiveChannel(c, me.userId, me.role)) {
@@ -1087,6 +1115,7 @@ export function Sidebar({
         title={channelTitle(c)}
         unread={unread[c.channelId] ?? 0}
         urgent={!!mentioned[c.channelId]}
+        status={projectStatusOf(c)}
         onClick={() => navigate(`/app/${c.channelId}`)}
         menu={channelMenu(c)}
       />
@@ -1272,6 +1301,7 @@ export function Sidebar({
       active={c.channelId === activeChannelId}
       unread={c.channelId === activeChannelId ? 0 : (unread[c.channelId] ?? 0)}
       urgent={!!mentioned[c.channelId]}
+      status={projectStatusOf(c)}
       onClick={() => navigate(`/app/${c.channelId}`)}
       menu={channelMenu(c)}
     />

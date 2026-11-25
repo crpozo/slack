@@ -3,12 +3,14 @@ import {
   dmChannelId,
   isDmChannel,
   MAX_PINNED_CHATS,
+  projectStatusOf,
   pushLevelOf,
   type BoardEvent,
   type CalendarPushEvent,
   type CallEvent,
   type ChannelVisibility,
   type ProjectBoard,
+  type ProjectStatus,
   type ErrorCode,
   type Message,
   type PresignAction,
@@ -113,6 +115,8 @@ export interface ChannelEdit {
   informational?: boolean;
   /** In the Marketing section, or a regular channel again. */
   marketing?: boolean;
+  /** Where its project stands: the colored dot after its name in the sidebar. */
+  projectStatus?: ProjectStatus;
   board?: ProjectBoard;
 }
 
@@ -836,6 +840,19 @@ class ChatController {
       Object.entries(fields).map(([k, v]) => [k, typeof v === "string" ? v.trim() : v]),
     ) as ChannelEdit;
     this.client?.send("channel", { op: "update", channelId, ...trimmed });
+  }
+
+  /**
+   * Sets where a channel's project stands (its creator or an admin). Applied
+   * at once, so the sidebar's dot changes with the click; the server's
+   * `channel.updated` confirms it, for you and everyone else.
+   */
+  setProjectStatus(channelId: string, projectStatus: ProjectStatus): void {
+    const s = useChat.getState();
+    const channel = s.channels.find((c) => c.channelId === channelId);
+    if (!channel || projectStatusOf(channel) === projectStatus) return;
+    s.updateChannel({ ...channel, projectStatus });
+    this.updateChannel(channelId, { projectStatus });
   }
 
   /**

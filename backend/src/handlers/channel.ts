@@ -17,6 +17,7 @@ import {
   ChannelActionSchema,
   channelSlug,
   compareIds,
+  DEFAULT_PROJECT_STATUS,
   dmChannelId,
   GENERAL_CHANNEL_ID,
   isChannelMember,
@@ -25,6 +26,7 @@ import {
   isLegacyChannel,
   newChannelId,
   parseAction,
+  projectStatusOf,
   slugifyChannelName,
   type Board,
   type Channel,
@@ -205,6 +207,7 @@ async function createChannel(action: ActionOf<"create">, caller: Caller) {
     createdBy: caller.userId,
     createdAt: Date.now(),
     archived: false,
+    projectStatus: DEFAULT_PROJECT_STATUS,
     ...(action.visibility === "private" && { members: [caller.userId] }),
   };
   let newBoard: Board | undefined;
@@ -622,6 +625,7 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
     board: "board" in action ? action.board : undefined,
     informational: "informational" in action ? action.informational : undefined,
     marketing: "marketing" in action ? action.marketing : undefined,
+    projectStatus: "projectStatus" in action ? action.projectStatus : undefined,
   };
   const renaming = fields.name !== undefined && fields.name !== channel.name;
   const allowed = renaming
@@ -671,6 +675,10 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
   // Phase 80: in or out of the Marketing section.
   if (fields.marketing !== undefined && fields.marketing !== !!channel.marketing) {
     assign("marketing", fields.marketing);
+  }
+  // Phase 81: where its project stands (no status stored yet means active).
+  if (fields.projectStatus !== undefined && fields.projectStatus !== projectStatusOf(channel)) {
+    assign("projectStatus", fields.projectStatus);
   }
 
   // Project settings: a board to link or create, or turning the project off.

@@ -8,9 +8,12 @@ import {
   MAX_CHANNEL_NAME_LENGTH,
   MAX_CHANNEL_TOPIC_LENGTH,
   PLAUSIBLE_EMAIL,
+  PROJECT_STATUSES,
+  projectStatusOf,
   slugifyChannelName,
   type ChannelVisibility,
   type Channel,
+  type ProjectStatus,
 } from "@mindfultech/shared";
 import { useEffect, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -30,6 +33,7 @@ import { useChat } from "../store";
 import { useTasks } from "../store/tasks";
 import { ArchiveIcon, GlobeIcon, ExternalIcon, KanbanIcon, LockIcon } from "./icons";
 import { Modal, SecondaryButton } from "./Modal";
+import { PROJECT_STATUS_LABELS, ProjectStatusDot } from "./ProjectStatusDot";
 import { UserPicker } from "./UserPicker";
 
 /** Everyone in the directory except me and guests (who can't chat), sorted by display name. */
@@ -584,12 +588,14 @@ export function EditChannelModal({
   const [topic, setTopic] = useState(channel.topic ?? "");
   const [description, setDescription] = useState(channel.description ?? "");
   const [project, setProject] = useState<ProjectChoice>(() => projectChoiceOf(channel));
+  const [status, setStatus] = useState<ProjectStatus>(() => projectStatusOf(channel));
 
   const fields: ChannelEdit = {};
   if (canRename && name.trim() !== channel.name) fields.name = name;
   if (topic.trim() !== (channel.topic ?? "")) fields.topic = topic;
   if (description.trim() !== (channel.description ?? "")) fields.description = description;
   Object.assign(fields, projectEdit(channel, project));
+  if (status !== projectStatusOf(channel)) fields.projectStatus = status;
   const projectOk = projectChoiceValid(project);
   const parsed = ChannelUpdateActionSchema.safeParse({
     action: "channel",
@@ -603,7 +609,10 @@ export function EditChannelModal({
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!parsed.success || !changed) return;
-    chat.updateChannel(channel.channelId, fields);
+    // The status alone changes at once (the sidebar's dot); the rest waits for the server.
+    const { projectStatus, ...rest } = fields;
+    if (projectStatus) chat.setProjectStatus(channel.channelId, projectStatus);
+    if (Object.keys(rest).length > 0) chat.updateChannel(channel.channelId, rest);
     onClose();
   }
 
@@ -735,6 +744,29 @@ export function EditChannelModal({
           />
           <p className="text-right text-xs tabular-nums text-ink-secondary">
             {description.length}/{MAX_CHANNEL_DESCRIPTION_LENGTH}
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="channel-project-status" className="text-sm font-medium text-ink">
+            Project status
+          </label>
+          <div className="flex items-center gap-2">
+            <ProjectStatusDot status={status} always />
+            <select
+              id="channel-project-status"
+              className="input"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as ProjectStatus)}
+            >
+              {PROJECT_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {PROJECT_STATUS_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="text-xs text-ink-secondary">
+            Standby and Completed show as a colored dot after the name in the sidebar.
           </p>
         </div>
         <ProjectSection value={project} onChange={setProject} channelName={name} />

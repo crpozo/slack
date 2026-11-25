@@ -239,6 +239,8 @@ describe("archiving from the sidebar's ⋯ menu", () => {
       "Edit channel",
       "Move to Knowledge",
       "Move to Marketing",
+      "Mark as Standby",
+      "Mark as Completed",
       "Archive channel",
       "Delete channel",
     ]);
