@@ -2,6 +2,7 @@ import {
   canArchiveChannel,
   canEditChannel,
   canRenameChannel,
+  canSetProjectStatus,
   ChannelNameSchema,
   ChannelUpdateActionSchema,
   MAX_CHANNEL_DESCRIPTION_LENGTH,
@@ -584,6 +585,8 @@ export function EditChannelModal({
   const me = useChat((s) => s.me);
   const canEdit = !!me && canEditChannel(channel, me.userId, me.role);
   const canRename = !!me && canRenameChannel(channel, me.userId, me.role);
+  const canSetStatus =
+    !!me && !channel.archived && canSetProjectStatus(channel, me.userId, me.role);
   const [name, setName] = useState(channel.name);
   const [topic, setTopic] = useState(channel.topic ?? "");
   const [description, setDescription] = useState(channel.description ?? "");
@@ -644,6 +647,35 @@ export function EditChannelModal({
         <p className="mt-4 text-xs text-ink-secondary">
           Only the channel's creator or an admin can edit these.
         </p>
+        {canSetStatus && (
+          <div className="mt-4 space-y-1.5 border-t border-line pt-4">
+            <label htmlFor="channel-project-status" className="text-sm font-medium text-ink">
+              Project status
+            </label>
+            <div className="flex items-center gap-2">
+              <ProjectStatusDot status={status} always />
+              <select
+                id="channel-project-status"
+                className="input"
+                value={status}
+                onChange={(e) => {
+                  const next = e.target.value as ProjectStatus;
+                  setStatus(next);
+                  chat.setProjectStatus(channel.channelId, next);
+                }}
+              >
+                {PROJECT_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {PROJECT_STATUS_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-ink-secondary">
+              Any member of the channel can change it; everyone sees it at once.
+            </p>
+          </div>
+        )}
       </Modal>
     );
   }

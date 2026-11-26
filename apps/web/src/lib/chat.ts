@@ -126,7 +126,9 @@ class ChatController {
   private usersFetchedAt = 0;
   private readonly cleanups: Array<() => void> = [];
   private readonly presigns = new Map<string, Deferred<PresignResultEvent>>();
-  private pendingCreate: (Deferred<string> & { name: string }) | null = null;
+  private pendingCreate: (Deferred<string> & { name: string; requestId: string }) | null = null;
+  /** Project statuses shown before the server confirmed them, by channel. */
+  private readonly unconfirmedStatus = new Set<string>();
   private pendingName: (Deferred<void> & { name: string }) | null = null;
   /** A sent message's timeout, and how its `transmit` settles (confirmed, or not). */
   private readonly sendTimers = new Map<
@@ -300,7 +302,21 @@ class ChatController {
         s.setTyping(channelId, userId, Date.now() + TYPING_SHOW_MS);
       }),
 
-      client.on("channel.updated", ({ channel }) => store().updateChannel(channel)),
+      // A channel someone created (or yours, on another device): into the
+      // sidebar now. With your `requestId`, it's the answer to your create.
+      client.on("channel.created", ({ channel, requestId }) => {
+        store().addChannel(channel);
+        const pending = this.pendingCreate;
+        if (pending && requestId === pending.requestId) {
+          clearTimeout(pending.timer);
+          this.pendingCreate = null;
+          pending.resolve(channel.channelId);
+        }
+      }),
+      client.on("channel.updated", ({ channel }) => {
+        this.unconfirmedStatus.delete(channel.channelId);
+        store().updateChannel(channel);
+      }),
       client.on("user.prefs", ({ pinned, channelOrder }) => {
         store().setPinned(pinned);
         // Older servers don't send it: keep what we have.
@@ -350,7 +366,11 @@ class ChatController {
           clearTimeout(presign.timer);
           this.presigns.delete(requestId);
           presign.reject(new Error(text));
-        } else if (code === "CHANNEL_NAME_TAKEN" && this.pendingCreate) {
+        } else if (
+          this.pendingCreate &&
+          // Its own error; a server from before `requestId` only names the taken name.
+          (requestId === this.pendingCreate.requestId || code === "CHANNEL_NAME_TAKEN")
+        ) {
           clearTimeout(this.pendingCreate.timer);
           this.pendingCreate.reject(new Error(text));
           this.pendingCreate = null;
@@ -358,6 +378,12 @@ class ChatController {
           onSessionExpired();
         } else {
           store().showToast(text, "error");
+          // A project status shown ahead of the server may be the one refused:
+          // back to what the server has.
+          if (this.unconfirmedStatus.size > 0) {
+            this.unconfirmedStatus.clear();
+            client.send("channel", { op: "list" });
+          }
         }
       }),
     );
@@ -813,9 +839,11 @@ class ChatController {
         this.pendingCreate = null;
         reject(new Error("The server didn't respond. Please try again."));
       }, REQUEST_TIMEOUT_MS);
-      this.pendingCreate = { name, resolve, reject, timer };
+      const requestId = ulid();
+      this.pendingCreate = { name, requestId, resolve, reject, timer };
       client.send("channel", {
         op: "create",
+        requestId,
         name,
         visibility,
         ...(board && { isProject: true, board }),
@@ -843,7 +871,7 @@ class ChatController {
   }
 
   /**
-   * Sets where a channel's project stands (its creator or an admin). Applied
+   * Sets where a channel's project stands (any member of it). Applied
    * at once, so the sidebar's dot changes with the click; the server's
    * `channel.updated` confirms it, for you and everyone else.
    */
@@ -852,6 +880,7 @@ class ChatController {
     const channel = s.channels.find((c) => c.channelId === channelId);
     if (!channel || projectStatusOf(channel) === projectStatus) return;
     s.updateChannel({ ...channel, projectStatus });
+    this.unconfirmedStatus.add(channelId);
     this.updateChannel(channelId, { projectStatus });
   }
 

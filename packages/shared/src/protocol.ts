@@ -577,6 +577,18 @@ export function canEditChannel(
   return channel.createdBy === userId || role === "admin";
 }
 
+/**
+ * Who may set `channel`'s project status (the sidebar's dot): anyone on the
+ * team who is in it (a public channel: everyone). Never a DM, never a guest.
+ */
+export function canSetProjectStatus(
+  channel: ChannelRuleFields,
+  userId: string,
+  role: Role | undefined,
+): boolean {
+  return channel.type !== "dm" && role !== "guest" && isChannelMember(channel, userId);
+}
+
 /** Who may rename `channel`: its creator or an admin (a member of it); never `#general` or a DM. */
 export function canRenameChannel(
   channel: ChannelRuleFields,
@@ -674,6 +686,8 @@ export const ChannelCreateActionSchema = z.object({
   /** Marks the channel as a project; `board` says which board (required then). */
   isProject: z.boolean().default(false),
   board: ProjectBoardSchema.optional(),
+  /** Echoed in the creator's `channel.created`, or in the error if it fails. */
+  requestId: z.string().min(1).max(64).optional(),
 });
 
 export const ChannelDmActionSchema = z.object({
@@ -1404,7 +1418,17 @@ export interface UserPrefsEvent {
   channelOrder?: string[];
 }
 
-/** A channel changed (renamed): its new row, for everyone who can see it. */
+/**
+ * A channel was created: its row, for everyone who can see it (a private one:
+ * its creator). `requestId` only on the connection that asked, as its answer.
+ */
+export interface ChannelCreatedEvent {
+  type: "channel.created";
+  channel: Channel;
+  requestId?: string;
+}
+
+/** A channel changed (name, topic, project status…): its new row, for everyone who can see it. */
 export interface ChannelUpdatedEvent {
   type: "channel.updated";
   channel: Channel;
@@ -1607,6 +1631,7 @@ export type ServerEvent =
   | UserListEvent
   | UserUpdatedEvent
   | UserPrefsEvent
+  | ChannelCreatedEvent
   | ChannelUpdatedEvent
   | UserConnectedEvent
   | UserDisconnectedEvent

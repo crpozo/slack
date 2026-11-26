@@ -4,6 +4,7 @@ import {
   canArchiveChannel,
   canDeleteChannel,
   canEditChannel,
+  canSetProjectStatus,
   dmChannelId,
   MAX_UNREAD_COUNT,
   PROJECT_STATUSES,
@@ -1016,21 +1017,22 @@ export function Sidebar({
           onSelect: () => chat.updateChannel(c.channelId, { marketing: !marketing }),
         });
       }
-      // Phase 81: where its project stands (the dot after its name), without leaving the list.
-      if (!c.archived) {
-        const current = projectStatusOf(c);
-        for (const status of PROJECT_STATUSES) {
-          if (status === current) continue;
-          items.push({
-            label: `Mark as ${PROJECT_STATUS_LABELS[status]}`,
-            icon: (
-              <span className="flex w-4 justify-center">
-                <ProjectStatusDot status={status} always />
-              </span>
-            ),
-            onSelect: () => chat.setProjectStatus(c.channelId, status),
-          });
-        }
+    }
+    // Phase 81: where its project stands (the dot after its name), for every
+    // member of the channel, without leaving the list.
+    if (me && !c.archived && canSetProjectStatus(c, me.userId, me.role)) {
+      const current = projectStatusOf(c);
+      for (const status of PROJECT_STATUSES) {
+        if (status === current) continue;
+        items.push({
+          label: `Mark as ${PROJECT_STATUS_LABELS[status]}`,
+          icon: (
+            <span className="flex w-4 justify-center">
+              <ProjectStatusDot status={status} always />
+            </span>
+          ),
+          onSelect: () => chat.setProjectStatus(c.channelId, status),
+        });
       }
     }
     // Its creator or an admin; archived channels live under Archived already.

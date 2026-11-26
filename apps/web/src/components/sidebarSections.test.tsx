@@ -113,14 +113,18 @@ describe("a channel's project status, a dot after its name (Phase 81)", () => {
     expect(dot("ClinicAI")).toBeUndefined();
   });
 
-  it("isn't offered to someone who can't edit the channel", () => {
+  it("is offered to every member of the channel, not only whoever may edit it", () => {
+    const send = vi.spyOn(chat, "updateChannel").mockImplementation(() => {});
     useChat.setState((s) => ({
       me: { ...ME, role: "member" as const },
       channels: s.channels.map((c) => ({ ...c, createdBy: "u-other" })),
     }));
     renderSidebar();
     fireEvent.click(screen.getByRole("button", { name: "More options for ClinicAI" }));
-    expect(screen.queryByRole("menuitem", { name: /Mark as/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Edit channel/ })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Mark as Completed/ }));
+    expect(send).toHaveBeenCalledWith("ch_clinic", { projectStatus: "completed" });
+    expect(dot("ClinicAI")).toBe("completed");
   });
 });
 

@@ -14,6 +14,7 @@ import {
   canArchiveChannel,
   canEditChannel,
   canRenameChannel,
+  canSetProjectStatus,
   ChannelActionSchema,
   channelSlug,
   compareIds,
@@ -192,12 +193,28 @@ async function announceBoard(board: Board): Promise<void> {
   }
 }
 
+/**
+ * Creates a channel. Its creator always gets an answer tied to their
+ * `requestId`: `channel.created`, or the error (whatever went wrong), so the
+ * app never waits for a reply that isn't coming. Everyone else who can see
+ * the channel gets `channel.created` too.
+ */
 async function createChannel(action: ActionOf<"create">, caller: Caller) {
+  try {
+    return await createChannelRow(action, caller);
+  } catch (err) {
+    log.error("channel create failed", { userId: caller.userId, ...errorFields(err) });
+    return replyError(caller.connectionId, "INTERNAL_ERROR", undefined, action.requestId);
+  }
+}
+
+async function createChannelRow(action: ActionOf<"create">, caller: Caller) {
+  const { requestId } = action;
   // The readable name is kept as typed ("Web Design"); uniqueness is on its slug.
   const slug = slugifyChannelName(action.name);
   const existing = await scanChannels();
   if (existing.some((c) => c.type !== "dm" && channelSlug(c) === slug)) {
-    return replyError(caller.connectionId, "CHANNEL_NAME_TAKEN");
+    return replyError(caller.connectionId, "CHANNEL_NAME_TAKEN", undefined, requestId);
   }
   const channel: Channel = {
     channelId: newChannelId(),
@@ -213,7 +230,9 @@ async function createChannel(action: ActionOf<"create">, caller: Caller) {
   let newBoard: Board | undefined;
   if (action.isProject) {
     const project = await resolveProjectBoard(action.board, caller, channel);
-    if (!project.ok) return replyError(caller.connectionId, project.code, project.message);
+    if (!project.ok) {
+      return replyError(caller.connectionId, project.code, project.message, requestId);
+    }
     channel.isProject = true;
     channel.linkedBoardId = project.linkedBoardId;
     newBoard = project.newBoard;
@@ -243,8 +262,26 @@ async function createChannel(action: ActionOf<"create">, caller: Caller) {
     userId: caller.userId,
     ...(channel.isProject && { boardId: channel.linkedBoardId, newBoard: !!newBoard }),
   });
-  if (newBoard) await announceBoard(newBoard);
-  await broadcastChannelList();
+  // The creator's answer first, on its own: nothing after it can leave them waiting.
+  await reply(caller.connectionId, { type: "channel.created", channel, requestId });
+  // Then everyone else who can see it (and the creator's other devices). Best
+  // effort from here: the channel exists and its creator knows.
+  try {
+    if (newBoard) await announceBoard(newBoard);
+    const inAudience = channelAudience(channel);
+    await broadcast((connection) =>
+      connection.connectionId !== caller.connectionId && inAudience(connection)
+        ? { type: "channel.created", channel }
+        : null,
+    );
+    // Apps from before `channel.created` learn of it from the list.
+    await broadcastChannelList();
+  } catch (err) {
+    log.error("channel create announce failed", {
+      channelId: channel.channelId,
+      ...errorFields(err),
+    });
+  }
   return ok();
 }
 
@@ -628,17 +665,33 @@ async function updateChannel(action: ActionOf<"update"> | ActionOf<"rename">, ca
     projectStatus: "projectStatus" in action ? action.projectStatus : undefined,
   };
   const renaming = fields.name !== undefined && fields.name !== channel.name;
-  const allowed = renaming
-    ? canRenameChannel(channel, caller.userId, caller.role)
-    : canEditChannel(channel, caller.userId, caller.role);
-  if (!allowed) {
-    return replyError(
-      caller.connectionId,
-      "FORBIDDEN",
-      renaming
-        ? "Only the channel creator or an admin can rename it"
-        : "Only the channel creator or an admin can edit it",
-    );
+  // Phase 81: the project status alone is for every member of the channel;
+  // anything else in the same update still needs its creator or an admin.
+  const statusOnly =
+    fields.projectStatus !== undefined &&
+    archiving === undefined &&
+    Object.entries(fields).every(([key, value]) => key === "projectStatus" || value === undefined);
+  if (statusOnly) {
+    if (!canSetProjectStatus(channel, caller.userId, caller.role)) {
+      return replyError(
+        caller.connectionId,
+        "FORBIDDEN",
+        "Only the channel's members can change its project status",
+      );
+    }
+  } else {
+    const allowed = renaming
+      ? canRenameChannel(channel, caller.userId, caller.role)
+      : canEditChannel(channel, caller.userId, caller.role);
+    if (!allowed) {
+      return replyError(
+        caller.connectionId,
+        "FORBIDDEN",
+        renaming
+          ? "Only the channel creator or an admin can rename it"
+          : "Only the channel creator or an admin can edit it",
+      );
+    }
   }
   const names: Record<string, string> = {};
   const values: Record<string, unknown> = {};

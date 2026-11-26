@@ -44,6 +44,7 @@ const CALL_MEDIA_EVENTS = ["call.offer", "call.answer", "call.ice_candidate", "c
  */
 const GUEST_CHAT_EVENTS: ReadonlySet<string> = new Set([
   "channel.list",
+  "channel.created",
   "channel.updated",
   "channel.deleted",
   "channel.read",

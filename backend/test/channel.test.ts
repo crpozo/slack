@@ -220,8 +220,72 @@ describe("channel", () => {
         .map(([id, e]) => [id, e.type])
         .sort(([a], [b]) => compareIds(a ?? "", b ?? "")),
     ).toEqual([
+      ["conn-alice", "channel.created"],
       ["conn-alice", "channel.list"],
+      ["conn-bob", "channel.created"],
       ["conn-bob", "channel.list"],
+    ]);
+  });
+
+  it("create answers its creator with channel.created and their requestId, before anything else", async () => {
+    mockScans([general]);
+    ddbMock.on(PutCommand).resolves({});
+
+    await handler(
+      wsEvent("channel", {
+        action: "channel",
+        op: "create",
+        name: "NaturalVitality",
+        requestId: "r1",
+      }),
+    );
+
+    const [first, ...rest] = sentEvents();
+    expect(first).toEqual([
+      "conn-alice",
+      {
+        type: "channel.created",
+        requestId: "r1",
+        channel: expect.objectContaining({
+          name: "NaturalVitality",
+          type: "private",
+          members: [ALICE.userId],
+          projectStatus: "active",
+        }),
+      },
+    ]);
+    // Private: nobody else hears of it (Bob only gets his own, unchanged list).
+    expect(rest.filter(([, e]) => e.type === "channel.created")).toEqual([]);
+  });
+
+  it("create still answers its creator when telling everyone else fails", async () => {
+    ddbMock.on(ScanCommand, { TableName: "slack-test-channels" }).resolves({ Items: [general] });
+    ddbMock
+      .on(ScanCommand, { TableName: "slack-test-connections" })
+      .rejects(new Error("throttled"));
+    ddbMock.on(PutCommand).resolves({});
+
+    const result = await handler(
+      wsEvent("channel", { action: "channel", op: "create", name: "dev", requestId: "r2" }),
+    );
+
+    expect(result.statusCode).toBe(200);
+    expect(sentEvents()).toEqual([
+      ["conn-alice", expect.objectContaining({ type: "channel.created", requestId: "r2" })],
+    ]);
+  });
+
+  it("create reports a failure to its creator with their requestId (never silence)", async () => {
+    mockScans([general]);
+    ddbMock.on(PutCommand).rejects(new Error("boom"));
+
+    const result = await handler(
+      wsEvent("channel", { action: "channel", op: "create", name: "dev", requestId: "r3" }),
+    );
+
+    expect(result.statusCode).toBe(500);
+    expect(sentEvents()).toEqual([
+      ["conn-alice", { type: "error", code: "INTERNAL_ERROR", requestId: "r3" }],
     ]);
   });
 
@@ -867,9 +931,21 @@ describe("channel rename", () => {
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
   });
 
-  it("sets a channel's project status (Phase 81), for whoever may edit it", async () => {
-    await update({ projectStatus: "standby" }, BOB);
+  it("sets a channel's project status (Phase 81): any member, not only whoever may edit it", async () => {
+    // Bob is in the channel but neither made it nor is an admin.
+    await update({ projectStatus: "completed" }, BOB);
+    expect(ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input.ExpressionAttributeValues).toEqual(
+      { ":projectStatus": "completed" },
+    );
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ type: "channel.updated" });
+    // With anything else in the same update, the usual rule stands.
+    ddbMock.resetHistory();
+    await update({ projectStatus: "standby", topic: "Mine now" }, BOB);
     expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "FORBIDDEN" });
+    // Someone outside a private channel can't tell it exists.
+    await update({ projectStatus: "standby" }, { userId: "u-carol", email: "carol@example.com" });
+    expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "CHANNEL_NOT_FOUND" });
+    expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
     await update({ projectStatus: "paused" });
     expect(sentEvents().at(-1)?.[1]).toMatchObject({ code: "BAD_REQUEST" });
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
