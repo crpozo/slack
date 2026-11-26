@@ -73,6 +73,61 @@ const names = (list: HTMLElement) =>
     .getAllByRole("listitem")
     .map((li) => li.textContent?.trim());
 
+describe("a channel's project status, a dot after its name (Phase 81)", () => {
+  const withStatus = (id: string, projectStatus: Channel["projectStatus"]) =>
+    useChat.setState((s) => ({
+      channels: s.channels.map((c) => (c.channelId === id ? { ...c, projectStatus } : c)),
+    }));
+  const row = (name: string) =>
+    screen.getByRole("button", { name: `More options for ${name}` }).closest("li")!;
+  const dot = (name: string) =>
+    row(name).querySelector("[data-project-status]")?.getAttribute("data-project-status");
+
+  it("shows standby and completed channels' dots where they already are, none when active", () => {
+    withStatus("ch_clinic", "standby");
+    withStatus("ch_web", "completed");
+    renderSidebar();
+    expect(dot("ClinicAI")).toBe("standby");
+    expect(dot("Paymerch Website")).toBe("completed");
+    expect(dot("general")).toBeUndefined();
+    expect(
+      within(row("ClinicAI")).getByRole("img", { name: "Project status: Standby" }),
+    ).toBeTruthy();
+    // Still under Channels: no section of its own.
+    const channels = screen.getByRole("heading", { name: "Channels" }).closest("section")!;
+    expect(within(channels).getByText("ClinicAI")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /standby|completed/i })).toBeNull();
+  });
+
+  it("changes from the channel's menu, and the dot follows at once", () => {
+    const send = vi.spyOn(chat, "updateChannel").mockImplementation(() => {});
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: "More options for ClinicAI" }));
+    expect(screen.queryByRole("menuitem", { name: /Mark as Active/ })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Mark as Standby/ }));
+    expect(send).toHaveBeenCalledWith("ch_clinic", { projectStatus: "standby" });
+    expect(dot("ClinicAI")).toBe("standby");
+    fireEvent.click(screen.getByRole("button", { name: "More options for ClinicAI" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Mark as Active/ }));
+    expect(send).toHaveBeenLastCalledWith("ch_clinic", { projectStatus: "active" });
+    expect(dot("ClinicAI")).toBeUndefined();
+  });
+
+  it("is offered to every member of the channel, not only whoever may edit it", () => {
+    const send = vi.spyOn(chat, "updateChannel").mockImplementation(() => {});
+    useChat.setState((s) => ({
+      me: { ...ME, role: "member" as const },
+      channels: s.channels.map((c) => ({ ...c, createdBy: "u-other" })),
+    }));
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: "More options for ClinicAI" }));
+    expect(screen.queryByRole("menuitem", { name: /Edit channel/ })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Mark as Completed/ }));
+    expect(send).toHaveBeenCalledWith("ch_clinic", { projectStatus: "completed" });
+    expect(dot("ClinicAI")).toBe("completed");
+  });
+});
+
 describe("the sidebar's Marketing section and the Tools group (Phase 80)", () => {
   it("has a Marketing section to move channels into, and lists the ones marked", () => {
     const update = vi.spyOn(chat, "updateChannel").mockImplementation(() => {});

@@ -201,6 +201,18 @@ export interface ReplySnapshot {
 export type ChannelType = "public" | "private" | "dm";
 export type ChannelVisibility = Extract<ChannelType, "public" | "private">;
 
+/**
+ * Where a channel's project stands (Phase 81): the sidebar shows it as a
+ * colored dot after the channel's name, in whatever section it's listed.
+ */
+export const PROJECT_STATUSES = ["active", "standby", "completed"] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+export const DEFAULT_PROJECT_STATUS: ProjectStatus = "active";
+/** A channel's status: `active` until someone says otherwise (older rows have none). */
+export function projectStatusOf(channel: Pick<Channel, "projectStatus">): ProjectStatus {
+  return channel.projectStatus ?? DEFAULT_PROJECT_STATUS;
+}
+
 export interface Channel {
   channelId: string;
   /** Human-readable name as typed ("Web Design"); for DMs, the channel id. */
@@ -244,6 +256,11 @@ export interface Channel {
    * (campaigns, content, leads), apart from the project channels.
    */
   marketing?: boolean;
+  /**
+   * Where its project stands (Phase 81); absent means `active`. Read it with
+   * `projectStatusOf`.
+   */
+  projectStatus?: ProjectStatus;
   /**
    * Read watermarks: per user, the newest message `sk` they have seen (and
    * when). One row per channel, however many messages: a message is read by
@@ -560,6 +577,18 @@ export function canEditChannel(
   return channel.createdBy === userId || role === "admin";
 }
 
+/**
+ * Who may set `channel`'s project status (the sidebar's dot): anyone on the
+ * team who is in it (a public channel: everyone). Never a DM, never a guest.
+ */
+export function canSetProjectStatus(
+  channel: ChannelRuleFields,
+  userId: string,
+  role: Role | undefined,
+): boolean {
+  return channel.type !== "dm" && role !== "guest" && isChannelMember(channel, userId);
+}
+
 /** Who may rename `channel`: its creator or an admin (a member of it); never `#general` or a DM. */
 export function canRenameChannel(
   channel: ChannelRuleFields,
@@ -657,6 +686,8 @@ export const ChannelCreateActionSchema = z.object({
   /** Marks the channel as a project; `board` says which board (required then). */
   isProject: z.boolean().default(false),
   board: ProjectBoardSchema.optional(),
+  /** Echoed in the creator's `channel.created`, or in the error if it fails. */
+  requestId: z.string().min(1).max(64).optional(),
 });
 
 export const ChannelDmActionSchema = z.object({
@@ -754,6 +785,8 @@ export const ChannelUpdateActionSchema = z
     informational: z.boolean().optional(),
     /** In the Marketing section, or a regular channel again. */
     marketing: z.boolean().optional(),
+    /** Where its project stands: the colored dot after its name in the sidebar. */
+    projectStatus: z.enum(PROJECT_STATUSES).optional(),
   })
   .refine(
     (a) =>
@@ -764,7 +797,8 @@ export const ChannelUpdateActionSchema = z
       a.board !== undefined ||
       a.archived !== undefined ||
       a.informational !== undefined ||
-      a.marketing !== undefined,
+      a.marketing !== undefined ||
+      a.projectStatus !== undefined,
     "nothing to update",
   );
 
@@ -1384,7 +1418,17 @@ export interface UserPrefsEvent {
   channelOrder?: string[];
 }
 
-/** A channel changed (renamed): its new row, for everyone who can see it. */
+/**
+ * A channel was created: its row, for everyone who can see it (a private one:
+ * its creator). `requestId` only on the connection that asked, as its answer.
+ */
+export interface ChannelCreatedEvent {
+  type: "channel.created";
+  channel: Channel;
+  requestId?: string;
+}
+
+/** A channel changed (name, topic, project status…): its new row, for everyone who can see it. */
 export interface ChannelUpdatedEvent {
   type: "channel.updated";
   channel: Channel;
@@ -1587,6 +1631,7 @@ export type ServerEvent =
   | UserListEvent
   | UserUpdatedEvent
   | UserPrefsEvent
+  | ChannelCreatedEvent
   | ChannelUpdatedEvent
   | UserConnectedEvent
   | UserDisconnectedEvent

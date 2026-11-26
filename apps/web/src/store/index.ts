@@ -113,6 +113,8 @@ export interface ChatState {
   setChannels: (channels: Channel[], unread?: Record<string, number>) => void;
   /** `channel.updated` (renamed): replaces the row, keeping everything else. */
   updateChannel: (channel: Channel) => void;
+  /** `channel.created`: adds the channel to the list (or replaces its row). */
+  addChannel: (channel: Channel) => void;
   setPinned: (pinned: string[]) => void;
   setChannelOrder: (channelOrder: string[]) => void;
   /** `message.pinned` (Phase 38): the message's pin, and the channel's count. */
@@ -342,6 +344,15 @@ export const useChat = create<ChatState>()((set, get) => ({
     set((s) => ({
       channels: s.channels.map((c) => (c.channelId === channel.channelId ? channel : c)),
     })),
+
+  addChannel: (channel) =>
+    set((s) => {
+      const known = s.channels.some((c) => c.channelId === channel.channelId);
+      const channels = known
+        ? s.channels.map((c) => (c.channelId === channel.channelId ? channel : c))
+        : [...s.channels, channel];
+      return { channels, reads: readsOf(channels, s.reads) };
+    }),
 
   setPinned: (pinned) => set({ pinned }),
   setChannelOrder: (channelOrder) => set({ channelOrder }),
