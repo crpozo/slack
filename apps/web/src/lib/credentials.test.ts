@@ -11,7 +11,6 @@ describe("detectCredentials", () => {
   it.each([
     // Email + password (space or line break)
     ["admin@company.com MyP@ssw0rd", "email-password"],
-    ["carlos@mindfultech.ec\nTr0ub4dor&3", "email-password"],
     ["usuario: ana.perez@empresa.ec / Clave2024!", "email-password"],
     // Username + password
     ["root Tr0ub4dor&3", "user-password"],
@@ -31,6 +30,11 @@ describe("detectCredentials", () => {
     ["Pingüino2024!", "token"], // an accented password still counts
     ["sk-ant-api03-xY9fQ2mZ7pLk4rT8vW1", "token"],
     ["AKIAIOSFODNN7EXAMPLE", "token"],
+    ["P@ssw0rd2026!", "token"],
+    ["PASSWORD2026!", "token"], // no lowercase: three kinds all the same
+    ["hunter2!", "token"], // eight characters with its "!"
+    ["`Tr0ub4dor&3`", "token"],
+    ["the wifi password: Casa2024", "keyword"],
     // A URL carrying a login
     ["db: postgres://app:S3cr3tPw@db.internal:5432/main", "url"],
   ])("flags %j (%s)", (text, kind) => {
@@ -63,6 +67,17 @@ describe("detectCredentials", () => {
     "",
     "Meeting at 10:30, room B2",
     "I'll pass on that",
+    // A sentence that gets to a password: the whole message isn't a secret
+    "Here is the password: password123",
+    "the password is hunter22 but change it today",
+    "Remember to rotate the API key: AKIAIOSFODNN7EXAMPLE",
+    // Several lines: notes, Markdown, code, never one password
+    "carlos@mindfultech.ec\nTr0ub4dor&3",
+    "password: Casa2024\nuser: admin",
+    "# Setup\n\n- Set `API_KEY=sk-ant-api03-xY9fQ2mZ7pLk4rT8vW1`\n- **password**: Sup3rS3cret!\n\n```\nroot Tr0ub4dor&3\n```",
+    // Codes in capitals aren't passwords
+    "ISO-27001:2022",
+    "ISO/IEC-27001",
     // Accented letters are letters, not symbols
     "Averigüu",
     "Averigüe",
@@ -70,6 +85,23 @@ describe("detectCredentials", () => {
     "Pingüino",
   ])("leaves %j alone", (text) => {
     expect(detectCredentials(text)).toBe(false);
+  });
+
+  it("keeps to the length of a password or key: 8 to 200 characters", () => {
+    const key = (n: number) => "aB3$xY9!".repeat(Math.ceil(n / 8)).slice(0, n);
+    expect(detectCredentials(key(200))).toBe(true);
+    expect(detectCredentials(key(201))).toBe(false);
+    expect(detectCredentials("Ab1!xyz")).toBe(false);
+    // A long message with a label in it is a message.
+    expect(detectCredentials(`password: ${"word ".repeat(45)}Casa2024`)).toBe(false);
+    // A signed token (JWT) is longer than that and still one.
+    const jwt = `eyJhbGciOiJIUzI1NiJ9.eyJ${"c3ViIjoiMTIzNDU2Nzg5MCJ9".repeat(20)}.sig-_nature`;
+    expect(jwt.length).toBeGreaterThan(200);
+    expect(credentialKind(jwt)).toBe("token");
+  });
+
+  it("ignores the line break Enter leaves at the end", () => {
+    expect(credentialKind("P@ssw0rd2026!\n")).toBe("token");
   });
 
   it("measures randomness: mixed character kinds, not just length", () => {
