@@ -1063,8 +1063,28 @@ export interface TranscriptLine {
   raw: string;
 }
 
-const LINE =
-  /^\s*(?:[[(]?(\d{1,2}:\d{2}(?::\d{2})?)[\])]?\s*[-–]?\s*)?(?:([^:\n]{1,40}?):\s+)?(.*)$/;
+const LINE_TIME = /^[[(]?(\d{1,2}:\d{2}(?::\d{2})?)[\])]?/;
+
+/**
+ * "[10:30] Ana: hola" → time, speaker and text. Parsed by hand rather than with
+ * one regex: a lazy speaker group followed by `\s+` backtracks super-linearly.
+ */
+function splitLine(line: string): [time: string, speaker: string, text: string] {
+  let rest = line.trimStart();
+  let time = "";
+  const t = LINE_TIME.exec(rest);
+  if (t) {
+    time = t[1]!;
+    rest = rest.slice(t[0].length).trimStart();
+    if (rest.startsWith("-") || rest.startsWith("–")) rest = rest.slice(1).trimStart();
+  }
+  // A speaker: 1 to 40 characters before the first colon, the colon followed by a space.
+  const colon = rest.indexOf(":");
+  if (colon >= 1 && colon <= 40 && /\s/.test(rest.charAt(colon + 1))) {
+    return [time, rest.slice(0, colon), rest.slice(colon + 1).trimStart()];
+  }
+  return [time, "", rest];
+}
 
 /** A transcript or notes, line by line: time and speaker when the line gives them. */
 export function transcriptLines(text: string): TranscriptLine[] {
@@ -1073,16 +1093,15 @@ export function transcriptLines(text: string): TranscriptLine[] {
     .map((raw) => raw.trim())
     .filter(Boolean)
     .map((raw, index) => {
-      const m = LINE.exec(raw);
-      const speaker = (m?.[2] ?? "").trim();
+      const [time, rawSpeaker, rest] = splitLine(raw);
+      const speaker = rawSpeaker.trim();
       // "https://…" or a sentence with a colon isn't a speaker.
       const named = speaker && !/^https?$/i.test(speaker) && speaker.split(/\s+/).length <= 4;
       return {
         index,
-        time: m?.[1] ?? "",
+        time,
         speaker: named ? speaker : "",
-        text:
-          named || m?.[1] ? (named ? m![3]! : `${speaker ? `${speaker}: ` : ""}${m![3]!}`) : raw,
+        text: named || time ? (named ? rest : `${speaker ? `${speaker}: ` : ""}${rest}`) : raw,
         raw,
       };
     });
@@ -1092,9 +1111,20 @@ export function transcriptLines(text: string): TranscriptLine[] {
 export const foldText = (text: string) =>
   text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 
+const QUOTE_MARKS = new Set(['"', "“", "”", "'", "«", "»"]);
+
+/** Strips quote marks from both ends, without a backtracking regex. */
+function trimQuotes(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && QUOTE_MARKS.has(text.charAt(start))) start++;
+  while (end > start && QUOTE_MARKS.has(text.charAt(end - 1))) end--;
+  return text.slice(start, end);
+}
+
 /** Whether `quote` is in `source` word for word (case, accents and spacing aside). */
 export function isVerbatim(source: string, quote: string): boolean {
-  const q = foldText(quote).replace(/^["“”'«»]+|["“”'«»]+$/g, "");
+  const q = trimQuotes(foldText(quote));
   return q.length >= 8 && foldText(source).includes(q);
 }
 
@@ -1335,7 +1365,7 @@ export function salesCsv(header: string[], rows: Array<Array<string | number>>):
   const cell = (v: string | number) => {
     const s = String(v);
     const safe = /^[=+\-@]/.test(s) ? `'${s}` : s;
-    return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+    return /[",\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
   };
   return [header, ...rows].map((r) => r.map(cell).join(",")).join("\n");
 }

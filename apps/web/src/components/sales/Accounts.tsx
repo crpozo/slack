@@ -516,7 +516,7 @@ function AccountDetail({
         action={
           <div className="flex flex-wrap items-center gap-1.5">
             <label className="flex items-center gap-1 text-xs text-ink-secondary">
-              desde
+              <span>desde</span>
               <input
                 type="date"
                 value={since}
@@ -584,9 +584,9 @@ export function AccountsTab() {
     [records],
   );
   const account = accounts.find((a) => a.id === nav.accountId);
-  const segments = [
-    ...new Set(accounts.map((a) => a.segment || a.industry).filter(Boolean)),
-  ].sort();
+  const segments = [...new Set(accounts.map((a) => a.segment || a.industry).filter(Boolean))].sort(
+    (a, b) => a.localeCompare(b),
+  );
   const shown = accounts
     .filter(
       (a) =>

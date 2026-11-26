@@ -149,7 +149,7 @@ export function timeLogCsv(
     const text = String(v);
     // Quoted when needed; a leading =,+,-,@ can't start a formula in a spreadsheet.
     const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
-    return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+    return /[",\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
   };
   const rows = [...entries]
     .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt)

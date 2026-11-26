@@ -14,13 +14,15 @@ const DECLINED_KEY = "slack.vault.passkey.declined";
 const toB64u = (data: ArrayBuffer | Uint8Array) => {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
   let text = "";
-  for (const b of bytes) text += String.fromCharCode(b);
-  return btoa(text).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  for (const b of bytes) text += String.fromCodePoint(b);
+  let b64 = btoa(text).replaceAll("+", "-").replaceAll("/", "_");
+  while (b64.endsWith("=")) b64 = b64.slice(0, -1);
+  return b64;
 };
 const fromB64u = (text: string) => {
-  const raw = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
+  const raw = atob(text.replaceAll("-", "+").replaceAll("_", "/"));
   const bytes = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.codePointAt(i) ?? 0;
   return bytes;
 };
 

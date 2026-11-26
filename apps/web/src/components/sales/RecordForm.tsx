@@ -350,7 +350,7 @@ export function RecordForm({
         })}
         {kind === "account" && (
           <label className="block text-sm font-medium text-ink">
-            Proyecto en la plataforma
+            <span>Proyecto en la plataforma</span>
             <select
               value={String(values.channelId ?? "")}
               onChange={(e) => set("channelId", e.target.value)}
@@ -375,7 +375,7 @@ export function RecordForm({
         )}
         {leadsSales(me?.role) && (
           <label className="block text-sm font-medium text-ink">
-            Responsable
+            <span>Responsable</span>
             <select
               value={String(values.ownerId ?? me?.userId ?? "")}
               onChange={(e) => set("ownerId", e.target.value)}

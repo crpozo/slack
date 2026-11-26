@@ -94,14 +94,13 @@ function ProjectSection({
 
   return (
     <fieldset className="space-y-2" aria-label="Project">
-      <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5">
-        <span>
-          <span className="flex items-center gap-1.5 text-sm font-medium text-ink">
-            <KanbanIcon className="text-ink-secondary" /> Mark this channel as a Project
-          </span>
-          <span className="block text-xs text-ink-secondary">
-            Adds a 📊 Board shortcut to the channel header.
-          </span>
+      {/* Text sits directly under the label (a grid lays it out), so it names the switch. */}
+      <label className="grid cursor-pointer grid-cols-[1fr_auto] items-center gap-x-3 rounded-lg border border-line px-3 py-2.5">
+        <span className="flex items-center gap-1.5 text-sm font-medium text-ink">
+          <KanbanIcon className="text-ink-secondary" /> Mark this channel as a Project
+        </span>
+        <span className="col-start-1 block text-xs text-ink-secondary">
+          Adds a 📊 Board shortcut to the channel header.
         </span>
         <input
           type="checkbox"
@@ -114,7 +113,7 @@ function ProjectSection({
         />
         <span
           aria-hidden="true"
-          className="relative h-6 w-11 shrink-0 rounded-full bg-line transition-colors peer-checked:bg-primary peer-disabled:opacity-50 peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-surface after:shadow after:transition-transform peer-checked:after:translate-x-5"
+          className="relative col-start-2 row-span-2 row-start-1 h-6 w-11 shrink-0 rounded-full bg-line transition-colors peer-checked:bg-primary peer-disabled:opacity-50 peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-surface after:shadow after:transition-transform peer-checked:after:translate-x-5"
         />
       </label>
       {value.isProject && (
@@ -153,21 +152,21 @@ function ProjectSection({
             </span>
           </label>
           {canCreateBoard && (
-            <label className={radio("create")}>
+            <label
+              className={radio("create").replace("flex items-start", "grid grid-cols-[auto_1fr]")}
+            >
               <input
                 type="radio"
                 name="project-board"
-                className="mt-0.5"
+                className="row-span-2 mt-0.5"
                 checked={value.mode === "create"}
                 disabled={disabled}
                 onChange={() => set({ mode: "create" })}
               />
-              <span>
-                <span className="block font-medium text-ink">Create a new board automatically</span>
-                <span className="block text-xs text-ink-secondary">
-                  Named {channelName.trim() ? `“${channelName.trim()}”` : "after the channel"}; the
-                  channel's members join it.
-                </span>
+              <span className="block font-medium text-ink">Create a new board automatically</span>
+              <span className="col-start-2 block text-xs text-ink-secondary">
+                Named {channelName.trim() ? `“${channelName.trim()}”` : "after the channel"}; the
+                channel's members join it.
               </span>
             </label>
           )}
