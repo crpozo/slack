@@ -822,11 +822,11 @@ function FloatingCall({ call }: Readonly<{ call: CallView }>) {
   }
 
   return (
-    <div
+    <div // NOSONAR: a movable non-modal dialog; it takes focus so the arrow keys can move it.
       ref={cardRef}
       role="dialog"
       aria-label={`Call with ${name}. Drag to move, or use the arrow keys.`}
-      tabIndex={0}
+      tabIndex={0} // NOSONAR: see above, keyboard users move the card with the arrow keys.
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

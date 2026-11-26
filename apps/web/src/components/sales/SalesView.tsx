@@ -145,11 +145,11 @@ export function SalesView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
           </span>
         )}
         {allowed && (
-          <label
-            className="ml-auto flex cursor-pointer items-center gap-2 text-xs font-semibold text-ink-secondary"
+          <div
+            className="ml-auto flex items-center gap-2 text-xs font-semibold text-ink-secondary"
             title="Muestra u oculta los datos ficticios de la demo (solo para ti)"
           >
-            Datos demo
+            <span aria-hidden="true">Datos demo</span>
             <button
               type="button"
               role="switch"
@@ -163,7 +163,7 @@ export function SalesView({ onOpenSidebar }: Readonly<{ onOpenSidebar?: () => vo
                 className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${showDemo ? "translate-x-4" : ""}`}
               />
             </button>
-          </label>
+          </div>
         )}
       </header>
       {!allowed ? (

@@ -87,7 +87,7 @@ export function PaneResizer({
   }
 
   return (
-    <div
+    <div // NOSONAR: a focusable separator is the WAI-ARIA window-splitter widget; it takes keys.
       role="separator"
       aria-orientation="vertical"
       aria-label={label}

@@ -21,14 +21,23 @@ export class Storage extends Construct {
     const common = {
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       encryption: BucketEncryption.S3_MANAGED,
-      enforceSSL: true,
       removalPolicy: removalPolicyFor(props.stage),
       autoDeleteObjects: props.stage === "dev",
     };
+    // An overwritten or deleted object stays recoverable for a month, then goes.
+    const expireOldVersions = {
+      id: "ExpireNoncurrentVersions",
+      noncurrentVersionExpiration: Duration.days(30),
+    };
 
+    // enforceSSL and versioned are set on each bucket (not through `common`)
+    // so scanners reading this file see them.
     this.attachments = new Bucket(this, "Attachments", {
       ...common,
+      enforceSSL: true,
+      versioned: true,
       lifecycleRules: [
+        expireOldVersions,
         {
           // Files nobody has opened in three months move to a class that costs
           // a sixth to store and still downloads at once. Only files above
@@ -60,7 +69,12 @@ export class Storage extends Construct {
       ],
     });
 
-    this.web = new Bucket(this, "Web", common);
+    this.web = new Bucket(this, "Web", {
+      ...common,
+      enforceSSL: true,
+      versioned: true,
+      lifecycleRules: [expireOldVersions],
+    });
   }
 
   /** Lets these browser origins PUT/GET attachments through presigned URLs. */

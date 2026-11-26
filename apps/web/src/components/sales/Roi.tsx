@@ -147,7 +147,7 @@ export function RoiModal({
               suffix="meses"
             />
             <label className="block text-xs font-medium text-ink-secondary">
-              Moneda
+              <span>Moneda</span>
               <input
                 value={inputs.currency}
                 onChange={(e) => patch({ currency: e.target.value.toUpperCase().slice(0, 3) })}

@@ -8,7 +8,6 @@
 // The snapshot is what the catalog starts with when GitHub can't be read
 // (tests, a first load); "Sync from GitHub" replaces it with the live files.
 // The repository's LICENSE goes along with the skill.
-import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
@@ -40,7 +39,22 @@ try {
 } catch {
   // No license at the root.
 }
-const commit = execFileSync("git", ["-C", clone, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+// The clone's HEAD commit, read from .git directly rather than by running a
+// `git` found on PATH.
+const gitDir = join(clone, ".git");
+const resolveRef = (ref) => {
+  try {
+    return readFileSync(join(gitDir, ref), "utf8").trim();
+  } catch {
+    const packed = readFileSync(join(gitDir, "packed-refs"), "utf8")
+      .split("\n")
+      .find((line) => line.endsWith(` ${ref}`));
+    if (!packed) throw new Error(`${clone}: can't resolve ${ref}`);
+    return packed.split(" ")[0];
+  }
+};
+const head = readFileSync(join(gitDir, "HEAD"), "utf8").trim();
+const commit = head.startsWith("ref: ") ? resolveRef(head.slice(5)) : head;
 const snapshot = {
   repoUrl,
   repoPath: skillPath,

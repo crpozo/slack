@@ -87,10 +87,10 @@ const esc = (s: string) =>
       return c >= 0x20 || c === 0x09 || c === 0x0a || c === 0x0d;
     })
     .join("")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 
 const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 const NS =

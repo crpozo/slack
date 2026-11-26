@@ -43,7 +43,9 @@ export function ProspectingTab() {
   const leads = useMemo(() => last?.result.leads ?? [], [last]);
   const accounts = records.filter((r): r is SalesAccount => r.kind === "account");
   const rows = leads.map((lead, index) => ({ lead, index, dup: duplicateOf(lead, accounts) }));
-  const segments = [...new Set(leads.map((l) => l.industry).filter(Boolean))].sort();
+  const segments = [...new Set(leads.map((l) => l.industry).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b),
+  );
   const shown = rows.filter((r) => !segment || r.lead.industry === segment);
 
   async function search() {
@@ -108,7 +110,7 @@ export function ProspectingTab() {
       <Card title="Descubrimiento y enriquecimiento">
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="block text-sm font-medium text-ink">
-            Perfil de cliente ideal
+            <span>Perfil de cliente ideal</span>
             <textarea
               value={icp}
               onChange={(e) => setIcp(e.target.value)}
@@ -118,7 +120,7 @@ export function ProspectingTab() {
             />
           </label>
           <label className="block text-sm font-medium text-ink">
-            Fuentes (pega listados, directorios, notas o un CSV)
+            <span>Fuentes (pega listados, directorios, notas o un CSV)</span>
             <textarea
               value={sources}
               onChange={(e) => setSources(e.target.value)}
