@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **"Looks like a password" only for passwords:** pasted Markdown, notes and anything else with
+  several lines or over 200 characters is never taken for one, and neither is a sentence that
+  gets to a password ("Here is the password: …"); a label and its value ("password: …") still
+  is. Passwords in capitals ("PASSWORD2026!"), short ones ending in punctuation ("hunter2!")
+  and signed tokens (JWT) are now caught.
 - **Creating a channel no longer ends in "The server didn't respond":** the server now answers
   the person creating it directly (`channel.created`), whatever happens while it tells everyone
   else, and a failure shows its real reason at once instead of a timeout.

@@ -82,19 +82,36 @@ const classesOf = (token: string) => ({
   symbol: /[^\p{L}\p{N}]/u.test(token),
 });
 
+/** A password, key or token is this long: shorter is a word, longer is a document. */
+export const MIN_CREDENTIAL_LENGTH = 8;
+export const MAX_CREDENTIAL_LENGTH = 200;
+/** A signed token (JWT) runs longer than any password, and looks like nothing else. */
+const MAX_JWT_LENGTH = 4096;
+const JWT = /^eyJ[\w-]+\.eyJ[\w-]+\.[\w-]*$/;
+/** Symbols that join words and numbers ("ISO-27001:2022", "A/B_TEST.2"): not a password's. */
+const ONLY_JOINERS = /^[\p{L}\p{N}\-_/.:,]+$/u;
+
 /**
- * A password or key: 8+ characters with lowercase and two of uppercase,
- * digits and symbols ("MyP@ssw0rd", "Summer2024!"), or 20+ random characters
- * of two kinds (API keys, "AKIAIOSFODNN7EXAMPLE"); never a URL, file name,
- * version, issue key, identifier or number.
+ * A password or key: one string of 8–200 characters, no spaces, with three
+ * of lowercase, uppercase, digits and symbols ("MyP@ssw0rd", "Summer2024!",
+ * "PASSWORD2026!"), or 20+ random characters of two kinds (API keys,
+ * "AKIAIOSFODNN7EXAMPLE"); never a URL, file name, version, issue key,
+ * identifier or number. Without lowercase, a code like "ISO-27001:2022" has
+ * three kinds too: there the symbol must be more than a joiner.
  */
 export function isHighEntropy(token: string): boolean {
-  if (token.length < 8 || token.length > 256 || /\s/.test(token)) return false;
+  if (
+    token.length < MIN_CREDENTIAL_LENGTH ||
+    token.length > MAX_CREDENTIAL_LENGTH ||
+    /\s/.test(token)
+  ) {
+    return false;
+  }
   if (EMAIL.test(token) || NOT_A_CREDENTIAL.some((re) => re.test(token))) return false;
   const c = classesOf(token);
   const kinds = [c.lower, c.upper, c.digit, c.symbol].filter(Boolean).length;
   const bits = entropyPerChar(token);
-  if (c.lower && kinds >= 3 && bits >= 2.5) return true;
+  if (kinds >= 3 && bits >= 2.5 && (c.lower || !ONLY_JOINERS.test(token))) return true;
   return token.length >= 20 && kinds >= 2 && bits >= 3.5;
 }
 
@@ -111,16 +128,24 @@ function isCredentialValue(token: string): boolean {
   return (c.lower || c.upper) && (c.digit || c.symbol);
 }
 
-/** The value a keyword introduces: "password: x", "pwd=x", "la clave es x", "password is x". */
+/**
+ * How a message that is a label and its value begins: the keyword, at most
+ * after an article and one word ("the wifi password"). A sentence that gets
+ * to a password later ("Here is the password: x") is a sentence: hiding all
+ * of it as a secret would hide the message.
+ */
+const LABEL_START = `^(?:(?:the|my|our|your|el|la|mi|tu|su)\\s+)?(?:[^\\s:=]+\\s+)?`;
+
+/** "password: x", "pwd=x", "la clave es x", "password is x": the value ends the message. */
 const KEYWORD_VALUE = new RegExp(
-  `${KEYWORD.source}\\s*(?:(?<sep>[:=])\\s*|\\s+(?:is|es|was|era|:)?\\s*)(?<value>\\S+)`,
-  "giu",
+  `${LABEL_START}${KEYWORD.source}\\s*(?:(?<sep>[:=])\\s*|\\s+(?:is|es|was|era|:)?\\s*)(?<value>\\S+)$`,
+  "iu",
 );
 
 /** "Contraseña del wifi: x": a keyword, up to three more words, then ":" or "=" and the value. */
 const KEYWORD_LABEL = new RegExp(
-  `${KEYWORD.source}(?:\\s+[^\\s:=]+){0,3}?\\s*[:=]\\s*(?<value>\\S+)`,
-  "giu",
+  `${LABEL_START}${KEYWORD.source}(?:\\s+[^\\s:=]+){0,3}?\\s*[:=]\\s*(?<value>\\S+)$`,
+  "iu",
 );
 
 const strip = (token: string) =>
@@ -132,9 +157,20 @@ export type CredentialKind = "email-password" | "user-password" | "keyword" | "t
 export function credentialKind(text: string): CredentialKind | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
+  // A password is one line. Several lines are notes, Markdown, code, a list:
+  // sending those as a secret hides a whole message over one word in it.
+  if (/[\r\n]/.test(trimmed)) return null;
 
-  // The whole message is one random-looking string.
-  if (!/\s/.test(trimmed) && isHighEntropy(strip(trimmed))) return "token";
+  // The whole message is one random-looking string (as typed, or without its
+  // quotes and final punctuation: "hunter2!" is eight characters with its "!").
+  if (!/\s/.test(trimmed)) {
+    if (trimmed.length <= MAX_JWT_LENGTH && JWT.test(strip(trimmed))) return "token";
+    if (isHighEntropy(strip(trimmed)) || isHighEntropy(trimmed)) return "token";
+  }
+  // Longer than any login, shorter than any password: not one.
+  if (trimmed.length < MIN_CREDENTIAL_LENGTH || trimmed.length > MAX_CREDENTIAL_LENGTH) {
+    return null;
+  }
 
   // A URL carrying a login: https://user:pass@host
   if (/\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/i.test(trimmed)) return "url";
@@ -156,26 +192,23 @@ export function credentialKind(text: string): CredentialKind | null {
     if (USERNAMES.includes(name) && isCredentialValue(tokens[i + 1]!)) return "user-password";
   }
 
-  // A keyword, then a value. A password-looking value always counts; after ":"
-  // or "=", so does any value that ends its line ("password: perro"), but not a
-  // sentence going on ("the secret: nobody knows").
-  const endsLine = (match: RegExpMatchArray) =>
-    trimmed
-      .slice(match.index! + match[0].length)
-      .split("\n")[0]!
-      .trim() === "";
+  // A label and its value, and nothing else: "password: perro", "la clave es
+  // Sol2024!". After ":" or "=" any value of 4+ characters counts; without
+  // one it has to look like a password ("the password is wrong" doesn't).
   const explicitValue = (match: RegExpMatchArray) => {
     const value = strip(match.groups?.value ?? "");
-    return isCredentialValue(value) || (value.length >= 4 && endsLine(match));
+    return isCredentialValue(value) || value.length >= 4;
   };
-  for (const match of trimmed.matchAll(KEYWORD_VALUE)) {
-    if (match.groups?.sep ? explicitValue(match) : isCredentialValue(strip(match.groups!.value!))) {
-      return "keyword";
-    }
+  const value = KEYWORD_VALUE.exec(trimmed);
+  if (
+    value?.groups?.sep
+      ? explicitValue(value)
+      : value && isCredentialValue(strip(value.groups!.value!))
+  ) {
+    return "keyword";
   }
-  for (const match of trimmed.matchAll(KEYWORD_LABEL)) {
-    if (explicitValue(match)) return "keyword";
-  }
+  const label = KEYWORD_LABEL.exec(trimmed);
+  if (label && explicitValue(label)) return "keyword";
   return null;
 }
 
