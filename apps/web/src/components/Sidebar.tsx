@@ -49,7 +49,7 @@ import { selectUnread, useChat, useNameOf } from "../store";
 import { useNewsInsights } from "../store/newsInsights";
 import { Avatar, PresenceDot, StatusBadge } from "./Avatar";
 import { ChannelIcon } from "./ChannelIcon";
-import { PROJECT_STATUS_LABELS, ProjectStatusDot } from "./ProjectStatusDot";
+import { PROJECT_STATUS_LABELS, ProjectStatusDot, STANDBY_FADE } from "./ProjectStatusDot";
 import { ArchiveChannelModal, DeleteChannelModal, EditChannelModal } from "./ChannelModals";
 import { Modal } from "./Modal";
 import { NotificationBell } from "./NotificationBell";
@@ -142,7 +142,7 @@ interface NavItemProps {
   menu?: RowMenuItem[];
   /** Pinned to the top of its list (a pin next to the name). */
   pinned?: boolean;
-  /** A channel's project status: a colored dot right after its name. */
+  /** A channel's project status: standby fades the row, completed adds a green dot. */
   status?: ProjectStatus;
   /** Drag to reorder (Phase 53, channels on desktop); `over`: a row is being dropped here. */
   drag?: {
@@ -238,8 +238,13 @@ function NavItem({
   let tone = "text-ink-secondary hover:bg-surface-hover hover:text-ink";
   if (active) tone = "bg-primary/20 font-semibold text-ink";
   else if (unread > 0) tone = "font-semibold text-ink hover:bg-surface-hover";
+  // A standby channel steps back: icon and name faded. Not the one you're in,
+  // nor one with something unread (its badge has to read clearly).
+  const standby = status === "standby";
+  const faded = standby && !active && unread === 0;
   return (
     <li
+      data-project-status={status && status !== "active" ? status : undefined}
       className={`group relative rounded-md ${drag?.over ? "ring-2 ring-primary/70" : ""}`}
       draggable={!!drag && !compact}
       onDragStart={
@@ -283,10 +288,11 @@ function NavItem({
         aria-current={active ? "page" : undefined}
         className={`relative flex w-full items-center gap-2 rounded-md text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
           compact ? "h-10 justify-center px-0" : "px-2 py-1.5"
-        } ${menu?.length && !compact ? "pr-8" : ""} ${tone}`}
+        } ${menu?.length && !compact ? "pr-8" : ""} ${tone} ${faded ? STANDBY_FADE : ""}`}
       >
         <span className="flex shrink-0 items-center justify-center">{icon}</span>
         {!compact && <span className="truncate">{label}</span>}
+        {standby && <span className="sr-only">(standby)</span>}
         {status && !compact && <ProjectStatusDot status={status} />}
         {pinned && !compact && (
           <PinIcon className="shrink-0 text-xs text-ink-secondary" aria-label="Pinned" />
@@ -490,27 +496,34 @@ function PhoneRow({
   /** A small label after the name (Apps: "APP"). */
   chip?: string;
   pinned?: boolean;
-  /** A channel's project status: a colored dot right after its name. */
+  /** A channel's project status: standby fades the row, completed adds a green dot. */
   status?: ProjectStatus;
   onClick: () => void;
   menu?: RowMenuItem[];
 }>) {
   const tone = unread > 0 ? "font-bold text-ink" : faded ? "text-ink-secondary" : "text-ink/85";
+  const standby = status === "standby";
   const [options, setOptions] = useState(false);
   const hasMenu = !!menu && menu.length > 0;
   const press = useLongPress(hasMenu, () => setOptions(true));
   return (
-    <li className="group relative">
+    <li
+      className="group relative"
+      data-project-status={status && status !== "active" ? status : undefined}
+    >
       <button
         type="button"
         onClick={onClick}
         disabled={disabled}
         title={title}
         {...press}
-        className={`flex w-full touch-manipulation select-none items-center gap-4 px-4 py-2 text-left text-[17px] [-webkit-touch-callout:none] active:bg-surface-hover disabled:opacity-50 ${tone}`}
+        className={`flex w-full touch-manipulation select-none items-center gap-4 px-4 py-2 text-left text-[17px] [-webkit-touch-callout:none] active:bg-surface-hover disabled:opacity-50 ${tone} ${
+          standby && unread === 0 ? "opacity-60" : ""
+        }`}
       >
         <span className="flex h-9 w-9 shrink-0 items-center justify-center">{icon}</span>
         <span className="truncate">{label}</span>
+        {standby && <span className="sr-only">(standby)</span>}
         {status && <ProjectStatusDot status={status} className="h-2.5 w-2.5" />}
         {chip && (
           <span className="shrink-0 rounded-md bg-surface-hover px-1.5 py-0.5 text-xs font-semibold tracking-wide text-ink-secondary">

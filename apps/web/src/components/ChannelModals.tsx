@@ -797,7 +797,7 @@ export function EditChannelModal({
             </select>
           </div>
           <p className="text-xs text-ink-secondary">
-            Standby and Completed show as a colored dot after the name in the sidebar.
+            In the sidebar, Standby fades the channel and Completed adds a green dot.
           </p>
         </div>
         <ProjectSection value={project} onChange={setProject} channelName={name} />

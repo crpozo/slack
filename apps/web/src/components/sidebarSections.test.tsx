@@ -73,26 +73,31 @@ const names = (list: HTMLElement) =>
     .getAllByRole("listitem")
     .map((li) => li.textContent?.trim());
 
-describe("a channel's project status, a dot after its name (Phase 81)", () => {
+describe("a channel's project status in the sidebar (Phase 81)", () => {
   const withStatus = (id: string, projectStatus: Channel["projectStatus"]) =>
     useChat.setState((s) => ({
       channels: s.channels.map((c) => (c.channelId === id ? { ...c, projectStatus } : c)),
     }));
   const row = (name: string) =>
     screen.getByRole("button", { name: `More options for ${name}` }).closest("li")!;
-  const dot = (name: string) =>
-    row(name).querySelector("[data-project-status]")?.getAttribute("data-project-status");
+  const dot = (name: string) => row(name).getAttribute("data-project-status") ?? undefined;
+  const link = (name: string) => within(row(name)).getAllByRole("button")[0]!;
 
-  it("shows standby and completed channels' dots where they already are, none when active", () => {
+  it("fades standby channels (no dot), gives completed ones a green dot, leaves active ones alone", () => {
     withStatus("ch_clinic", "standby");
     withStatus("ch_web", "completed");
     renderSidebar();
     expect(dot("ClinicAI")).toBe("standby");
+    expect(link("ClinicAI").className).toContain("opacity-60");
+    expect(within(row("ClinicAI")).queryByRole("img")).toBeNull();
+    expect(link("ClinicAI").textContent).toContain("(standby)");
     expect(dot("Paymerch Website")).toBe("completed");
-    expect(dot("general")).toBeUndefined();
     expect(
-      within(row("ClinicAI")).getByRole("img", { name: "Project status: Standby" }),
+      within(row("Paymerch Website")).getByRole("img", { name: "Project status: Completed" }),
     ).toBeTruthy();
+    expect(link("Paymerch Website").className).not.toContain("opacity-60");
+    expect(dot("general")).toBeUndefined();
+    expect(link("general").className).not.toContain("opacity-60");
     // Still under Channels: no section of its own.
     const channels = screen.getByRole("heading", { name: "Channels" }).closest("section")!;
     expect(within(channels).getByText("ClinicAI")).toBeTruthy();
@@ -125,6 +130,21 @@ describe("a channel's project status, a dot after its name (Phase 81)", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /Mark as Completed/ }));
     expect(send).toHaveBeenCalledWith("ch_clinic", { projectStatus: "completed" });
     expect(dot("ClinicAI")).toBe("completed");
+  });
+});
+
+describe("a standby channel that needs you isn't faded", () => {
+  it("keeps full strength with unread messages", () => {
+    useChat.setState((s) => ({
+      unread: { ch_clinic: 2 },
+      channels: s.channels.map((c) =>
+        c.channelId === "ch_clinic" ? { ...c, projectStatus: "standby" as const } : c,
+      ),
+    }));
+    renderSidebar();
+    const row = screen.getByRole("button", { name: "More options for ClinicAI" }).closest("li")!;
+    expect(within(row).getAllByRole("button")[0]!.className).not.toContain("opacity-60");
+    useChat.setState({ unread: {} });
   });
 });
 
