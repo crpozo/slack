@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 
 ### Fixed
 
+- **A password inside a sentence is caught too:** "usa Nombre123# para entrar" is sent as a
+  secret, like the password alone. A password is 8 to 64 characters, no spaces, with three of
+  uppercase, lowercase, digits and symbols; among other words it also needs a symbol of its
+  own, so "iPhone15" or "McDonald's" never hide a message.
 - **"Looks like a password" only for passwords:** pasted Markdown, notes and anything else with
   several lines or over 200 characters is never taken for one, and neither is a sentence that
   gets to a password ("Here is the password: …"); a label and its value ("password: …") still
