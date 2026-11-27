@@ -31,6 +31,15 @@ describe("detectCredentials", () => {
     ["sk-ant-api03-xY9fQ2mZ7pLk4rT8vW1", "token"],
     ["AKIAIOSFODNN7EXAMPLE", "token"],
     ["P@ssw0rd2026!", "token"],
+    ["Nombre123#", "token"],
+    ["Password2026!", "token"],
+    ["Nombre123", "token"], // three kinds are enough: no symbol needed
+    ["Aa1Aa1Aa1", "token"], // complexity, not randomness
+    // A password among the words of a sentence
+    ["usa Nombre123# para entrar", "inline"],
+    ["la contraseña nueva es Nombre123#", "inline"],
+    ["try `Tr0ub4dor&3` on staging", "inline"],
+    ["it's P@ssw0rd2026!, change it soon", "inline"],
     ["PASSWORD2026!", "token"], // no lowercase: three kinds all the same
     ["hunter2!", "token"], // eight characters with its "!"
     ["`Tr0ub4dor&3`", "token"],
@@ -75,6 +84,13 @@ describe("detectCredentials", () => {
     "carlos@mindfultech.ec\nTr0ub4dor&3",
     "password: Casa2024\nuser: admin",
     "# Setup\n\n- Set `API_KEY=sk-ant-api03-xY9fQ2mZ7pLk4rT8vW1`\n- **password**: Sup3rS3cret!\n\n```\nroot Tr0ub4dor&3\n```",
+    // Words with three kinds of characters that aren't passwords
+    "the new iPhone15 is out, McDonald's later?",
+    "Great job on Sprint12! See GitHub-Actions for the run",
+    "we use Node.js and TypeScript5.4 with **React19**",
+    "it costs USD$1,500.00 or R$7500.50 in Brazil",
+    "call useState<Map2>() or set limit=Max10; in the config",
+    "see src/components/Sidebar2.tsx and ask @Carlos2024",
     // Codes in capitals aren't passwords
     "ISO-27001:2022",
     "ISO/IEC-27001",
@@ -88,7 +104,7 @@ describe("detectCredentials", () => {
   });
 
   it("keeps to the length of a password or key: 8 to 200 characters", () => {
-    const key = (n: number) => "aB3$xY9!".repeat(Math.ceil(n / 8)).slice(0, n);
+    const key = (n: number) => "aB3$xY9!kQ7#mZ2&".repeat(Math.ceil(n / 16)).slice(0, n);
     expect(detectCredentials(key(200))).toBe(true);
     expect(detectCredentials(key(201))).toBe(false);
     expect(detectCredentials("Ab1!xyz")).toBe(false);
@@ -102,6 +118,19 @@ describe("detectCredentials", () => {
 
   it("ignores the line break Enter leaves at the end", () => {
     expect(credentialKind("P@ssw0rd2026!\n")).toBe("token");
+  });
+
+  it("flags a password of 8 to 64 characters with three of the four kinds", () => {
+    expect(detectCredentials("Nombre123#")).toBe(true);
+    expect(detectCredentials("Password2026!")).toBe(true);
+    expect(isHighEntropy("Nombre123#")).toBe(true);
+    expect(isHighEntropy("Nombre12")).toBe(true); // 8
+    expect(isHighEntropy("Nombre1")).toBe(false); // 7
+    expect(isHighEntropy("nombre123")).toBe(false); // two kinds
+    expect(isHighEntropy(`Nombre123#${"a".repeat(54)}`)).toBe(true); // 64
+    expect(isHighEntropy(`Nombre123#${"a".repeat(55)}`)).toBe(false); // 65, not random either
+    expect(isHighEntropy("Nombre 123#")).toBe(false);
+    expect(detectCredentials("Nombre123#\nPassword2026!")).toBe(false);
   });
 
   it("measures randomness: mixed character kinds, not just length", () => {

@@ -82,22 +82,33 @@ const classesOf = (token: string) => ({
   symbol: /[^\p{L}\p{N}]/u.test(token),
 });
 
-/** A password, key or token is this long: shorter is a word, longer is a document. */
+/** A password is this long: shorter is a word. A key or token may run to `MAX_CREDENTIAL_LENGTH`. */
 export const MIN_CREDENTIAL_LENGTH = 8;
+export const MAX_PASSWORD_LENGTH = 64;
 export const MAX_CREDENTIAL_LENGTH = 200;
 /** A signed token (JWT) runs longer than any password, and looks like nothing else. */
 const MAX_JWT_LENGTH = 4096;
 const JWT = /^eyJ[\w-]+\.eyJ[\w-]+\.[\w-]*$/;
 /** Symbols that join words and numbers ("ISO-27001:2022", "A/B_TEST.2"): not a password's. */
-const ONLY_JOINERS = /^[\p{L}\p{N}\-_/.:,]+$/u;
+const ONLY_JOINERS = /^[\p{L}\p{N}\-_/.:,'’]+$/u;
 
 /**
- * A password or key: one string of 8–200 characters, no spaces, with three
- * of lowercase, uppercase, digits and symbols ("MyP@ssw0rd", "Summer2024!",
- * "PASSWORD2026!"), or 20+ random characters of two kinds (API keys,
- * "AKIAIOSFODNN7EXAMPLE"); never a URL, file name, version, issue key,
- * identifier or number. Without lowercase, a code like "ISO-27001:2022" has
- * three kinds too: there the symbol must be more than a joiner.
+ * A password: 8–64 characters, no spaces, with at least three of lowercase,
+ * uppercase, digits and symbols ("Nombre123#", "Password2026!", "Summer2024").
+ * Without lowercase, a code like "ISO-27001:2022" has three kinds too: there
+ * the symbol must be more than a joiner.
+ */
+function isMixedPassword(token: string): boolean {
+  if (token.length < MIN_CREDENTIAL_LENGTH || token.length > MAX_PASSWORD_LENGTH) return false;
+  const c = classesOf(token);
+  const kinds = [c.lower, c.upper, c.digit, c.symbol].filter(Boolean).length;
+  return kinds >= 3 && (c.lower || !ONLY_JOINERS.test(token));
+}
+
+/**
+ * A password (`isMixedPassword`) or a key: 20–200 random characters of two
+ * kinds (API keys, "AKIAIOSFODNN7EXAMPLE"). One string, no spaces; never a
+ * URL, file name, version, issue key, identifier or number.
  */
 export function isHighEntropy(token: string): boolean {
   if (
@@ -108,11 +119,33 @@ export function isHighEntropy(token: string): boolean {
     return false;
   }
   if (EMAIL.test(token) || NOT_A_CREDENTIAL.some((re) => re.test(token))) return false;
+  if (isMixedPassword(token)) return true;
   const c = classesOf(token);
   const kinds = [c.lower, c.upper, c.digit, c.symbol].filter(Boolean).length;
-  const bits = entropyPerChar(token);
-  if (kinds >= 3 && bits >= 2.5 && (c.lower || !ONLY_JOINERS.test(token))) return true;
-  return token.length >= 20 && kinds >= 2 && bits >= 3.5;
+  return token.length >= 20 && kinds >= 2 && entropyPerChar(token) >= 3.5;
+}
+
+/** Code, not a password, when it sits in a sentence: calls, generics, assignments, quotes. */
+const CODE_LIKE = /[()[\]{}<>=;"'`’]|^\p{Sc}|\p{Sc}\d/u;
+/** What wraps a word in a sentence: quotes, brackets, Markdown emphasis, and its final punctuation. */
+const unwrap = (token: string) =>
+  token.replace(/^["'`(<[*_~]+/, "").replace(/["'`)>\]*_~.,;:!?]+$/, "");
+
+/**
+ * A password among the words of a sentence ("usa Nombre123# para entrar"). A
+ * sentence is full of words with three kinds of characters that aren't
+ * passwords ("iPhone15", "McDonald's", "GitHub-Actions", "Sprint12!"), and
+ * flagging one hides the whole message: so here the word also needs a symbol
+ * of its own, one that isn't a joiner or the sentence's punctuation.
+ */
+function isPasswordInSentence(word: string): boolean {
+  const token = unwrap(word);
+  return (
+    isHighEntropy(token) &&
+    isMixedPassword(token) &&
+    !ONLY_JOINERS.test(token) &&
+    !CODE_LIKE.test(token)
+  );
 }
 
 /**
@@ -151,7 +184,8 @@ const KEYWORD_LABEL = new RegExp(
 const strip = (token: string) =>
   token.replace(/^["'`(<[]+/, "").replace(/(?<!["'`)>\],.;!?])["'`)>\],.;!?]+$/, "");
 
-export type CredentialKind = "email-password" | "user-password" | "keyword" | "token" | "url";
+export type CredentialKind =
+  "email-password" | "user-password" | "keyword" | "token" | "inline" | "url";
 
 /** Why `text` looks like it holds a credential, or `null`. */
 export function credentialKind(text: string): CredentialKind | null {
@@ -209,6 +243,9 @@ export function credentialKind(text: string): CredentialKind | null {
   }
   const label = KEYWORD_LABEL.exec(trimmed);
   if (label && explicitValue(label)) return "keyword";
+
+  // A sentence with a password among its words.
+  if (trimmed.split(/\s+/).some(isPasswordInSentence)) return "inline";
   return null;
 }
 
